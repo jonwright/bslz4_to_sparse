@@ -2,6 +2,8 @@
 
 """
 Setup script
+
+use CFLAGS='-narch=native' python3 setup.py to get avx etc
 """
 import setuptools
 import os, sys, platform, os.path
