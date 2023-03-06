@@ -1,0 +1,6 @@
+[submodule "lz4"]
+	path = lz4
+	url = http://github.com/lz4/lz4
+[submodule "bitshuffle"]
+	path = bitshuffle
+	url = https://github.com/kiyo-masui/bitshuffle
