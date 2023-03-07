@@ -2,6 +2,7 @@
 import h5py, hdf5plugin
 import numpy as np
 import sys
+
 sys.path.insert(0,'../build/lib.linux-x86_64-cpython-38')
 import bslz4_to_sparse
 print("Running from", bslz4_to_sparse.__file__)
@@ -34,7 +35,7 @@ def testok():
             print(dataset.shape, dataset.dtype, hname)
             mbool = dataset[0] == pow(2,16)-1
             if dataset.dtype == np.uint32:
-                mbool |=(dataset[0] == pow(2,32)-1) 
+                mbool |= (dataset[0] == pow(2,32)-1) 
             mask = mbool.astype(np.uint8)
             for frame in np.arange(0,len(dataset),len(dataset)//10):
                 for cut in (0,10,100,1000):

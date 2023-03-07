@@ -2,7 +2,7 @@
 import numpy as np
 from .bslz4_to_sparse import bslz4_u32, bslz4_u16
 
-version = '0.0.1'
+version = '0.0.2'
 
 def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
     """
