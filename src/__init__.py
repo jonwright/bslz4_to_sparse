@@ -2,7 +2,7 @@
 import numpy as np
 from .bslz4_to_sparse import bslz4_u32, bslz4_u16
 
-version = '0.0.2'
+version = '0.0.3'
 
 def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
     """
@@ -22,7 +22,7 @@ def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
     filtinfo, buffer = ds.id.read_direct_chunk( (num, 0, 0) )
     npbuffer = np.frombuffer( buffer, np.uint8 )
     if mask is None:
-        mask = np.ones( (ds.shape[1], ds.shape[2]), np.uint8 )
+        mask = np.ones( (ds.shape[1], ds.shape[2]), np.uint8 ).ravel()
     if pixelbuffer is None:
         indices = np.empty( (ds.shape[1], ds.shape[2]), np.uint32 ).ravel()
         values  = np.empty( (ds.shape[1], ds.shape[2]), ds.dtype  ).ravel()

@@ -3,7 +3,7 @@ import h5py, hdf5plugin
 import numpy as np
 import sys
 
-sys.path.insert(0,'../build/lib.linux-x86_64-cpython-38')
+#sys.path.insert(0,'../build/lib.linux-x86_64-cpython-38')
 import bslz4_to_sparse
 print("Running from", bslz4_to_sparse.__file__)
 
@@ -18,7 +18,7 @@ indices = np.zeros(2)
 def pysparse( ds, num, cut, mask = None ):
     frame = ds[num]
     if mask is not None:
-        frame *= mask
+        frame *= mask.reshape( frame.shape )
         assert frame.dtype == ds.dtype
     pixels = frame > cut
     values = frame[pixels]
@@ -36,7 +36,7 @@ def testok():
             mbool = dataset[0] == pow(2,16)-1
             if dataset.dtype == np.uint32:
                 mbool |= (dataset[0] == pow(2,32)-1) 
-            mask = mbool.astype(np.uint8)
+            mask = mbool.astype(np.uint8).ravel()
             for frame in np.arange(0,len(dataset),len(dataset)//10):
                 for cut in (0,10,100,1000):
                     pv, pi = pysparse( dataset, frame, cut, mask )
@@ -48,10 +48,9 @@ def testok():
                         raise
                     assert (cv[:npx] == pv).all()
                     assert (ci[:npx] == pi).all()
-    #                    print('...', frame, cut, len(pv))
     print('No errors found')
 
 if __name__=='__main__':
     testok()
                 
-        # py-spy record -n -r 200 -f speedscope python3 test1.py
+    # py-spy record -n -r 200 -f speedscope python3 test1.py
