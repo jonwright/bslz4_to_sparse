@@ -24,47 +24,23 @@
     (uint64_t)(255 & (p)[6]) <<  8 |\
     (uint64_t)(255 & (p)[7])       )
 
-/* Signature for onecore_bslz4_func */
 
-/* --- pyf 
-
-python module bslz4_2_sparse
-interface
-
-function bslz4_u16(cmp,cmpN,msk,NIJ,out,outP,thresh)
-intent(c) bslz4_u16
-intent(c)
-integer(kind=-1) , intent(in) , dimension( cmpN ):: cmp
-integer(kind=4) , intent( hide ), depend( cmp ) :: cmpN
-integer(kind=-1) , intent(in) , dimension( NIJ ):: msk
-integer(kind=4), intent( hide ), depend( msk ) :: NIJ
-integer(kind=-2) , intent(inout) , dimension( NIJ ):: out
-integer(kind=-4) , intent(inout) , dimension( NIJ ):: outP
-integer(kind=4) :: thresh
-threadsafe
-integer(kind=4) :: bslz4_u16
-end function bslz4_u16
-end interface
-end module bslz4_2_sparse
-*/
+int bslz4_u16 ( const char * compressed,   /* compressed chunk */
+                int compressed_length, 
+                const uint8_t * mask,
+                int NIJ,
+                uint16_t * output, 
+                uint32_t * output_adr,
+                int threshold );
 
 
-int bslz4_u16 ( const uint8_t * compressed,   /* compressed chunk */
-                        int compressed_length, 
-                        const uint8_t * mask,
-                        int NIJ,
-                        uint16_t * output, 
-                        uint32_t * output_adr,
-                        int threshold );
-
-
-int bslz4_u16 ( const uint8_t * compressed,   /* compressed chunk */
-                        int compressed_length,
-                        const uint8_t * mask,
-                        int NIJ,
-                        uint16_t * output, 
-                        uint32_t * output_adr,
-                        int threshold ){
+int bslz4_u16 ( const char * compressed,   /* compressed chunk */
+                int compressed_length,
+                const uint8_t * mask,
+                int NIJ,
+                uint16_t * output, 
+                uint32_t * output_adr,
+                int threshold ){
     size_t total_output_length;
     int blocksize;
     int blocks_length, lastblock;
@@ -148,7 +124,7 @@ int bslz4_u16 ( const uint8_t * compressed,   /* compressed chunk */
     return npx;
 }
 
-int bslz4_u32 ( const uint8_t * compressed,   /* compressed chunk */
+int bslz4_u32 ( const char * compressed,   /* compressed chunk */
                         int compressed_length, 
                         const uint8_t * mask,
                         int NIJ,
@@ -157,7 +133,7 @@ int bslz4_u32 ( const uint8_t * compressed,   /* compressed chunk */
                         int threshold );
 
 
-int bslz4_u32 ( const uint8_t * compressed,   /* compressed chunk */
+int bslz4_u32 ( const char * compressed,   /* compressed chunk */
                         int compressed_length,
                         const uint8_t * mask,
                         int NIJ,
@@ -177,7 +153,6 @@ int bslz4_u32 ( const uint8_t * compressed,   /* compressed chunk */
     uint16_t *tocopy;
     
     cut = (uint32_t) threshold;
-    
     
     total_output_length = READ64BE( compressed );
     if (((int)total_output_length/4) > NIJ) return -301;

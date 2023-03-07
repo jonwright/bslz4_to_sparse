@@ -40,10 +40,25 @@ ext = Extension( "bslz4_to_sparse",
                             "src/bslz4_to_sparse.c"],
                  include_dirs  = cinc + [ numpy.get_include(),
                                           numpy.f2py.get_include(), ],
-                 extra_compile_args = copt )
+                 extra_compile_args = copt + [ '-DF2PY_REPORT_ON_ARRAY_COPY=1', ],
+               )
+
+with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), 
+                       'README.md'), encoding='utf-8') as f:
+    readme = f.read()
     
 setup( name = "bslz4_to_sparse" ,
+       packages = ["bslz4_to_sparse"],
+       package_dir = { "bslz4_to_sparse" : "src" },
        libraries = libs,
+       ext_package = 'bslz4_to_sparse',
        ext_modules = [ext, ],
        cmdclass = { 'build_ext' : build_ext_subclass },
+       install_requires = ["numpy", "h5py"],
+       author = 'Jon Wright',
+       author_email = 'wright@esrf.fr',
+       version = '0.0.1',
+       license = 'MIT',
+       long_description = readme,
+       long_description_content_type='text/markdown',
 )

@@ -1,11 +1,12 @@
 
-Decompress Dectris bitshuffle lz4 data directly to indices/values arrays.
+Decompress Dectris bitshuffle lz4 data directly to indices/value arrays.
 
 
-after git clone:
-git submodule init
-git submodule update
-python3 -m pip install .
+After git clone:
+    git submodule init
+    git submodule update
+    python3 -m pip install .
 
-cd test
-python3 test1.py
+
+    cd test
+    python3 test1.py
