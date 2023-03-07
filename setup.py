@@ -41,7 +41,7 @@ ext = Extension( "bslz4_to_sparse",
                  include_dirs  = cinc + [ numpy.get_include(),
                                           numpy.f2py.get_include(), ],
                  extra_compile_args = copt + ['-DF2PY_REPORT_ON_ARRAY_COPY=1', ],
-                                      # '-DDEBUG_COPY_ND_ARRAY', '-DF2PY_REPORT_ATEXIT'
+#                                       '-DDEBUG_COPY_ND_ARRAY', '-DF2PY_REPORT_ATEXIT'],
                )
 
 with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), 
@@ -59,7 +59,7 @@ setup( name = "bslz4_to_sparse" ,
        author = 'Jon Wright',
        author_email = 'wright@esrf.fr',
        url = "http://github.com/jonwright/bslz4_to_sparse",
-       version = '0.0.3',
+       version = '0.0.4',
        license = 'MIT',
        long_description = readme,
        long_description_content_type='text/markdown',
