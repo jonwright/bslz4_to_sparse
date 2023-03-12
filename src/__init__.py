@@ -1,7 +1,7 @@
 
 import numpy as np
 import ctypes
-from .bslz4_to_sparse import bslz4_u32, bslz4_u16
+from .bslz4_to_sparse import bslz4_uint32_t, bslz4_uint16_t
 
 version = '0.0.4'
 
@@ -40,11 +40,13 @@ def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
     # to make a copy. We work around that using ctypes to set a writeable flag.
     #                                                      PyBUF_WRITE 0x200
     if ds.dtype == np.uint16:
-        npixels = bslz4_u16(np.frombuffer( buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
-                            mask, values, indices, cut)
+        npixels = bslz4_uint16_t(  np.frombuffer( 
+            buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
+            mask, values, indices, cut)
     elif ds.dtype == np.uint32:
-        npixels = bslz4_u32(np.frombuffer( buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
-                            mask, values, indices, cut)
+        npixels = bslz4_uint32_t(np.frombuffer( 
+            buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
+            mask, values, indices, cut)
     else:
         raise Exception("no decoder for your type")
     if npixels < 0:

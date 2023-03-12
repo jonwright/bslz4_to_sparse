@@ -43,7 +43,9 @@ def testok():
                                                                     frame, cut, mask )
                     if len(pv) != npx:
                         print(npx, cv[:10],ci[:10])
-                        print(pv.shape, pv[:10],pi[:10])
+                        print(npx, cv[-10:],ci[-10:])
+                        print(pv.shape[0], pv[:10],pi[:10])
+                        print(pv.shape[0], pv[-10:],pi[-10:])
                         raise
                     assert (cv[:npx] == pv).all()
                     assert (ci[:npx] == pi).all()

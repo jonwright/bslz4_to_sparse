@@ -12,11 +12,13 @@ from setuptools.command import build_ext, build_clib
 #
 import numpy, numpy.f2py   # force wrapper re-generation
 
+# patch older numpy:
 if not hasattr( numpy.f2py, 'get_include'):
     numpy.f2py.get_include = lambda : os.path.join(
         os.path.dirname(os.path.abspath(numpy.f2py.__file__)),
         'src')
-    
+
+# patch to run f2py during build
 class build_ext_subclass( build_ext.build_ext ):
     def build_extension(self, ext):
         if ext.sources[0].endswith('.pyf'):
@@ -26,32 +28,26 @@ class build_ext_subclass( build_ext.build_ext ):
             ext.sources.append( os.path.join( numpy.f2py.get_include(), 'fortranobject.c' ) )
         build_ext.build_ext.build_extension(self, ext)
 
-cinc = [ "lz4/lib", "bitshuffle/src" ]
-copt = ['-O2', ]
-
-libs = [['bshuf', { 'sources': ["lz4/lib/lz4.c",
-                                "bitshuffle/src/bitshuffle_core.c",
-                                "bitshuffle/src/iochain.c",],
-                     'include_dirs': cinc,
-                     'extra_compile_args': copt } ] ] 
-
 ext = Extension( "bslz4_to_sparse",
                  sources = ["src/bslz4_to_sparse.pyf",
-                            "src/bslz4_to_sparse.c"],
-                 include_dirs  = cinc + [ numpy.get_include(),
-                                          numpy.f2py.get_include(), ],
-                 extra_compile_args = copt + ['-DF2PY_REPORT_ON_ARRAY_COPY=1', ],
-#                                       '-DDEBUG_COPY_ND_ARRAY', '-DF2PY_REPORT_ATEXIT'],
-               )
+                            "src/bslz4_to_sparse.c",
+                            "lz4/lib/lz4.c",
+                            "bitshuffle/src/bitshuffle_core.c",
+                            "bitshuffle/src/iochain.c",  ],
+                 include_dirs  = [ numpy.get_include(), numpy.f2py.get_include(), ],
+                 extra_compile_args = [ '-O3', '-DF2PY_REPORT_ON_ARRAY_COPY=1', 
+                                        '-mavx2', # so not on ppc.
+                                        # '-DDEBUG_COPY_ND_ARRAY',
+                                        #'-DF2PY_REPORT_ATEXIT'],
+                                      ], )
 
 with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), 
-                       'README.md'), encoding='utf-8') as f:
+                       'README.md'), 'r' ) as f:
     readme = f.read()
     
 setup( name = "bslz4_to_sparse" ,
        packages = ["bslz4_to_sparse"],
        package_dir = { "bslz4_to_sparse" : "src" },
-       libraries = libs,
        ext_package = 'bslz4_to_sparse',
        ext_modules = [ext, ],
        cmdclass = { 'build_ext' : build_ext_subclass },

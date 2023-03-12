@@ -25,8 +25,8 @@ def bench(hname, dsname, mask, cut):
             npixels += npx
     end = timeit.default_timer()
     dt = end - start
-    print(f'Sparsity { 100*(npixels / npt) :.3f} %, {nframes} frames in { dt :.4f}/s  { nframes/dt :.3f} fps')
-
+    print('Sparsity %.3f %%, %d frames in %.4f /s,  %.3f fps'%(
+        100*(npixels / npt),nframes, dt, nframes/dt))
         
 def testok():
     for hname, dset in CASES:
