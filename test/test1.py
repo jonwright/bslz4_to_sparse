@@ -63,8 +63,38 @@ def testok():
                     assert (cv[:npx] == pv).all()
                     assert (ci[:npx] == pi).all()
     print('No errors found')
+    
+def testcaller():
+    for hname, dset in CASES:
+        with h5py.File(hname, 'r') as hin:
+            dataset = hin[dset]
+            print(dataset.shape, dataset.dtype, hname, dset)
+            mbool = dataset[0] == pow(2,16)-1
+            if dataset.dtype == np.uint32:
+                mbool |= (dataset[0] == pow(2,32)-1) 
+            mask = (1-mbool.astype(np.uint8)).ravel()
+            step = max(1, len(dataset)//10)
+            funcobj = bslz4_to_sparse.chunk2sparse( mask, dataset.dtype )
+            for frame in np.arange(0,len(dataset),step):
+                for cut in (0,10,100,1000):
+                    if cut > np.iinfo( dataset.dtype ).max:
+                        continue
+                    pv, pi = pysparse( dataset, frame, cut, mask )
+                    filters, buffer = dataset.id.read_direct_chunk( (frame, 0, 0 ) )
+                    npx, (cv, ci) = funcobj( buffer, cut )
+                    if len(pv) != npx:
+                        print('cut',cut)
+                        print(npx, cv[:10],ci[:10])
+                        print(npx, cv[:npx][-10:],ci[:npx][-10:])
+                        print(pv.shape[0], pv[:10],pi[:10])
+                        print(pv.shape[0], pv[-10:],pi[-10:])
+                        raise
+                    assert (cv[:npx] == pv).all()
+                    assert (ci[:npx] == pi).all()
+    print('No errors found') 
 
 if __name__=='__main__':
+    testcaller()
     testok()
                 
     # py-spy record -n -r 200 -f speedscope python3 test1.py

@@ -11,7 +11,31 @@ buffer_from_memory = ctypes.pythonapi.PyMemoryView_FromMemory
 buffer_from_memory.restype = ctypes.py_object
 buffer_from_memory.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
 
-
+class chunk2sparse:
+    def __init__(self, mask, dtype = np.uint16):
+        self.mask = mask.ravel()
+        self.indices = np.empty(mask.shape, np.uint32)
+        self.values = np.empty(mask.shape, dtype)
+        self.fun = (None, 
+                    bslz4_uint8_t, 
+                    bslz4_uint16_t, 
+                    None, 
+                    bslz4_uint32_t)[ dtype.itemsize ]
+        
+    def __call__(self, buffer, cut):
+        npixels = self.fun(  np.frombuffer( 
+            buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
+            self.mask, self.values, self.indices, cut)
+        return npixels, (self.values, self.indices)
+    
+    
+def indices2ij(indices, nfast = 2068):
+    row = np.zeros( len(indices), np.uint16 )
+    col = np.zeros( len(indices), np.uint16 )
+    np.divmod( indices, nfast, out = (row, col) )
+    return row, col
+              
+        
 def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
     """
     Reads a bitshuffle compressed hdf5 dataset and converts this 

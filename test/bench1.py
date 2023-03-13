@@ -13,7 +13,7 @@ CASES = [( "/data/id11/jon/hdftest/eiger4m_u32.h5", "/entry_0000/ESRF-ID11/eiger
            "/entry_0000/ESRF-ID11/eiger/data"),
          ("/data/id11/jon/hdftest/kevlar.h5", "/entry/data/data" ) ]
 
-def bench(hname, dsname, mask, cut):
+def bench1(hname, dsname, mask, cut):
     start = timeit.default_timer()
     npixels = 0
     with h5py.File(hname, 'r') as hin:
@@ -28,6 +28,24 @@ def bench(hname, dsname, mask, cut):
     dt = end - start
     print('%d Sparsity %.3f %%, %d frames in %.4f /s,  %.3f fps'%( npixels,
         100*(npixels / npt),nframes, dt, nframes/dt))
+      
+def bench2(hname, dsname, mask, cut):
+    start = timeit.default_timer()
+    npixels = 0
+    with h5py.File(hname, 'r') as hin:
+        dataset = hin[dsname]
+        npt = dataset.size
+        nframes = min(len(dataset), 300)
+        buf = None
+        fun = bslz4_to_sparse.chunk2sparse( mask, dataset.dtype )
+        for i in range(nframes):
+            filters, buffer = dataset.id.read_direct_chunk( (i,0,0,) )
+            npx, buf = fun( buffer, cut )
+            npixels += npx
+    end = timeit.default_timer()
+    dt = end - start
+    print('%d Sparsity %.3f %%, %d frames in %.4f /s,  %.3f fps'%( npixels,
+        100*(npixels / npt),nframes, dt, nframes/dt))        
         
 def testok():
     for hname, dset in CASES:
@@ -39,7 +57,8 @@ def testok():
                 mbool |= (dataset[0] == pow(2,32)-1) 
             mask = (1-mbool.astype(np.uint8)).ravel()
         cut = 0
-        bench(hname, dset, mask, cut)
+        bench1(hname, dset, mask, cut)
+        bench2(hname, dset, mask, cut)
 
 if __name__=='__main__':
     testok()
