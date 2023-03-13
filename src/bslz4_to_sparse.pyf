@@ -24,16 +24,14 @@ integer, intent( hide ), depend( cmp ) :: cmpN
 integer(kind=-1) , intent(in) :: msk( NIJ )
 integer, intent( hide ), depend( msk ) :: NIJ
 integer(kind=-2) , intent(inout) , dimension( NIJ ):: out
-integer(kind=-2) , intent(inout) , dimension( NIJ ):: col
-integer(kind=-2) , intent(inout) , dimension( NIJ ):: row
+integer(kind=-4) , intent(inout) , dimension( NIJ ):: outP
 integer :: thresh
-integer :: nfast
 threadsafe
 integer(kind=4) :: bslz4_uint16_t
 end function bslz4_uint16_t
 
 
-function bslz4_uint32_t(cmp,cmpN,msk,NIJ,out,row,col,thresh,nfast)
+function bslz4_uint32_t(cmp,cmpN,msk,NIJ,out,outP,thresh)
 intent(c) bslz4_uint32_t
 intent(c)
 integer(kind=-1), intent(in) :: cmp(cmpN)
@@ -41,10 +39,8 @@ integer , intent( hide ), depend( cmp ) :: cmpN
 integer(kind=-1) , intent(in) :: msk( NIJ )
 integer, intent( hide ), depend( msk ) :: NIJ
 integer(kind=-4) , intent(inout) , dimension( NIJ ):: out
-integer(kind=-2) , intent(inout) , dimension( NIJ ):: col
-integer(kind=-2) , intent(inout) , dimension( NIJ ):: row
+integer(kind=-4) , intent(inout) , dimension( NIJ ):: outP
 integer :: thresh
-integer :: nfast
 threadsafe
 integer(kind=4) :: bslz4_uint32_t
 end function bslz4_uint32_t

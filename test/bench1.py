@@ -31,10 +31,9 @@ def bench(hname, dsname, mask, cut):
         
 def testok():
     for hname, dset in CASES:
-        cut = 0
         with h5py.File(hname, 'r') as hin:
             dataset = hin[dset]
-            print(dataset.shape, dataset.dtype, hname, cut)
+            print(dataset.shape, dataset.dtype, hname)
             mbool = dataset[0] == pow(2,16)-1
             if dataset.dtype == np.uint32:
                 mbool |= (dataset[0] == pow(2,32)-1) 

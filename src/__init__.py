@@ -11,7 +11,7 @@ buffer_from_memory = ctypes.pythonapi.PyMemoryView_FromMemory
 buffer_from_memory.restype = ctypes.py_object
 buffer_from_memory.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
 
-    
+
 def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
     """
     Reads a bitshuffle compressed hdf5 dataset and converts this 
@@ -29,9 +29,8 @@ def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
     if mask is None:
         mask = np.ones( (ds.shape[1], ds.shape[2]), np.uint8 ).ravel()
     if pixelbuffer is None:
-        irow = np.empty( (ds.shape[1], ds.shape[2]), np.uint16 ).ravel()
-        jcol = np.empty( (ds.shape[1], ds.shape[2]), np.uint16 ).ravel()
-        values  = np.empty( (ds.shape[1], ds.shape[2]), ds.dtype ).ravel()
+        indices = np.empty( (ds.shape[1], ds.shape[2]), np.uint32 ).ravel()
+        values  = np.empty( (ds.shape[1], ds.shape[2]), ds.dtype  ).ravel()
     else:
         values, indices = pixelbuffer
     # todo : h5py malloc free version coming? see https://github.com/h5py/h5py/pull/2232
@@ -43,7 +42,7 @@ def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
     if ds.dtype == np.uint16:
         npixels = bslz4_uint16_t(  np.frombuffer( 
             buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
-            mask, values, irow, jcol, cut, ds.shape[2])
+            mask, values, indices, cut)
     elif ds.dtype == np.uint32:
         npixels = bslz4_uint32_t(np.frombuffer( 
             buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
@@ -56,5 +55,4 @@ def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
         raise Exception("no decoder for your type")
     if npixels < 0:
         raise Exception("Error decoding: %d"%(npixels))
-    # indices = icol.astype(np.uint32) * ds.shape[1] + jrow
-    return npixels, (values, irow, jcol)
+    return npixels, (values, indices)

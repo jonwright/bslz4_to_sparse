@@ -71,8 +71,6 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
         i0 += (BLK / NB);
     }    
     blocksize = ( 8 * NB ) * ( remaining / (8 * NB) );
-    remaining -= blocksize;
-    if(VERBOSE)   printf("total %ld last block size %d tocopy %d",total_output_length, blocksize, remaining);
     if( blocksize ){
         nbytes = READ32BE( &compressed[p] );
         ret = LZ4_decompress_safe( (char*) &compressed[p + 4],

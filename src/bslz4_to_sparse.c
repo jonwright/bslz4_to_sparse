@@ -26,14 +26,8 @@ int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size,
     (uint64_t)(255 & (p)[6]) <<  8 |\
     (uint64_t)(255 & (p)[7])       )
 
-#define VERBOSE 0
-/* Eiger4M at ID11 */
-#define NFAST 2068
-
-
 #ifndef unlikely
 #define unlikely(expr) (__builtin_expect ((expr),(0)))
-#define likely(expr) (__builtin_expect ((expr),(1)))
 #endif
 #define BLK 8192
 

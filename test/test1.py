@@ -7,8 +7,7 @@ import bslz4_to_sparse
 
 print("Running from", bslz4_to_sparse.__file__)
 
-CASES = [ ('bslz4testcases.h5','Primes_u16_Range_1'),
-    ( "/data/id11/jon/hdftest/eiger4m_u32.h5", "/entry_0000/ESRF-ID11/eiger/data"),
+CASES = [( "/data/id11/jon/hdftest/eiger4m_u32.h5", "/entry_0000/ESRF-ID11/eiger/data"),
          ( "/data/id11/nanoscope/blc12454/id11/WAu5um/WAu5um_DT3/scan0001/eiger_0000.h5",
            "/entry_0000/ESRF-ID11/eiger/data"),
          ("/data/id11/jon/hdftest/kevlar.h5", "/entry/data/data" ) ]
@@ -31,10 +30,10 @@ def pysparse( ds, num, cut, mask = None ):
         assert frame.dtype == ds.dtype
     pixels = frame > cut
     values = frame[pixels]
-    global ij
-    if ij[0].size != frame.size:
-        ij = np.mgrid[ 0:frame.shape[0] , 0:frame.shape[1] ]
-    return values, ij[0].flat[pixels.ravel()], ij[1].flat[pixels.ravel()]
+    global indices
+    if indices.size != frame.size:
+        indices = np.arange( frame.size )
+    return values, indices[pixels.ravel()]
 
         
 def testok():
@@ -54,20 +53,6 @@ def testok():
                     pv, pi = pysparse( dataset, frame, cut, mask )
                     npx, (cv, ci) = bslz4_to_sparse.bslz4_to_sparse( dataset, 
                                                                     frame, cut, mask )
-                    def pd():
-                        print('npx',npx,'len(pv)',len(pv),'cut',cut,'masksize',mask.size)
-                        print('data')
-                        dsf = dataset[frame]
-                        print(dsf)
-                        for i in range(len(pv)):
-                            if (ci[i] == pi[i]) and (cj[i] == pj[i]) and (cv[i] == pv[i]):
-                                continue
-                            else:
-                                print('i %d ci %d cj %d cv %d pi %d pj %d pv %d'%(
-                                    i, ci[i],cj[i],cv[i],pi[i],pj[i],pv[i]
-                                ))
-                                return
-                        
                     if len(pv) != npx:
                         print('cut',cut)
                         print(npx, cv[:10],ci[:10])
@@ -75,16 +60,11 @@ def testok():
                         print(pv.shape[0], pv[:10],pi[:10])
                         print(pv.shape[0], pv[-10:],pi[-10:])
                         raise
-                    assert (cv[:npx] == pv).all(), pd()
-                    assert (ci[:npx] == pi).all(), pd()
-                    assert (cj[:npx] == pj).all(), pd()
-                
-
+                    assert (cv[:npx] == pv).all()
+                    assert (ci[:npx] == pi).all()
     print('No errors found')
 
 if __name__=='__main__':
-    for c in CASES:
-        print(c)
     testok()
                 
     # py-spy record -n -r 200 -f speedscope python3 test1.py
