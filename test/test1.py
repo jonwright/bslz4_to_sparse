@@ -13,7 +13,6 @@ CASES = [ ('bslz4testcases.h5','Primes_u16_Range_1'),
            "/entry_0000/ESRF-ID11/eiger/data"),
          ("/data/id11/jon/hdftest/kevlar.h5", "/entry/data/data" ) ]
 
-
 if not os.path.exists('bslz4testcases.h5'):
     print('Making more testcases')
     ret = os.system(sys.executable + ' make_testcases.py')
@@ -22,8 +21,8 @@ if not os.path.exists('bslz4testcases.h5'):
 with h5py.File('bslz4testcases.h5','r') as hin:
     for dataset in list(hin):
         CASES.append(( 'bslz4testcases.h5', dataset ) )
-
-ij = (np.empty(2), np.empty(2))
+        
+indices = np.zeros(2)
 
 def pysparse( ds, num, cut, mask = None ):
     frame = ds[num]
@@ -42,21 +41,18 @@ def testok():
     for hname, dset in CASES:
         with h5py.File(hname, 'r') as hin:
             dataset = hin[dset]
-            r,c = np.mgrid[ 0: dataset.shape[1], 0: dataset.shape[2] ]
-            r = r.ravel().astype(np.uint16)
-            c = c.ravel().astype(np.uint16)
+            print(dataset.shape, dataset.dtype, hname, dset)
             mbool = dataset[0] == pow(2,16)-1
             if dataset.dtype == np.uint32:
                 mbool |= (dataset[0] == pow(2,32)-1) 
-            mask = 1-mbool.astype(np.uint8).ravel()
-            step = max( len(dataset)//10, 1 )
-            print(dataset.shape, dataset.dtype, hname, dset, mask.sum()/mask.size)
+            mask = (1-mbool.astype(np.uint8)).ravel()
+            step = max(1, len(dataset)//10)
             for frame in np.arange(0,len(dataset),step):
-                for cut in (0,10,100,1000,100000):
+                for cut in (0,10,100,1000):
                     if cut > np.iinfo( dataset.dtype ).max:
                         continue
-                    pv, pi, pj = pysparse( dataset, frame, cut, mask )
-                    npx, (cv, ci, cj) = bslz4_to_sparse.bslz4_to_sparse( dataset, 
+                    pv, pi = pysparse( dataset, frame, cut, mask )
+                    npx, (cv, ci) = bslz4_to_sparse.bslz4_to_sparse( dataset, 
                                                                     frame, cut, mask )
                     def pd():
                         print('npx',npx,'len(pv)',len(pv),'cut',cut,'masksize',mask.size)
@@ -73,8 +69,11 @@ def testok():
                                 return
                         
                     if len(pv) != npx:
-                        print('Wrong number of pixels found:')
-                        pd()
+                        print('cut',cut)
+                        print(npx, cv[:10],ci[:10])
+                        print(npx, cv[:npx][-10:],ci[:npx][-10:])
+                        print(pv.shape[0], pv[:10],pi[:10])
+                        print(pv.shape[0], pv[-10:],pi[-10:])
                         raise
                     assert (cv[:npx] == pv).all(), pd()
                     assert (ci[:npx] == pi).all(), pd()

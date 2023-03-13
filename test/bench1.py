@@ -22,11 +22,11 @@ def bench(hname, dsname, mask, cut):
         nframes = min(len(dataset), 300)
         buf = None
         for i in range(nframes):
-            npx, buf = bslz4_to_sparse.bslz4_to_sparse( dataset, i, cut, mask, pixelbuffer = buf  )
+            npx, buf = bslz4_to_sparse.bslz4_to_sparse( dataset, i, cut, mask, pixelbuffer = buf )
             npixels += npx
     end = timeit.default_timer()
     dt = end - start
-    print('Sparsity %.3f %%, %d frames in %.4f /s,  %.3f fps'%(
+    print('%d Sparsity %.3f %%, %d frames in %.4f /s,  %.3f fps'%( npixels,
         100*(npixels / npt),nframes, dt, nframes/dt))
         
 def testok():
@@ -38,7 +38,8 @@ def testok():
             mbool = dataset[0] == pow(2,16)-1
             if dataset.dtype == np.uint32:
                 mbool |= (dataset[0] == pow(2,32)-1) 
-            mask = 1-mbool.astype(np.uint8).ravel()
+            mask = (1-mbool.astype(np.uint8)).ravel()
+        cut = 0
         bench(hname, dset, mask, cut)
 
 if __name__=='__main__':

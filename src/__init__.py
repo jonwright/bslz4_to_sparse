@@ -33,7 +33,7 @@ def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
         jcol = np.empty( (ds.shape[1], ds.shape[2]), np.uint16 ).ravel()
         values  = np.empty( (ds.shape[1], ds.shape[2]), ds.dtype ).ravel()
     else:
-        values, irow, jcol = pixelbuffer
+        values, indices = pixelbuffer
     # todo : h5py malloc free version coming? see https://github.com/h5py/h5py/pull/2232
     filtinfo, buffer = ds.id.read_direct_chunk( (num, 0, 0) )
     #
@@ -47,11 +47,11 @@ def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
     elif ds.dtype == np.uint32:
         npixels = bslz4_uint32_t(np.frombuffer( 
             buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
-            mask, values, irow, jcol, cut, ds.shape[2])
+            mask, values, indices, cut)
     elif ds.dtype == np.uint8:
-        npixels = bslz4_uint8_t(np.frombuffer( 
+        npixels = bslz4_uint8_t(  np.frombuffer( 
             buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
-            mask, values, irow, jcol, cut, ds.shape[2])
+            mask, values, indices, cut)
     else:
         raise Exception("no decoder for your type")
     if npixels < 0:
