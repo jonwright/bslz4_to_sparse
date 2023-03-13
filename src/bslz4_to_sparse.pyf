@@ -2,6 +2,20 @@ python module bslz4_to_sparse
 
 interface
 
+function bslz4_uint8_t(cmp,cmpN,msk,NIJ,out,outP,thresh)
+intent(c) bslz4_uint8_t
+intent(c)
+integer(kind=-1), intent(in), dimension(cmpN) :: cmp
+integer, intent( hide ), depend( cmp ) :: cmpN 
+integer(kind=-1) , intent(in) :: msk( NIJ )
+integer, intent( hide ), depend( msk ) :: NIJ
+integer(kind=-1) , intent(inout) , dimension( NIJ ):: out
+integer(kind=-4) , intent(inout) , dimension( NIJ ):: outP
+integer :: thresh
+threadsafe
+integer(kind=4) :: bslz4_uint8_t
+end function bslz4_uint8_t
+
 function bslz4_uint16_t(cmp,cmpN,msk,NIJ,out,outP,thresh)
 intent(c) bslz4_uint16_t
 intent(c)

@@ -1,7 +1,7 @@
 
 import numpy as np
 import ctypes
-from .bslz4_to_sparse import bslz4_uint32_t, bslz4_uint16_t
+from .bslz4_to_sparse import bslz4_uint32_t, bslz4_uint16_t, bslz4_uint8_t
 
 version = '0.0.4'
 
@@ -32,7 +32,7 @@ def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
         indices = np.empty( (ds.shape[1], ds.shape[2]), np.uint32 ).ravel()
         values  = np.empty( (ds.shape[1], ds.shape[2]), ds.dtype  ).ravel()
     else:
-        indices, values = pixelbuffer
+        values, indices = pixelbuffer
     # todo : h5py malloc free version coming? see https://github.com/h5py/h5py/pull/2232
     filtinfo, buffer = ds.id.read_direct_chunk( (num, 0, 0) )
     #
@@ -45,6 +45,10 @@ def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
             mask, values, indices, cut)
     elif ds.dtype == np.uint32:
         npixels = bslz4_uint32_t(np.frombuffer( 
+            buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
+            mask, values, indices, cut)
+    elif ds.dtype == np.uint8:
+        npixels = bslz4_uint8_t(  np.frombuffer( 
             buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
             mask, values, indices, cut)
     else:

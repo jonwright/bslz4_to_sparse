@@ -1,33 +1,37 @@
-#define BLK 8192
 
 
 
-int CAT( bslz4_, DATATYPE) ( const char * compressed,   /* compressed chunk */
+int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed chunk */
                 int compressed_length, 
-                const uint8_t * mask,
+                const uint8_t *restrict mask,
                 int NIJ,
-                DATATYPE * output, 
-                uint32_t * output_adr,
+                DATATYPE *restrict output, 
+                uint32_t *restrict output_adr,
                 int threshold );
 
-int CAT( bslz4_, DATATYPE) ( const char * compressed,   /* compressed chunk */
+int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed chunk */
                 int compressed_length,
-                const uint8_t * mask,
+                const uint8_t *restrict mask,
                 int NIJ,
-                DATATYPE * output, 
-                uint32_t * output_adr,
+                DATATYPE *restrict output, 
+                uint32_t *restrict output_adr,
                 int threshold ){    
     size_t total_output_length;
     int blocksize, remaining, p;
     uint32_t nbytes;
     DATATYPE tmp1[BLK/NB], tmp2[BLK/NB]; /* stack local place to decompress to */
-    int npx = 0;     /* number of pixels written to the output */
-    int i0 = 0;
+    int npx;     /* number of pixels written to the output */
+    int i0;
     int j;
     int ret;
-    DATATYPE cut, val;
-    cut = (DATATYPE) threshold;
-        
+    uint32_t val, cut;
+    npx = 0;
+    i0 = 0;
+    if( threshold < 0 ){
+        printf("Threshold must be positive");
+        return -100;
+    }
+    cut = threshold;
     total_output_length = READ64BE( compressed );
     if (total_output_length/NB > (uint64_t) NIJ){ 
         printf("Not enough output space, %ld %d\n", total_output_length, NIJ);
@@ -42,7 +46,7 @@ int CAT( bslz4_, DATATYPE) ( const char * compressed,   /* compressed chunk */
     remaining = total_output_length;
     p = 12;
     i0 = 0;
-    while ( remaining >= BLK ){
+    for( remaining = total_output_length; remaining >= BLK; remaining = remaining - BLK){
         nbytes = READ32BE( &compressed[p] );
         ret = LZ4_decompress_safe( (char*) &compressed[p + 4],
                                    (char*) &tmp1[0],
@@ -54,24 +58,23 @@ int CAT( bslz4_, DATATYPE) ( const char * compressed,   /* compressed chunk */
             printf("Returning as ret wrong size\n");
             return -2;
         }
-        bshuf_untrans_bit_elem((void*) &tmp1[0], (void*) &tmp2[0], (size_t) BLK/NB,(size_t) NB);
+        bshuf_untrans_bit_elem((void*) tmp1, (void*) tmp2, (size_t) BLK/NB,(size_t) NB);
          /* save output */     
         for( j = 0; j < BLK/NB; j++){
-             if unlikely(  mask[j + i0] && (tmp2[j] > cut) ){
+             val = mask[j + i0] * tmp2[j];
+             if unlikely( val > cut ) {
                  output[ npx ] = tmp2[j];
                  output_adr[ npx ] = j + i0;
                  npx = npx + 1;
-                 if unlikely(npx > NIJ) return -npx;
              }
         }
         i0 += (BLK / NB);
-        remaining -= BLK;
     }    
     blocksize = ( 8 * NB ) * ( remaining / (8 * NB) );
     if( blocksize ){
         nbytes = READ32BE( &compressed[p] );
         ret = LZ4_decompress_safe( (char*) &compressed[p + 4],
-                                   (char*) &tmp1[0],
+                                   (char*) tmp1,
                                     nbytes,
                                     blocksize );
         p = p + nbytes + 4;
@@ -80,31 +83,18 @@ int CAT( bslz4_, DATATYPE) ( const char * compressed,   /* compressed chunk */
             printf("Returning as ret wrong size\n");
             return -2;
         }
-        bshuf_untrans_bit_elem((void*) &tmp1[0], (void*) &tmp2[0], (size_t) blocksize/NB, (size_t) NB);
+        bshuf_untrans_bit_elem((void*) tmp1, (void*) tmp2, (size_t) blocksize/NB, (size_t) NB);
+    }
+    remaining -= blocksize;
+    if (remaining>0) memcpy( &tmp2[blocksize/NB], &compressed[compressed_length - remaining], remaining);
          /* save output */     
-        for( j = 0; j < blocksize/NB; j++){
-             if unlikely(  mask[j + i0] && (tmp2[j] > cut) ){
+    for( j = 0; j < (remaining + blocksize)/NB; j++){
+         val = mask[j + i0] * tmp2[j];
+         if unlikely( val > cut ) {
                  output[ npx ] = tmp2[j];
                  output_adr[ npx ] = j + i0;
                  npx = npx + 1;
-                 if unlikely(npx > NIJ) return -npx;
              }
         }
-        i0 += (blocksize / NB);
-        remaining -= blocksize;
-    }
-    
-    while( remaining > 0 ){
-        val = (DATATYPE) compressed[ p ];
-        if unlikely( mask[i0] && val > cut ){
-          output[ npx ] = val;
-          output_adr[ npx ] = i0;
-          npx = npx + 1;
-          if unlikely(npx > NIJ) return -npx;
-        }
-        p += NB;
-        remaining -= NB;
-        i0 += 1;
-    }        
     return npx;
 }

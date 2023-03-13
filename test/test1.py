@@ -1,7 +1,7 @@
 
 import h5py, hdf5plugin
 import numpy as np
-import sys
+import sys, os
 # sys.path.insert(0,'../build/lib.linux-x86_64-cpython-38')
 import bslz4_to_sparse
 
@@ -12,6 +12,15 @@ CASES = [( "/data/id11/jon/hdftest/eiger4m_u32.h5", "/entry_0000/ESRF-ID11/eiger
            "/entry_0000/ESRF-ID11/eiger/data"),
          ("/data/id11/jon/hdftest/kevlar.h5", "/entry/data/data" ) ]
 
+if not os.path.exists('bslz4testcases.h5'):
+    print('Making more testcases')
+    ret = os.system(sys.executable + ' make_testcases.py')
+    assert ret == 0
+
+with h5py.File('bslz4testcases.h5','r') as hin:
+    for dataset in list(hin):
+        CASES.append(( 'bslz4testcases.h5', dataset ) )
+        
 indices = np.zeros(2)
 
 def pysparse( ds, num, cut, mask = None ):
@@ -31,19 +40,23 @@ def testok():
     for hname, dset in CASES:
         with h5py.File(hname, 'r') as hin:
             dataset = hin[dset]
-            print(dataset.shape, dataset.dtype, hname)
+            print(dataset.shape, dataset.dtype, hname, dset)
             mbool = dataset[0] == pow(2,16)-1
             if dataset.dtype == np.uint32:
                 mbool |= (dataset[0] == pow(2,32)-1) 
-            mask = mbool.astype(np.uint8).ravel()
-            for frame in np.arange(0,len(dataset),len(dataset)//10):
+            mask = (1-mbool.astype(np.uint8)).ravel()
+            step = max(1, len(dataset)//10)
+            for frame in np.arange(0,len(dataset),step):
                 for cut in (0,10,100,1000):
+                    if cut > np.iinfo( dataset.dtype ).max:
+                        continue
                     pv, pi = pysparse( dataset, frame, cut, mask )
                     npx, (cv, ci) = bslz4_to_sparse.bslz4_to_sparse( dataset, 
                                                                     frame, cut, mask )
                     if len(pv) != npx:
+                        print('cut',cut)
                         print(npx, cv[:10],ci[:10])
-                        print(npx, cv[-10:],ci[-10:])
+                        print(npx, cv[:npx][-10:],ci[:npx][-10:])
                         print(pv.shape[0], pv[:10],pi[:10])
                         print(pv.shape[0], pv[-10:],pi[-10:])
                         raise

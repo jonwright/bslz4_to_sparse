@@ -29,6 +29,7 @@ int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size,
 #ifndef unlikely
 #define unlikely(expr) (__builtin_expect ((expr),(0)))
 #endif
+#define BLK 8192
 
 #define CAT_I(a,b) a##b
 #define CAT(a,b) CAT_I(a, b)
@@ -43,5 +44,13 @@ int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size,
 
 #define DATATYPE uint32_t
 #define NB ((int) sizeof(uint32_t))
+
+#include "bshuf.c"
+
+#undef DATATYPE
+#undef NB
+
+#define DATATYPE uint8_t
+#define NB ((int) sizeof(uint8_t))
 
 #include "bshuf.c"
