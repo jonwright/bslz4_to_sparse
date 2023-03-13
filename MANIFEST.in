@@ -1,4 +1,3 @@
-include src/bshuf.h
 include lz4/lib/lz4.h
 include bitshuffle/src/bitshuffle_core.h
 include bitshuffle/src/bitshuffle_internals.h

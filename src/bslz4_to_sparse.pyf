@@ -2,7 +2,24 @@ python module bslz4_to_sparse
 
 interface
 
-function bslz4_uint16_t(cmp,cmpN,msk,NIJ,out,outP,thresh)
+function bslz4_uint8_t(cmp,cmpN,msk,NIJ,out,row,col,thresh,nfast)
+intent(c) bslz4_uint8_t
+intent(c)
+integer(kind=-1), intent(in), dimension(cmpN) :: cmp
+integer, intent( hide ), depend( cmp ) :: cmpN 
+integer(kind=-1) , intent(in) :: msk( NIJ )
+integer, intent( hide ), depend( msk ) :: NIJ
+integer(kind=-1) , intent(inout) , dimension( NIJ ):: out
+integer(kind=-2) , intent(inout) , dimension( NIJ ):: col
+integer(kind=-2) , intent(inout) , dimension( NIJ ):: row
+integer :: thresh
+integer :: nfast
+threadsafe
+integer(kind=4) :: bslz4_uint8_t
+end function bslz4_uint8_t
+
+
+function bslz4_uint16_t(cmp,cmpN,msk,NIJ,out,row,col,thresh,nfast)
 intent(c) bslz4_uint16_t
 intent(c)
 integer(kind=-1), intent(in), dimension(cmpN) :: cmp
@@ -10,14 +27,16 @@ integer, intent( hide ), depend( cmp ) :: cmpN
 integer(kind=-1) , intent(in) :: msk( NIJ )
 integer, intent( hide ), depend( msk ) :: NIJ
 integer(kind=-2) , intent(inout) , dimension( NIJ ):: out
-integer(kind=-4) , intent(inout) , dimension( NIJ ):: outP
+integer(kind=-2) , intent(inout) , dimension( NIJ ):: col
+integer(kind=-2) , intent(inout) , dimension( NIJ ):: row
 integer :: thresh
+integer :: nfast
 threadsafe
 integer(kind=4) :: bslz4_uint16_t
 end function bslz4_uint16_t
 
 
-function bslz4_uint32_t(cmp,cmpN,msk,NIJ,out,outP,thresh)
+function bslz4_uint32_t(cmp,cmpN,msk,NIJ,out,row,col,thresh,nfast)
 intent(c) bslz4_uint32_t
 intent(c)
 integer(kind=-1), intent(in) :: cmp(cmpN)
@@ -25,8 +44,10 @@ integer , intent( hide ), depend( cmp ) :: cmpN
 integer(kind=-1) , intent(in) :: msk( NIJ )
 integer, intent( hide ), depend( msk ) :: NIJ
 integer(kind=-4) , intent(inout) , dimension( NIJ ):: out
-integer(kind=-4) , intent(inout) , dimension( NIJ ):: outP
+integer(kind=-2) , intent(inout) , dimension( NIJ ):: col
+integer(kind=-2) , intent(inout) , dimension( NIJ ):: row
 integer :: thresh
+integer :: nfast
 threadsafe
 integer(kind=4) :: bslz4_uint32_t
 end function bslz4_uint32_t

@@ -2,22 +2,26 @@
 
 
 
-int CAT( bslz4_, DATATYPE) ( const char * compressed,   /* compressed chunk */
-                int compressed_length, 
-                const uint8_t * mask,
-                int NIJ,
-                DATATYPE * output, 
-                uint32_t * output_adr,
-                int threshold );
+int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed chunk */
+                            int compressed_length, 
+                            const uint8_t *restrict mask,
+                            int NIJ,
+                            DATATYPE *restrict output, 
+                            uint16_t *restrict islow,
+                            uint16_t *restrict jfast,
+                            int threshold,
+                            int nfast);
 
-int CAT( bslz4_, DATATYPE) ( const char * compressed,   /* compressed chunk */
+int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed chunk */
                 int compressed_length,
-                const uint8_t * mask,
+                const uint8_t *restrict mask,
                 int NIJ,
-                DATATYPE * output, 
-                uint32_t * output_adr,
-                int threshold ){    
-    size_t total_output_length;
+                DATATYPE *restrict output, 
+                uint16_t *restrict islow,
+                uint16_t *restrict jfast,
+                int threshold,
+                            int nfast ) {
+    size_t total_output_length, bret;
     int blocksize, remaining, p;
     uint32_t nbytes;
     DATATYPE tmp1[BLK/NB], tmp2[BLK/NB]; /* stack local place to decompress to */
@@ -25,7 +29,8 @@ int CAT( bslz4_, DATATYPE) ( const char * compressed,   /* compressed chunk */
     int i0 = 0;
     int j;
     int ret;
-    DATATYPE cut, val;
+    DATATYPE cut;
+    if (VERBOSE) printf("nfast %d %d\n", nfast, NFAST);
     cut = (DATATYPE) threshold;
         
     total_output_length = READ64BE( compressed );
@@ -55,19 +60,32 @@ int CAT( bslz4_, DATATYPE) ( const char * compressed,   /* compressed chunk */
             return -2;
         }
         bshuf_untrans_bit_elem((void*) &tmp1[0], (void*) &tmp2[0], (size_t) BLK/NB,(size_t) NB);
-         /* save output */     
-        for( j = 0; j < BLK/NB; j++){
-             if unlikely(  mask[j + i0] && (tmp2[j] > cut) ){
-                 output[ npx ] = tmp2[j];
-                 output_adr[ npx ] = j + i0;
-                 npx = npx + 1;
-                 if unlikely(npx > NIJ) return -npx;
-             }
+         /* save output */ 
+        if likely(nfast == NFAST){
+             for( j = 0; j < BLK/NB; j++){
+                 if unlikely( (mask[j + i0] * tmp2[j]) > cut) {
+                     output[ npx ] = tmp2[j];
+                     islow[npx] = ( j + i0 )/NFAST;
+                     jfast[npx] = ( j + i0 )%NFAST;
+                     npx = npx + 1;
+                 }
+            }  
+        } else {
+             for( j = 0; j < BLK/NB; j++){
+                 if unlikely( (mask[j + i0] * tmp2[j]) > cut) {
+                     output[ npx ] = tmp2[j];
+                     islow[npx] = ( j + i0 )/nfast;
+                     jfast[npx] = ( j + i0 )%nfast;
+                     npx = npx + 1;
+                 }
+            }  
         }
         i0 += (BLK / NB);
         remaining -= BLK;
     }    
     blocksize = ( 8 * NB ) * ( remaining / (8 * NB) );
+    remaining -= blocksize;
+    if(VERBOSE)   printf("total %ld last block size %d tocopy %d",total_output_length, blocksize, remaining);
     if( blocksize ){
         nbytes = READ32BE( &compressed[p] );
         ret = LZ4_decompress_safe( (char*) &compressed[p + 4],
@@ -80,31 +98,34 @@ int CAT( bslz4_, DATATYPE) ( const char * compressed,   /* compressed chunk */
             printf("Returning as ret wrong size\n");
             return -2;
         }
-        bshuf_untrans_bit_elem((void*) &tmp1[0], (void*) &tmp2[0], (size_t) blocksize/NB, (size_t) NB);
-         /* save output */     
-        for( j = 0; j < blocksize/NB; j++){
-             if unlikely(  mask[j + i0] && (tmp2[j] > cut) ){
-                 output[ npx ] = tmp2[j];
-                 output_adr[ npx ] = j + i0;
-                 npx = npx + 1;
-                 if unlikely(npx > NIJ) return -npx;
-             }
-        }
-        i0 += (blocksize / NB);
-        remaining -= blocksize;
+        bret = bshuf_untrans_bit_elem((void*) &tmp1[0], (void*) &tmp2[0], (size_t) blocksize/NB, (size_t) NB);
+        if(VERBOSE)   printf("ret %d bret %ld blocksize %d\n",ret, bret,blocksize);
     }
-    
-    while( remaining > 0 ){
-        val = (DATATYPE) compressed[ p ];
-        if unlikely( mask[i0] && val > cut ){
-          output[ npx ] = val;
-          output_adr[ npx ] = i0;
-          npx = npx + 1;
-          if unlikely(npx > NIJ) return -npx;
+    if( remaining > 0 ) {
+            memcpy( &tmp2[blocksize/NB], &compressed[ compressed_length - remaining ], remaining );
+            if(VERBOSE) printf("memcopy %d\n", remaining);
+    }
+    if ( (blocksize + remaining) > 0 ){    
+        /* save output */
+        if likely(nfast == NFAST){
+             for( j = 0; j < (blocksize + remaining)/NB; j++){
+                 if unlikely( (mask[j + i0] * tmp2[j]) > cut) {
+                     output[ npx ] = tmp2[j];
+                     islow[npx] = ( j + i0 )/NFAST;
+                     jfast[npx] = ( j + i0 )%NFAST;
+                     npx = npx + 1;
+                 }
+            }  
+        } else {
+             for( j = 0; j < (blocksize + remaining)/NB; j++){
+                 if unlikely( (mask[j + i0] * tmp2[j]) > cut) {
+                     output[ npx ] = tmp2[j];
+                     islow[npx] = ( j + i0 )/nfast;
+                     jfast[npx] = ( j + i0 )%nfast;
+                     npx = npx + 1;
+                 }
+            }  
         }
-        p += NB;
-        remaining -= NB;
-        i0 += 1;
-    }        
+    }
     return npx;
 }

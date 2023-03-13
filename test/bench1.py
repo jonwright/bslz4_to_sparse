@@ -20,8 +20,9 @@ def bench(hname, dsname, mask, cut):
         dataset = hin[dsname]
         npt = dataset.size
         nframes = min(len(dataset), 300)
+        buf = None
         for i in range(nframes):
-            npx, (cv, ci) = bslz4_to_sparse.bslz4_to_sparse( dataset, i, cut, mask )
+            npx, buf = bslz4_to_sparse.bslz4_to_sparse( dataset, i, cut, mask, pixelbuffer = buf  )
             npixels += npx
     end = timeit.default_timer()
     dt = end - start
@@ -30,14 +31,14 @@ def bench(hname, dsname, mask, cut):
         
 def testok():
     for hname, dset in CASES:
+        cut = 0
         with h5py.File(hname, 'r') as hin:
             dataset = hin[dset]
-            print(dataset.shape, dataset.dtype, hname)
+            print(dataset.shape, dataset.dtype, hname, cut)
             mbool = dataset[0] == pow(2,16)-1
             if dataset.dtype == np.uint32:
                 mbool |= (dataset[0] == pow(2,32)-1) 
-            mask = mbool.astype(np.uint8).ravel()
-        cut = 1
+            mask = 1-mbool.astype(np.uint8).ravel()
         bench(hname, dset, mask, cut)
 
 if __name__=='__main__':

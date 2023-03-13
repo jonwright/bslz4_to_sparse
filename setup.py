@@ -37,6 +37,7 @@ ext = Extension( "bslz4_to_sparse",
                  include_dirs  = [ numpy.get_include(), numpy.f2py.get_include(), ],
                  extra_compile_args = [ '-O3', '-DF2PY_REPORT_ON_ARRAY_COPY=1', 
                                         '-mavx2', # so not on ppc.
+                                        # '-g0', '-flto',
                                         # '-DDEBUG_COPY_ND_ARRAY',
                                         #'-DF2PY_REPORT_ATEXIT'],
                                       ], )
