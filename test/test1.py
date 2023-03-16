@@ -7,10 +7,22 @@ import bslz4_to_sparse
 
 print("Running from", bslz4_to_sparse.__file__)
 
-CASES = [( "/data/id11/jon/hdftest/eiger4m_u32.h5", "/entry_0000/ESRF-ID11/eiger/data"),
+TESTCASES = [( "/data/id11/jon/hdftest/eiger4m_u32.h5", "/entry_0000/ESRF-ID11/eiger/data"),
          ( "/data/id11/nanoscope/blc12454/id11/WAu5um/WAu5um_DT3/scan0001/eiger_0000.h5",
            "/entry_0000/ESRF-ID11/eiger/data"),
          ("/data/id11/jon/hdftest/kevlar.h5", "/entry/data/data" ) ]
+
+CASES = []
+for f,d in TESTCASES:
+    if os.path.exists(f):
+        CASES.append((f,d))
+    else:
+        f = os.path.split(f)[-1]
+        if os.path.exists(f):
+            CASES.append((f,d))
+        else:
+            print("Missing",f)
+        
 
 if not os.path.exists('bslz4testcases.h5'):
     print('Making more testcases')

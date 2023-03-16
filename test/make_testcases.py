@@ -5,9 +5,13 @@ import hdf5plugin, h5py, numpy as np, os, sys
 def write_array( h5name, dsetname, ary ):
     assert len(ary.shape) == 3
     with h5py.File( h5name, "a" ) as h5f:
+        try:
+            bshuf = hdf5plugin.Bitshuffle( nelems=0, cname='lz4')
+        except TypeError:
+            bshuf = hdf5plugin.Bitshuffle( nelems=0, lz4=True)
         dset = h5f.create_dataset( dsetname, data = ary,
-           chunks = (1, ary.shape[1], ary.shape[2]),
-           **hdf5plugin.Bitshuffle( nelems=0, cname='lz4') )
+                                   chunks = (1, ary.shape[1], ary.shape[2]),
+                                   **bshuf)
         print("Wrote",h5name,dsetname)
 
 

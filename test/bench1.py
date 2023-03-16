@@ -1,17 +1,30 @@
 
 import h5py, hdf5plugin
 import numpy as np
-import sys
+import sys, os
 import timeit
 # sys.path.insert(0,'../build/lib.linux-x86_64-cpython-38')
 import bslz4_to_sparse
 
 print("Running from", bslz4_to_sparse.__file__)
 
-CASES = [( "/data/id11/jon/hdftest/eiger4m_u32.h5", "/entry_0000/ESRF-ID11/eiger/data"),
+
+TESTCASES = [( "/data/id11/jon/hdftest/eiger4m_u32.h5", "/entry_0000/ESRF-ID11/eiger/data"),
          ( "/data/id11/nanoscope/blc12454/id11/WAu5um/WAu5um_DT3/scan0001/eiger_0000.h5",
            "/entry_0000/ESRF-ID11/eiger/data"),
          ("/data/id11/jon/hdftest/kevlar.h5", "/entry/data/data" ) ]
+
+CASES = []
+for f,d in TESTCASES:
+    if os.path.exists(f):
+        CASES.append((f,d))
+    else:
+        f = os.path.split(f)[-1]
+        if os.path.exists(f):
+            CASES.append((f,d))
+        else:
+            print("Missing",f)
+
 
 def bench1(hname, dsname, mask, cut):
     start = timeit.default_timer()
