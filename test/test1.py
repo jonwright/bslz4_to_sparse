@@ -26,7 +26,7 @@ indices = np.zeros(2)
 def pysparse( ds, num, cut, mask = None ):
     frame = ds[num]
     if mask is not None:
-        frame *= mask.reshape( frame.shape )
+        frame *= mask
         assert frame.dtype == ds.dtype
     pixels = frame > cut
     values = frame[pixels]
@@ -44,7 +44,7 @@ def testok():
             mbool = dataset[0] == pow(2,16)-1
             if dataset.dtype == np.uint32:
                 mbool |= (dataset[0] == pow(2,32)-1) 
-            mask = (1-mbool.astype(np.uint8)).ravel()
+            mask = (1-mbool.astype(np.uint8))
             step = max(1, len(dataset)//10)
             for frame in np.arange(0,len(dataset),step):
                 for cut in (0,10,100,1000):
@@ -72,7 +72,7 @@ def testcaller():
             mbool = dataset[0] == pow(2,16)-1
             if dataset.dtype == np.uint32:
                 mbool |= (dataset[0] == pow(2,32)-1) 
-            mask = (1-mbool.astype(np.uint8)).ravel()
+            mask = (1-mbool.astype(np.uint8))
             step = max(1, len(dataset)//10)
             funcobj = bslz4_to_sparse.chunk2sparse( mask, dataset.dtype )
             for frame in np.arange(0,len(dataset),step):

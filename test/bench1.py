@@ -55,7 +55,7 @@ def testok():
             mbool = dataset[0] == pow(2,16)-1
             if dataset.dtype == np.uint32:
                 mbool |= (dataset[0] == pow(2,32)-1) 
-            mask = (1-mbool.astype(np.uint8)).ravel()
+            mask = (1-mbool.astype(np.uint8))
         cut = 0
         bench1(hname, dset, mask, cut)
         bench2(hname, dset, mask, cut)

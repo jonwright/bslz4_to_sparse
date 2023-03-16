@@ -28,7 +28,7 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
     npx = 0;
     i0 = 0;
     if( threshold < 0 ){
-        printf("Threshold must be positive");
+        printf("Threshold must be zero or positive");
         return -100;
     }
     cut = threshold;
@@ -40,6 +40,7 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
     blocksize = (int) READ32BE( (compressed+8) );
     if (blocksize == 0) { blocksize = BLK; }
     if(  blocksize != BLK ){
+        printf("Sorry, only for 8192 internal blocks\n");
        return -101;
     }
 
@@ -63,15 +64,19 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
         for( j = 0; j < BLK/NB; j++){
              val = mask[j + i0] * tmp2[j];
              if unlikely( val > cut ) {
-                 output[ npx ] = tmp2[j];
-                 output_adr[ npx ] = j + i0;
-                 npx = npx + 1;
-             }
+                 *(output++) = tmp2[j];
+                 *(output_adr++) = j + i0;
+                 npx++;
+             } /* else {
+                 for( k = indptr[ adr[j] ] ; k < indptr[ adr[j]+1 ] ; k ++ ){
+                    powder[destindices[k]] += multipliers[k] * pixels[j];
+                }   
+             } */
         }
         i0 += (BLK / NB);
     }    
     blocksize = ( 8 * NB ) * ( remaining / (8 * NB) );
-    if( blocksize ){
+    if( blocksize > 0 ){
         nbytes = READ32BE( &compressed[p] );
         ret = LZ4_decompress_safe( (char*) &compressed[p + 4],
                                    (char*) tmp1,
@@ -86,14 +91,16 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
         bshuf_untrans_bit_elem((void*) tmp1, (void*) tmp2, (size_t) blocksize/NB, (size_t) NB);
     }
     remaining -= blocksize;
-    if (remaining>0) memcpy( &tmp2[blocksize/NB], &compressed[compressed_length - remaining], remaining);
+    if ( remaining>0 ) {
+        memcpy( &tmp2[blocksize/NB], &compressed[compressed_length - remaining], remaining);
+    }
          /* save output */     
     for( j = 0; j < (remaining + blocksize)/NB; j++){
          val = mask[j + i0] * tmp2[j];
          if unlikely( val > cut ) {
-                 output[ npx ] = tmp2[j];
-                 output_adr[ npx ] = j + i0;
-                 npx = npx + 1;
+                 *(output++) = tmp2[j];
+                 *(output_adr++) = j + i0;
+                 npx++;
              }
         }
     return npx;
