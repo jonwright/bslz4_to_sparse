@@ -25,8 +25,17 @@ class build_ext_subclass( build_ext.build_ext ):
             name = ext.sources[0]
             numpy.f2py.run_main( [ name,] )
             ext.sources[0] = os.path.split(name)[-1].replace('.pyf', 'module.c')
-            ext.sources.append( os.path.join( numpy.f2py.get_include(), 'fortranobject.c' ) )
+            ext.sources.append( os.path.join( numpy.f2py.get_include(),
+                                              'fortranobject.c' ) )
         build_ext.build_ext.build_extension(self, ext)
+
+if os.path.exists('/proc/cpuinfo'):
+    with open('/proc/cpuinfo','r') as fin:
+        flags = []
+        for line in fin.readlines():
+            if line.find('avx2')>=0:
+                flags.append('-mavx2')
+                break
 
 ext = Extension( "bslz4_to_sparse",
                  sources = ["src/bslz4_to_sparse.pyf",
@@ -34,9 +43,10 @@ ext = Extension( "bslz4_to_sparse",
                             "lz4/lib/lz4.c",
                             "bitshuffle/src/bitshuffle_core.c",
                             "bitshuffle/src/iochain.c",  ],
-                 include_dirs  = [ numpy.get_include(), numpy.f2py.get_include(), ],
-                 extra_compile_args = [ '-O3', '-DF2PY_REPORT_ON_ARRAY_COPY=1', 
-                                        '-mavx2', # so not on ppc.
+                 include_dirs  = [ numpy.get_include(),
+                                   numpy.f2py.get_include(), ],
+                 extra_compile_args = flags + [ '-O3',
+                                    '-DF2PY_REPORT_ON_ARRAY_COPY=1',
                                         # '-g0', '-flto',
                                         # '-DDEBUG_COPY_ND_ARRAY',
                                         #'-DF2PY_REPORT_ATEXIT'],
