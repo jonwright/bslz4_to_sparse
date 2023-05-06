@@ -3,13 +3,20 @@ import numpy as np
 import ctypes
 from .bslz4_to_sparse import bslz4_uint32_t, bslz4_uint16_t, bslz4_uint8_t
 
-version = '0.0.5'
+version = '0.0.6'
 
 # We cast away the 'read-only' nature of python bytes.
 # Not needed for the latest numpy.
 buffer_from_memory = ctypes.pythonapi.PyMemoryView_FromMemory
 buffer_from_memory.restype = ctypes.py_object
 buffer_from_memory.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
+
+def npbuf( buf ):
+    if isinstance( buf, np.ndarray ):
+        return buf
+    else:
+        return np.frombuffer( buffer_from_memory( buf, len(buf), 0x200), np.uint8 )
+
 
 class chunk2sparse:
     
@@ -25,9 +32,8 @@ class chunk2sparse:
                     bslz4_uint32_t)[ dtype.itemsize ]
         
     def __call__(self, buffer, cut):
-        npixels = self.fun(  np.frombuffer( 
-            buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
-            self.mask, self.values, self.indices, cut)
+        npixels = self.fun( npbuf(buffer),
+                self.mask, self.values, self.indices, cut)
         return npixels, (self.values, self.indices)
     
     def coo(self, buffer, cut):
@@ -69,16 +75,13 @@ def bslz4_to_sparse( ds, num, cut, mask = None, pixelbuffer = None):
     # to make a copy. We work around that using ctypes to set a writeable flag.
     #                                                      PyBUF_WRITE 0x200
     if ds.dtype == np.uint16:
-        npixels = bslz4_uint16_t(  np.frombuffer( 
-            buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
+        npixels = bslz4_uint16_t( npbuf(buffer),
             mask, values, indices, cut)
     elif ds.dtype == np.uint32:
-        npixels = bslz4_uint32_t(np.frombuffer( 
-            buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
+        npixels = bslz4_uint32_t( npbuf(buffer),
             mask, values, indices, cut)
     elif ds.dtype == np.uint8:
-        npixels = bslz4_uint8_t(  np.frombuffer( 
-            buffer_from_memory( buffer, len(buffer), 0x200), np.uint8 ),
+        npixels = bslz4_uint8_t( npbuf(buffer),
             mask, values, indices, cut)
     else:
         raise Exception("no decoder for your type")
