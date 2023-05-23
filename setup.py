@@ -29,13 +29,16 @@ class build_ext_subclass( build_ext.build_ext ):
                                               'fortranobject.c' ) )
         build_ext.build_ext.build_extension(self, ext)
 
+flags = ['-O3',]
 if os.path.exists('/proc/cpuinfo'):
     with open('/proc/cpuinfo','r') as fin:
-        flags = []
         for line in fin.readlines():
             if line.find('avx2')>=0:
                 flags.append('-mavx2')
                 break
+
+if platform.system() == 'Windows':
+    flags = ['/O2', '-Drestrict=__restrict','-D__builtin_expect=']
 
 ext = Extension( "bslz4_to_sparse",
                  sources = ["src/bslz4_to_sparse.pyf",
@@ -45,7 +48,7 @@ ext = Extension( "bslz4_to_sparse",
                             "bitshuffle/src/iochain.c",  ],
                  include_dirs  = [ numpy.get_include(),
                                    numpy.f2py.get_include(), ],
-                 extra_compile_args = flags + [ '-O3',
+                 extra_compile_args = flags + [ 
                                     '-DF2PY_REPORT_ON_ARRAY_COPY=1',
                                         # '-g0', '-flto',
                                         # '-DDEBUG_COPY_ND_ARRAY',
