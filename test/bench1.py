@@ -70,8 +70,10 @@ def testok():
                 mbool |= (dataset[0] == pow(2,32)-1) 
             mask = (1-mbool.astype(np.uint8))
         cut = 0
-        bench1(hname, dset, mask, cut)
-        bench2(hname, dset, mask, cut)
+        for i in range(3):
+            bench1(hname, dset, mask, cut)
+        for i in range(3):
+            bench2(hname, dset, mask, cut)
 
 if __name__=='__main__':
     testok()
