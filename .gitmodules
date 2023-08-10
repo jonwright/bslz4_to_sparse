@@ -4,3 +4,6 @@
 [submodule "bitshuffle"]
 	path = bitshuffle
 	url = https://github.com/kiyo-masui/bitshuffle
+[submodule "kcb"]
+	path = kcb
+	url = https://github.com/kalcutter/bitshuffle

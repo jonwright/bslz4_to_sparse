@@ -3,7 +3,7 @@
 """
 Setup script
 
-use CFLAGS='-narch=native' python3 setup.py to get avx etc
+use CFLAGS='-march=native' python3 setup.py to get avx etc
 """
 import setuptools
 import os, sys, platform, os.path
@@ -40,12 +40,21 @@ if os.path.exists('/proc/cpuinfo'):
 if platform.system() == 'Windows':
     flags = ['/O2', '-Drestrict=__restrict','-D__builtin_expect=']
 
+sources =  ["src/bslz4_to_sparse.pyf",
+            "src/bslz4_to_sparse.c",
+            "lz4/lib/lz4.c",]
+
+if 'USE_KCB' in os.environ:
+    print('Using bitshuffle from https://github.com/kalcutter/bitshuffle')
+    flags += ['-DUSE_KCB',]
+    sources.append( 'kcb/src/bitshuffle.c' )
+else:
+    print('Using bitshuffle from https://github.com/kiyo-masui/bitshuffle')
+    sources.append( "bitshuffle/src/bitshuffle_core.c" )
+    sources.append( "bitshuffle/src/iochain.c" )
+
 ext = Extension( "bslz4_to_sparse",
-                 sources = ["src/bslz4_to_sparse.pyf",
-                            "src/bslz4_to_sparse.c",
-                            "lz4/lib/lz4.c",
-                            "bitshuffle/src/bitshuffle_core.c",
-                            "bitshuffle/src/iochain.c",  ],
+                 sources = sources,
                  include_dirs  = [ numpy.get_include(),
                                    numpy.f2py.get_include(), ],
                  extra_compile_args = flags + [ 

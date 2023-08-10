@@ -20,6 +20,9 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
     int blocksize, remaining, p;
     uint32_t nbytes;
     DATATYPE tmp1[BLK/NB], tmp2[BLK/NB]; /* stack local place to decompress to */
+#ifdef USE_KCB
+    char scratch[BLK]; /* stack local place to shuffle (bits vs bytes) */
+#endif
     int npx;     /* number of pixels written to the output */
     int i0;
     int j;
@@ -59,7 +62,15 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
             printf("Returning as ret wrong size\n");
             return -2;
         }
+#ifdef USE_KCB
+	bitshuf_decode_block((char*) &tmp2[0],
+			     (char*) &tmp1[0],
+			     scratch,
+			     (size_t) BLK/NB,
+			     (size_t) NB);
+#else
         bshuf_untrans_bit_elem((void*) tmp1, (void*) tmp2, (size_t) BLK/NB,(size_t) NB);
+#endif
          /* save output */     
         for( j = 0; j < BLK/NB; j++){
              val = mask[j + i0] * tmp2[j];
@@ -88,7 +99,15 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
             printf("Returning as ret wrong size\n");
             return -2;
         }
+#ifdef USE_KCB
+	bitshuf_decode_block((char*) &tmp2[0],
+			     (char*) &tmp1[0],
+			     scratch,
+			     (size_t) blocksize/NB,
+			     (size_t) NB);
+#else
         bshuf_untrans_bit_elem((void*) tmp1, (void*) tmp2, (size_t) blocksize/NB, (size_t) NB);
+#endif
     }
     remaining -= blocksize;
     if ( remaining>0 ) {

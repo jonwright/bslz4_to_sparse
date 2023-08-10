@@ -6,8 +6,12 @@
 
 #include "../lz4/lib/lz4.h"
 
+#ifdef USE_KCB
+#include "../kcb/src/bitshuffle.h"
+#else
 int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size, 
         const size_t elem_size) ;
+#endif
 
 /* see https://justine.lol/endian.html */
 #define READ32BE(p) \
