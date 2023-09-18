@@ -29,13 +29,7 @@ class build_ext_subclass( build_ext.build_ext ):
                                               'fortranobject.c' ) )
         build_ext.build_ext.build_extension(self, ext)
 
-flags = ['-O3',]
-if os.path.exists('/proc/cpuinfo'):
-    with open('/proc/cpuinfo','r') as fin:
-        for line in fin.readlines():
-            if line.find('avx2')>=0:
-                flags.append('-mavx2')
-                break
+flags = ['-O2',]
 
 if platform.system() == 'Windows':
     flags = ['/O2', '-Drestrict=__restrict','-D__builtin_expect=']
@@ -49,7 +43,13 @@ if 'USE_BITSHUFFLE' in os.environ:
     print('Using bitshuffle from https://github.com/kiyo-masui/bitshuffle')
     sources.append( "bitshuffle/src/bitshuffle_core.c" )
     sources.append( "bitshuffle/src/iochain.c" )
-else:
+    if os.path.exists('/proc/cpuinfo'):
+        with open('/proc/cpuinfo','r') as fin:
+            for line in fin.readlines():
+                if line.find('avx2')>=0:
+                    flags.append('-mavx2')
+                    break
+else: # Does runtime dispatch
     print('Using bitshuffle from https://github.com/kalcutter/bitshuffle')
     flags += ['-DUSE_KCB',]
     sources.append( 'kcb/src/bitshuffle.c' )
