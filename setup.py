@@ -44,14 +44,15 @@ sources =  ["src/bslz4_to_sparse.pyf",
             "src/bslz4_to_sparse.c",
             "lz4/lib/lz4.c",]
 
-if 'USE_KCB' in os.environ:
-    print('Using bitshuffle from https://github.com/kalcutter/bitshuffle')
-    flags += ['-DUSE_KCB',]
-    sources.append( 'kcb/src/bitshuffle.c' )
-else:
+# Make KCB the default, as it is faster:
+if 'USE_BITSHUFFLE' in os.environ:
     print('Using bitshuffle from https://github.com/kiyo-masui/bitshuffle')
     sources.append( "bitshuffle/src/bitshuffle_core.c" )
     sources.append( "bitshuffle/src/iochain.c" )
+else:
+    print('Using bitshuffle from https://github.com/kalcutter/bitshuffle')
+    flags += ['-DUSE_KCB',]
+    sources.append( 'kcb/src/bitshuffle.c' )
 
 ext = Extension( "bslz4_to_sparse",
                  sources = sources,
@@ -78,7 +79,7 @@ setup( name = "bslz4_to_sparse" ,
        author = 'Jon Wright',
        author_email = 'wright@esrf.fr',
        url = "http://github.com/jonwright/bslz4_to_sparse",
-       version = '0.0.7',
+       version = '0.0.8',
        license = 'MIT',
        long_description = readme,
        long_description_content_type='text/markdown',
