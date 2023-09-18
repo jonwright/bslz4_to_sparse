@@ -14,8 +14,10 @@ buffer_from_memory.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
 def npbuf( buf ):
     if isinstance( buf, np.ndarray ):
         return buf
+    elif isinstance( buf, memoryview):
+        return np.frombuffer( buf , np.uint8 )
     else:
-        return np.frombuffer( buffer_from_memory( buf, len(buf), 0x200), np.uint8 )
+        return np.frombuffer( buffer_from_memory( buf, len(buf), 0x200) , np.uint8 )
 
 
 class chunk2sparse:
