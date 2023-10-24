@@ -43,6 +43,8 @@ int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size,
 
 #include "bshuf.c"
 
+#include "bshufdot.c"
+
 #undef DATATYPE
 #undef NB
 
@@ -51,6 +53,8 @@ int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size,
 
 #include "bshuf.c"
 
+#include "bshufdot.c"
+
 #undef DATATYPE
 #undef NB
 
@@ -58,3 +62,5 @@ int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size,
 #define NB ((int) sizeof(uint8_t))
 
 #include "bshuf.c"
+
+#include "bshufdot.c"
