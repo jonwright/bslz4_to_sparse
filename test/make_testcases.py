@@ -33,16 +33,20 @@ METHODS = {
     'Range_1024' : lambda nelem, dt : ( (1./1024)*np.arange( 0, nelem, dtype=np.float32 )).astype( dt ),
 }
 
+N = 2
+BIG = [ ('Frelon2K', (N, 2048, 2048) ),
+        ('Eiger4M' , (N, 2162, 2068) ),
+        ('Primes'  , (N, 521, 523) ) ]
 
-def make_testcases( hname) :
-    N = 2 # to test iteration
+SMALL = [ ('256 square', (N, 256, 256) ),
+          ('Small Primes', (N, 149, 211) ),]
+
+def make_testcases( hname, cases ) :
     np.random.seed(10007*10009)
-    for name, shp in [ ('Frelon2K', (N, 2048, 2048) ),
-                       ('Eiger4M' , (N, 2162, 2068) ),
-                       ('Primes'  , (N, 521, 523) ) ]:
+    for name, shp in cases:
         for dtyp, label in ( ( np.uint8 , 'u8' ),
                              ( np.uint16, 'u16' ),
-                             ( np.uint32, 'u32' ) ):
+                             ( np.uint32, 'u32' ) ):        
             ary = np.empty( shp, dtype = dtyp )
             for i, method in enumerate(METHODS):
                 ary = METHODS[method]( ary.size, dtyp ).reshape( shp )
@@ -60,7 +64,10 @@ if __name__=="__main__":
     if os.path.exists(hname):
         print("Removed", hname)
         os.remove(hname)
-    make_testcases(hname)
+    if len(sys.argv)>1 and sys.argv[1]=='all':
+        make_testcases(hname, SMALL+BIG )
+    else:
+        make_testcases(hname, SMALL )
 
 
 

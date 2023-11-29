@@ -2,15 +2,19 @@
 import h5py, hdf5plugin
 import numpy as np
 import sys, os
-# sys.path.insert(0,'../build/lib.linux-x86_64-cpython-38')
 import bslz4_to_sparse
 
 print("Running from", bslz4_to_sparse.__file__)
 
-TESTCASES = [( "/data/id11/jon/hdftest/eiger4m_u32.h5", "/entry_0000/ESRF-ID11/eiger/data"),
-         ( "/data/id11/nanoscope/blc12454/id11/WAu5um/WAu5um_DT3/scan0001/eiger_0000.h5",
-           "/entry_0000/ESRF-ID11/eiger/data"),
-         ("/data/id11/jon/hdftest/kevlar.h5", "/entry/data/data" ) ]
+# These are on the ESRF filesystem
+TESTCASES=[]
+if len(sys.argv)>1 and sys.argv[1]=='all':
+    TESTCASES += [( "/data/id11/jon/hdftest/eiger4m_u32.h5", 
+                    "/entry_0000/ESRF-ID11/eiger/data"),
+                  ( "/data/id11/nanoscope/blc12454/id11/WAu5um/WAu5um_DT3/scan0001/eiger_0000.h5",
+                    "/entry_0000/ESRF-ID11/eiger/data"),
+                  ( "/data/id11/jon/hdftest/kevlar.h5", 
+                    "/entry/data/data" ), ]
 
 CASES = []
 for f,d in TESTCASES:
@@ -23,7 +27,6 @@ for f,d in TESTCASES:
         else:
             print("Missing",f)
         
-
 if not os.path.exists('bslz4testcases.h5'):
     print('Making more testcases')
     ret = os.system(sys.executable + ' make_testcases.py')
@@ -48,7 +51,8 @@ def pysparse( ds, num, cut, mask = None ):
     return values, indices[pixels.ravel()]
 
         
-def testok():
+def test_ok():
+    nok = 0
     for hname, dset in CASES:
         with h5py.File(hname, 'r') as hin:
             dataset = hin[dset]
@@ -74,9 +78,11 @@ def testok():
                         raise
                     assert (cv[:npx] == pv).all()
                     assert (ci[:npx] == pi).all()
-    print('No errors found')
+                    nok += 1
+    assert nok > 0
     
-def testcaller():
+def test_caller():
+    nok = 0
     for hname, dset in CASES:
         with h5py.File(hname, 'r') as hin:
             dataset = hin[dset]
@@ -103,10 +109,11 @@ def testcaller():
                         raise
                     assert (cv[:npx] == pv).all()
                     assert (ci[:npx] == pi).all()
-    print('No errors found') 
+                    nok += 1
+    assert nok > 0
 
 if __name__=='__main__':
-    testcaller()
-    testok()
+    test_caller()
+    test_ok()
                 
     # py-spy record -n -r 200 -f speedscope python3 test1.py
