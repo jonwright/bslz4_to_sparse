@@ -34,18 +34,29 @@ class build_ext_subclass(build_ext.build_ext):
         build_ext.build_ext.build_extension(self, ext)
 
 
-flags = [
-    "-O2",
-]
 
-if platform.system() == "Windows":
-    flags = ["/O2", "-Drestrict=__restrict", "-D__builtin_expect="]
 
 sources = [
     "src/bslz4_to_sparse.pyf",
     "src/bslz4_to_sparse.c",
     "lz4/lib/lz4.c",
 ]
+
+include_dirs = [
+        numpy.get_include(),
+        numpy.f2py.get_include(),
+    ]
+
+
+flags = [
+    "-O2",
+]
+
+if platform.system() == "Windows":
+    flags = ["/O2", "-D__builtin_expect=", "-Drestrict=",]
+    include_dirs += ['src/msvc_include',]
+    if sys.version_info[0] < 3: # e.g. python 2.7 on windows
+        os.environ['USE_BITSHUFFLE']='1'
 
 # Make KCB the default, as it is faster:
 if "USE_BITSHUFFLE" in os.environ:
@@ -68,10 +79,7 @@ else:  # Does runtime dispatch
 ext = Extension(
     "bslz4_to_sparse",
     sources=sources,
-    include_dirs=[
-        numpy.get_include(),
-        numpy.f2py.get_include(),
-    ],
+    include_dirs=include_dirs,
     extra_compile_args=flags
     + [
         "-DF2PY_REPORT_ON_ARRAY_COPY=1",

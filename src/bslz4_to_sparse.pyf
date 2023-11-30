@@ -2,22 +2,11 @@ python module bslz4_to_sparse
 
 interface
 
-int CAT( bslz4_csc_, DATATYPE) ( const char *restrict compressed,   /* compressed chunk */
-                int compressed_length, 
-                const uint8_t *restrict mask,
-                int NIJ,
-                double *restrict output,
-                int NOUT,
-                float *restrict data,
-                uint32_t *restrict indices,
-                uint32_t *restrict indptr );
-
-
 function bslz4_uint8_t(cmp,cmpN,msk,NIJ,out,outP,thresh)
 intent(c) bslz4_uint8_t
 intent(c)
 integer(kind=-1), intent(in), dimension(cmpN) :: cmp
-integer, intent( hide ), depend( cmp ) :: cmpN 
+integer, intent( hide ), depend( cmp ) :: cmpN
 integer(kind=-1) , intent(in) :: msk( NIJ )
 integer, intent( hide ), depend( msk ) :: NIJ
 integer(kind=-1) , intent(inout) , dimension( NIJ ):: out
@@ -32,7 +21,7 @@ function bslz4_csc_uint8_t(cmp,cmpN,msk,NIJ,outpx,outP,thresh,out,NOUT,d,ind,ip)
 intent(c) bslz4_csc_uint8_t
 intent(c)
 integer(kind=-1), intent(in), dimension(cmpN) :: cmp
-integer, intent( hide ), depend( cmp ) :: cmpN 
+integer, intent( hide ), depend( cmp ) :: cmpN
 integer(kind=-1) , intent(in) :: msk( NIJ )
 integer, intent( hide ), depend( msk ) :: NIJ
 integer(kind=-1) , intent(inout) , dimension( NIJ ):: outpx
@@ -51,7 +40,7 @@ function bslz4_uint16_t(cmp,cmpN,msk,NIJ,out,outP,thresh)
 intent(c) bslz4_uint16_t
 intent(c)
 integer(kind=-1), intent(in), dimension(cmpN) :: cmp
-integer, intent( hide ), depend( cmp ) :: cmpN 
+integer, intent( hide ), depend( cmp ) :: cmpN
 integer(kind=-1) , intent(in) :: msk( NIJ )
 integer, intent( hide ), depend( msk ) :: NIJ
 integer(kind=-2) , intent(inout) , dimension( NIJ ):: out
@@ -65,7 +54,7 @@ function bslz4_csc_uint16_t(cmp,cmpN,msk,NIJ,outpx,outP,thresh,out,NOUT,d,ind,ip
 intent(c) bslz4_csc_uint16_t
 intent(c)
 integer(kind=-1), intent(in), dimension(cmpN) :: cmp
-integer, intent( hide ), depend( cmp ) :: cmpN 
+integer, intent( hide ), depend( cmp ) :: cmpN
 integer(kind=-1) , intent(in) :: msk( NIJ )
 integer, intent( hide ), depend( msk ) :: NIJ
 integer(kind=-2) , intent(inout) , dimension( NIJ ):: outpx
@@ -98,7 +87,7 @@ function bslz4_csc_uint32_t(cmp,cmpN,msk,NIJ,outpx,outP,thresh,out,NOUT,d,ind,ip
 intent(c) bslz4_csc_uint32_t
 intent(c)
 integer(kind=-1), intent(in), dimension(cmpN) :: cmp
-integer, intent( hide ), depend( cmp ) :: cmpN 
+integer, intent( hide ), depend( cmp ) :: cmpN
 integer(kind=-1) , intent(in) :: msk( NIJ )
 integer, intent( hide ), depend( msk ) :: NIJ
 integer(kind=-4) , intent(inout) , dimension( NIJ ):: outpx
@@ -109,8 +98,8 @@ integer, intent( hide ), depend( out ) :: NOUT
 real(kind=4) , intent(inout) , dimension( * ):: d
 integer(kind=-4) , intent(inout) , dimension( * ):: ind, ip
 threadsafe
-integer(kind=4) :: bslz32_csc_uint8_t
-end function bslz32_csc_uint8_t
+integer(kind=4) :: bslz32_csc_uint32_t
+end function bslz32_csc_uint32_t
 
 
 end interface

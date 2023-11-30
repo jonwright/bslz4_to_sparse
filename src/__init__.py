@@ -7,9 +7,20 @@ version = "0.0.10"
 
 # We cast away the 'read-only' nature of python bytes.
 # Not needed for the latest numpy.
-buffer_from_memory = ctypes.pythonapi.PyMemoryView_FromMemory
-buffer_from_memory.restype = ctypes.py_object
-buffer_from_memory.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
+if hasattr( ctypes.pythonapi, "PyMemoryView_FromMemory"):
+    buffer_from_memory = ctypes.pythonapi.PyMemoryView_FromMemory
+    buffer_from_memory.restype = ctypes.py_object
+    buffer_from_memory.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
+else:
+    def buffer_from_memory(buf, l, f):
+        if type(buf) == str and buf[:6] == 'array(':
+            # python 2.7 and a rather sad feature in h5py.
+            #   probably we should not support this.
+            import warnings
+            warnings.warn('Bad performance from python2.7 and old h5py')
+            from array import array
+            return eval(buf)
+        raise Exception('Unknown code path for buffer decoding ' + str(type(buf)))
 
 
 def npbuf(buf):
