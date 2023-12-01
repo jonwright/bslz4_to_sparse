@@ -7,4 +7,5 @@ include bitshuffle/src/iochain.h
 include bitshuffle/src/iochain.c
 include kcb/src/bitshuffle.h
 include src/bshuf.c
+include src/bshufdot.c
 include src/msvc_include/stdint.h
