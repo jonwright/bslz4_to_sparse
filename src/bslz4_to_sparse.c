@@ -2,6 +2,7 @@
 #include <stdlib.h>   /* malloc and friends */
 #include <stdint.h>   /* uint32_t etc */
 #include <string.h>   /* memcpy */
+#include <limits.h>
 #include <stdio.h>    /* print error message before killing process(!?!?) */
 
 #include "../lz4/lib/lz4.h"
