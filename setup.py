@@ -53,9 +53,10 @@ flags = [
 ]
 
 if platform.system() == "Windows":
-    flags = ["/O2", "-D__builtin_expect=", "-Drestrict=",]
-    include_dirs += ['src/msvc_include',]
-    if sys.version_info[0] < 3: # e.g. python 2.7 on windows
+    flags = ["/O2", ]
+    if sys.version_info[0] < 3: # e.g. python 2.7 on windows, old compiler
+        include_dirs += ['src/msvc_include',]
+        flags += ["-Drestrict=",]
         os.environ['USE_BITSHUFFLE']='1'
 
 # Make KCB the default, as it is faster:

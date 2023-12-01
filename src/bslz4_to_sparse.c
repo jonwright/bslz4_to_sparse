@@ -9,7 +9,7 @@
 #ifdef USE_KCB
 #include "../kcb/src/bitshuffle.h"
 #else
-int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size, 
+int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size,
         const size_t elem_size) ;
 #endif
 
@@ -31,8 +31,15 @@ int64_t bshuf_untrans_bit_elem(const void* in, void* out, const size_t size,
     (uint64_t)(255 & (p)[7])       )
 
 #ifndef unlikely
-#define unlikely(expr) (__builtin_expect ((expr),(0)))
+#ifdef _MSC_VER
+#define unlikely
+#else
+#define unlikely(expr) (__builtin_expect (!!(expr),(0)))
 #endif
+#endif
+
+#define BSLZ4_TO_SPARSE_VERBOSE 0
+
 #define BLK 8192
 
 #define CAT_I(a,b) a##b

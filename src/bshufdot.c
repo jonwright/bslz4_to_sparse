@@ -2,10 +2,10 @@
 
 
 int CAT( bslz4_csc_, DATATYPE) ( const char *restrict compressed,   /* compressed chunk */
-                                int compressed_length, 
+                                int compressed_length,
                                 const uint8_t *restrict mask,
                                 int NIJ,
-                                DATATYPE *restrict outpx, 
+                                DATATYPE *restrict outpx,
                                 uint32_t *restrict output_adr,
                                 int threshold,
                                 double *restrict output,
@@ -15,10 +15,10 @@ int CAT( bslz4_csc_, DATATYPE) ( const char *restrict compressed,   /* compresse
                                 uint32_t *restrict indptr );
 
 int CAT( bslz4_csc_, DATATYPE) (  const char *restrict compressed,   /* compressed chunk */
-                                int compressed_length, 
+                                int compressed_length,
                                 const uint8_t *restrict mask,
                                 int NIJ,
-                                DATATYPE *restrict outpx, 
+                                DATATYPE *restrict outpx,
                                 uint32_t *restrict output_adr,
                                 int threshold,
                                 double *restrict output,
@@ -43,9 +43,13 @@ int CAT( bslz4_csc_, DATATYPE) (  const char *restrict compressed,   /* compress
     cut = threshold;
 /*    printf("Enter csc NOUT %d\n", NOUT); */
     total_output_length = READ64BE( compressed );
-    if (total_output_length/NB > (uint64_t) NIJ){ 
-        printf("Not enough output space, %ld %d\n", total_output_length, NIJ);
-        return -99; 
+    if (total_output_length/NB > (uint64_t) NIJ){
+        printf("Not enough output space, %zd %d\n", total_output_length, NIJ);
+        return -99;
+    };
+    if (total_output_length > INT_MAX){
+        printf("Too large, %zd > %d\n", total_output_length, INT_MAX);
+        return -98;
     };
     blocksize = (int) READ32BE( (compressed+8) );
     if (blocksize == 0) { blocksize = BLK; }
@@ -56,12 +60,12 @@ int CAT( bslz4_csc_, DATATYPE) (  const char *restrict compressed,   /* compress
     /* init output as 0 */
     for( j = 0; j < NOUT; j++) output[j] = 0.0;
 
-    remaining = total_output_length;
+    remaining = (int) total_output_length;
     p = 12;
     i0 = 0;
 /*    printf("Enter loop\n"); */
 
-    for( remaining = total_output_length; remaining >= BLK; remaining = remaining - BLK){
+    for( remaining = (int) total_output_length; remaining >= BLK; remaining = remaining - BLK){
 /*        printf("remaining %d\n",remaining); */
         nbytes = READ32BE( &compressed[p] );
         ret = LZ4_decompress_safe( (char*) &compressed[p + 4],
@@ -83,7 +87,7 @@ int CAT( bslz4_csc_, DATATYPE) (  const char *restrict compressed,   /* compress
 #else
         bshuf_untrans_bit_elem((void*) tmp1, (void*) tmp2, (size_t) BLK/NB,(size_t) NB);
 #endif
-         /* save output      
+         /* save output
         printf("block i0 %d\n",i0); */
         for( j = 0; j < BLK/NB; j++){
             val = tmp2[j]*mask[j + i0];
@@ -100,7 +104,7 @@ int CAT( bslz4_csc_, DATATYPE) (  const char *restrict compressed,   /* compress
             }
         }
         i0 += (BLK / NB);
-    }    
+    }
     blocksize = ( 8 * NB ) * ( remaining / (8 * NB) );
     if( blocksize > 0 ){
         nbytes = READ32BE( &compressed[p] );

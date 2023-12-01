@@ -2,10 +2,10 @@
 
 
 int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed chunk */
-                int compressed_length, 
+                int compressed_length,
                 const uint8_t *restrict mask,
                 int NIJ,
-                DATATYPE *restrict output, 
+                DATATYPE *restrict output,
                 uint32_t *restrict output_adr,
                 int threshold );
 
@@ -13,9 +13,9 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
                 int compressed_length,
                 const uint8_t *restrict mask,
                 int NIJ,
-                DATATYPE *restrict output, 
+                DATATYPE *restrict output,
                 uint32_t *restrict output_adr,
-                int threshold ){    
+                int threshold ){
     size_t total_output_length;
     int blocksize, remaining, p;
     uint32_t nbytes;
@@ -36,9 +36,13 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
     }
     cut = threshold;
     total_output_length = READ64BE( compressed );
-    if (total_output_length/NB > (uint64_t) NIJ){ 
-        printf("Not enough output space, %ld %d\n", total_output_length, NIJ);
-        return -99; 
+    if (total_output_length/NB > (uint64_t) NIJ){
+        printf("Not enough output space, %zd %d\n", total_output_length, NIJ);
+        return -99;
+    };
+    if (total_output_length > INT_MAX){
+        printf("Too large, %zd > %d\n", total_output_length, INT_MAX);
+        return -98;
     };
     blocksize = (int) READ32BE( (compressed+8) );
     if (blocksize == 0) { blocksize = BLK; }
@@ -46,11 +50,15 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
         printf("Sorry, only for 8192 internal blocks\n");
        return -101;
     }
-
-    remaining = total_output_length;
+    if( BSLZ4_TO_SPARSE_VERBOSE ) {
+        printf("Total output length %zd\nThreshold %d\nmask:", total_output_length, threshold);
+        for(j=0;j<8;j++){ printf("%hhu",mask[j]);}
+        printf("\n");
+    }
+    remaining = (int) total_output_length;
     p = 12;
     i0 = 0;
-    for( remaining = total_output_length; remaining >= BLK; remaining = remaining - BLK){
+    for( remaining = (int) total_output_length; remaining >= BLK; remaining = remaining - BLK){
         nbytes = READ32BE( &compressed[p] );
         ret = LZ4_decompress_safe( (char*) &compressed[p + 4],
                                    (char*) &tmp1[0],
@@ -71,7 +79,7 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
 #else
         bshuf_untrans_bit_elem((void*) tmp1, (void*) tmp2, (size_t) BLK/NB,(size_t) NB);
 #endif
-         /* save output */     
+         /* save output */
         for( j = 0; j < BLK/NB; j++){
              val = mask[j + i0] * tmp2[j];
              if unlikely( val > cut ) {
@@ -81,11 +89,11 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
              } /* else {
                  for( k = indptr[ adr[j] ] ; k < indptr[ adr[j]+1 ] ; k ++ ){
                     powder[destindices[k]] += multipliers[k] * pixels[j];
-                }   
+                }
              } */
         }
         i0 += (BLK / NB);
-    }    
+    }
     blocksize = ( 8 * NB ) * ( remaining / (8 * NB) );
     if( blocksize > 0 ){
         nbytes = READ32BE( &compressed[p] );
@@ -113,7 +121,7 @@ int CAT( bslz4_, DATATYPE) ( const char *restrict compressed,   /* compressed ch
     if ( remaining>0 ) {
         memcpy( &tmp2[blocksize/NB], &compressed[compressed_length - remaining], remaining);
     }
-         /* save output */     
+         /* save output */
     for( j = 0; j < (remaining + blocksize)/NB; j++){
          val = mask[j + i0] * tmp2[j];
          if unlikely( val > cut ) {

@@ -38,6 +38,8 @@ with h5py.File('bslz4testcases.h5','r') as hin:
     for dataset in list(hin):
         CASES.append(( 'bslz4testcases.h5', dataset ) )
 
+CASES.sort()
+
 indices = np.zeros(2)
 
 def pysparse( ds, num, cut, mask = None ):

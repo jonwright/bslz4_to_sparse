@@ -26,7 +26,7 @@ METHODS = {
     'Poisson_0.01' : lambda nelem, dt : np.random.poisson( lam=0.01, size=nelem).astype( dt ),
     'Poisson_100'  : lambda nelem, dt : np.random.poisson( lam=100.0, size=nelem).astype( dt ),
     # Range for debugging. Gives the array indices in output
-    'Range_1' :  lambda nelem, dt : np.arange( nelem, dtype = dt ),
+    '1_Range_1' :  lambda nelem, dt : np.arange( nelem, dtype = dt ),
     # Range for debugging. Gives the array indices in output in blocks
     'Range_1024' : lambda nelem, dt : ( (1./1024)*np.arange( 0, nelem, dtype=np.float32 )).astype( dt ),
 }
