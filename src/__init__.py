@@ -3,7 +3,7 @@ import ctypes
 from .bslz4_to_sparse import bslz4_uint32_t, bslz4_uint16_t, bslz4_uint8_t
 from .bslz4_to_sparse import bslz4_csc_uint32_t, bslz4_csc_uint16_t, bslz4_csc_uint8_t
 
-version = "0.0.10"
+version = "0.0.11"
 
 # We cast away the 'read-only' nature of python bytes.
 # Not needed for the latest numpy.
