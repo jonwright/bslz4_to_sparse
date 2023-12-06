@@ -31,7 +31,8 @@ for f,d in TESTCASES:
 
 if not os.path.exists('bslz4testcases.h5'):
     print('Making more testcases')
-    ret = os.system(sys.executable + ' make_testcases.py')
+    make_script = os.path.join(os.path.dirname(__file__), 'make_testcases.py')
+    ret = os.system(sys.executable + ' ' + make_script)
     assert ret == 0
 
 with h5py.File('bslz4testcases.h5','r') as hin:
