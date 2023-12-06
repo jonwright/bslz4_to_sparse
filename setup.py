@@ -107,7 +107,7 @@ setup(
     author="Jon Wright",
     author_email="wright@esrf.fr",
     url="http://github.com/jonwright/bslz4_to_sparse",
-    version="0.0.14",
+    version="0.0.15",
     license="MIT",
     long_description=readme,
     long_description_content_type="text/markdown",
