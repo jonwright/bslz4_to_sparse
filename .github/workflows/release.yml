@@ -91,7 +91,7 @@ jobs:
 
       - name: Install and test sdist
         run: |
-          pip install --pre dist/bslz4_to_sparse*.tar.gz
+          pip install dist/bslz4_to_sparse*.tar.gz
           pip install pytest hdf5plugin  # Test dependencies
           pytest test
 
