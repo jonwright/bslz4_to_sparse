@@ -103,7 +103,7 @@ setup(
         ext,
     ],
     cmdclass={"build_ext": build_ext_subclass},
-    install_requires=["numpy", "h5py"],
+    install_requires=["numpy<2", "h5py"],
     author="Jon Wright",
     author_email="wright@esrf.fr",
     url="http://github.com/jonwright/bslz4_to_sparse",
