@@ -11,5 +11,6 @@ After git clone:
 To run it at ESRF:
 
     cd test
-    python3 test1.py
+    python3 test_vs_hdf5plugin.py
+    python3 bench1.py
 
