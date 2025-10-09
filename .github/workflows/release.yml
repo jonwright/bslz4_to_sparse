@@ -15,13 +15,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-20.04
+          - os: ubuntu-24.04
             cibw_archs: "auto64"
-          #- os: ubuntu-20.04
+          #- os: ubuntu-24.04
           #  cibw_archs: "auto32"
-          - os: ubuntu-20.04
+          - os: ubuntu-24.04
             cibw_archs: "aarch64"
-          - os: ubuntu-20.04
+          - os: ubuntu-24.04
             cibw_archs: "ppc64le"
           - os: windows-2019
             cibw_archs: "auto64"
@@ -46,9 +46,9 @@ jobs:
         env:
           CIBW_BUILD_VERBOSITY: 1
           CIBW_PROJECT_REQUIRES_PYTHON: ">=3.7"
-          CIBW_BUILD: cp37-* cp38-* cp39-* cp310-* cp311-* cp312-*
+          CIBW_BUILD: cp37-* cp38-* cp39-* cp310-* cp311-* cp312-* cp313-*
           # Do not build for pypy, muslinux and python3.12 on ppc64le
-          CIBW_SKIP: pp* *-musllinux_* cp312-*linux_ppc64le
+          CIBW_SKIP: pp* *-musllinux_* cp312-*linux_ppc64le cp313-*linux_ppc64le
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
 
           # Use silx wheelhouse: needed for ppc64le
@@ -74,7 +74,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
           cache: 'pip'
 
       - name: Install dependencies
