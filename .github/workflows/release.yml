@@ -92,7 +92,7 @@ jobs:
       - name: Install and test sdist
         run: |
           pip install dist/bslz4_to_sparse*.tar.gz
-          pip install pytest hdf5plugin  # Test dependencies
+          pip install pytest hdf5plugin pyFAI  # Test dependencies
           pytest test
 
       - uses: actions/upload-artifact@v4
