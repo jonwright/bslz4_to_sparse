@@ -50,10 +50,10 @@ jobs:
           # Do not build for pypy, muslinux and python3.12 on ppc64le
           CIBW_SKIP: pp* *-musllinux_* cp312-*linux_ppc64le cp313-*linux_ppc64le
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
-
+          PIP_ONLY_BINARY: "h5py"
+          PIP_PREFER_BINARY: "1"
           # Use silx wheelhouse: needed for ppc64le
           CIBW_ENVIRONMENT_LINUX: "PIP_FIND_LINKS=https://www.silx.org/pub/wheelhouse/ PIP_TRUSTED_HOST=www.silx.org"
-          PIP_ONLY_BINARY: ":all:"
           CIBW_TEST_REQUIRES: pytest h5py hdf5plugin pyFAI
           CIBW_TEST_COMMAND: pytest {project}/test
           # Skip tests for 32bits and emulated architectures, arm64 macos
