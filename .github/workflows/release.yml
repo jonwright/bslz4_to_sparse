@@ -53,7 +53,7 @@ jobs:
 
           # Use silx wheelhouse: needed for ppc64le
           CIBW_ENVIRONMENT_LINUX: "PIP_FIND_LINKS=https://www.silx.org/pub/wheelhouse/ PIP_TRUSTED_HOST=www.silx.org"
-
+          PIP_ONLY_BINARY: ":all:"
           CIBW_TEST_REQUIRES: pytest h5py hdf5plugin pyFAI
           CIBW_TEST_COMMAND: pytest {project}/test
           # Skip tests for 32bits and emulated architectures, arm64 macos
