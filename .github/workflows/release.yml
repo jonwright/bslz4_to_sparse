@@ -91,7 +91,7 @@ jobs:
 
       - name: Install and test sdist
         run: |
-          pip install --only-binary :all: pytest hdf5plugin pyFAI  # Test dependencies
+          pip install --only-binary :all: pytest h5py hdf5plugin pyFAI  # Test dependencies
           pip install dist/bslz4_to_sparse*.tar.gz
           pytest test
 
