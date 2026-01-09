@@ -46,9 +46,9 @@ jobs:
         env:
           CIBW_BUILD_VERBOSITY: 1
           CIBW_PROJECT_REQUIRES_PYTHON: ">=3.9"
-          CIBW_BUILD: cp39-* cp310-* cp311-* cp312-* cp313-*
+          CIBW_BUILD: cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*
           # Do not build for pypy, muslinux and python3.12 on ppc64le
-          CIBW_SKIP: pp* *-musllinux_* cp312-*linux_ppc64le cp313-*linux_ppc64le
+          CIBW_SKIP: pp* *-musllinux_* cp312-*linux_ppc64le cp313-*linux_ppc64le cp314-*linux_ppc64le
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
           PIP_ONLY_BINARY: ":all:"
           PIP_PREFER_BINARY: "1"
