@@ -218,7 +218,7 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                 uint32_t k1 = indptr[j + i0 + 1];
                 for (int f = 0; f < nframes; f++) {
                     T px = blockbuf[(size_t) f * block_elems + j];
-                    if (BSLZ4_UNLIKELY(px > 0)) {
+                    if (BSLZ4_UNLIKELY(px != 0)) {
                         double *outf = output + (size_t) f * NOUT;
                         for (uint32_t k = k0; k < k1; k++)
                             outf[indices[k]] += (double) data[k] * (double) px;
@@ -263,7 +263,7 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             uint32_t k1 = indptr[j + i0 + 1];
             for (int f = 0; f < nframes; f++) {
                 T px = blockbuf[(size_t) f * block_elems + j];
-                if (BSLZ4_UNLIKELY(px > 0)) {
+                if (BSLZ4_UNLIKELY(px != 0)) {
                     double *outf = output + (size_t) f * NOUT;
                     for (uint32_t k = k0; k < k1; k++)
                         outf[indices[k]] += (double) data[k] * (double) px;
