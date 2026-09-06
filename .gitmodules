@@ -7,3 +7,6 @@
 [submodule "kcb"]
 	path = kcb
 	url = https://github.com/kalcutter/bitshuffle
+[submodule "zstd"]
+	path = zstd
+	url = https://github.com/facebook/zstd
