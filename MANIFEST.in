@@ -6,6 +6,7 @@ include bitshuffle/src/bitshuffle_core.c
 include bitshuffle/src/iochain.h
 include bitshuffle/src/iochain.c
 include kcb/src/bitshuffle.h
-include src/bshuf.c
-include src/bshufdot.c
+include src/bslz4_common.hpp
+include src/bslz4_backends.hpp
+include src/bslz4_core.hpp
 include src/msvc_include/stdint.h

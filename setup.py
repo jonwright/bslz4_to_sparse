@@ -1,97 +1,73 @@
 """
-Setup script
+Setup script.
 
-use CFLAGS='-march=native' python3 setup.py to get avx etc
+Builds the bslz4_to_sparse C++ extension via c2py23: the Python wrapper is
+generated at build time from the C2PY_BEGIN block embedded in
+src/bslz4_to_sparse.cpp, then compiled and linked together with the c2py23
+runtime, the vendored lz4/bitshuffle/kcb sources, and our own C++ core.
 """
-import setuptools
-import os, sys, platform, os.path
-from setuptools import setup, Extension
-from setuptools.command import build_ext, build_clib
+import os
+import platform
+import sys
 
-#
-import numpy, numpy.f2py  # force wrapper re-generation
+from setuptools import Extension, setup
 
-# patch older numpy:
-if not hasattr(numpy.f2py, "get_include"):
-    numpy.f2py.get_include = lambda: os.path.join(
-        os.path.dirname(os.path.abspath(numpy.f2py.__file__)), "src"
-    )
+import c2py23
+from c2py23.generator import generate
+from c2py23.harvester import extract_from_file
+from c2py23.parser import from_c2py_dict
 
-# patch to run f2py during build
-class build_ext_subclass(build_ext.build_ext):
-    def build_extension(self, ext):
-        if ext.sources[0].endswith(".pyf"):
-            name = ext.sources[0]
-            numpy.f2py.run_main(
-                [
-                    name,
-                ]
-            )
-            ext.sources[0] = os.path.split(name)[-1].replace(".pyf", "module.c")
-            ext.sources.append(
-                os.path.join(numpy.f2py.get_include(), "fortranobject.c")
-            )
-        build_ext.build_ext.build_extension(self, ext)
+HERE = os.path.abspath(os.path.dirname(__file__))
+C2PY_RUNTIME_DIR = os.path.join(os.path.dirname(c2py23.__file__), "runtime")
 
 
+def generate_wrapper():
+    """Regenerate src/bslz4_to_sparse_wrapper.c from the C2PY_BEGIN block."""
+    source_path = os.path.join(HERE, "src", "bslz4_to_sparse.cpp")
+    spec = extract_from_file(source_path)
+    module = from_c2py_dict(spec, source_path)
+    code = generate(module)
+    wrapper_path = os.path.join(HERE, "src", "bslz4_to_sparse_wrapper.c")
+    with open(wrapper_path, "w") as f:
+        f.write(code)
+    return wrapper_path
 
+
+wrapper_path = generate_wrapper()
 
 sources = [
-    "src/bslz4_to_sparse.pyf",
-    "src/bslz4_to_sparse.c",
+    wrapper_path,
+    os.path.join(C2PY_RUNTIME_DIR, "c2py_runtime.c"),
+    "src/bslz4_to_sparse.cpp",
+    "kcb/src/bitshuffle.c",
+    "bitshuffle/src/bitshuffle_core.c",
+    "bitshuffle/src/iochain.c",
     "lz4/lib/lz4.c",
 ]
 
 include_dirs = [
-        numpy.get_include(),
-        numpy.f2py.get_include(),
-    ]
-
-
-flags = [
-    "-O2",
+    C2PY_RUNTIME_DIR,
+    "lz4/lib",
+    "kcb/src",
+    "bitshuffle/src",
 ]
 
-if platform.system() == "Windows":
-    flags = ["/O2", "-Drestrict=",]
-    if sys.version_info[0] < 3: # e.g. python 2.7 on windows, old compiler
-        include_dirs += ['src/msvc_include',]
-        os.environ['USE_BITSHUFFLE']='1'
+flags = ["-O2", "-std=c++11"]
 
-# Make KCB the default, as it is faster:
-if "USE_BITSHUFFLE" in os.environ:
-    print("Using bitshuffle from https://github.com/kiyo-masui/bitshuffle")
-    sources.append("bitshuffle/src/bitshuffle_core.c")
-    sources.append("bitshuffle/src/iochain.c")
-    if os.path.exists("/proc/cpuinfo"):
-        with open("/proc/cpuinfo", "r") as fin:
-            for line in fin.readlines():
-                if line.find("avx2") >= 0:
-                    flags.append("-mavx2")
-                    break
-else:  # Does runtime dispatch
-    print("Using bitshuffle from https://github.com/kalcutter/bitshuffle")
-    flags += [
-        "-DUSE_KCB",
-    ]
-    sources.append("kcb/src/bitshuffle.c")
+if platform.system() == "Windows":
+    flags = ["/O2", "/std:c++14", "-Drestrict="]
+    if sys.version_info[0] < 3:
+        include_dirs += ["src/msvc_include"]
 
 ext = Extension(
     "bslz4_to_sparse",
     sources=sources,
     include_dirs=include_dirs,
-    extra_compile_args=flags
-    + [
-        "-DF2PY_REPORT_ON_ARRAY_COPY=1",
-        # '-g0', '-flto',
-        # '-DDEBUG_COPY_ND_ARRAY',
-        #'-DF2PY_REPORT_ATEXIT'],
-    ],
+    extra_compile_args=flags,
+    language="c++",
 )
 
-with open(
-    os.path.join(os.path.abspath(os.path.dirname(__file__)), "README.md"), "r"
-) as f:
+with open(os.path.join(HERE, "README.md"), "r") as f:
     readme = f.read()
 
 setup(
@@ -99,15 +75,12 @@ setup(
     packages=["bslz4_to_sparse"],
     package_dir={"bslz4_to_sparse": "src"},
     ext_package="bslz4_to_sparse",
-    ext_modules=[
-        ext,
-    ],
-    cmdclass={"build_ext": build_ext_subclass},
-    install_requires=["numpy", "h5py"],
+    ext_modules=[ext],
+    install_requires=["numpy", "h5py", "c2py23"],
     author="Jon Wright",
     author_email="wright@esrf.fr",
     url="http://github.com/jonwright/bslz4_to_sparse",
-    version="0.0.16",
+    version="0.1.0",
     license="MIT",
     long_description=readme,
     long_description_content_type="text/markdown",

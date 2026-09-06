@@ -1,0 +1,8 @@
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.so
+*.pyd
+src/bslz4_to_sparse_wrapper.c
+test/*.h5
