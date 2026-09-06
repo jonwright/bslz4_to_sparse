@@ -42,7 +42,7 @@ int bslz4_decode(const char *BSLZ4_RESTRICT compressed, int compressed_length, i
     constexpr size_t NB = sizeof(T);
 
     if (threshold < 0) return ERR_BAD_THRESHOLD;
-    const uint32_t cut = (uint32_t) threshold;
+    const T cut = (T) threshold;
 
     const uint64_t total_output_length = read_be64((const uint8_t *) compressed);
     if (total_output_length / NB > (uint64_t) NIJ) return ERR_TOO_MANY_PIXELS;
@@ -72,8 +72,12 @@ int bslz4_decode(const char *BSLZ4_RESTRICT compressed, int compressed_length, i
             return ERR_UNTRANSPOSE;
 
         for (size_t j = 0; j < blocksize / NB; j++) {
-            uint32_t val = mask[j + i0] * (uint32_t) block[j];
-            if (BSLZ4_UNLIKELY(val > cut)) {
+            /* Plain "&" (not "&&"): both sides are always evaluated, so this
+             * stays branchless -- unlike the old mask*value>cut trick, it
+             * compares in T's own signed/float domain instead of forcing
+             * everything through uint32_t (wrong for negative or
+             * fractional values). */
+            if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (block[j] > cut))) {
                 *(output++) = block[j];
                 *(output_adr++) = (uint32_t) (j + i0);
                 npx++;
@@ -97,8 +101,7 @@ int bslz4_decode(const char *BSLZ4_RESTRICT compressed, int compressed_length, i
         memcpy(&block[tail_block / NB], compressed + compressed_length - remaining, (size_t) remaining);
     }
     for (size_t j = 0; j < (size_t(remaining) + tail_block) / NB; j++) {
-        uint32_t val = mask[j + i0] * (uint32_t) block[j];
-        if (BSLZ4_UNLIKELY(val > cut)) {
+        if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (block[j] > cut))) {
             *(output++) = block[j];
             *(output_adr++) = (uint32_t) (j + i0);
             npx++;
@@ -122,7 +125,7 @@ int bslz4_csc_decode(const char *BSLZ4_RESTRICT compressed, int compressed_lengt
     constexpr size_t NB = sizeof(T);
 
     if (threshold < 0) return ERR_BAD_THRESHOLD;
-    const uint32_t cut = (uint32_t) threshold;
+    const T cut = (T) threshold;
 
     const uint64_t total_output_length = read_be64((const uint8_t *) compressed);
     if (total_output_length / NB > (uint64_t) NIJ) return ERR_TOO_MANY_PIXELS;
@@ -159,7 +162,7 @@ int bslz4_csc_decode(const char *BSLZ4_RESTRICT compressed, int compressed_lengt
                 for (uint32_t k = indptr[j + i0]; k < indptr[j + i0 + 1]; k++) {
                     output[indices[k]] += (double) data[k] * (double) px;
                 }
-                if (BSLZ4_UNLIKELY((uint32_t) px > cut)) {
+                if (BSLZ4_UNLIKELY(px > cut)) {
                     *(outpx++) = px;
                     *(output_adr++) = (uint32_t) (j + i0);
                     npx++;
@@ -189,7 +192,7 @@ int bslz4_csc_decode(const char *BSLZ4_RESTRICT compressed, int compressed_lengt
             for (uint32_t k = indptr[j + i0]; k < indptr[j + i0 + 1]; k++) {
                 output[indices[k]] += (double) data[k] * (double) px;
             }
-            if (BSLZ4_UNLIKELY((uint32_t) px > cut)) {
+            if (BSLZ4_UNLIKELY(px > cut)) {
                 *(outpx++) = px;
                 *(output_adr++) = (uint32_t) (j + i0);
                 npx++;
