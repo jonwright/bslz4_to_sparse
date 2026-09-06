@@ -1,14 +1,21 @@
 #pragma once
 /*
- * Bitshuffle-LZ4 decode, generic over pixel type T and the untranspose
- * backend. Templates replace the previous #define DATATYPE / #include
- * macro-repetition; each (T, Untranspose) combination compiles to its
- * own ordinary function, instantiated explicitly (see
+ * Bitshuffle-LZ4/zstd decode, generic over pixel type T and the
+ * untranspose backend. Templates replace the previous #define DATATYPE /
+ * #include macro-repetition; each (T, Untranspose) combination compiles
+ * to its own ordinary function, instantiated explicitly (see
  * bslz4_to_sparse.cpp) behind a plain extern "C" name.
+ *
+ * codec (lz4 vs zstd, see bslz4_codec.hpp) is an ordinary runtime int
+ * parameter rather than a template axis: which codec a dataset used is
+ * HDF5 filter metadata the Python caller already has, and can differ
+ * between two datasets read with the very same compiled function in the
+ * same process, unlike the untranspose backend (a session-wide choice
+ * for benchmarking kernels against each other).
  *
  * No malloc, no VLA: the only scratch space used is a caller-owned
  * "workspace" buffer, carved by pointer arithmetic into three
- * same-sized regions (one block each): the LZ4-decompressed-but-still
+ * same-sized regions (one block each): the decompressed-but-still
  * -bitshuffled data, the untranspose backend's own scratch, and the
  * final untransposed block. Its required size (3 * blocksize, where
  * blocksize is read from the compressed stream header) is not known
@@ -16,8 +23,8 @@
  * cannot be a template constant or a fixed stack array.
  */
 
+#include "bslz4_codec.hpp"
 #include "bslz4_common.hpp"
-#include "../lz4/lib/lz4.h"
 
 #include <cstring>
 #include <cstdint>
@@ -27,7 +34,7 @@ namespace bslz4 {
 template<typename T,
          int64_t (*Untranspose)(void *out, const void *in, void *scratch,
                                  size_t size, size_t elem_size)>
-int bslz4_decode(const char *BSLZ4_RESTRICT compressed, int compressed_length,
+int bslz4_decode(const char *BSLZ4_RESTRICT compressed, int compressed_length, int codec,
                   const uint8_t *BSLZ4_RESTRICT mask, int NIJ,
                   T *BSLZ4_RESTRICT output, uint32_t *BSLZ4_RESTRICT output_adr,
                   int threshold,
@@ -56,9 +63,10 @@ int bslz4_decode(const char *BSLZ4_RESTRICT compressed, int compressed_length,
 
     for (; remaining >= (int64_t) blocksize; remaining -= (int64_t) blocksize) {
         uint32_t nbytes = read_be32((const uint8_t *) compressed + p);
-        int ret = LZ4_decompress_safe(compressed + p + 4, (char *) raw, nbytes, (int) blocksize);
+        int ret = bslz4_decompress(codec, compressed + p + 4, (int) nbytes,
+                                    (char *) raw, (int) blocksize);
         p += (int) nbytes + 4;
-        if (BSLZ4_UNLIKELY(ret != (int) blocksize)) return ERR_LZ4;
+        if (BSLZ4_UNLIKELY(ret != (int) blocksize)) return ERR_DECOMPRESS;
 
         if (BSLZ4_UNLIKELY(Untranspose(block, raw, scratch, blocksize / NB, NB) < 0))
             return ERR_UNTRANSPOSE;
@@ -77,9 +85,10 @@ int bslz4_decode(const char *BSLZ4_RESTRICT compressed, int compressed_length,
     size_t tail_block = (8 * NB) * ((size_t) remaining / (8 * NB));
     if (tail_block > 0) {
         uint32_t nbytes = read_be32((const uint8_t *) compressed + p);
-        int ret = LZ4_decompress_safe(compressed + p + 4, (char *) raw, nbytes, (int) tail_block);
+        int ret = bslz4_decompress(codec, compressed + p + 4, (int) nbytes,
+                                    (char *) raw, (int) tail_block);
         p += (int) nbytes + 4;
-        if (BSLZ4_UNLIKELY(ret != (int) tail_block)) return ERR_LZ4;
+        if (BSLZ4_UNLIKELY(ret != (int) tail_block)) return ERR_DECOMPRESS;
         if (BSLZ4_UNLIKELY(Untranspose(block, raw, scratch, tail_block / NB, NB) < 0))
             return ERR_UNTRANSPOSE;
     }
@@ -101,7 +110,7 @@ int bslz4_decode(const char *BSLZ4_RESTRICT compressed, int compressed_length,
 template<typename T,
          int64_t (*Untranspose)(void *out, const void *in, void *scratch,
                                  size_t size, size_t elem_size)>
-int bslz4_csc_decode(const char *BSLZ4_RESTRICT compressed, int compressed_length,
+int bslz4_csc_decode(const char *BSLZ4_RESTRICT compressed, int compressed_length, int codec,
                       const uint8_t *BSLZ4_RESTRICT mask, int NIJ,
                       T *BSLZ4_RESTRICT outpx, uint32_t *BSLZ4_RESTRICT output_adr,
                       int threshold,
@@ -136,9 +145,10 @@ int bslz4_csc_decode(const char *BSLZ4_RESTRICT compressed, int compressed_lengt
 
     for (; remaining >= (int64_t) blocksize; remaining -= (int64_t) blocksize) {
         uint32_t nbytes = read_be32((const uint8_t *) compressed + p);
-        int ret = LZ4_decompress_safe(compressed + p + 4, (char *) raw, nbytes, (int) blocksize);
+        int ret = bslz4_decompress(codec, compressed + p + 4, (int) nbytes,
+                                    (char *) raw, (int) blocksize);
         p += (int) nbytes + 4;
-        if (BSLZ4_UNLIKELY(ret != (int) blocksize)) return ERR_LZ4;
+        if (BSLZ4_UNLIKELY(ret != (int) blocksize)) return ERR_DECOMPRESS;
 
         if (BSLZ4_UNLIKELY(Untranspose(block, raw, scratch, blocksize / NB, NB) < 0))
             return ERR_UNTRANSPOSE;
@@ -162,9 +172,10 @@ int bslz4_csc_decode(const char *BSLZ4_RESTRICT compressed, int compressed_lengt
     size_t tail_block = (8 * NB) * ((size_t) remaining / (8 * NB));
     if (tail_block > 0) {
         uint32_t nbytes = read_be32((const uint8_t *) compressed + p);
-        int ret = LZ4_decompress_safe(compressed + p + 4, (char *) raw, nbytes, (int) tail_block);
+        int ret = bslz4_decompress(codec, compressed + p + 4, (int) nbytes,
+                                    (char *) raw, (int) tail_block);
         p += (int) nbytes + 4;
-        if (BSLZ4_UNLIKELY(ret != (int) tail_block)) return ERR_LZ4;
+        if (BSLZ4_UNLIKELY(ret != (int) tail_block)) return ERR_DECOMPRESS;
         if (BSLZ4_UNLIKELY(Untranspose(block, raw, scratch, tail_block / NB, NB) < 0))
             return ERR_UNTRANSPOSE;
     }

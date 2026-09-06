@@ -6,6 +6,7 @@ generated at build time from the C2PY_BEGIN block embedded in
 src/bslz4_to_sparse.cpp, then compiled and linked together with the c2py23
 runtime, the vendored lz4/bitshuffle/kcb sources, and our own C++ core.
 """
+import glob
 import os
 import platform
 import sys
@@ -45,17 +46,23 @@ sources = [
     "lz4/lib/lz4.c",
 ]
 
+# zstd decompression only (issue #10): the compress/ and dictBuilder/ trees,
+# and the optional huf_decompress_amd64.S fast path, are not needed.
+sources += sorted(glob.glob("zstd/lib/common/*.c"))
+sources += sorted(glob.glob("zstd/lib/decompress/*.c"))
+
 include_dirs = [
     C2PY_RUNTIME_DIR,
     "lz4/lib",
     "kcb/src",
     "bitshuffle/src",
+    "zstd/lib",
 ]
 
-flags = ["-O2", "-std=c++11"]
+flags = ["-O2", "-std=c++11", "-DZSTD_DISABLE_ASM"]
 
 if platform.system() == "Windows":
-    flags = ["/O2", "/std:c++14", "-Drestrict="]
+    flags = ["/O2", "/std:c++14", "-Drestrict=", "-DZSTD_DISABLE_ASM"]
     if sys.version_info[0] < 3:
         include_dirs += ["src/msvc_include"]
 

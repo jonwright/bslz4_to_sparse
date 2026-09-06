@@ -9,4 +9,6 @@ include kcb/src/bitshuffle.h
 include src/bslz4_common.hpp
 include src/bslz4_backends.hpp
 include src/bslz4_core.hpp
+include src/bslz4_codec.hpp
 include src/msvc_include/stdint.h
+recursive-include zstd/lib *.c *.h

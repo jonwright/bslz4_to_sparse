@@ -1,7 +1,7 @@
 /*
- * bslz4_to_sparse -- decode a bitshuffle-LZ4 compressed HDF5 chunk directly
- * into a masked/thresholded sparse (values, indices) pair, optionally also
- * accumulating a CSC powder integration.
+ * bslz4_to_sparse -- decode a bitshuffle-LZ4/zstd compressed HDF5 chunk
+ * directly into a masked/thresholded sparse (values, indices) pair,
+ * optionally also accumulating a CSC powder integration.
  *
  * Stage 1 of the c2py23 port (see GitHub issue #11): the type-variant
  * macro-repetition (bshuf.c / bshufdot.c, #include'd once per DATATYPE) is
@@ -17,6 +17,12 @@
  * at build time. SSE2/AVX2/AVX512/NEON variants of the upstream kernel are
  * a follow-up (they need per-ISA compiled objects; see issue #11 notes).
  *
+ * Issue #10: the block-level codec (lz4 or zstd, see bslz4_codec.hpp) is
+ * an ordinary runtime "codec" parameter, not a c2py23 variant -- which
+ * codec a dataset used is HDF5 filter metadata the Python caller already
+ * has (cd_values[4]: 2 = lz4, 3 = zstd), and can differ between two
+ * datasets decoded with the same compiled function in the same process.
+ *
  * No malloc, no VLA: the workspace buffer is owned and sized by the Python
  * caller (see bslz4_core.hpp for why the scratch size can't be a compile
  * time constant).
@@ -29,123 +35,123 @@ using namespace bslz4;
 
 extern "C" {
 
-int bslz4_u8_kcb(const char *compressed, int compressed_length,
+int bslz4_u8_kcb(const char *compressed, int compressed_length, int codec,
                   const uint8_t *mask, int NIJ,
                   uint8_t *output, uint32_t *output_adr, int threshold,
                   uint8_t *workspace, size_t workspace_len) {
     return bslz4_decode<uint8_t, untranspose_kcb>(
-        compressed, compressed_length, mask, NIJ, output, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, output, output_adr, threshold,
         workspace, workspace_len);
 }
 
-int bslz4_u8_scal(const char *compressed, int compressed_length,
+int bslz4_u8_scal(const char *compressed, int compressed_length, int codec,
                    const uint8_t *mask, int NIJ,
                    uint8_t *output, uint32_t *output_adr, int threshold,
                    uint8_t *workspace, size_t workspace_len) {
     return bslz4_decode<uint8_t, untranspose_bshuf_scal>(
-        compressed, compressed_length, mask, NIJ, output, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, output, output_adr, threshold,
         workspace, workspace_len);
 }
 
-int bslz4_u16_kcb(const char *compressed, int compressed_length,
+int bslz4_u16_kcb(const char *compressed, int compressed_length, int codec,
                    const uint8_t *mask, int NIJ,
                    uint16_t *output, uint32_t *output_adr, int threshold,
                    uint8_t *workspace, size_t workspace_len) {
     return bslz4_decode<uint16_t, untranspose_kcb>(
-        compressed, compressed_length, mask, NIJ, output, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, output, output_adr, threshold,
         workspace, workspace_len);
 }
 
-int bslz4_u16_scal(const char *compressed, int compressed_length,
+int bslz4_u16_scal(const char *compressed, int compressed_length, int codec,
                     const uint8_t *mask, int NIJ,
                     uint16_t *output, uint32_t *output_adr, int threshold,
                     uint8_t *workspace, size_t workspace_len) {
     return bslz4_decode<uint16_t, untranspose_bshuf_scal>(
-        compressed, compressed_length, mask, NIJ, output, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, output, output_adr, threshold,
         workspace, workspace_len);
 }
 
-int bslz4_u32_kcb(const char *compressed, int compressed_length,
+int bslz4_u32_kcb(const char *compressed, int compressed_length, int codec,
                    const uint8_t *mask, int NIJ,
                    uint32_t *output, uint32_t *output_adr, int threshold,
                    uint8_t *workspace, size_t workspace_len) {
     return bslz4_decode<uint32_t, untranspose_kcb>(
-        compressed, compressed_length, mask, NIJ, output, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, output, output_adr, threshold,
         workspace, workspace_len);
 }
 
-int bslz4_u32_scal(const char *compressed, int compressed_length,
+int bslz4_u32_scal(const char *compressed, int compressed_length, int codec,
                     const uint8_t *mask, int NIJ,
                     uint32_t *output, uint32_t *output_adr, int threshold,
                     uint8_t *workspace, size_t workspace_len) {
     return bslz4_decode<uint32_t, untranspose_bshuf_scal>(
-        compressed, compressed_length, mask, NIJ, output, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, output, output_adr, threshold,
         workspace, workspace_len);
 }
 
-int bslz4_csc_u8_kcb(const char *compressed, int compressed_length,
+int bslz4_csc_u8_kcb(const char *compressed, int compressed_length, int codec,
                       const uint8_t *mask, int NIJ,
                       uint8_t *outpx, uint32_t *output_adr, int threshold,
                       double *output, int NOUT,
                       const float *data, const uint32_t *indices, const uint32_t *indptr,
                       uint8_t *workspace, size_t workspace_len) {
     return bslz4_csc_decode<uint8_t, untranspose_kcb>(
-        compressed, compressed_length, mask, NIJ, outpx, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, outpx, output_adr, threshold,
         output, NOUT, data, indices, indptr, workspace, workspace_len);
 }
 
-int bslz4_csc_u8_scal(const char *compressed, int compressed_length,
+int bslz4_csc_u8_scal(const char *compressed, int compressed_length, int codec,
                        const uint8_t *mask, int NIJ,
                        uint8_t *outpx, uint32_t *output_adr, int threshold,
                        double *output, int NOUT,
                        const float *data, const uint32_t *indices, const uint32_t *indptr,
                        uint8_t *workspace, size_t workspace_len) {
     return bslz4_csc_decode<uint8_t, untranspose_bshuf_scal>(
-        compressed, compressed_length, mask, NIJ, outpx, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, outpx, output_adr, threshold,
         output, NOUT, data, indices, indptr, workspace, workspace_len);
 }
 
-int bslz4_csc_u16_kcb(const char *compressed, int compressed_length,
+int bslz4_csc_u16_kcb(const char *compressed, int compressed_length, int codec,
                        const uint8_t *mask, int NIJ,
                        uint16_t *outpx, uint32_t *output_adr, int threshold,
                        double *output, int NOUT,
                        const float *data, const uint32_t *indices, const uint32_t *indptr,
                        uint8_t *workspace, size_t workspace_len) {
     return bslz4_csc_decode<uint16_t, untranspose_kcb>(
-        compressed, compressed_length, mask, NIJ, outpx, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, outpx, output_adr, threshold,
         output, NOUT, data, indices, indptr, workspace, workspace_len);
 }
 
-int bslz4_csc_u16_scal(const char *compressed, int compressed_length,
+int bslz4_csc_u16_scal(const char *compressed, int compressed_length, int codec,
                         const uint8_t *mask, int NIJ,
                         uint16_t *outpx, uint32_t *output_adr, int threshold,
                         double *output, int NOUT,
                         const float *data, const uint32_t *indices, const uint32_t *indptr,
                         uint8_t *workspace, size_t workspace_len) {
     return bslz4_csc_decode<uint16_t, untranspose_bshuf_scal>(
-        compressed, compressed_length, mask, NIJ, outpx, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, outpx, output_adr, threshold,
         output, NOUT, data, indices, indptr, workspace, workspace_len);
 }
 
-int bslz4_csc_u32_kcb(const char *compressed, int compressed_length,
+int bslz4_csc_u32_kcb(const char *compressed, int compressed_length, int codec,
                        const uint8_t *mask, int NIJ,
                        uint32_t *outpx, uint32_t *output_adr, int threshold,
                        double *output, int NOUT,
                        const float *data, const uint32_t *indices, const uint32_t *indptr,
                        uint8_t *workspace, size_t workspace_len) {
     return bslz4_csc_decode<uint32_t, untranspose_kcb>(
-        compressed, compressed_length, mask, NIJ, outpx, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, outpx, output_adr, threshold,
         output, NOUT, data, indices, indptr, workspace, workspace_len);
 }
 
-int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
+int bslz4_csc_u32_scal(const char *compressed, int compressed_length, int codec,
                         const uint8_t *mask, int NIJ,
                         uint32_t *outpx, uint32_t *output_adr, int threshold,
                         double *output, int NOUT,
                         const float *data, const uint32_t *indices, const uint32_t *indptr,
                         uint8_t *workspace, size_t workspace_len) {
     return bslz4_csc_decode<uint32_t, untranspose_bshuf_scal>(
-        compressed, compressed_length, mask, NIJ, outpx, output_adr, threshold,
+        compressed, compressed_length, codec, mask, NIJ, outpx, output_adr, threshold,
         output, NOUT, data, indices, indptr, workspace, workspace_len);
 }
 
@@ -158,7 +164,7 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
     "timing": True,
     "functions": [
         {
-            "py_sig": "bslz4(compressed: buffer, mask: buffer, output: buffer, output_adr: buffer, workspace: buffer, threshold: int) -> int",
+            "py_sig": "bslz4(compressed: buffer, mask: buffer, output: buffer, output_adr: buffer, workspace: buffer, threshold: int, codec: int = 2) -> int",
             "doc": "Decode one bitshuffle-LZ4 chunk into masked/thresholded sparse (output, output_adr).",
             "checks": [
                 "mask.format == 'B' or mask.format == 'b'",
@@ -172,6 +178,7 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     "map": {
                         "compressed": "compressed.ptr",
                         "compressed_length": "compressed.len",
+                        "codec": "codec",
                         "mask": "mask.ptr",
                         "NIJ": "mask.n",
                         "output": "output.ptr",
@@ -182,11 +189,11 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     },
                     "variants": [
                         {
-                            "sig": "bslz4_u8_kcb(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint8_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_u8_kcb(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint8_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
                             "default": True,
                         },
                         {
-                            "sig": "bslz4_u8_scal(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint8_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_u8_scal(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint8_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
                         },
                     ],
                 },
@@ -196,6 +203,7 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     "map": {
                         "compressed": "compressed.ptr",
                         "compressed_length": "compressed.len",
+                        "codec": "codec",
                         "mask": "mask.ptr",
                         "NIJ": "mask.n",
                         "output": "output.ptr",
@@ -206,11 +214,11 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     },
                     "variants": [
                         {
-                            "sig": "bslz4_u16_kcb(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint16_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_u16_kcb(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint16_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
                             "default": True,
                         },
                         {
-                            "sig": "bslz4_u16_scal(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint16_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_u16_scal(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint16_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
                         },
                     ],
                 },
@@ -220,6 +228,7 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     "map": {
                         "compressed": "compressed.ptr",
                         "compressed_length": "compressed.len",
+                        "codec": "codec",
                         "mask": "mask.ptr",
                         "NIJ": "mask.n",
                         "output": "output.ptr",
@@ -230,11 +239,11 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     },
                     "variants": [
                         {
-                            "sig": "bslz4_u32_kcb(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint32_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_u32_kcb(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint32_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
                             "default": True,
                         },
                         {
-                            "sig": "bslz4_u32_scal(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint32_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_u32_scal(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint32_t *output, uint32_t *output_adr, int threshold, uint8_t *workspace, size_t workspace_len) -> int",
                         },
                     ],
                 },
@@ -242,7 +251,7 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
             "default_raise": "TypeError: expected uint8, uint16 or uint32 output buffer",
         },
         {
-            "py_sig": "bslz4_csc(compressed: buffer, mask: buffer, outpx: buffer, output_adr: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer) -> int",
+            "py_sig": "bslz4_csc(compressed: buffer, mask: buffer, outpx: buffer, output_adr: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, codec: int = 2) -> int",
             "doc": "Decode one bitshuffle-LZ4 chunk into sparse (outpx, output_adr) and accumulate a CSC powder integration into powder.",
             "checks": [
                 "mask.format == 'B' or mask.format == 'b'",
@@ -260,6 +269,7 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     "map": {
                         "compressed": "compressed.ptr",
                         "compressed_length": "compressed.len",
+                        "codec": "codec",
                         "mask": "mask.ptr",
                         "NIJ": "mask.n",
                         "outpx": "outpx.ptr",
@@ -275,11 +285,11 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     },
                     "variants": [
                         {
-                            "sig": "bslz4_csc_u8_kcb(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint8_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_csc_u8_kcb(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint8_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
                             "default": True,
                         },
                         {
-                            "sig": "bslz4_csc_u8_scal(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint8_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_csc_u8_scal(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint8_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
                         },
                     ],
                 },
@@ -289,6 +299,7 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     "map": {
                         "compressed": "compressed.ptr",
                         "compressed_length": "compressed.len",
+                        "codec": "codec",
                         "mask": "mask.ptr",
                         "NIJ": "mask.n",
                         "outpx": "outpx.ptr",
@@ -304,11 +315,11 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     },
                     "variants": [
                         {
-                            "sig": "bslz4_csc_u16_kcb(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint16_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_csc_u16_kcb(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint16_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
                             "default": True,
                         },
                         {
-                            "sig": "bslz4_csc_u16_scal(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint16_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_csc_u16_scal(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint16_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
                         },
                     ],
                 },
@@ -318,6 +329,7 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     "map": {
                         "compressed": "compressed.ptr",
                         "compressed_length": "compressed.len",
+                        "codec": "codec",
                         "mask": "mask.ptr",
                         "NIJ": "mask.n",
                         "outpx": "outpx.ptr",
@@ -333,11 +345,11 @@ int bslz4_csc_u32_scal(const char *compressed, int compressed_length,
                     },
                     "variants": [
                         {
-                            "sig": "bslz4_csc_u32_kcb(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint32_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_csc_u32_kcb(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint32_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
                             "default": True,
                         },
                         {
-                            "sig": "bslz4_csc_u32_scal(const char *compressed, int compressed_length, const uint8_t *mask, int NIJ, uint32_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
+                            "sig": "bslz4_csc_u32_scal(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, uint32_t *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
                         },
                     ],
                 },
