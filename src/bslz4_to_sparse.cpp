@@ -355,6 +355,230 @@ int bslz4_csc_f64_scal(const char *compressed, int compressed_length, int codec,
         output, NOUT, data, indices, indptr, workspace, workspace_len);
 }
 
+int bslz4_csc_multi_u8_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<uint8_t, untranspose_kcb>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_u8_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<uint8_t, untranspose_bshuf_scal>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_u16_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<uint16_t, untranspose_kcb>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_u16_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<uint16_t, untranspose_bshuf_scal>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_u32_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<uint32_t, untranspose_kcb>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_u32_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<uint32_t, untranspose_bshuf_scal>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_i8_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<int8_t, untranspose_kcb>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_i8_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<int8_t, untranspose_bshuf_scal>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_i16_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<int16_t, untranspose_kcb>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_i16_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<int16_t, untranspose_bshuf_scal>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_i32_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<int32_t, untranspose_kcb>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_i32_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<int32_t, untranspose_bshuf_scal>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_f32_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              float *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<float, untranspose_kcb>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_f32_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              float *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<float, untranspose_bshuf_scal>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_f64_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              double *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<double, untranspose_kcb>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_f64_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              double *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<double, untranspose_bshuf_scal>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 } /* extern "C" */
 
 /* C2PY_BEGIN
@@ -825,6 +1049,290 @@ int bslz4_csc_f64_scal(const char *compressed, int compressed_length, int codec,
                         },
                         {
                             "sig": "bslz4_csc_f64_scal(const char *compressed, int compressed_length, int codec, const uint8_t *mask, int NIJ, double *outpx, uint32_t *output_adr, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len) -> int",
+                        },
+                    ],
+                },
+            ],
+            "default_raise": "TypeError: expected uint8, int8, uint16, int16, uint32, int32, float32 or float64 outpx buffer",
+        },
+        {
+            "py_sig": "bslz4_csc_multi(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, cursors: buffer, nout: int, codec: int = 2) -> int",
+            "doc": "Decode a batch of bitshuffle-LZ4/zstd chunks from the same dataset into per-frame sparse (outpx, output_adr, npx_out) and per-frame CSC powder integrations (powder), amortizing the CSC lookup across frames for cache locality (issue #12).",
+            "checks": [
+                "mask.format == 'B' or mask.format == 'b'",
+                "output_adr.format == 'I'",
+                "npx_out.format == 'i'",
+                "powder.format == 'd'",
+                "data.format == 'f'",
+                "indices.format == 'I' or indices.format == 'i'",
+                "indptr.format == 'I' or indptr.format == 'i'",
+                "workspace.format == 'B'",
+                "compressed_ptrs.itemsize == 8",
+                "compressed_lengths.itemsize == 4",
+                "cursors.itemsize == 8",
+            ],
+            "c_overloads": [
+                {
+                    "when": "outpx.format == 'B'",
+                    "group": "multi_u8",
+                    "map": {
+                        "compressed_ptrs": "compressed_ptrs.ptr",
+                        "compressed_lengths": "compressed_lengths.ptr",
+                        "nframes": "compressed_ptrs.n",
+                        "codec": "codec",
+                        "mask": "mask.ptr",
+                        "NIJ": "mask.n",
+                        "outpx": "outpx.ptr",
+                        "output_adr": "output_adr.ptr",
+                        "npx_out": "npx_out.ptr",
+                        "threshold": "threshold",
+                        "output": "powder.ptr",
+                        "NOUT": "nout",
+                        "data": "data.ptr",
+                        "indices": "indices.ptr",
+                        "indptr": "indptr.ptr",
+                        "workspace": "workspace.ptr",
+                        "workspace_len": "workspace.len",
+                        "cursors": "cursors.ptr",
+                    },
+                    "variants": [
+                        {
+                            "sig": "bslz4_csc_multi_u8_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                            "default": True,
+                        },
+                        {
+                            "sig": "bslz4_csc_multi_u8_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                        },
+                    ],
+                },
+                {
+                    "when": "outpx.format == 'H'",
+                    "group": "multi_u16",
+                    "map": {
+                        "compressed_ptrs": "compressed_ptrs.ptr",
+                        "compressed_lengths": "compressed_lengths.ptr",
+                        "nframes": "compressed_ptrs.n",
+                        "codec": "codec",
+                        "mask": "mask.ptr",
+                        "NIJ": "mask.n",
+                        "outpx": "outpx.ptr",
+                        "output_adr": "output_adr.ptr",
+                        "npx_out": "npx_out.ptr",
+                        "threshold": "threshold",
+                        "output": "powder.ptr",
+                        "NOUT": "nout",
+                        "data": "data.ptr",
+                        "indices": "indices.ptr",
+                        "indptr": "indptr.ptr",
+                        "workspace": "workspace.ptr",
+                        "workspace_len": "workspace.len",
+                        "cursors": "cursors.ptr",
+                    },
+                    "variants": [
+                        {
+                            "sig": "bslz4_csc_multi_u16_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                            "default": True,
+                        },
+                        {
+                            "sig": "bslz4_csc_multi_u16_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                        },
+                    ],
+                },
+                {
+                    "when": "outpx.format == 'I'",
+                    "group": "multi_u32",
+                    "map": {
+                        "compressed_ptrs": "compressed_ptrs.ptr",
+                        "compressed_lengths": "compressed_lengths.ptr",
+                        "nframes": "compressed_ptrs.n",
+                        "codec": "codec",
+                        "mask": "mask.ptr",
+                        "NIJ": "mask.n",
+                        "outpx": "outpx.ptr",
+                        "output_adr": "output_adr.ptr",
+                        "npx_out": "npx_out.ptr",
+                        "threshold": "threshold",
+                        "output": "powder.ptr",
+                        "NOUT": "nout",
+                        "data": "data.ptr",
+                        "indices": "indices.ptr",
+                        "indptr": "indptr.ptr",
+                        "workspace": "workspace.ptr",
+                        "workspace_len": "workspace.len",
+                        "cursors": "cursors.ptr",
+                    },
+                    "variants": [
+                        {
+                            "sig": "bslz4_csc_multi_u32_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                            "default": True,
+                        },
+                        {
+                            "sig": "bslz4_csc_multi_u32_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                        },
+                    ],
+                },
+                {
+                    "when": "outpx.format == 'b'",
+                    "group": "multi_i8",
+                    "map": {
+                        "compressed_ptrs": "compressed_ptrs.ptr",
+                        "compressed_lengths": "compressed_lengths.ptr",
+                        "nframes": "compressed_ptrs.n",
+                        "codec": "codec",
+                        "mask": "mask.ptr",
+                        "NIJ": "mask.n",
+                        "outpx": "outpx.ptr",
+                        "output_adr": "output_adr.ptr",
+                        "npx_out": "npx_out.ptr",
+                        "threshold": "threshold",
+                        "output": "powder.ptr",
+                        "NOUT": "nout",
+                        "data": "data.ptr",
+                        "indices": "indices.ptr",
+                        "indptr": "indptr.ptr",
+                        "workspace": "workspace.ptr",
+                        "workspace_len": "workspace.len",
+                        "cursors": "cursors.ptr",
+                    },
+                    "variants": [
+                        {
+                            "sig": "bslz4_csc_multi_i8_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, int8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                            "default": True,
+                        },
+                        {
+                            "sig": "bslz4_csc_multi_i8_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, int8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                        },
+                    ],
+                },
+                {
+                    "when": "outpx.format == 'h'",
+                    "group": "multi_i16",
+                    "map": {
+                        "compressed_ptrs": "compressed_ptrs.ptr",
+                        "compressed_lengths": "compressed_lengths.ptr",
+                        "nframes": "compressed_ptrs.n",
+                        "codec": "codec",
+                        "mask": "mask.ptr",
+                        "NIJ": "mask.n",
+                        "outpx": "outpx.ptr",
+                        "output_adr": "output_adr.ptr",
+                        "npx_out": "npx_out.ptr",
+                        "threshold": "threshold",
+                        "output": "powder.ptr",
+                        "NOUT": "nout",
+                        "data": "data.ptr",
+                        "indices": "indices.ptr",
+                        "indptr": "indptr.ptr",
+                        "workspace": "workspace.ptr",
+                        "workspace_len": "workspace.len",
+                        "cursors": "cursors.ptr",
+                    },
+                    "variants": [
+                        {
+                            "sig": "bslz4_csc_multi_i16_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, int16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                            "default": True,
+                        },
+                        {
+                            "sig": "bslz4_csc_multi_i16_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, int16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                        },
+                    ],
+                },
+                {
+                    "when": "outpx.format == 'i'",
+                    "group": "multi_i32",
+                    "map": {
+                        "compressed_ptrs": "compressed_ptrs.ptr",
+                        "compressed_lengths": "compressed_lengths.ptr",
+                        "nframes": "compressed_ptrs.n",
+                        "codec": "codec",
+                        "mask": "mask.ptr",
+                        "NIJ": "mask.n",
+                        "outpx": "outpx.ptr",
+                        "output_adr": "output_adr.ptr",
+                        "npx_out": "npx_out.ptr",
+                        "threshold": "threshold",
+                        "output": "powder.ptr",
+                        "NOUT": "nout",
+                        "data": "data.ptr",
+                        "indices": "indices.ptr",
+                        "indptr": "indptr.ptr",
+                        "workspace": "workspace.ptr",
+                        "workspace_len": "workspace.len",
+                        "cursors": "cursors.ptr",
+                    },
+                    "variants": [
+                        {
+                            "sig": "bslz4_csc_multi_i32_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, int32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                            "default": True,
+                        },
+                        {
+                            "sig": "bslz4_csc_multi_i32_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, int32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                        },
+                    ],
+                },
+                {
+                    "when": "outpx.format == 'f'",
+                    "group": "multi_f32",
+                    "map": {
+                        "compressed_ptrs": "compressed_ptrs.ptr",
+                        "compressed_lengths": "compressed_lengths.ptr",
+                        "nframes": "compressed_ptrs.n",
+                        "codec": "codec",
+                        "mask": "mask.ptr",
+                        "NIJ": "mask.n",
+                        "outpx": "outpx.ptr",
+                        "output_adr": "output_adr.ptr",
+                        "npx_out": "npx_out.ptr",
+                        "threshold": "threshold",
+                        "output": "powder.ptr",
+                        "NOUT": "nout",
+                        "data": "data.ptr",
+                        "indices": "indices.ptr",
+                        "indptr": "indptr.ptr",
+                        "workspace": "workspace.ptr",
+                        "workspace_len": "workspace.len",
+                        "cursors": "cursors.ptr",
+                    },
+                    "variants": [
+                        {
+                            "sig": "bslz4_csc_multi_f32_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, float *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                            "default": True,
+                        },
+                        {
+                            "sig": "bslz4_csc_multi_f32_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, float *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                        },
+                    ],
+                },
+                {
+                    "when": "outpx.format == 'd'",
+                    "group": "multi_f64",
+                    "map": {
+                        "compressed_ptrs": "compressed_ptrs.ptr",
+                        "compressed_lengths": "compressed_lengths.ptr",
+                        "nframes": "compressed_ptrs.n",
+                        "codec": "codec",
+                        "mask": "mask.ptr",
+                        "NIJ": "mask.n",
+                        "outpx": "outpx.ptr",
+                        "output_adr": "output_adr.ptr",
+                        "npx_out": "npx_out.ptr",
+                        "threshold": "threshold",
+                        "output": "powder.ptr",
+                        "NOUT": "nout",
+                        "data": "data.ptr",
+                        "indices": "indices.ptr",
+                        "indptr": "indptr.ptr",
+                        "workspace": "workspace.ptr",
+                        "workspace_len": "workspace.len",
+                        "cursors": "cursors.ptr",
+                    },
+                    "variants": [
+                        {
+                            "sig": "bslz4_csc_multi_f64_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, double *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
+                            "default": True,
+                        },
+                        {
+                            "sig": "bslz4_csc_multi_f64_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, double *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int",
                         },
                     ],
                 },

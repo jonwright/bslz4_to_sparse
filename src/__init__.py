@@ -1,8 +1,13 @@
 import numpy as np
 import ctypes
 from . import bslz4_to_sparse as _ext
-from .bslz4_to_sparse import bslz4, bslz4_csc
-from .bslz4_to_sparse import _rebind_bslz4, _rebind_bslz4_csc, _variants_bslz4
+from .bslz4_to_sparse import bslz4, bslz4_csc, bslz4_csc_multi
+from .bslz4_to_sparse import (
+    _rebind_bslz4,
+    _rebind_bslz4_csc,
+    _rebind_bslz4_csc_multi,
+    _variants_bslz4,
+)
 
 version = "0.1.0"
 
@@ -74,18 +79,32 @@ def detect_codec(ds):
     return CODEC_LZ4
 
 
-def _workspace_bytes(cmp):
+def _blocksize_bytes(cmp):
     """
-    Bytes required for the bitshuffle-lz4 decode workspace for this
-    compressed chunk: 3 times the block size encoded in the stream header
-    (bytes 8:12, big endian; 0 means the 8192 byte default).
+    The bitshuffle block size (bytes) encoded in this compressed chunk's
+    stream header (bytes 8:12, big endian; 0 means the 8192 byte default).
     """
     if cmp.size < 12:
-        return 3 * DEFAULT_BLOCK_BYTES
+        return DEFAULT_BLOCK_BYTES
     blocksize = (int(cmp[8]) << 24) | (int(cmp[9]) << 16) | (int(cmp[10]) << 8) | int(cmp[11])
-    if blocksize == 0:
-        blocksize = DEFAULT_BLOCK_BYTES
-    return 3 * blocksize
+    return blocksize if blocksize else DEFAULT_BLOCK_BYTES
+
+
+def _workspace_bytes(cmp):
+    """
+    Bytes required for the single-frame decode workspace for this
+    compressed chunk: 3 times its block size (see _blocksize_bytes).
+    """
+    return 3 * _blocksize_bytes(cmp)
+
+
+def _workspace_bytes_multi(cmp, nframes):
+    """
+    Bytes required for the bslz4_csc_multi decode workspace: (nframes + 2)
+    times the block size (see bslz4_core.hpp -- one untransposed-block
+    region per frame, plus one shared raw + one shared scratch region).
+    """
+    return (nframes + 2) * _blocksize_bytes(cmp)
 
 
 def available_backends():
@@ -112,6 +131,9 @@ def set_backend(name):
     for suffix in _TYPE_SUFFIXES:
         _rebind_bslz4(None if name is None else "bslz4_%s_%s" % (suffix, name))
         _rebind_bslz4_csc(None if name is None else "bslz4_csc_%s_%s" % (suffix, name))
+        _rebind_bslz4_csc_multi(
+            None if name is None else "bslz4_csc_multi_%s_%s" % (suffix, name)
+        )
 
 
 class chunk2sparse:
@@ -246,3 +268,112 @@ class chunk2sparseCSC:
         col = np.empty(npixels, np.uint16)
         np.divmod(self.indices[:npixels], self.nfast, out=(row, col))
         return npixels, row, col, self.values[:npixels].copy(), self.powder.copy()
+
+
+class chunk2sparseCSCmulti:
+    """
+    Batched version of chunk2sparseCSC (issue #12): decodes a series of
+    frames from the same dataset in one call. The CSC matrix (data,
+    indices, indptr) lookup for each pixel is done once and applied
+    across every frame's value for that pixel (instead of being re-walked
+    once per frame), which is where the speedup over one chunk2sparseCSC
+    call per frame comes from -- see bslz4_core.hpp's
+    bslz4_csc_decode_multi for the loop restructuring this relies on.
+
+    All frames must come from the same dataset (same detector shape/
+    dtype/block size); chunk2sparseCSC's single-frame call still exists
+    and is what this sits on top of in C.
+    """
+
+    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4):
+        """
+        mask = detector mask
+        csc = Either scipy.sparse.csc_matrix (data, indices, indptr, shape)
+              Or  pyFAI CSCIntegrator object (data, indices, indptr, bins)
+        dtype = the dtype for the pixels in the dataset
+        codec = CODEC_LZ4 (default) or CODEC_ZSTD, matching the dataset's
+                bitshuffle filter (see detect_codec)
+        """
+        self.nfast = mask.shape[1]
+        self.mask = mask.ravel()
+        self.cscdata = csc.data
+        self.cscindices = csc.indices
+        self.cscindptr = csc.indptr
+        assert len(csc.indptr) == len(self.mask) + 1, "csc shape must match mask"
+        if hasattr(csc, "shape"):
+            self.nbins = csc.shape[0]
+        elif hasattr(csc, "bins"):
+            self.nbins = csc.bins
+        else:
+            raise Exception("csc argument has no shape or bins attribute")
+
+        self.npix = mask.size
+        self.dtype = dtype
+        self.codec = codec
+
+        self._nframes = 0
+        self._outpx = None
+        self._output_adr = None
+        self._npx_out = None
+        self._powder = None
+        self._cursors = None
+        self._workspace = None
+
+    def _ensure_capacity(self, nframes, blocksize):
+        if self._nframes != nframes:
+            self._outpx = np.empty((nframes, self.npix), self.dtype)
+            self._output_adr = np.empty((nframes, self.npix), np.uint32)
+            self._npx_out = np.empty(nframes, np.int32)
+            self._powder = np.empty((nframes, self.nbins), np.float64)
+            self._cursors = np.empty(nframes, np.int64)
+            self._nframes = nframes
+        need = (nframes + 2) * blocksize
+        if self._workspace is None or self._workspace.size < need:
+            self._workspace = np.empty(need, np.uint8)
+
+    def __call__(self, buffers, cut):
+        """
+        buffers = a sequence of N raw compressed chunks (one per frame,
+                  e.g. from repeated ds.id.read_direct_chunk() calls),
+                  all from the same dataset.
+        cut = threshold, pixels below this value are ignored
+
+        returns (npx_out, (outpx, output_adr), powder):
+          npx_out      -- int32 array, length N, pixel count per frame
+          outpx         -- (N, npix) array, outpx[f, :npx_out[f]] valid
+          output_adr    -- (N, npix) uint32 array, same slicing
+          powder        -- (N, nbins) float64 array, one full CSC
+                            integration per frame
+
+        The returned arrays are owned by this object and reused (and
+        possibly reallocated) on the next call, exactly like
+        chunk2sparseCSC's single-frame buffers.
+        """
+        bufs = [npbuf(b) for b in buffers]
+        nframes = len(bufs)
+        blocksize = _blocksize_bytes(bufs[0])
+        self._ensure_capacity(nframes, blocksize)
+
+        ptrs = np.array([b.ctypes.data for b in bufs], dtype=np.int64)
+        lens = np.array([b.size for b in bufs], dtype=np.int32)
+
+        ret = bslz4_csc_multi(
+            ptrs,
+            lens,
+            self.mask,
+            self._outpx.ravel(),
+            self._output_adr.ravel(),
+            self._npx_out,
+            cut,
+            self._powder.ravel(),
+            self.cscdata,
+            self.cscindices,
+            self.cscindptr,
+            self._workspace,
+            self._cursors,
+            self.nbins,
+            self.codec,
+        )
+        if ret < 0:
+            raise Exception("Error decoding batch: %d" % (ret))
+        return self._npx_out, (self._outpx, self._output_adr), self._powder
