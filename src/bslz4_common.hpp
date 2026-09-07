@@ -49,7 +49,7 @@ constexpr size_t DEFAULT_BLOCK_BYTES = 8192;
 enum : int {
     ERR_TOO_MANY_PIXELS = -99,     /* decompressed size needs more room than NIJ */
     ERR_TOO_LARGE = -98,           /* decompressed size does not fit an int */
-    ERR_LZ4 = -2,                  /* LZ4_decompress_safe returned an unexpected size */
+    ERR_DECOMPRESS = -2,           /* LZ4/zstd decompress returned an unexpected size */
     ERR_BAD_THRESHOLD = -100,      /* threshold < 0 */
     ERR_WORKSPACE_TOO_SMALL = -103,/* caller-supplied workspace smaller than 3*blocksize */
     ERR_UNTRANSPOSE = -104,        /* backend untranspose kernel reported failure */
