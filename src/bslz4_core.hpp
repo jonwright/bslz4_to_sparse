@@ -124,11 +124,12 @@ int bslz4_decode(const char *BSLZ4_RESTRICT compressed, int compressed_length, i
  * frame in the workspace, not a single shared one.
  *
  * compressed_ptrs/compressed_lengths are address+length pairs (Python
- * ints from e.g. a numpy array's .ctypes.data) rather than one buffer
- * per frame, since c2py23's buffer parameters are one Python object
- * each and frames compress to different lengths -- this keeps every
- * frame's bytes zero-copy in Python's own per-frame arrays instead of
- * requiring them to be concatenated first. See bslz4_to_sparse.cpp.
+ * ints written by note_chunk(), see bslz4_to_sparse.cpp and
+ * _gather_chunks() in __init__.py) rather than one buffer per frame,
+ * since c2py23's buffer parameters are one Python object each and
+ * frames compress to different lengths -- this keeps every frame's
+ * bytes zero-copy in Python's own per-frame arrays instead of requiring
+ * them to be concatenated first.
  *
  * All frames are assumed to share total_output_length and block size
  * (read from frame 0's header, and checked against every other frame's
@@ -218,7 +219,15 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                 uint32_t k1 = indptr[j + i0 + 1];
                 for (int f = 0; f < nframes; f++) {
                     T px = blockbuf[(size_t) f * block_elems + j];
-                    if (BSLZ4_UNLIKELY(px > 0)) {
+                    /* TODO(signed T): px != 0 includes negative values in the
+                     * powder sum -- correct for background-subtracted float/
+                     * signed data, where negatives are real signal. But for
+                     * old Pilatus-style signed-integer sentinels (-1 dead
+                     * pixel, -2 overload, ...) those negatives are error
+                     * markers, not signal, and arguably should be dropped
+                     * instead. Genuine per-dataset choice, not resolved or
+                     * parameterized here yet. */
+                    if (BSLZ4_UNLIKELY(px != 0)) {
                         double *outf = output + (size_t) f * NOUT;
                         for (uint32_t k = k0; k < k1; k++)
                             outf[indices[k]] += (double) data[k] * (double) px;
@@ -263,7 +272,9 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             uint32_t k1 = indptr[j + i0 + 1];
             for (int f = 0; f < nframes; f++) {
                 T px = blockbuf[(size_t) f * block_elems + j];
-                if (BSLZ4_UNLIKELY(px > 0)) {
+                /* TODO(signed T): see the identical note in the main block
+                 * loop above -- same open question, same code path. */
+                if (BSLZ4_UNLIKELY(px != 0)) {
                     double *outf = output + (size_t) f * NOUT;
                     for (uint32_t k = k0; k < k1; k++)
                         outf[indices[k]] += (double) data[k] * (double) px;

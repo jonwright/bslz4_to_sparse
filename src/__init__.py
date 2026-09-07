@@ -1,11 +1,13 @@
+import struct
 import numpy as np
 import ctypes
 from . import bslz4_to_sparse as _ext
-from .bslz4_to_sparse import bslz4, bslz4_csc, bslz4_csc_multi
+from .bslz4_to_sparse import bslz4, bslz4_csc, bslz4_csc_multi, bslz4_csc_multi_base, note_chunk
 from .bslz4_to_sparse import (
     _rebind_bslz4,
     _rebind_bslz4_csc,
     _rebind_bslz4_csc_multi,
+    _rebind_bslz4_csc_multi_base,
     _variants_bslz4,
 )
 
@@ -83,11 +85,104 @@ def _blocksize_bytes(cmp):
     """
     The bitshuffle block size (bytes) encoded in this compressed chunk's
     stream header (bytes 8:12, big endian; 0 means the 8192 byte default).
+
+    Works on any buffer-protocol object whose integer indexing returns
+    ints (bytes/bytearray/memoryview/numpy uint8 array on Python 3;
+    plain bytes/str indexing on Python 2.7 needs bytearray(cmp[8:12])
+    instead -- not handled here yet, see _gather_chunks).
     """
-    if cmp.size < 12:
+    if len(cmp) < 12:
         return DEFAULT_BLOCK_BYTES
     blocksize = (int(cmp[8]) << 24) | (int(cmp[9]) << 16) | (int(cmp[10]) << 8) | int(cmp[11])
     return blocksize if blocksize else DEFAULT_BLOCK_BYTES
+
+
+def _gather_chunks(chunks):
+    """
+    Build the (pointers, lengths) pair bslz4_csc_multi expects from a
+    plain Python sequence of independent chunk buffers (bytes, bytearray,
+    memoryview, mmap slices, ... any buffer-protocol object -- source
+    type doesn't matter and isn't inspected).
+
+    No numpy, no ctypes, no array module: pointers/lengths are plain
+    bytearrays (int64/int32 little-endian each), and note_chunk (a
+    genuine c2py23-wrapped function, so it's c2py23's own buffer
+    acquisition doing the address extraction, not a Python-side
+    reimplementation of it) writes each chunk's address+length into
+    them directly. The `chunks` list itself is consumed entirely here in
+    Python -- c2py23 never sees more than one buffer object per call.
+    """
+    n = len(chunks)
+    pointers = bytearray(n * 8)
+    lengths = bytearray(n * 4)
+    for i, chunk in enumerate(chunks):
+        note_chunk(chunk, i, pointers, lengths)
+    return pointers, lengths
+
+
+def harvest_chunk_offsets(ds):
+    """
+    Harvest {frame_index: (byte_offset, byte_size)} for every stored
+    chunk of a (1, ni, nj)-chunked bitshuffle dataset, via h5py's
+    chunk_iter (h5py >=3.8: one native B-tree traversal) or, if that's
+    not available, a get_num_chunks()/get_chunk_info() loop.
+
+    Raises ValueError if ds isn't chunked (1, ni, nj) -- 4-D (1,1,ni,nj)
+    chunking is not supported yet -- or if any chunk has the bitshuffle
+    filter (pipeline position 0) marked skipped in its filter_mask (that
+    chunk's bytes would be raw pixel data, not a bitshuffle stream; in
+    practice this doesn't happen for these datasets, so it's a hard
+    error here rather than a case decode needs to handle).
+    """
+    chunks = tuple(ds.chunks) if ds.chunks is not None else None
+    if chunks is None or len(chunks) != 3 or chunks[0] != 1:
+        raise ValueError(
+            "harvest_chunk_offsets needs a (1, ni, nj)-chunked dataset, got chunks=%r "
+            "(4-D (1,1,ni,nj) chunking is not supported yet)" % (chunks,)
+        )
+
+    offsets = {}
+
+    def _store(frame, byte_offset, byte_size, filter_mask):
+        if filter_mask & 1:
+            raise ValueError(
+                "chunk for frame %d has the bitshuffle filter skipped (filter_mask=%d); "
+                "raw (uncompressed) chunk passthrough is not supported" % (frame, filter_mask)
+            )
+        offsets[frame] = (byte_offset, byte_size)
+
+    if hasattr(ds.id, "chunk_iter"):
+        def _cb(chunk_info):
+            _store(chunk_info.chunk_offset[0], chunk_info.byte_offset,
+                   chunk_info.size, chunk_info.filter_mask)
+            # must not return 0 (or any falsy-to-HDF5-iterator value that
+            # h5py maps to H5_ITER_STOP) -- returning None continues.
+        ds.id.chunk_iter(_cb)
+    else:
+        for i in range(ds.id.get_num_chunks()):
+            info = ds.id.get_chunk_info(i)
+            _store(info.chunk_offset[0], info.byte_offset, info.size, info.filter_mask)
+
+    return offsets
+
+
+def pack_offsets_lengths(frame_offsets, frames):
+    """
+    Build the (offsets, lengths) pair bslz4_csc_multi_base expects, from
+    harvest_chunk_offsets()'s {frame_index: (byte_offset, byte_size)}
+    result and the ordered list of frame indices to include. Plain
+    bytearrays filled via struct.pack_into -- these are byte offsets,
+    already plain Python ints from HDF5 metadata, so no buffer-address
+    extraction (note_chunk) is needed here at all.
+    """
+    n = len(frames)
+    offsets = bytearray(n * 8)
+    lengths = bytearray(n * 4)
+    for i, frame in enumerate(frames):
+        byte_offset, byte_size = frame_offsets[frame]
+        struct.pack_into("<q", offsets, i * 8, byte_offset)
+        struct.pack_into("<i", lengths, i * 4, byte_size)
+    return offsets, lengths
 
 
 def _workspace_bytes(cmp):
@@ -133,6 +228,9 @@ def set_backend(name):
         _rebind_bslz4_csc(None if name is None else "bslz4_csc_%s_%s" % (suffix, name))
         _rebind_bslz4_csc_multi(
             None if name is None else "bslz4_csc_multi_%s_%s" % (suffix, name)
+        )
+        _rebind_bslz4_csc_multi_base(
+            None if name is None else "bslz4_csc_multi_base_%s_%s" % (suffix, name)
         )
 
 
@@ -349,17 +447,16 @@ class chunk2sparseCSCmulti:
         possibly reallocated) on the next call, exactly like
         chunk2sparseCSC's single-frame buffers.
         """
-        bufs = [npbuf(b) for b in buffers]
-        nframes = len(bufs)
-        blocksize = _blocksize_bytes(bufs[0])
+        nframes = len(buffers)
+        blocksize = _blocksize_bytes(npbuf(buffers[0]))
         self._ensure_capacity(nframes, blocksize)
 
-        ptrs = np.array([b.ctypes.data for b in bufs], dtype=np.int64)
-        lens = np.array([b.size for b in bufs], dtype=np.int32)
+        pointers, lengths = _gather_chunks(buffers)
 
         ret = bslz4_csc_multi(
-            ptrs,
-            lens,
+            pointers,
+            lengths,
+            nframes,
             self.mask,
             self._outpx.ravel(),
             self._output_adr.ravel(),
