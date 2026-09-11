@@ -1,10 +1,14 @@
 """
 Setup script.
 
-Builds the bslz4_to_sparse C++ extension via c2py23: the Python wrapper is
-generated at build time from the C2PY_BEGIN block embedded in
-src/bslz4_to_sparse.cpp, then compiled and linked together with the c2py23
-runtime, the vendored lz4/bitshuffle/kcb sources, and our own C++ core.
+Builds the bslz4_to_sparse C++ extension by compiling
+src/bslz4_to_sparse_wrapper.c (the Python wrapper, committed to the repo
+-- see that file's header comment and tools/regenerate_wrapper.py)
+together with a vendored copy of the c2py23 runtime (c2py_runtime/, see
+its README.md), the vendored lz4/bitshuffle/kcb/zstd sources, and our own
+C++ core. Building this package does NOT require c2py23 to be installed;
+that's only needed by tools/regenerate_wrapper.py, run by hand after
+changing the C2PY_BEGIN spec embedded in src/bslz4_to_sparse.cpp.
 """
 import glob
 import os
@@ -13,31 +17,11 @@ import sys
 
 from setuptools import Extension, setup
 
-import c2py23
-from c2py23.generator import generate
-from c2py23.harvester import extract_from_file
-from c2py23.parser import from_c2py_dict
-
 HERE = os.path.abspath(os.path.dirname(__file__))
-C2PY_RUNTIME_DIR = os.path.join(os.path.dirname(c2py23.__file__), "runtime")
-
-
-def generate_wrapper():
-    """Regenerate src/bslz4_to_sparse_wrapper.c from the C2PY_BEGIN block."""
-    source_path = os.path.join(HERE, "src", "bslz4_to_sparse.cpp")
-    spec = extract_from_file(source_path)
-    module = from_c2py_dict(spec, source_path)
-    code = generate(module)
-    wrapper_path = os.path.join(HERE, "src", "bslz4_to_sparse_wrapper.c")
-    with open(wrapper_path, "w") as f:
-        f.write(code)
-    return wrapper_path
-
-
-wrapper_path = generate_wrapper()
+C2PY_RUNTIME_DIR = os.path.join(HERE, "c2py_runtime")
 
 sources = [
-    wrapper_path,
+    "src/bslz4_to_sparse_wrapper.c",
     os.path.join(C2PY_RUNTIME_DIR, "c2py_runtime.c"),
     "src/bslz4_to_sparse.cpp",
     "kcb/src/bitshuffle.c",
@@ -83,7 +67,12 @@ setup(
     package_dir={"bslz4_to_sparse": "src"},
     ext_package="bslz4_to_sparse",
     ext_modules=[ext],
-    install_requires=["numpy", "h5py", "c2py23"],
+    # c2py23 is not a dependency at all, build-time or runtime: the
+    # wrapper it generates and the runtime it needs are both vendored
+    # into this repo (src/bslz4_to_sparse_wrapper.c, c2py_runtime/) --
+    # see tools/regenerate_wrapper.py for the one case (spec changes)
+    # where a developer needs c2py23 installed, by hand.
+    install_requires=["numpy", "h5py"],
     author="Jon Wright",
     author_email="wright@esrf.fr",
     url="http://github.com/jonwright/bslz4_to_sparse",
