@@ -50,6 +50,19 @@
  * No malloc, no VLA: the workspace buffer is owned and sized by the Python
  * caller (see bslz4_core.hpp for why the scratch size can't be a compile
  * time constant).
+ *
+ * note_chunk() and bslz4_csc_multi_base_${SUFFIX} (issue #16, originally
+ * developed against the pre-expand/pre-redesign code and re-ported here)
+ * are an alternative, ctypes/numpy-free way to feed multi-frame calls:
+ * note_chunk() lets a plain Python loop batch independent chunk objects
+ * (bytes, bytearray, memoryview, mmap slices, ...) into compressed_ptrs/
+ * compressed_lengths using c2py23's own buffer acquisition for the
+ * address, instead of e.g. numpy's .ctypes.data; bslz4_csc_multi_base_*
+ * additionally takes one shared "base" buffer plus byte offsets into it
+ * (e.g. an mmap'ed HDF5 file) rather than one buffer object per frame,
+ * for callers who already have the whole file mapped. See
+ * _gather_chunks()/harvest_chunk_offsets()/pack_offsets_lengths() in
+ * __init__.py.
  */
 
 #include "bslz4_backends.hpp"
@@ -65,6 +78,19 @@ double bslz4_get_dense_sparse_threshold_impl() {
 
 void bslz4_set_dense_sparse_threshold_impl(double x) {
     bslz4_csc_dense_sparse_threshold() = x;
+}
+
+/* Write chunk's address+length into pointers[index]/lengths[index]. The
+ * only place a compressed chunk's address is extracted -- via c2py23's
+ * own buffer acquisition on the "chunk" parameter below, not any
+ * Python-side ctypes/numpy trick -- so a plain Python loop can batch
+ * independent chunk objects (bytes, bytearray, memoryview, mmap slices,
+ * network buffers, ...) into compressed_ptrs/compressed_lengths without
+ * either dependency. See _gather_chunks() in __init__.py. */
+void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
+                       int64_t *pointers, int32_t *lengths) {
+    pointers[index] = (int64_t) (intptr_t) chunk;
+    lengths[index] = (int32_t) chunk_len;
 }
 
 int bslz4_multi_u8_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
@@ -817,6 +843,636 @@ int bslz4_csc_multi_f64_scal(const int64_t *compressed_ptrs, const int32_t *comp
         workspace, workspace_len, cursors);
 }
 
+int bslz4_csc_multi_base_u8_kcb(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint8_t, untranspose_kcb>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u8_sse(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint8_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u8_scal(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint8_t, untranspose_bshuf_scal>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u16_kcb(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint16_t, untranspose_kcb>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u16_sse(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint16_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u16_scal(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint16_t, untranspose_bshuf_scal>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u32_kcb(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint32_t, untranspose_kcb>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u32_sse(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint32_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u32_scal(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint32_t, untranspose_bshuf_scal>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u64_kcb(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint64_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint64_t, untranspose_kcb>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u64_sse(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint64_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint64_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u64_scal(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint64_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint64_t, untranspose_bshuf_scal>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i8_kcb(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int8_t, untranspose_kcb>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i8_sse(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int8_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i8_scal(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int8_t, untranspose_bshuf_scal>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i16_kcb(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int16_t, untranspose_kcb>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i16_sse(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int16_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i16_scal(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int16_t, untranspose_bshuf_scal>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i32_kcb(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int32_t, untranspose_kcb>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i32_sse(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int32_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i32_scal(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int32_t, untranspose_bshuf_scal>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i64_kcb(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int64_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int64_t, untranspose_kcb>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i64_sse(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int64_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int64_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i64_scal(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int64_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int64_t, untranspose_bshuf_scal>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_f32_kcb(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              float *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<float, untranspose_kcb>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_f32_sse(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              float *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<float, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_f32_scal(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              float *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<float, untranspose_bshuf_scal>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_f64_kcb(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              double *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<double, untranspose_kcb>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_f64_sse(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              double *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<double, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_f64_scal(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              double *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<double, untranspose_bshuf_scal>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 } /* extern "C" */
 
 /* C2PY_BEGIN
@@ -838,6 +1494,22 @@ int bslz4_csc_multi_f64_scal(const int64_t *compressed_ptrs, const int32_t *comp
             "doc": "Set the compression-factor threshold routing bslz4_csc_multi_* between its dense and sparse per-(frame,block) paths. A block's (blocksize / compressed_bytes) above this uses the sparse route, at or below it uses dense.",
             "c_overloads": [
                 {"sig": "bslz4_set_dense_sparse_threshold_impl(double x) -> void", "map": {"x": "x"}},
+            ],
+        },
+        {
+            "py_sig": "note_chunk(chunk: buffer, index: int, pointers: buffer, lengths: buffer) -> void",
+            "doc": "Write chunk's raw address and byte length into pointers[index]/lengths[index]. The only place a buffer's address is extracted -- via c2py23's own buffer acquisition, not any Python-side ctypes/numpy trick -- so a plain Python loop can batch independent chunk objects (bytes, bytearray, memoryview, mmap slices, ...) into bslz4_multi_* or bslz4_csc_multi_*'s compressed_ptrs/compressed_lengths arrays. See _gather_chunks() in __init__.py.",
+            "c_overloads": [
+                {
+                    "sig": "bslz4_note_chunk(const char *chunk, size_t chunk_len, int index, int64_t *pointers, int32_t *lengths)",
+                    "map": {
+                        "chunk": "chunk.ptr",
+                        "chunk_len": "chunk.len",
+                        "index": "index",
+                        "pointers": "pointers.ptr",
+                        "lengths": "lengths.ptr",
+                    },
+                },
             ],
         },
         {
@@ -932,6 +1604,58 @@ int bslz4_csc_multi_f64_scal(const int64_t *compressed_ptrs, const int32_t *comp
                 "TYPE": ['uint8_t', 'uint16_t', 'uint32_t', 'uint64_t', 'int8_t', 'int16_t', 'int32_t', 'int64_t', 'float', 'double'],
             },
             "default_raise": "TypeError: unsupported outpx dtype for bslz4_csc_multi_${SUFFIX}",
+        },
+        {
+            "py_sig": "bslz4_csc_multi_base_${SUFFIX}(base: buffer, offsets: buffer, lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, cursors: buffer, nout: int, codec: int = 2) -> int",
+            "doc": "Like bslz4_csc_multi_${SUFFIX}, but for chunks that all share one base buffer (e.g. an mmap'ed HDF5 file): offsets are byte offsets from base rather than absolute addresses, avoiding any Python-side pointer arithmetic -- see harvest_chunk_offsets()/pack_offsets_lengths() in __init__.py. NOTE: offsets is mutated in place into absolute pointers by this call (reused as scratch, like cursors/workspace already are).",
+            "checks": [
+                "mask.format == 'B' or mask.format == 'b'",
+                "output_adr.format == 'I'",
+                "npx_out.format == 'i'",
+                "powder.format == 'd'",
+                "data.format == 'f'",
+                "indices.format == 'I' or indices.format == 'i'",
+                "indptr.format == 'I' or indptr.format == 'i'",
+                "workspace.format == 'B'",
+                "offsets.itemsize == 8",
+                "lengths.itemsize == 4",
+                "cursors.itemsize == 8",
+            ],
+            "c_overloads": [
+                {
+                    "map": {
+                        "base": "base.ptr",
+                        "offsets": "offsets.ptr",
+                        "lengths": "lengths.ptr",
+                        "nframes": "offsets.n",
+                        "codec": "codec",
+                        "mask": "mask.ptr",
+                        "NIJ": "mask.n",
+                        "outpx": "outpx.ptr",
+                        "output_adr": "output_adr.ptr",
+                        "npx_out": "npx_out.ptr",
+                        "threshold": "threshold",
+                        "output": "powder.ptr",
+                        "NOUT": "nout",
+                        "data": "data.ptr",
+                        "indices": "indices.ptr",
+                        "indptr": "indptr.ptr",
+                        "workspace": "workspace.ptr",
+                        "workspace_len": "workspace.len",
+                        "cursors": "cursors.ptr",
+                    },
+            "variants": [
+                {"sig": "bslz4_csc_multi_base_${SUFFIX}_kcb(const char *base, int64_t *offsets, const int32_t *lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "default": True},
+                {"sig": "bslz4_csc_multi_base_${SUFFIX}_sse(const char *base, int64_t *offsets, const int32_t *lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "when": "c2py_amd64_sse2", "default": False},
+                {"sig": "bslz4_csc_multi_base_${SUFFIX}_scal(const char *base, int64_t *offsets, const int32_t *lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "default": False},
+            ],
+                },
+            ],
+            "expand": {
+                "SUFFIX": ['u8', 'u16', 'u32', 'u64', 'i8', 'i16', 'i32', 'i64', 'f32', 'f64'],
+                "TYPE": ['uint8_t', 'uint16_t', 'uint32_t', 'uint64_t', 'int8_t', 'int16_t', 'int32_t', 'int64_t', 'float', 'double'],
+            },
+            "default_raise": "TypeError: unsupported outpx dtype for bslz4_csc_multi_base_${SUFFIX}",
         },
     ],
 }
