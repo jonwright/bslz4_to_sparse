@@ -13,6 +13,7 @@ changing the C2PY_BEGIN spec embedded in src/bslz4_to_sparse.cpp.
 import glob
 import os
 import platform
+import re
 import sys
 
 from setuptools import Extension, setup
@@ -109,6 +110,12 @@ ext = Extension(
 with open(os.path.join(HERE, "README.md"), "r") as f:
     readme = f.read()
 
+# src/__init__.py is the one place the version is written. Parsed rather
+# than imported: importing the package needs the compiled extension,
+# which does not exist yet at this point.
+with open(os.path.join(HERE, "src", "__init__.py"), "r") as f:
+    version = re.search(r'^version = "([^"]+)"', f.read(), re.M).group(1)
+
 setup(
     name="bslz4_to_sparse",
     packages=["bslz4_to_sparse"],
@@ -125,7 +132,7 @@ setup(
     author="Jon Wright",
     author_email="wright@esrf.fr",
     url="http://github.com/jonwright/bslz4_to_sparse",
-    version="0.1.0",
+    version=version,
     license="MIT",
     long_description=readme,
     long_description_content_type="text/markdown",
