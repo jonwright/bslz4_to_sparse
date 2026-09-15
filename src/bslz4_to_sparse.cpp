@@ -1549,7 +1549,7 @@ int bslz4_csc_multi_base_f64_scal(const char *base, int64_t *offsets, const int3
 
 /* C2PY_BEGIN
 {
-    "module": "bslz4_to_sparse",
+    "module": "_bslz4_to_sparse",
     "source": ["bslz4_to_sparse.cpp"],
     "headers": ["c2py_amd64.h", "c2py_arm64.h", "c2py_ppc64.h"],
     "timing": False,

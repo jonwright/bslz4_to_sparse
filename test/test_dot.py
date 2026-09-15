@@ -1,6 +1,15 @@
 
+import os
+import sys
 
+path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
+if path:
+    sys.path.insert(0, path)
+
+import bslz4_to_sparse
 from bslz4_to_sparse import chunk2sparseCSC
+
+print("Running from", bslz4_to_sparse.__file__)
 
 try:
     from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # pyFAI >= 2024.10
@@ -10,7 +19,6 @@ import pyFAI
 import numpy as np
 import h5py
 import hdf5plugin
-import os
 import timeit
 
 NFR = 5
@@ -62,7 +70,7 @@ result = ai.integrate1d( testdata[0],
                 1500, method = method )
 reference_results = [ ai.integrate1d( frm, npt, method=method )
                       for frm in testdata ]
-method = [ e for e in ai.engines if ( e.algo == 'CSC' ) ][0]
+method = [ e for e in ai.engines if ( e.algorithm == 'CSC' ) ][0]
 
 
 def R( y1, y2 ):
@@ -96,11 +104,9 @@ testfun()
 # Multi-frame batching, dense/sparse routing, and u64/i64 dtype coverage.
 #
 # "single is multi with n==1" (bslz4_core.hpp): chunk2sparse/chunk2sparseCSC
-# are thin wrappers over the same bslz4_decode_multi/bslz4_csc_decode_multi
-# templates chunk2sparseMulti/chunk2sparseCSCmulti call with nframes>1, so
-# these tests check the batched and single-frame paths agree with each
-# other and with the pyFAI reference, not two independently-implemented
-# decoders.
+# are thin wrappers over the same templates with nframes==1, so these check
+# that the batched and single-frame paths agree with each other and with the
+# pyFAI reference.
 # ---------------------------------------------------------------------------
 
 from bslz4_to_sparse import chunk2sparse, chunk2sparseCSCmulti, chunk2sparseMulti
@@ -232,19 +238,13 @@ def test_u64_i64_and_signed_negative_values():
 
 
 # ---------------------------------------------------------------------------
-# Ctypes/numpy-free chunk feeding (issue #16) and the base+offsets fast
-# path for callers who already have the whole HDF5 file open/mapped as
-# one buffer, re-ported from the pre-redesign chunk-batch-feed branch
-# onto the current dense/sparse-routed decode core and expand dispatch.
+# Ctypes-free chunk feeding (issue #16) and the base+offsets fast path,
+# for callers who already hold the whole HDF5 file as one buffer.
 #
-# note_chunk()/_gather_chunks() are exercised implicitly by every test
-# above already: chunk2sparse/chunk2sparseCSC/chunk2sparseMulti/
-# chunk2sparseCSCmulti/bslz4_to_sparse() all build their compressed_ptrs/
-# compressed_lengths arrays via _gather_chunks() now, not ctypes. Only
+# note_chunk()/_gather_chunks() are exercised by every test above.
 # harvest_chunk_offsets()/pack_offsets_lengths()/bslz4_csc_multi_base_*
-# (the base+offsets path) have no other coverage, so that's what this
-# checks -- against chunk2sparseCSCmulti (already pyFAI-validated above)
-# reading the very same chunks, as the reference.
+# have no other coverage, so they are checked here against
+# chunk2sparseCSCmulti reading the very same chunks.
 # ---------------------------------------------------------------------------
 
 from bslz4_to_sparse import harvest_chunk_offsets, pack_offsets_lengths
@@ -295,10 +295,10 @@ def test_csc_multi_base_matches_multi():
 
 
 # ---------------------------------------------------------------------------
-# Optional SIMD mask+threshold collect kernel tiers (u16/u32 only, off by
-# default -- see bslz4_collect_simd.hpp / set_<tier>_collect()). Each
-# tier is skipped (not failed) when unavailable, since they're opt-in
-# and never auto-enabled.
+# SIMD mask+threshold collect tiers (u16/u32 only). A tier this machine
+# cannot run is skipped, not passed. These run under pytest only, and are
+# absent from the call list at the end of this file: pytest.skip() raised
+# outside a pytest run aborts collection of the whole file.
 # ---------------------------------------------------------------------------
 
 from bslz4_to_sparse import (
@@ -318,8 +318,9 @@ def _check_collect_tier_matches_scalar(tier, available, getter, setter):
     compaction (the dense route never calls the collect kernel at all,
     so only checked here for its own pyFAI-vs-reference agreement)."""
     if not available():
-        print(f"{tier} not available on this build/CPU, skipping")
-        return
+        import pytest  # here, not at module top: a direct `python3
+        # test_dot.py` run must not need pytest installed
+        pytest.skip(f"{tier} not available on this build/CPU")
     # Best available tier is on by default now (decided in
     # bslz4_collect_simd.hpp, not here) -- don't assume either state,
     # just restore whatever it was when this test started.
@@ -393,8 +394,5 @@ test_csc_dense_and_sparse_routes_both_match_reference()
 test_plain_multi_matches_single()
 test_u64_i64_and_signed_negative_values()
 test_csc_multi_base_matches_multi()
-test_avx512_collect_matches_scalar()
-test_avx2_collect_matches_scalar()
-test_sse2_collect_matches_scalar()
-test_vsx_collect_matches_scalar()
-print("all multi-frame / dense-sparse-route / u64-i64 / multi_base / simd-collect tests passed")
+print("all multi-frame / dense-sparse-route / u64-i64 / multi_base tests passed")
+print("(SIMD collect tier tests only run under pytest -- see test_*_collect_matches_scalar)")

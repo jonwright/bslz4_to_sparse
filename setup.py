@@ -21,6 +21,12 @@ from setuptools.command.build_ext import build_ext
 HERE = os.path.abspath(os.path.dirname(__file__))
 C2PY_RUNTIME_DIR = os.path.join(HERE, "c2py_runtime")
 
+# The vendored loader is the single source of truth for the platform key,
+# so the filename written by build_ext (see get_ext_filename below) cannot
+# drift from the one src/__init__.py looks for at import time.
+sys.path.insert(0, os.path.join(HERE, "src"))
+from c2py_loader import _platform_key  # noqa: E402 -- needs the path above
+
 sources = [
     "src/bslz4_to_sparse_wrapper.c",
     os.path.join(C2PY_RUNTIME_DIR, "c2py_runtime.c"),
@@ -44,51 +50,31 @@ include_dirs = [
     "zstd/lib",
 ]
 
-# -std=c++11 is deliberately NOT in the flags shared by every source
-# below: it's meaningless for the plain C sources in this extension
-# (the vendored lz4/bitshuffle/zstd sources, src/bslz4_to_sparse_wrapper.c,
-# c2py_runtime.c) -- GCC only warns and ignores it there ("valid for
-# C++/ObjC++ but not for C"), but some toolchains treat that warning as
-# fatal under -Wall -Werror (confirmed on a ppc64le GCC), breaking the
-# whole build over a flag those files never needed in the first place.
-# cpp_only_flags (added back in for just the .cpp sources by
-# BuildExtCppStd below) is how it actually reaches the one file that
-# does need it, src/bslz4_to_sparse.cpp.
+# -std=c++11 goes in cpp_only_flags, not in the shared flags:
+# BuildExtCppStd applies it to the .cpp sources alone. Passing it to a C
+# source only warns on GCC, but that warning is fatal under -Wall -Werror.
 flags = ["-O2", "-DZSTD_DISABLE_ASM"]
 cpp_only_flags = ["-std=c++11"]
 
 if platform.system() == "Windows":
-    # MSVC: no reported issue with a global C++-standard flag reaching
-    # the C sources here, so keep it simple and global as before, unlike
-    # the POSIX/GCC path -- cpp_only_flags empty means BuildExtCppStd
-    # has nothing to add per-file on this platform.
+    # MSVC takes the C++ standard flag globally without complaint, so
+    # cpp_only_flags stays empty and BuildExtCppStd is a no-op here.
     flags = ["/O2", "/std:c++14", "-Drestrict=", "-DZSTD_DISABLE_ASM"]
     cpp_only_flags = []
     if sys.version_info[0] < 3:
         include_dirs += ["src/msvc_include"]
 elif platform.machine() in ("ppc64le", "ppc64"):
-    # VSX is baseline on the ppc64le ABI (introduced with POWER8, which
-    # already has it as a core ISA feature -- same relationship SSE2 has
-    # to x86-64) so these flags are safe unconditionally, not opt-in.
-    # Needed globally (not per-function target attributes, unlike the
-    # x86 SIMD collect tiers in bslz4_collect_simd.hpp): GCC's PowerPC
-    # target-attribute support for enabling vector types per function is
-    # far less established than x86's, not something to rely on blind
-    # without a way to verify it. Whether the VSX collect kernel is
-    # actually *used* is still a separate runtime check (c2py_ppc64_vsx,
-    # see bslz4_collect_simd.hpp) -- this only makes it compile.
+    # VSX is ppc64le ABI baseline, so these are safe unconditionally.
+    # Needed globally: the VSX collect kernel in bslz4_collect_simd.hpp
+    # uses no per-function target attribute. Whether it is actually used
+    # is still a runtime check (c2py_ppc64_vsx).
     flags = flags + ["-maltivec", "-mvsx"]
 
 
 class BuildExtCppStd(build_ext):
-    """Adds cpp_only_flags (the C++ standard flag) only when compiling a
-    .cpp source. distutils/setuptools' Extension.extra_compile_args has
-    no per-source-file concept -- this is the standard way to apply a
-    flag to just the C++ files in a mixed C/C++ extension (see the
-    -std=c++11 comment above for why that matters here). No-op on MSVC
-    (cpp_only_flags is already empty there, and its compiler object
-    doesn't expose the same _compile hook UnixCCompiler-family classes
-    do)."""
+    """Applies cpp_only_flags to .cpp sources only: Extension has no
+    per-source-file flag concept. No-op on MSVC, whose compiler object
+    has no _compile hook."""
 
     def build_extensions(self):
         if cpp_only_flags and self.compiler.compiler_type != "msvc":
@@ -103,9 +89,17 @@ class BuildExtCppStd(build_ext):
             self.compiler._compile = _compile
         build_ext.build_extensions(self)
 
+    def get_ext_filename(self, ext_name):
+        """<module>.c2py23-<os>_<arch>.so, the c2py_loader convention
+        src/__init__.py loads. Tagged by platform only: c2py23 resolves
+        the CPython API at runtime, so one binary serves any Python
+        version, and several architectures can share one directory."""
+        suffix = ".pyd" if os.name == "nt" else ".so"
+        return os.path.join(*ext_name.split(".")) + ".c2py23-" + _platform_key() + suffix
+
 
 ext = Extension(
-    "bslz4_to_sparse",
+    "_bslz4_to_sparse",
     sources=sources,
     include_dirs=include_dirs,
     extra_compile_args=flags,

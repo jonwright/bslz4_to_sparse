@@ -1,6 +1,16 @@
+import os
 import numpy as np
 import ctypes
-from . import bslz4_to_sparse as _ext
+from .c2py_loader import load_native
+
+# Loaded by explicit platform-tagged filename
+# (_bslz4_to_sparse.c2py23-<os>_<arch>.so) rather than by a plain import:
+# c2py23 resolves the CPython API at runtime via dlsym, so the binary is
+# not tied to a Python version, and naming it this way lets builds for
+# several architectures sit in the same directory. setup.py's
+# get_ext_filename writes exactly this name, from this same loader's
+# _platform_key().
+_ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse")
 
 version = "0.1.0"
 
@@ -99,22 +109,14 @@ note_chunk = _ext.note_chunk
 get_dense_sparse_threshold = _ext.get_dense_sparse_threshold
 set_dense_sparse_threshold = _ext.set_dense_sparse_threshold
 
-# Optional SIMD mask+threshold collect kernel tiers (u16/u32 only, see
-# bslz4_collect_simd.hpp): avx512, avx2, sse2, vsx, tried in that
-# priority order (in practice at most one of {avx512,avx2,sse2} vs vsx
-# can even be compiled into a given build, so the order across that
-# x86/POWER boundary is moot). The best available tier is ON by default
-# -- that default is decided in bslz4_collect_simd.hpp itself (each
-# bslz4_<tier>_collect_enabled()'s own static initializer, checked once
-# at first use against the c2py23 cpuid-equivalent globals), NOT here:
-# this module only exposes the runtime getters/setters below, it
-# doesn't choose or set anything at import time. AVX-512 in particular
-# can throttle clocks on some chips enough to net-lose for this
-# workload -- set_avx512_collect(False) if that turns out to matter on
-# yours (disabling one tier does not auto-promote the next one; call
-# set_avx2_collect(True) etc explicitly to reach a lower tier). vsx
-# (POWER8+) is real-hardware-measured (not just simulated/assumed) at
-# 3.75-8.2x on sparse data, see set_vsx_collect().
+# SIMD mask+threshold collect tiers (u16/u32 only, see
+# bslz4_collect_simd.hpp): avx512, avx2, sse2, vsx, tried in that order.
+# The best available tier is on by default, decided in
+# bslz4_collect_simd.hpp; these are just the runtime getters/setters.
+# AVX-512 can throttle clocks on some chips enough to net-lose for this
+# workload -- set_avx512_collect(False) then set_avx2_collect(True) if
+# so, since disabling one tier does not auto-promote the next. vsx
+# (POWER8+) measures 3.75-8.2x on sparse data.
 avx512_collect_available = _ext.avx512_collect_available
 get_avx512_collect = _ext.get_avx512_collect
 avx2_collect_available = _ext.avx2_collect_available
@@ -404,18 +406,6 @@ def set_backend(name):
         rbcmb(None if name is None else "bslz4_csc_multi_base_%s_%s" % (suffix, name))
 
 
-# Historical note (see bug_variant.md): a c2py23 code-generation bug used
-# to make set_backend(None)'s auto-resolve land on the wrong variant
-# regardless of "default": True in the .c2py spec. Fixed upstream
-# (c2py23 branch "variant-fallback-marker", commit ed4e9f9) but not yet
-# released to PyPI, which is what `pip install c2py23` still gives you --
-# and our own .c2py spec is written so that fix isn't even load-bearing
-# for us regardless (sse/scal are "default": False, so kcb is the sole
-# unconditional default:true variant per group, unambiguous either way).
-# Set explicitly anyway, to fix the *actually* released c2py23 and to
-# make the intended default explicit rather than implicit.
-set_backend("kcb")
-
 
 class chunk2sparseMulti:
     """
@@ -486,6 +476,9 @@ class chunk2sparseMulti:
             self.codec,
         )
         if ret < 0:
+            # TODO(error strings): map the bslz4_common.hpp error codes to
+            # messages here (and at the other two `ret < 0` raises), so a
+            # corrupt chunk reports what was wrong instead of a bare number.
             raise Exception("Error decoding batch: %d" % (ret))
         return self._npx_out, (self._output, self._output_adr)
 

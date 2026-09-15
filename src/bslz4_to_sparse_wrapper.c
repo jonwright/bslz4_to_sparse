@@ -63689,8 +63689,8 @@ static PyMethodDef _methods_fastcall[] = {
 
 static PyModuleDef _module_def = {
     PyModuleDef_HEAD_INIT,
-    "bslz4_to_sparse",
-    "Module: bslz4_to_sparse\nSource: ['bslz4_to_sparse.cpp']\nHeaders: ['c2py_amd64.h', 'c2py_arm64.h', 'c2py_ppc64.h']\nTiming: no\nFree-threading: no (GIL re-enabled on 3.14t)",
+    "_bslz4_to_sparse",
+    "Module: _bslz4_to_sparse\nSource: ['bslz4_to_sparse.cpp']\nHeaders: ['c2py_amd64.h', 'c2py_arm64.h', 'c2py_ppc64.h']\nTiming: no\nFree-threading: no (GIL re-enabled on 3.14t)",
     -1,
     NULL,  /* methods set at init */
     NULL, NULL, NULL, NULL
@@ -63698,15 +63698,15 @@ static PyModuleDef _module_def = {
 
 static PyModuleDef_FT _module_def_ft = {
     PyModuleDef_HEAD_INIT_FT,
-    "bslz4_to_sparse",
-    "Module: bslz4_to_sparse\nSource: ['bslz4_to_sparse.cpp']\nHeaders: ['c2py_amd64.h', 'c2py_arm64.h', 'c2py_ppc64.h']\nTiming: no\nFree-threading: no (GIL re-enabled on 3.14t)",
+    "_bslz4_to_sparse",
+    "Module: _bslz4_to_sparse\nSource: ['bslz4_to_sparse.cpp']\nHeaders: ['c2py_amd64.h', 'c2py_arm64.h', 'c2py_ppc64.h']\nTiming: no\nFree-threading: no (GIL re-enabled on 3.14t)",
     -1,
     NULL,  /* methods set at init */
     NULL,  /* m_slots = NULL (single-phase init; PyUnstable_Module_SetGIL handles FT) */
     NULL, NULL, NULL
 };
 
-C2PY_EXPORT PyObject* PyInit_bslz4_to_sparse(void) {
+C2PY_EXPORT PyObject* PyInit__bslz4_to_sparse(void) {
     if (c2py_runtime_init() != 0) {
         return NULL;  /* Python will raise ImportError */
     }
@@ -63754,7 +63754,7 @@ C2PY_EXPORT PyObject* PyInit_bslz4_to_sparse(void) {
         if (C2PY.Module_Create2 != NULL) {
             module = C2PY.Module_Create2(&_module_def, 3);
         } else {
-            module = C2PY.InitModule_2_7("bslz4_to_sparse", methods);
+            module = C2PY.InitModule_2_7("_bslz4_to_sparse", methods);
         }
     }
 
@@ -63763,7 +63763,7 @@ C2PY_EXPORT PyObject* PyInit_bslz4_to_sparse(void) {
     return module;
 }
 
-C2PY_EXPORT void initbslz4_to_sparse(void) {
+C2PY_EXPORT void init_bslz4_to_sparse(void) {
     c2py_runtime_init();
     _resolve_bslz4_multi_u8();
     _resolve_bslz4_multi_u16();
@@ -63795,7 +63795,7 @@ C2PY_EXPORT void initbslz4_to_sparse(void) {
     _resolve_bslz4_csc_multi_base_i64();
     _resolve_bslz4_csc_multi_base_f32();
     _resolve_bslz4_csc_multi_base_f64();
-    PyObject *module = C2PY.InitModule_2_7("bslz4_to_sparse",
+    PyObject *module = C2PY.InitModule_2_7("_bslz4_to_sparse",
         C2PY.use_fastcall ? _methods_fastcall : _methods_varargs);
     if (module != NULL) {
     }

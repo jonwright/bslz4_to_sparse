@@ -16,12 +16,16 @@ Small benchmark for two design questions from the c2py23 rewrite:
 Run directly: python3 bench_zstd_multichunk.py
 """
 import os
+import sys
 import time
 
 import h5py
 import hdf5plugin
 import numpy as np
 
+path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
+if path:
+    sys.path.insert(0, path)
 import bslz4_to_sparse as bslz4
 
 SHAPE = (64, 512, 512)  # (nframes, ni, nj) -- modest size, quick to run

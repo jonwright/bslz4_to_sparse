@@ -1,60 +1,41 @@
 #pragma once
 /*
  * Bitshuffle-LZ4/zstd decode, generic over pixel type T and the
- * untranspose backend. Templates replace the previous #define DATATYPE /
- * #include macro-repetition; each (T, Untranspose) combination compiles
- * to its own ordinary function, instantiated explicitly (see
+ * untranspose backend. Each (T, Untranspose) combination compiles to its
+ * own ordinary function, instantiated explicitly (see
  * bslz4_to_sparse.cpp) behind a plain extern "C" name.
  *
- * codec (lz4 vs zstd, see bslz4_codec.hpp) is an ordinary runtime int
- * parameter rather than a template axis: which codec a dataset used is
- * HDF5 filter metadata the Python caller already has, and can differ
- * between two datasets read with the very same compiled function in the
- * same process, unlike the untranspose backend (a session-wide choice
- * for benchmarking kernels against each other).
+ * codec (lz4 vs zstd, see bslz4_codec.hpp) is a runtime int parameter
+ * rather than a template axis: it is HDF5 filter metadata the Python
+ * caller already has, and can differ between two datasets read by the
+ * same compiled function in one process. The untranspose backend is a
+ * session-wide choice, so it stays a template axis.
  *
  * No malloc, no VLA: the only scratch space used is a caller-owned
  * "workspace" buffer, carved by pointer arithmetic.
  *
- * Single-frame vs multi-frame: there is exactly one implementation of
- * each decode family (plain sparse, CSC), taking nframes frames per
- * call -- no separate single-frame code path at all, at the C++ template
- * level or the Python-visible level. A single frame is just nframes == 1:
+ * There is one implementation of each decode family (plain sparse, CSC),
+ * taking nframes frames per call. A single frame is nframes == 1:
  * src/__init__.py's chunk2sparse/chunk2sparseCSC/bslz4_to_sparse() build
  * a 1-element compressed_ptrs/compressed_lengths/npx_out/cursors set and
- * call bslz4_decode_multi/bslz4_csc_decode_multi directly. An earlier
- * version of this file kept single-frame wrapper templates
- * (bslz4_decode/bslz4_csc_decode) that just forwarded to these with
- * nframes==1; once nothing above them needed a different C-level entry
- * point for the single-frame case either, they were removed rather than
- * kept as a second, unused way to reach the same code.
+ * call bslz4_decode_multi/bslz4_csc_decode_multi directly.
  *
- * Both multi-frame decoders are block-outer / frame-inner (decode the
- * current ~8KB block for every frame before moving to the next block
- * position), which keeps the workspace's raw/scratch/block regions a
- * single shared set reused per frame -- 3*blocksize total, independent
- * of nframes -- rather than nframes copies. There is deliberately no
- * cross-frame sharing of the CSC indptr/indices/data lookup (the
- * previous design here batched only the CSC product this way, on the
- * theory that looking up indptr[j] once and applying it across every
- * frame's value at pixel j would pay for itself): measured against a
- * real ID11 CSC and independent reference data it did not -- it was
- * slower than doing nothing across every occupancy level tested,
- * because it unconditionally reads indptr[j]/indptr[j+1] for every
- * masked pixel position regardless of whether any frame in the batch
- * has a non-zero value there. Batching here instead means: decode
- * every frame's block before deciding, per (frame, block), how to
- * spend the CSC work on it (see bslz4_csc_decode_multi below) -- that
- * decision is inherently per-frame, so there is nothing to share across
- * frames at the indptr level regardless.
+ * Both decoders are block-outer / frame-inner (decode the current ~8KB
+ * block for every frame before moving to the next block position), so
+ * the workspace's raw/scratch/block regions are one shared set reused
+ * per frame -- 3*blocksize total, independent of nframes. The CSC
+ * indptr/indices/data lookup is not shared across frames: how much CSC
+ * work a block deserves is decided per (frame, block), see
+ * bslz4_csc_decode_multi below.
  *
  * The mask+threshold collect step in both decoders (scan a block,
  * compact matching (index, value) pairs) goes through
  * bslz4_collect_gt<T>/bslz4_collect_nz<T> (bslz4_collect_simd.hpp),
  * which are the scalar loops seen here for every T except uint16_t/
- * uint32_t, where an explicit template specialization can take an
- * AVX-512 path instead -- opt-in only (bslz4_avx512_collect_enabled(),
- * off by default), see that header for why.
+ * uint32_t, where an explicit template specialization takes a SIMD path
+ * instead (AVX-512, AVX2, SSE2 or VSX, tried in that order). The best
+ * tier the machine actually supports is enabled by default; see that
+ * header for how that is decided and how to override it.
  */
 
 #include "bslz4_codec.hpp"
@@ -70,10 +51,8 @@ namespace bslz4 {
  * Batched plain sparse decode over "nframes" frames from the same
  * dataset (same detector shape/dtype/block size). One caller-owned
  * workspace (3*blocksize: raw/scratch/block, shared and reused per
- * frame -- there is no cross-frame state to keep here, batching exists
- * to amortise the Python/C call boundary over nframes and to keep the
- * mask slice for the current block hot across frames, not to share any
- * per-pixel lookup).
+ * frame). Batching amortises the Python/C call boundary over nframes
+ * and keeps the mask slice for the current block hot across frames.
  *
  * compressed_ptrs/compressed_lengths are address+length pairs (Python
  * ints from e.g. a numpy array's .ctypes.data) rather than one buffer

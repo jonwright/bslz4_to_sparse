@@ -5,68 +5,30 @@
  * bslz4_csc_decode_multi's sparse-route compaction (mask>0 & value!=0,
  * called here with cut==0 -- identical to !=0 for unsigned T).
  *
- * Four tiers, all u16/u32 only (unsigned, the two dtypes covering the
- * overwhelming majority of real use here): three x86 (AVX-512, F+BW+VL
- * -- the minimal "Skylake-X class" subset, not the newer VBMI/GFNI/VNNI
- * extensions some detector-specific kernels elsewhere use; AVX2; SSE2,
- * the x86-64 ABI baseline, always present, no cpuid check needed at
- * all) and one POWER (VSX, POWER8+, real hardware-verified on a
- * POWER9 box -- see tools/bslz4_power9_collect_probe.c for the probe
- * this was ported from, and its history for how the design got here).
+ * Four tiers, u16/u32 only: AVX-512 (F+BW+VL), AVX2, SSE2 (x86-64 ABI
+ * baseline, always present) and VSX (POWER8+, probe in
+ * tools/bslz4_power9_collect_probe.c). The x86 tiers carry
+ * __attribute__((target(...))), so this file compiles under the
+ * project's ordinary -O2; VSX instead needs setup.py to pass
+ * -maltivec -mvsx globally on ppc64le. MSVC has neither, and the
+ * BSLZ4_HAVE_*_COLLECT guards below make this file inert there.
  *
- * x86 tiers use GCC/Clang per-function ISA multiversioning
- * (__attribute__((target(...)))) rather than a whole-translation-unit
- * -m<isa> build flag (needs no setup.py changes: this file compiles
- * fine under the project's ordinary -O2, only the tagged functions
- * below get elevated-ISA codegen) or GNU ifunc (what the vendored kcb
- * untranspose backend uses for its own internal dispatch) -- ifunc is
- * an ELF/glibc mechanism with no Windows/macOS equivalent, target()
- * attributes work under clang/GCC (including clang-cl) on any OS (MSVC
- * proper has neither; this file is inert there, see the
- * BSLZ4_HAVE_*_COLLECT guards below).
+ * Each tier has a runtime flag (bslz4_avx512_collect_enabled() /
+ * _avx2_ / _sse2_ / _vsx_), enabled by default iff it is the
+ * highest-priority tier compiled in and bslz4_<tier>_collect_capable()
+ * says this CPU supports it -- checked once, at first use, via c2py23's
+ * cpuid-equivalent globals (c2py_amd64_avx512f/bw/vl, c2py_amd64_avx2,
+ * c2py_ppc64_vsx; SSE2 needs no check). capable() is the single source
+ * of truth, shared with the Python-visible <tier>_collect_available()
+ * query in bslz4_to_sparse.cpp.
  *
- * The VSX tier does NOT use target attributes: GCC's PowerPC support
- * for them (enabling vector types per-function without a global -mvsx)
- * is far less established than x86's, and there was no way to verify it
- * without POWER9 hardware in the loop -- unlike the x86 tiers, this one
- * needs setup.py to pass -maltivec -mvsx globally for ppc64le builds
- * (safe unconditionally: VSX is ppc64le ABI baseline, same relationship
- * SSE2 has to x86-64). Whether it's actually *used* is still a separate
- * runtime check either way (c2py_ppc64_vsx here, cpuid feature bits for
- * the x86 tiers) -- this difference is only about what it takes to
- * compile each tier in, not about auto-enabling anything.
+ * set_<tier>_collect(True/False) overrides at runtime. AVX-512 can
+ * trigger frequency throttling on some chips that outweighs the wider
+ * vector for this workload; set_avx512_collect(False) drops to the next
+ * tier, which does not auto-promote, so call again to reach avx2/sse2.
  *
- * Dispatch is a runtime bool per tier (bslz4_avx512_collect_enabled() /
- * _avx2_ / _sse2_ / _vsx_), each defaulting to true iff it's the
- * highest-priority tier actually compiled in AND capable on this CPU
- * (checked once, at first use, via c2py23's cpuid-equivalent globals --
- * c2py_amd64_avx512f/bw/vl, c2py_amd64_avx2, c2py_ppc64_vsx -- SSE2
- * needs no such check, it's the x86-64 ABI baseline). This is the same
- * "pick the best available automatically" default kcb's untranspose
- * backend already gives you for free via its own internal ifunc
- * dispatch -- the difference is these four tiers can't share one ifunc
- * resolver (they're mutually exclusive by priority, not layered), so
- * the choice is made explicitly here in C++ rather than left to the
- * linker. bslz4_<tier>_collect_capable() (used for both this default
- * and the Python-visible <tier>_collect_available() query in
- * bslz4_to_sparse.cpp) is the single source of truth for what's
- * actually usable; only ever change the *default* logic there, not in
- * Python -- src/__init__.py just exposes getters/setters, it doesn't
- * drive which tier starts active.
- *
- * Explicitly set_<tier>_collect(False)/set_<tier>_collect(True) still
- * override this at runtime, same as always -- the default just means
- * nobody has to call anything to get the fastest tier this CPU/build
- * supports. AVX-512 can trigger frequency throttling on some chips
- * that outweighs the wider vector for this workload -- if that turns
- * out to matter on yours, set_avx512_collect(False) drops to the next
- * tier down (call it again to reach avx2/sse2/scalar explicitly, since
- * disabling one tier doesn't auto-promote the next one). bslz4_collect_gt<T>/
- * bslz4_collect_nz<T> (bottom of this file) try tiers in priority order
- * (avx512, avx2, sse2, vsx -- in practice at most one of
- * {avx512,avx2,sse2} vs vsx can even be compiled in on a given build,
- * so the order across that x86/POWER boundary is moot), falling back
- * to the plain scalar loop if none are enabled.
+ * bslz4_collect_gt<T>/bslz4_collect_nz<T> (bottom of this file) try the
+ * tiers in that order and fall back to the plain scalar loop.
  */
 
 #include "bslz4_common.hpp"
@@ -442,37 +404,20 @@ inline int bslz4_collect_sse2_u32(const uint32_t *BSLZ4_RESTRICT block,
  * Unaligned loads use the same memcpy-into-a-vector-typed-local idiom
  * as the x86 kernels.
  *
- * There's no native movemask on POWER, and vec_vbpermq (the usual way
- * to emulate one) needs getting its bit-numbering right for ppc64le
- * without a way to check it blind -- deliberately not used. Instead:
- * vec_any_gt(v, vcut) is a cheap, standard, endianness-unambiguous
- * reduction -- if NO lane's value exceeds cut, mask can't change that
- * (mask>0 & value>cut needs value>cut regardless), so it's provably
- * safe to skip the whole per-lane extraction for that chunk entirely.
- * Real detector data is mostly exact zeros, so this gate fires for
- * nearly every chunk -- confirmed on real POWER9 hardware: an earlier,
- * ungated version (always doing the vec_extract loop) came back correct
- * but ~2x SLOWER than scalar; this gated version came back correct and
- * 3.75-8.2x FASTER (see tools/bslz4_power9_collect_probe.c's version
- * history in its own file comment for the full story, including a bug
- * in the probe's own timing-data generation that briefly looked like a
- * negative result for the gate).
+ * There is no movemask on POWER. vec_any_gt(v, vcut) gates the whole
+ * chunk instead: if no lane exceeds cut, the mask cannot change that
+ * (mask>0 & value>cut needs value>cut), so the per-lane extraction is
+ * skipped entirely. Real detector data is mostly exact zeros, so the
+ * gate fires for nearly every chunk -- 3.75-8.2x faster than scalar on
+ * real POWER9 hardware, where an ungated version is ~2x slower.
  *
- * When the gate doesn't fire, per-lane mask extraction is vec_extract
- * in a small fixed-trip loop (8 iterations for u16, 4 for u32) rather
- * than a movemask-style bitmask -- the thing the gate exists to make
- * rare, not the fast path itself.
+ * When the gate does not fire, per-lane extraction is vec_extract in a
+ * small fixed-trip loop (8 iterations for u16, 4 for u32).
  *
- * __vector/__bool, not the bare vector/bool: <altivec.h> only defines
- * the bare vector/pixel/bool keyword-macros in C mode (matching
- * tools/bslz4_power9_collect_probe.c, plain C) -- in C++ (this header
- * is included from bslz4_to_sparse.cpp) they're deliberately left
- * undefined to avoid colliding with std::vector and C++'s own bool, so
- * C++ translation units have to spell them with the double-underscore
- * prefix instead. Same types, same vec_* functions either way -- purely
- * a spelling difference caught by an actual PowerPC C++ build (GCC's
- * error for the bare spelling here is "'vector' was not declared in
- * this scope"), not a logic change from what the probe verified.
+ * __vector/__bool, not bare vector/bool: <altivec.h> defines the bare
+ * keyword-macros in C mode only, leaving them undefined in C++ so they
+ * cannot collide with std::vector and bool. This header is included
+ * from bslz4_to_sparse.cpp, so it needs the prefixed spelling.
  */
 
 inline int bslz4_collect_vsx_u16(const uint16_t *BSLZ4_RESTRICT block,
@@ -543,8 +488,9 @@ inline int bslz4_collect_vsx_u32(const uint32_t *BSLZ4_RESTRICT block,
  * bslz4_collect_gt<T>: mask[j+i0]>0 & block[j]>cut, compacted into
  * (out_vals, out_adr). Generic (scalar) for every T; explicitly
  * specialized for uint16_t/uint32_t to try SIMD tiers in priority order
- * (avx512, avx2, sse2 -- each checked via its own runtime enabled flag,
- * never auto-enabled), falling back to the same scalar loop otherwise.
+ * (avx512, avx2, sse2, vsx -- each checked via its own runtime enabled
+ * flag, the best available one being enabled by default: see the top of
+ * this file), falling back to the same scalar loop otherwise.
  * Used by bslz4_decode_multi's real threshold-collect (bslz4_core.hpp).
  */
 template<typename T>
