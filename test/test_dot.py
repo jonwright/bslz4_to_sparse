@@ -220,8 +220,72 @@ def test_u64_i64_and_signed_negative_values():
             os.remove(fname)
 
 
+# ---------------------------------------------------------------------------
+# Ctypes/numpy-free chunk feeding (issue #16) and the base+offsets fast
+# path for callers who already have the whole HDF5 file open/mapped as
+# one buffer, re-ported from the pre-redesign chunk-batch-feed branch
+# onto the current dense/sparse-routed decode core and expand dispatch.
+#
+# note_chunk()/_gather_chunks() are exercised implicitly by every test
+# above already: chunk2sparse/chunk2sparseCSC/chunk2sparseMulti/
+# chunk2sparseCSCmulti/bslz4_to_sparse() all build their compressed_ptrs/
+# compressed_lengths arrays via _gather_chunks() now, not ctypes. Only
+# harvest_chunk_offsets()/pack_offsets_lengths()/bslz4_csc_multi_base_*
+# (the base+offsets path) have no other coverage, so that's what this
+# checks -- against chunk2sparseCSCmulti (already pyFAI-validated above)
+# reading the very same chunks, as the reference.
+# ---------------------------------------------------------------------------
+
+from bslz4_to_sparse import harvest_chunk_offsets, pack_offsets_lengths
+from bslz4_to_sparse import _BSLZ4_CSC_MULTI_BASE, _suffix_for_dtype, _workspace_bytes_csc
+
+
+def test_csc_multi_base_matches_multi():
+    with open("sparsetest.h5", "rb") as fh:
+        base = fh.read()
+
+    for name in chunks:
+        dt, shp, chunklist = chunks[name]
+        nframes = len(chunklist)
+        frames = list(range(nframes))
+
+        with h5py.File("sparsetest.h5", "r") as h5f:
+            frame_offsets = harvest_chunk_offsets(h5f[name])
+        offsets, lengths = pack_offsets_lengths(frame_offsets, frames)
+
+        csc = ai.engines[method].engine
+        mask = (1 - ai.mask).ravel()
+        npix = mask.size
+        nbins = csc.shape[0] if hasattr(csc, "shape") else csc.bins
+
+        outpx = np.empty((nframes, npix), dt)
+        output_adr = np.empty((nframes, npix), np.uint32)
+        npx_out = np.empty(nframes, np.int32)
+        powder = np.empty((nframes, nbins), np.float64)
+        cursors = np.empty(nframes, np.int64)
+        workspace = np.empty(_workspace_bytes_csc(chunklist[0][1], np.dtype(dt).itemsize), np.uint8)
+
+        fn = _BSLZ4_CSC_MULTI_BASE[_suffix_for_dtype(dt)]
+        ret = fn(base, offsets, lengths, mask, outpx.ravel(), output_adr.ravel(),
+                  npx_out, 1, powder.ravel(), csc.data, csc.indices, csc.indptr,
+                  workspace, cursors, nbins, 2)
+        assert ret >= 0, (name, ret)
+
+        c2sm = chunk2sparseCSCmulti(1 - ai.mask, csc, dtype=np.dtype(dt))
+        bufs = [c for (filt, c) in chunklist]
+        npx_ref, (val_ref, adr_ref), powder_ref = c2sm(bufs, 1)
+
+        for i in range(nframes):
+            assert npx_out[i] == npx_ref[i], (name, i)
+            s1 = set(zip(output_adr[i, :npx_out[i]].tolist(), outpx[i, :npx_out[i]].tolist()))
+            s2 = set(zip(adr_ref[i, :npx_ref[i]].tolist(), val_ref[i, :npx_ref[i]].tolist()))
+            assert s1 == s2, (name, i, "multi_base vs multi sparse set differs")
+            np.testing.assert_allclose(powder[i], powder_ref[i])
+
+
 test_csc_multi_matches_single_and_reference()
 test_csc_dense_and_sparse_routes_both_match_reference()
 test_plain_multi_matches_single()
 test_u64_i64_and_signed_negative_values()
-print("all multi-frame / dense-sparse-route / u64-i64 tests passed")
+test_csc_multi_base_matches_multi()
+print("all multi-frame / dense-sparse-route / u64-i64 / multi_base tests passed")

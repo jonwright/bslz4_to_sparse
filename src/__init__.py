@@ -75,13 +75,26 @@ def _suffix_for_dtype(dtype):
 # hand. Each dict is {suffix: callable_or_rebind_fn}.
 _BSLZ4_MULTI = {s: getattr(_ext, "bslz4_multi_%s" % s) for s in _TYPE_SUFFIXES}
 _BSLZ4_CSC_MULTI = {s: getattr(_ext, "bslz4_csc_multi_%s" % s) for s in _TYPE_SUFFIXES}
+# bslz4_csc_multi_base_<suffix>: like _BSLZ4_CSC_MULTI, but for chunks
+# that all share one base buffer (e.g. an mmap'ed HDF5 file) addressed by
+# byte offset rather than one buffer object per frame -- see
+# harvest_chunk_offsets()/pack_offsets_lengths() below. Not currently
+# used by any class here (nothing in this module has opened/mmap'ed a
+# whole file yet); exposed as a building block for callers who have.
+_BSLZ4_CSC_MULTI_BASE = {s: getattr(_ext, "bslz4_csc_multi_base_%s" % s) for s in _TYPE_SUFFIXES}
 _REBIND = {
     s: (
         getattr(_ext, "_rebind_bslz4_multi_%s" % s),
         getattr(_ext, "_rebind_bslz4_csc_multi_%s" % s),
+        getattr(_ext, "_rebind_bslz4_csc_multi_base_%s" % s),
     )
     for s in _TYPE_SUFFIXES
 }
+
+# The only place a compressed chunk's address is extracted -- via
+# c2py23's own buffer acquisition on note_chunk's "chunk" parameter, not
+# any Python-side ctypes/numpy trick. See _gather_chunks().
+note_chunk = _ext.note_chunk
 
 get_dense_sparse_threshold = _ext.get_dense_sparse_threshold
 set_dense_sparse_threshold = _ext.set_dense_sparse_threshold
@@ -117,11 +130,111 @@ def _blocksize_bytes(cmp):
     """
     The bitshuffle block size (bytes) encoded in this compressed chunk's
     stream header (bytes 8:12, big endian; 0 means the 8192 byte default).
+
+    Works on any buffer-protocol object whose integer indexing returns
+    ints -- bytes/bytearray/memoryview/numpy uint8 array, all fine in
+    Python 3 as-is, no conversion needed first.
     """
-    if cmp.size < 12:
+    if len(cmp) < 12:
         return DEFAULT_BLOCK_BYTES
     blocksize = (int(cmp[8]) << 24) | (int(cmp[9]) << 16) | (int(cmp[10]) << 8) | int(cmp[11])
     return blocksize if blocksize else DEFAULT_BLOCK_BYTES
+
+
+def _gather_chunks(chunks):
+    """
+    Build the (pointers, lengths) pair bslz4_multi_*/bslz4_csc_multi_*
+    expect from a plain Python sequence of independent chunk buffers
+    (bytes, bytearray, memoryview, mmap slices, ... any buffer-protocol
+    object -- source type doesn't matter and isn't inspected).
+
+    No ctypes: note_chunk (a genuine c2py23-wrapped function, so it's
+    c2py23's own buffer acquisition doing the address extraction, not a
+    Python-side reimplementation of it via e.g. .ctypes.data) writes each
+    chunk's address+length into pointers/lengths directly. pointers/
+    lengths are still plain int64/int32 numpy arrays, not bytearrays --
+    bslz4_multi_*/bslz4_csc_multi_* infer nframes from
+    compressed_ptrs.itemsize (8 for int64), which a bytearray (itemsize
+    1) can't satisfy; numpy is already a hard dependency of this package
+    elsewhere (masks, outputs), so this isn't adding one. The `chunks`
+    sequence itself is consumed entirely here in Python -- c2py23 never
+    sees more than one buffer object per call.
+    """
+    n = len(chunks)
+    pointers = np.empty(n, dtype=np.int64)
+    lengths = np.empty(n, dtype=np.int32)
+    for i, chunk in enumerate(chunks):
+        note_chunk(chunk, i, pointers, lengths)
+    return pointers, lengths
+
+
+def harvest_chunk_offsets(ds):
+    """
+    Harvest {frame_index: (byte_offset, byte_size)} for every stored
+    chunk of a (1, ni, nj)-chunked bitshuffle dataset, via h5py's
+    chunk_iter (h5py >=3.8: one native B-tree traversal) or, if that's
+    not available, a get_num_chunks()/get_chunk_info() loop.
+
+    Raises ValueError if ds isn't chunked (1, ni, nj) -- 4-D (1,1,ni,nj)
+    chunking is not supported yet -- or if any chunk has the bitshuffle
+    filter (pipeline position 0) marked skipped in its filter_mask (that
+    chunk's bytes would be raw pixel data, not a bitshuffle stream; in
+    practice this doesn't happen for these datasets, so it's a hard
+    error here rather than a case decode needs to handle).
+
+    Pairs with pack_offsets_lengths() and bslz4_csc_multi_base_<suffix>
+    (see _BSLZ4_CSC_MULTI_BASE) for callers who have the whole HDF5 file
+    already open/mapped as one buffer and want to skip one
+    read_direct_chunk() call per frame.
+    """
+    chunks = tuple(ds.chunks) if ds.chunks is not None else None
+    if chunks is None or len(chunks) != 3 or chunks[0] != 1:
+        raise ValueError(
+            "harvest_chunk_offsets needs a (1, ni, nj)-chunked dataset, got chunks=%r "
+            "(4-D (1,1,ni,nj) chunking is not supported yet)" % (chunks,)
+        )
+
+    offsets = {}
+
+    def _store(frame, byte_offset, byte_size, filter_mask):
+        if filter_mask & 1:
+            raise ValueError(
+                "chunk for frame %d has the bitshuffle filter skipped (filter_mask=%d); "
+                "raw (uncompressed) chunk passthrough is not supported" % (frame, filter_mask)
+            )
+        offsets[frame] = (byte_offset, byte_size)
+
+    if hasattr(ds.id, "chunk_iter"):
+        def _cb(chunk_info):
+            _store(chunk_info.chunk_offset[0], chunk_info.byte_offset,
+                   chunk_info.size, chunk_info.filter_mask)
+            # must not return 0 (or any falsy-to-HDF5-iterator value that
+            # h5py maps to H5_ITER_STOP) -- returning None continues.
+        ds.id.chunk_iter(_cb)
+    else:
+        for i in range(ds.id.get_num_chunks()):
+            info = ds.id.get_chunk_info(i)
+            _store(info.chunk_offset[0], info.byte_offset, info.size, info.filter_mask)
+
+    return offsets
+
+
+def pack_offsets_lengths(frame_offsets, frames):
+    """
+    Build the (offsets, lengths) pair bslz4_csc_multi_base_<suffix>
+    expects (int64/int32 numpy arrays, see _gather_chunks for why not
+    bytearrays), from harvest_chunk_offsets()'s {frame_index:
+    (byte_offset, byte_size)} result and the ordered list of frame
+    indices to include. These are byte offsets, already plain Python
+    ints from HDF5 metadata, so no buffer-address extraction
+    (note_chunk) is needed here at all.
+    """
+    n = len(frames)
+    offsets = np.empty(n, dtype=np.int64)
+    lengths = np.empty(n, dtype=np.int32)
+    for i, frame in enumerate(frames):
+        offsets[i], lengths[i] = frame_offsets[frame]
+    return offsets, lengths
 
 
 def _workspace_bytes(cmp):
@@ -171,15 +284,17 @@ def set_backend(name):
     (https://github.com/kiyo-masui/bitshuffle). See available_backends()
     for the names compiled into this build.
 
-    Applies to every pixel type and to both decode families (plain/CSC --
-    there is no separate single-frame family to also update, see the
-    module docstring), so the kernels can be measured against each other
-    rather than one being silently fixed at build time. Pass None to
-    restore auto-resolve.
+    Applies to every pixel type and to all three multi-frame decode
+    families (plain, CSC, and the base+offsets CSC variant -- there is no
+    separate single-frame family to also update, see the module
+    docstring), so the kernels can be measured against each other rather
+    than one being silently fixed at build time. Pass None to restore
+    auto-resolve.
     """
-    for suffix, (rbm, rbcm) in _REBIND.items():
+    for suffix, (rbm, rbcm, rbcmb) in _REBIND.items():
         rbm(None if name is None else "bslz4_multi_%s_%s" % (suffix, name))
         rbcm(None if name is None else "bslz4_csc_multi_%s_%s" % (suffix, name))
+        rbcmb(None if name is None else "bslz4_csc_multi_base_%s_%s" % (suffix, name))
 
 
 # Historical note (see bug_variant.md): a c2py23 code-generation bug used
@@ -246,16 +361,14 @@ class chunk2sparseMulti:
         The returned arrays are owned by this object and reused (and
         possibly reallocated) on the next call.
         """
-        bufs = [npbuf(b) for b in buffers]
-        nframes = len(bufs)
-        self._ensure_capacity(nframes, bufs[0])
+        nframes = len(buffers)
+        self._ensure_capacity(nframes, buffers[0])
 
-        ptrs = np.array([b.ctypes.data for b in bufs], dtype=np.int64)
-        lens = np.array([b.size for b in bufs], dtype=np.int32)
+        pointers, lengths = _gather_chunks(buffers)
 
         ret = self._fn(
-            ptrs,
-            lens,
+            pointers,
+            lengths,
             self.mask,
             self._output.ravel(),
             self._output_adr.ravel(),
@@ -331,19 +444,16 @@ def bslz4_to_sparse(ds, num, cut, mask=None, pixelbuffer=None, workspace=None, c
         codec = detect_codec(ds)
     # todo : h5py malloc free version coming? see https://github.com/h5py/h5py/pull/2232
     filtinfo, buffer = ds.id.read_direct_chunk((num, 0, 0))
-    #
-    # h5py returns a bytes object that is read only. Older versions of numpy insist
-    # to make a copy. We work around that using ctypes to set a writeable flag.
-    #                                                      PyBUF_WRITE 0x200
-    buf = npbuf(buffer)
+    # note_chunk's C parameter is read-only (const char *), so a plain
+    # h5py-returned bytes object goes straight through _gather_chunks --
+    # unlike numpy's .ctypes.data, no writability workaround is needed.
     if workspace is None:
-        workspace = np.empty(_workspace_bytes(buf), np.uint8)
+        workspace = np.empty(_workspace_bytes(buffer), np.uint8)
     fn = _BSLZ4_MULTI[_suffix_for_dtype(values.dtype)]
-    ptrs = np.array([buf.ctypes.data], dtype=np.int64)
-    lens = np.array([buf.size], dtype=np.int32)
+    pointers, lengths = _gather_chunks([buffer])
     npx_out = np.empty(1, np.int32)
     cursors = np.empty(1, np.int64)
-    ret = fn(ptrs, lens, mask, values, indices, npx_out, cut, workspace, cursors, codec)
+    ret = fn(pointers, lengths, mask, values, indices, npx_out, cut, workspace, cursors, codec)
     if ret < 0:
         raise Exception("Error decoding: %d" % (ret))
     npixels = int(npx_out[0])
@@ -430,16 +540,14 @@ class chunk2sparseCSCmulti:
         The returned arrays are owned by this object and reused (and
         possibly reallocated) on the next call.
         """
-        bufs = [npbuf(b) for b in buffers]
-        nframes = len(bufs)
-        self._ensure_capacity(nframes, bufs[0])
+        nframes = len(buffers)
+        self._ensure_capacity(nframes, buffers[0])
 
-        ptrs = np.array([b.ctypes.data for b in bufs], dtype=np.int64)
-        lens = np.array([b.size for b in bufs], dtype=np.int32)
+        pointers, lengths = _gather_chunks(buffers)
 
         ret = self._fn(
-            ptrs,
-            lens,
+            pointers,
+            lengths,
             self.mask,
             self._outpx.ravel(),
             self._output_adr.ravel(),
