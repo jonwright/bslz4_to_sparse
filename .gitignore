@@ -6,3 +6,5 @@ __pycache__/
 *.pyd
 src/bslz4_to_sparse_wrapper.c
 test/*.h5
+/c2bslz4/
+c2bslz4-src-*.tar.gz
