@@ -101,17 +101,18 @@ set_dense_sparse_threshold = _ext.set_dense_sparse_threshold
 
 # Optional SIMD mask+threshold collect kernel tiers (u16/u32 only, see
 # bslz4_collect_simd.hpp): avx512, avx2, sse2, vsx, tried in that
-# priority order when more than one is enabled (in practice at most one
-# of {avx512,avx2,sse2} vs vsx can even be compiled into a given build,
-# so the order across that x86/POWER boundary is moot). All off by
-# default and never auto-enabled by CPU capability alone -- AVX-512 in
-# particular can throttle clocks on some chips enough to net-lose for
-# this workload, so each is a benchmarkable opt-in, the same shape as
-# set_backend() for the untranspose step. sse2 is the x86-64 ABI
-# baseline (always available on x86-64, no capability gap, no known
-# throttling risk) -- still off by default for consistency, not because
-# it's expected to be a bad idea; measure it too before relying on the
-# default meaning anything about whether it's worth turning on. vsx
+# priority order (in practice at most one of {avx512,avx2,sse2} vs vsx
+# can even be compiled into a given build, so the order across that
+# x86/POWER boundary is moot). The best available tier is ON by default
+# -- that default is decided in bslz4_collect_simd.hpp itself (each
+# bslz4_<tier>_collect_enabled()'s own static initializer, checked once
+# at first use against the c2py23 cpuid-equivalent globals), NOT here:
+# this module only exposes the runtime getters/setters below, it
+# doesn't choose or set anything at import time. AVX-512 in particular
+# can throttle clocks on some chips enough to net-lose for this
+# workload -- set_avx512_collect(False) if that turns out to matter on
+# yours (disabling one tier does not auto-promote the next one; call
+# set_avx2_collect(True) etc explicitly to reach a lower tier). vsx
 # (POWER8+) is real-hardware-measured (not just simulated/assumed) at
 # 3.75-8.2x on sparse data, see set_vsx_collect().
 avx512_collect_available = _ext.avx512_collect_available
@@ -129,10 +130,10 @@ def set_avx512_collect(enabled):
     Enable/disable the AVX-512 collect kernel for bslz4_multi_u16/u32 and
     bslz4_csc_multi_u16/u32's sparse-route compaction. Applies immediately
     to every call already made with those functions (it's a runtime
-    switch, not a per-call or per-dtype choice) -- measure on your own
-    machine (A/B against it left off) before turning it on; it is not
-    always a win, see the module docstring in bslz4_collect_simd.hpp.
-    Tried before avx2/sse2 when more than one tier is enabled.
+    switch, not a per-call or per-dtype choice). On by default when
+    available (it's the highest-priority tier, tried first) -- it is not
+    always a win, see the module docstring in bslz4_collect_simd.hpp, so
+    disable it explicitly if it measures as a net loss on your machine.
 
     Raises RuntimeError if enabled=True is requested on a CPU without the
     required AVX-512F+BW+VL feature bits (see avx512_collect_available()).
@@ -150,9 +151,10 @@ def set_avx2_collect(enabled):
     Enable/disable the AVX2 collect kernel for bslz4_multi_u16/u32 and
     bslz4_csc_multi_u16/u32's sparse-route compaction -- see
     set_avx512_collect(), same shape. Ignored when AVX-512 collect is
-    also enabled (avx512 is tried first). AVX2 carries much less
-    frequency-throttling risk than AVX-512 on most chips, but measure
-    before relying on that rather than assuming it.
+    also enabled (avx512 is tried first). On by default when available
+    and avx512 isn't. AVX2 carries much less frequency-throttling risk
+    than AVX-512 on most chips, but measure before relying on that
+    rather than assuming it.
 
     Raises RuntimeError if enabled=True is requested on a CPU without AVX2
     (see avx2_collect_available()).
@@ -169,11 +171,9 @@ def set_sse2_collect(enabled):
     Enable/disable the SSE2 collect kernel for bslz4_multi_u16/u32 and
     bslz4_csc_multi_u16/u32's sparse-route compaction -- see
     set_avx512_collect(), same shape. Ignored when AVX-512 or AVX2
-    collect is also enabled (tried last). Unlike the other two tiers,
-    SSE2 is the x86-64 ABI baseline: always available, no capability
-    gap, no known throttling risk -- still off by default for
-    consistency with set_backend()'s measure-first philosophy, not
-    because it's expected to be a bad idea.
+    collect is also enabled (tried last). On by default whenever neither
+    of those is -- unlike them, SSE2 is the x86-64 ABI baseline: always
+    available, no capability gap, no known throttling risk.
 
     Raises RuntimeError if enabled=True is requested on a non-x86-64
     build, or one whose compiler lacks GCC/Clang-style target attributes
@@ -190,11 +190,10 @@ def set_vsx_collect(enabled):
     """
     Enable/disable the POWER VSX collect kernel for bslz4_multi_u16/u32
     and bslz4_csc_multi_u16/u32's sparse-route compaction -- see
-    set_avx512_collect(), same shape. Real-hardware-measured on a POWER9
-    box (see bslz4_collect_simd.hpp and tools/bslz4_power9_collect_probe.c
-    for the full story): 3.75-8.2x faster than scalar on sparse data via
-    a vec_any_gt fast-skip gate. Still off by default for consistency
-    with set_backend()'s measure-first philosophy.
+    set_avx512_collect(), same shape. On by default when available.
+    Real-hardware-measured on a POWER9 box (see bslz4_collect_simd.hpp
+    and tools/bslz4_power9_collect_probe.c for the full story): 3.75-8.2x
+    faster than scalar on sparse data via a vec_any_gt fast-skip gate.
 
     Raises RuntimeError if enabled=True is requested on a non-POWER
     build, or POWER hardware/build without VSX (see

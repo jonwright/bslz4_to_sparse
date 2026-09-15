@@ -3,7 +3,7 @@ import h5py, hdf5plugin
 import numpy as np
 import sys, os
 import timeit
-# sys.path.insert(0,'../build/lib.linux-x86_64-cpython-38')
+sys.path.insert(0,'..') # build/lib.linux-x86_64-cpython-38')
 import bslz4_to_sparse
 
 print("Running from", bslz4_to_sparse.__file__)

@@ -36,25 +36,45 @@
  * the x86 tiers) -- this difference is only about what it takes to
  * compile each tier in, not about auto-enabling anything.
  *
- * None of the four are auto-enabled by capability alone: AVX-512 in
- * particular can trigger frequency throttling on some chips that
- * outweighs the wider vector for this workload, so -- for consistency,
- * even on tiers without that specific risk -- dispatch is a runtime
- * bool per tier (bslz4_avx512_collect_enabled() / _avx2_ / _sse2_ /
- * _vsx_, all default false), set explicitly via set_avx512_collect()
- * etc in bslz4_to_sparse.cpp/__init__.py after measuring -- the same
- * benchmarkable-opt-in shape set_backend() already uses for the
- * untranspose step. bslz4_collect_gt<T>/bslz4_collect_nz<T> (bottom of
- * this file) try tiers in priority order (avx512, avx2, sse2, vsx --
- * in practice at most one of {avx512,avx2,sse2} vs vsx can even be
- * compiled in on a given build, so the order across that x86/POWER
- * boundary is moot), falling back to the plain scalar loop if none are
- * enabled.
+ * Dispatch is a runtime bool per tier (bslz4_avx512_collect_enabled() /
+ * _avx2_ / _sse2_ / _vsx_), each defaulting to true iff it's the
+ * highest-priority tier actually compiled in AND capable on this CPU
+ * (checked once, at first use, via c2py23's cpuid-equivalent globals --
+ * c2py_amd64_avx512f/bw/vl, c2py_amd64_avx2, c2py_ppc64_vsx -- SSE2
+ * needs no such check, it's the x86-64 ABI baseline). This is the same
+ * "pick the best available automatically" default kcb's untranspose
+ * backend already gives you for free via its own internal ifunc
+ * dispatch -- the difference is these four tiers can't share one ifunc
+ * resolver (they're mutually exclusive by priority, not layered), so
+ * the choice is made explicitly here in C++ rather than left to the
+ * linker. bslz4_<tier>_collect_capable() (used for both this default
+ * and the Python-visible <tier>_collect_available() query in
+ * bslz4_to_sparse.cpp) is the single source of truth for what's
+ * actually usable; only ever change the *default* logic there, not in
+ * Python -- src/__init__.py just exposes getters/setters, it doesn't
+ * drive which tier starts active.
+ *
+ * Explicitly set_<tier>_collect(False)/set_<tier>_collect(True) still
+ * override this at runtime, same as always -- the default just means
+ * nobody has to call anything to get the fastest tier this CPU/build
+ * supports. AVX-512 can trigger frequency throttling on some chips
+ * that outweighs the wider vector for this workload -- if that turns
+ * out to matter on yours, set_avx512_collect(False) drops to the next
+ * tier down (call it again to reach avx2/sse2/scalar explicitly, since
+ * disabling one tier doesn't auto-promote the next one). bslz4_collect_gt<T>/
+ * bslz4_collect_nz<T> (bottom of this file) try tiers in priority order
+ * (avx512, avx2, sse2, vsx -- in practice at most one of
+ * {avx512,avx2,sse2} vs vsx can even be compiled in on a given build,
+ * so the order across that x86/POWER boundary is moot), falling back
+ * to the plain scalar loop if none are enabled.
  */
 
 #include "bslz4_common.hpp"
 
 #include <cstring>
+
+#include "c2py_amd64.h"
+#include "c2py_ppc64.h"
 
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
 #define BSLZ4_HAVE_AVX512_COLLECT 1
@@ -76,23 +96,69 @@
 
 namespace bslz4 {
 
+/* Single source of truth for "is this tier actually usable" -- shared
+ * by the default-enabled logic below and the Python-visible
+ * <tier>_collect_available() query (bslz4_to_sparse.cpp delegates to
+ * these rather than duplicating the cpuid-check logic). */
+
+inline bool bslz4_avx512_collect_capable() {
+#if BSLZ4_HAVE_AVX512_COLLECT
+    return (c2py_amd64_avx512f && c2py_amd64_avx512bw && c2py_amd64_avx512vl) != 0;
+#else
+    return false;
+#endif
+}
+
+inline bool bslz4_avx2_collect_capable() {
+#if BSLZ4_HAVE_AVX2_COLLECT
+    return c2py_amd64_avx2 != 0;
+#else
+    return false;
+#endif
+}
+
+inline bool bslz4_sse2_collect_capable() {
+#if BSLZ4_HAVE_SSE2_COLLECT
+    return true; /* x86-64 ABI baseline -- always present, no cpuid check needed */
+#else
+    return false;
+#endif
+}
+
+inline bool bslz4_vsx_collect_capable() {
+#if BSLZ4_HAVE_VSX_COLLECT
+    return c2py_ppc64_vsx != 0;
+#else
+    return false;
+#endif
+}
+
+/* Each defaults to true iff it's the highest-priority capable tier --
+ * so exactly one of these (or none, on a build/CPU with nothing
+ * available) starts enabled, matching the priority order
+ * bslz4_collect_gt<T>/bslz4_collect_nz<T> dispatch in below. */
+
 inline bool &bslz4_avx512_collect_enabled() {
-    static bool x = false;
+    static bool x = bslz4_avx512_collect_capable();
     return x;
 }
 
 inline bool &bslz4_avx2_collect_enabled() {
-    static bool x = false;
+    static bool x = !bslz4_avx512_collect_capable() && bslz4_avx2_collect_capable();
     return x;
 }
 
 inline bool &bslz4_vsx_collect_enabled() {
-    static bool x = false;
+    /* Mutually exclusive with the x86 tiers by compilation (BSLZ4_HAVE_
+     * VSX_COLLECT and BSLZ4_HAVE_{AVX512,AVX2,SSE2}_COLLECT can't both
+     * be 1 in the same build), so no priority check against them needed. */
+    static bool x = bslz4_vsx_collect_capable();
     return x;
 }
 
 inline bool &bslz4_sse2_collect_enabled() {
-    static bool x = false;
+    static bool x = !bslz4_avx512_collect_capable() && !bslz4_avx2_collect_capable()
+                     && bslz4_sse2_collect_capable();
     return x;
 }
 

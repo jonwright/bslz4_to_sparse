@@ -2,7 +2,11 @@
 
 from bslz4_to_sparse import chunk2sparseCSC
 
-import pyFAI.integrator.azimuthal
+try:
+    from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # pyFAI >= 2024.10
+except ImportError:
+    from pyFAI.azimuthalIntegrator import AzimuthalIntegrator  # older pyFAI
+import pyFAI
 import numpy as np
 import h5py
 import hdf5plugin
@@ -39,7 +43,7 @@ with h5py.File('sparsetest.h5','r') as h5f:
 npt = 1500
 
 
-ai = pyFAI.integrator.azimuthal.AzimuthalIntegrator(
+ai = AzimuthalIntegrator(
     dist = 0.25,
     poni1 = 0.07,
     poni2 = 0.08,
@@ -316,7 +320,10 @@ def _check_collect_tier_matches_scalar(tier, available, getter, setter):
     if not available():
         print(f"{tier} not available on this build/CPU, skipping")
         return
-    assert not getter(), "should be off by default"
+    # Best available tier is on by default now (decided in
+    # bslz4_collect_simd.hpp, not here) -- don't assume either state,
+    # just restore whatever it was when this test started.
+    original_state = getter()
 
     saved_threshold = get_dense_sparse_threshold()
     try:
@@ -360,7 +367,7 @@ def _check_collect_tier_matches_scalar(tier, available, getter, setter):
                         assert np.array_equal(outpx_c2[i, :n], outpx_ref[i, :n]), (tier, name, label, i, "csc values differ")
                         assert np.array_equal(outadr_c2[i, :n], outadr_ref[i, :n]), (tier, name, label, i, "csc indices differ")
             finally:
-                setter(False)
+                setter(original_state)
     finally:
         set_dense_sparse_threshold(saved_threshold)
 
