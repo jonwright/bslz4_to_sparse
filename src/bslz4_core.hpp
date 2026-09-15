@@ -47,10 +47,19 @@
  * spend the CSC work on it (see bslz4_csc_decode_multi below) -- that
  * decision is inherently per-frame, so there is nothing to share across
  * frames at the indptr level regardless.
+ *
+ * The mask+threshold collect step in both decoders (scan a block,
+ * compact matching (index, value) pairs) goes through
+ * bslz4_collect_gt<T>/bslz4_collect_nz<T> (bslz4_collect_simd.hpp),
+ * which are the scalar loops seen here for every T except uint16_t/
+ * uint32_t, where an explicit template specialization can take an
+ * AVX-512 path instead -- opt-in only (bslz4_avx512_collect_enabled(),
+ * off by default), see that header for why.
  */
 
 #include "bslz4_codec.hpp"
 #include "bslz4_common.hpp"
+#include "bslz4_collect_simd.hpp"
 
 #include <cstring>
 #include <cstdint>
@@ -99,6 +108,17 @@ int bslz4_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 
     if (nframes <= 0) return ERR_BAD_NFRAMES;
     if (threshold < 0) return ERR_BAD_THRESHOLD;
+    /* TODO(threshold API, needs cleanup): threshold is a plain C int for
+     * every dtype, including f32/f64 -- (T) threshold can only ever
+     * express a whole-number cut for float data, never a fractional
+     * one, and for u8/u16 there is no check that the value actually
+     * fits the destination type (threshold=300 for u8 data silently
+     * becomes (uint8_t)300 == 44 here, no error, unlike the existing
+     * hard ValueError c2py23 already raises for threshold > INT32_MAX).
+     * Not fixed here -- deliberately deferred; a real fix likely means
+     * validating threshold against each dtype's representable range at
+     * the API boundary, and/or taking a wider (e.g. double) threshold
+     * for the float dtype family specifically. */
     const T cut = (T) threshold;
 
     const char *compressed0 = (const char *) (intptr_t) compressed_ptrs[0];
@@ -148,13 +168,8 @@ int bslz4_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             T *outf = output + (size_t) f * NIJ;
             uint32_t *outadrf = output_adr + (size_t) f * NIJ;
             int32_t npx = npx_out[f];
-            for (size_t j = 0; j < block_elems; j++) {
-                if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (block[j] > cut))) {
-                    outf[npx] = block[j];
-                    outadrf[npx] = (uint32_t) (j + i0);
-                    npx++;
-                }
-            }
+            npx += bslz4_collect_gt<T>(block, mask, (size_t) i0, block_elems, cut,
+                                        outf + npx, outadrf + npx);
             npx_out[f] = npx;
         }
         i0 += (int) block_elems;
@@ -180,13 +195,9 @@ int bslz4_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         T *outf = output + (size_t) f * NIJ;
         uint32_t *outadrf = output_adr + (size_t) f * NIJ;
         int32_t npx = npx_out[f];
-        for (size_t j = 0; j < (size_t(rem_f) + tail_block) / NB; j++) {
-            if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (block[j] > cut))) {
-                outf[npx] = block[j];
-                outadrf[npx] = (uint32_t) (j + i0);
-                npx++;
-            }
-        }
+        size_t ntail = (size_t(rem_f) + tail_block) / NB;
+        npx += bslz4_collect_gt<T>(block, mask, (size_t) i0, ntail, cut,
+                                    outf + npx, outadrf + npx);
         npx_out[f] = npx;
     }
     return 0;
@@ -263,6 +274,8 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 
     if (nframes <= 0) return ERR_BAD_NFRAMES;
     if (threshold < 0) return ERR_BAD_THRESHOLD;
+    /* TODO(threshold API, needs cleanup): see the identical note in
+     * bslz4_decode_multi above -- same open issue, same cast. */
     const T cut = (T) threshold;
     const double dense_sparse_x = bslz4_csc_dense_sparse_threshold();
 
@@ -322,15 +335,7 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 
             if ((double) blocksize > dense_sparse_x * (double) nbytes) {
                 /* sparse route */
-                int nz = 0;
-                for (size_t j = 0; j < block_elems; j++) {
-                    T px = block[j];
-                    if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (px != 0))) {
-                        tidx[nz] = (uint32_t) (j + i0);
-                        tval[nz] = px;
-                        nz++;
-                    }
-                }
+                int nz = bslz4_collect_nz<T>(block, mask, (size_t) i0, block_elems, tval, tidx);
                 for (int kk = 0; kk < nz; kk++) {
                     uint32_t addr = tidx[kk];
                     T val = tval[kk];
@@ -401,15 +406,7 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             ? (double) tail_block > dense_sparse_x * (double) tail_nbytes
             : true; /* pure literal remainder (no compressed tail block): trivially cheap either way */
         if (use_sparse) {
-            int nz = 0;
-            for (size_t j = 0; j < ntail; j++) {
-                T px = block[j];
-                if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (px != 0))) {
-                    tidx[nz] = (uint32_t) (j + i0);
-                    tval[nz] = px;
-                    nz++;
-                }
-            }
+            int nz = bslz4_collect_nz<T>(block, mask, (size_t) i0, ntail, tval, tidx);
             for (int kk = 0; kk < nz; kk++) {
                 uint32_t addr = tidx[kk];
                 T val = tval[kk];

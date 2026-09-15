@@ -63,8 +63,19 @@
  * for callers who already have the whole file mapped. See
  * _gather_chunks()/harvest_chunk_offsets()/pack_offsets_lengths() in
  * __init__.py.
+ *
+ * {avx512,avx2,sse2}_collect_available()/get_*_collect()/set_*_collect()
+ * control the optional SIMD mask+threshold collect kernel tiers for
+ * u16/u32 (bslz4_collect_simd.hpp) -- opt-in, never auto-enabled by
+ * capability alone (AVX-512 in particular can throttle clocks on some
+ * chips enough to net-lose), gated at enable time on the c2py23 cpuid
+ * globals (c2py_amd64_avx512f/bw/vl, c2py_amd64_avx2) this module
+ * already pulls in via "headers" below. sse2 is the x86-64 baseline
+ * (always available, no cpuid check needed for it specifically).
  */
 
+#include "c2py_amd64.h"
+#include "c2py_ppc64.h"
 #include "bslz4_backends.hpp"
 #include "bslz4_core.hpp"
 
@@ -78,6 +89,83 @@ double bslz4_get_dense_sparse_threshold_impl() {
 
 void bslz4_set_dense_sparse_threshold_impl(double x) {
     bslz4_csc_dense_sparse_threshold() = x;
+}
+
+int bslz4_avx512_collect_available_impl() {
+#if BSLZ4_HAVE_AVX512_COLLECT
+    return (c2py_amd64_avx512f && c2py_amd64_avx512bw && c2py_amd64_avx512vl) ? 1 : 0;
+#else
+    return 0;
+#endif
+}
+
+int bslz4_get_avx512_collect_impl() {
+    return bslz4_avx512_collect_enabled() ? 1 : 0;
+}
+
+int bslz4_set_avx512_collect_impl(int enabled) {
+    if (enabled && !bslz4_avx512_collect_available_impl())
+        return -1;
+    bslz4_avx512_collect_enabled() = (enabled != 0);
+    return 0;
+}
+
+int bslz4_avx2_collect_available_impl() {
+#if BSLZ4_HAVE_AVX2_COLLECT
+    return c2py_amd64_avx2 ? 1 : 0;
+#else
+    return 0;
+#endif
+}
+
+int bslz4_get_avx2_collect_impl() {
+    return bslz4_avx2_collect_enabled() ? 1 : 0;
+}
+
+int bslz4_set_avx2_collect_impl(int enabled) {
+    if (enabled && !bslz4_avx2_collect_available_impl())
+        return -1;
+    bslz4_avx2_collect_enabled() = (enabled != 0);
+    return 0;
+}
+
+int bslz4_sse2_collect_available_impl() {
+    /* x86-64 ABI baseline -- always present, no cpuid check needed. */
+#if BSLZ4_HAVE_SSE2_COLLECT
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int bslz4_get_sse2_collect_impl() {
+    return bslz4_sse2_collect_enabled() ? 1 : 0;
+}
+
+int bslz4_set_sse2_collect_impl(int enabled) {
+    if (enabled && !bslz4_sse2_collect_available_impl())
+        return -1;
+    bslz4_sse2_collect_enabled() = (enabled != 0);
+    return 0;
+}
+
+int bslz4_vsx_collect_available_impl() {
+#if BSLZ4_HAVE_VSX_COLLECT
+    return c2py_ppc64_vsx ? 1 : 0;
+#else
+    return 0;
+#endif
+}
+
+int bslz4_get_vsx_collect_impl() {
+    return bslz4_vsx_collect_enabled() ? 1 : 0;
+}
+
+int bslz4_set_vsx_collect_impl(int enabled) {
+    if (enabled && !bslz4_vsx_collect_available_impl())
+        return -1;
+    bslz4_vsx_collect_enabled() = (enabled != 0);
+    return 0;
 }
 
 /* Write chunk's address+length into pointers[index]/lengths[index]. The
@@ -1494,6 +1582,90 @@ int bslz4_csc_multi_base_f64_scal(const char *base, int64_t *offsets, const int3
             "doc": "Set the compression-factor threshold routing bslz4_csc_multi_* between its dense and sparse per-(frame,block) paths. A block's (blocksize / compressed_bytes) above this uses the sparse route, at or below it uses dense.",
             "c_overloads": [
                 {"sig": "bslz4_set_dense_sparse_threshold_impl(double x) -> void", "map": {"x": "x"}},
+            ],
+        },
+        {
+            "py_sig": "avx512_collect_available() -> int",
+            "doc": "1 if this CPU has the AVX-512 subset (F+BW+VL) the u16/u32 collect kernel needs, 0 otherwise -- independent of whether it's currently enabled, see get/set_avx512_collect().",
+            "c_overloads": [
+                {"sig": "bslz4_avx512_collect_available_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "get_avx512_collect() -> int",
+            "doc": "1 if the AVX-512 mask+threshold collect kernel (u16/u32 only) is currently enabled, 0 otherwise. Off by default -- see set_avx512_collect().",
+            "c_overloads": [
+                {"sig": "bslz4_get_avx512_collect_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "set_avx512_collect(enabled: int) -> int",
+            "doc": "Enable/disable the AVX-512 mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but avx512_collect_available() is false (the flag is left unchanged in that case). Never auto-enabled: AVX-512 can throttle clocks on some chips enough to net-lose for this workload, so measure on your own machine with set_backend()-style A/B timing before turning it on. Tried before avx2/sse2 when more than one is enabled at once.",
+            "c_overloads": [
+                {"sig": "bslz4_set_avx512_collect_impl(int enabled) -> int", "map": {"enabled": "enabled"}},
+            ],
+        },
+        {
+            "py_sig": "avx2_collect_available() -> int",
+            "doc": "1 if this CPU has AVX2 (what the u16/u32 collect kernel's AVX2 tier needs), 0 otherwise -- independent of whether it's currently enabled, see get/set_avx2_collect().",
+            "c_overloads": [
+                {"sig": "bslz4_avx2_collect_available_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "get_avx2_collect() -> int",
+            "doc": "1 if the AVX2 mask+threshold collect kernel (u16/u32 only) is currently enabled, 0 otherwise. Off by default -- see set_avx2_collect().",
+            "c_overloads": [
+                {"sig": "bslz4_get_avx2_collect_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "set_avx2_collect(enabled: int) -> int",
+            "doc": "Enable/disable the AVX2 mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but avx2_collect_available() is false. Ignored when avx512 collect is also enabled (avx512 is tried first). Not auto-enabled by default either, though AVX2 carries much less frequency-throttling risk than AVX-512 on most chips -- measure before relying on that.",
+            "c_overloads": [
+                {"sig": "bslz4_set_avx2_collect_impl(int enabled) -> int", "map": {"enabled": "enabled"}},
+            ],
+        },
+        {
+            "py_sig": "sse2_collect_available() -> int",
+            "doc": "1 on any x86-64 build with a compiler that supports the SSE2 collect kernel tier (SSE2 itself is the x86-64 ABI baseline, always present -- this just reflects whether bslz4_collect_simd.hpp compiled that tier in), 0 otherwise (non-x86 builds, or a compiler without GCC/Clang-style target attributes).",
+            "c_overloads": [
+                {"sig": "bslz4_sse2_collect_available_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "get_sse2_collect() -> int",
+            "doc": "1 if the SSE2 mask+threshold collect kernel (u16/u32 only) is currently enabled, 0 otherwise. Off by default -- see set_sse2_collect().",
+            "c_overloads": [
+                {"sig": "bslz4_get_sse2_collect_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "set_sse2_collect(enabled: int) -> int",
+            "doc": "Enable/disable the SSE2 mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but sse2_collect_available() is false. Ignored when avx512 or avx2 collect is also enabled (tried last). Unlike the other two tiers this one is always safe to enable on any x86-64 CPU (no capability gap, no known throttling risk) -- still off by default for consistency with set_backend()'s measure-first philosophy, not because it's expected to be a bad idea.",
+            "c_overloads": [
+                {"sig": "bslz4_set_sse2_collect_impl(int enabled) -> int", "map": {"enabled": "enabled"}},
+            ],
+        },
+        {
+            "py_sig": "vsx_collect_available() -> int",
+            "doc": "1 if this CPU has POWER VSX (what the u16/u32 collect kernel's VSX tier needs), 0 otherwise -- independent of whether it's currently enabled, see get/set_vsx_collect(). Always 0 on non-POWER builds.",
+            "c_overloads": [
+                {"sig": "bslz4_vsx_collect_available_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "get_vsx_collect() -> int",
+            "doc": "1 if the VSX mask+threshold collect kernel (u16/u32 only, POWER8+) is currently enabled, 0 otherwise. Off by default -- see set_vsx_collect().",
+            "c_overloads": [
+                {"sig": "bslz4_get_vsx_collect_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "set_vsx_collect(enabled: int) -> int",
+            "doc": "Enable/disable the VSX mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but vsx_collect_available() is false. Real-hardware-measured on a POWER9 box: 3.75-8.2x faster than scalar on sparse data via a vec_any_gt fast-skip gate (see the file comment in bslz4_collect_simd.hpp and tools/bslz4_power9_collect_probe.c for how that number was reached). Still off by default for consistency with set_backend()'s measure-first philosophy.",
+            "c_overloads": [
+                {"sig": "bslz4_set_vsx_collect_impl(int enabled) -> int", "map": {"enabled": "enabled"}},
             ],
         },
         {

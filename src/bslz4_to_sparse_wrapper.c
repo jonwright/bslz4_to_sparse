@@ -18,6 +18,18 @@
 
 extern double bslz4_get_dense_sparse_threshold_impl();
 extern void bslz4_set_dense_sparse_threshold_impl(double x);
+extern int bslz4_avx512_collect_available_impl();
+extern int bslz4_get_avx512_collect_impl();
+extern int bslz4_set_avx512_collect_impl(int enabled);
+extern int bslz4_avx2_collect_available_impl();
+extern int bslz4_get_avx2_collect_impl();
+extern int bslz4_set_avx2_collect_impl(int enabled);
+extern int bslz4_sse2_collect_available_impl();
+extern int bslz4_get_sse2_collect_impl();
+extern int bslz4_set_sse2_collect_impl(int enabled);
+extern int bslz4_vsx_collect_available_impl();
+extern int bslz4_get_vsx_collect_impl();
+extern int bslz4_set_vsx_collect_impl(int enabled);
 extern void bslz4_note_chunk(const char * chunk, size_t chunk_len, int index, int64_t * pointers, int32_t * lengths);
 extern int bslz4_multi_u8_kcb(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, int codec, const uint8_t * mask, int NIJ, uint8_t * output, uint32_t * output_adr, int32_t * npx_out, int threshold, uint8_t * workspace, size_t workspace_len, int64_t * cursors);
 extern int bslz4_multi_u8_sse(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, int codec, const uint8_t * mask, int NIJ, uint8_t * output, uint32_t * output_adr, int32_t * npx_out, int threshold, uint8_t * workspace, size_t workspace_len, int64_t * cursors);
@@ -224,6 +236,718 @@ _set_dense_sparse_threshold_fastcall(PyObject *self, PyObject *const *args, Py_s
 
 
     ret = _set_dense_sparse_threshold_impl(c_x);
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: avx512_collect_available */
+/* -------------------------------------------- */
+
+static PyObject*
+_avx512_collect_available_impl()
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_avx512_collect_available_impl();
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_avx512_collect_available_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, ""))
+        return NULL;
+
+
+    ret = _avx512_collect_available_impl();
+
+    return ret;
+}
+
+static PyObject*
+_avx512_collect_available_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *ret = NULL;
+
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError,
+            "avx512_collect_available expects 0 arguments");
+        return NULL;
+    }
+
+
+
+    ret = _avx512_collect_available_impl();
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: get_avx512_collect */
+/* -------------------------------------------- */
+
+static PyObject*
+_get_avx512_collect_impl()
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_get_avx512_collect_impl();
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_get_avx512_collect_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, ""))
+        return NULL;
+
+
+    ret = _get_avx512_collect_impl();
+
+    return ret;
+}
+
+static PyObject*
+_get_avx512_collect_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *ret = NULL;
+
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError,
+            "get_avx512_collect expects 0 arguments");
+        return NULL;
+    }
+
+
+
+    ret = _get_avx512_collect_impl();
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: set_avx512_collect */
+/* -------------------------------------------- */
+
+static PyObject*
+_set_avx512_collect_impl(int c_enabled)
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_set_avx512_collect_impl(c_enabled);
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_set_avx512_collect_wrapper(PyObject *self, PyObject *args)
+{
+    int c_enabled = 0;
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, "i", &c_enabled))
+        return NULL;
+
+
+    ret = _set_avx512_collect_impl(c_enabled);
+
+    return ret;
+}
+
+static PyObject*
+_set_avx512_collect_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    int c_enabled = 0;
+    PyObject *ret = NULL;
+
+    if (nargs != 1) {
+        PyErr_SetString(PyExc_TypeError,
+            "set_avx512_collect expects 1 argument");
+        return NULL;
+    }
+
+    /* extract int: enabled from args[0] */
+    {
+        long _c2py_tmp = PyLong_AsLong(args[0]);
+        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
+        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "int parameter enabled out of range (must fit in C int)");
+            return NULL;
+        }
+        c_enabled = (int)_c2py_tmp;
+    }
+
+
+    ret = _set_avx512_collect_impl(c_enabled);
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: avx2_collect_available */
+/* -------------------------------------------- */
+
+static PyObject*
+_avx2_collect_available_impl()
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_avx2_collect_available_impl();
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_avx2_collect_available_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, ""))
+        return NULL;
+
+
+    ret = _avx2_collect_available_impl();
+
+    return ret;
+}
+
+static PyObject*
+_avx2_collect_available_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *ret = NULL;
+
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError,
+            "avx2_collect_available expects 0 arguments");
+        return NULL;
+    }
+
+
+
+    ret = _avx2_collect_available_impl();
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: get_avx2_collect */
+/* -------------------------------------------- */
+
+static PyObject*
+_get_avx2_collect_impl()
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_get_avx2_collect_impl();
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_get_avx2_collect_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, ""))
+        return NULL;
+
+
+    ret = _get_avx2_collect_impl();
+
+    return ret;
+}
+
+static PyObject*
+_get_avx2_collect_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *ret = NULL;
+
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError,
+            "get_avx2_collect expects 0 arguments");
+        return NULL;
+    }
+
+
+
+    ret = _get_avx2_collect_impl();
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: set_avx2_collect */
+/* -------------------------------------------- */
+
+static PyObject*
+_set_avx2_collect_impl(int c_enabled)
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_set_avx2_collect_impl(c_enabled);
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_set_avx2_collect_wrapper(PyObject *self, PyObject *args)
+{
+    int c_enabled = 0;
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, "i", &c_enabled))
+        return NULL;
+
+
+    ret = _set_avx2_collect_impl(c_enabled);
+
+    return ret;
+}
+
+static PyObject*
+_set_avx2_collect_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    int c_enabled = 0;
+    PyObject *ret = NULL;
+
+    if (nargs != 1) {
+        PyErr_SetString(PyExc_TypeError,
+            "set_avx2_collect expects 1 argument");
+        return NULL;
+    }
+
+    /* extract int: enabled from args[0] */
+    {
+        long _c2py_tmp = PyLong_AsLong(args[0]);
+        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
+        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "int parameter enabled out of range (must fit in C int)");
+            return NULL;
+        }
+        c_enabled = (int)_c2py_tmp;
+    }
+
+
+    ret = _set_avx2_collect_impl(c_enabled);
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: sse2_collect_available */
+/* -------------------------------------------- */
+
+static PyObject*
+_sse2_collect_available_impl()
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_sse2_collect_available_impl();
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_sse2_collect_available_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, ""))
+        return NULL;
+
+
+    ret = _sse2_collect_available_impl();
+
+    return ret;
+}
+
+static PyObject*
+_sse2_collect_available_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *ret = NULL;
+
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError,
+            "sse2_collect_available expects 0 arguments");
+        return NULL;
+    }
+
+
+
+    ret = _sse2_collect_available_impl();
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: get_sse2_collect */
+/* -------------------------------------------- */
+
+static PyObject*
+_get_sse2_collect_impl()
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_get_sse2_collect_impl();
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_get_sse2_collect_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, ""))
+        return NULL;
+
+
+    ret = _get_sse2_collect_impl();
+
+    return ret;
+}
+
+static PyObject*
+_get_sse2_collect_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *ret = NULL;
+
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError,
+            "get_sse2_collect expects 0 arguments");
+        return NULL;
+    }
+
+
+
+    ret = _get_sse2_collect_impl();
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: set_sse2_collect */
+/* -------------------------------------------- */
+
+static PyObject*
+_set_sse2_collect_impl(int c_enabled)
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_set_sse2_collect_impl(c_enabled);
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_set_sse2_collect_wrapper(PyObject *self, PyObject *args)
+{
+    int c_enabled = 0;
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, "i", &c_enabled))
+        return NULL;
+
+
+    ret = _set_sse2_collect_impl(c_enabled);
+
+    return ret;
+}
+
+static PyObject*
+_set_sse2_collect_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    int c_enabled = 0;
+    PyObject *ret = NULL;
+
+    if (nargs != 1) {
+        PyErr_SetString(PyExc_TypeError,
+            "set_sse2_collect expects 1 argument");
+        return NULL;
+    }
+
+    /* extract int: enabled from args[0] */
+    {
+        long _c2py_tmp = PyLong_AsLong(args[0]);
+        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
+        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "int parameter enabled out of range (must fit in C int)");
+            return NULL;
+        }
+        c_enabled = (int)_c2py_tmp;
+    }
+
+
+    ret = _set_sse2_collect_impl(c_enabled);
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: vsx_collect_available */
+/* -------------------------------------------- */
+
+static PyObject*
+_vsx_collect_available_impl()
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_vsx_collect_available_impl();
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_vsx_collect_available_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, ""))
+        return NULL;
+
+
+    ret = _vsx_collect_available_impl();
+
+    return ret;
+}
+
+static PyObject*
+_vsx_collect_available_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *ret = NULL;
+
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError,
+            "vsx_collect_available expects 0 arguments");
+        return NULL;
+    }
+
+
+
+    ret = _vsx_collect_available_impl();
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: get_vsx_collect */
+/* -------------------------------------------- */
+
+static PyObject*
+_get_vsx_collect_impl()
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_get_vsx_collect_impl();
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_get_vsx_collect_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, ""))
+        return NULL;
+
+
+    ret = _get_vsx_collect_impl();
+
+    return ret;
+}
+
+static PyObject*
+_get_vsx_collect_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *ret = NULL;
+
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError,
+            "get_vsx_collect expects 0 arguments");
+        return NULL;
+    }
+
+
+
+    ret = _get_vsx_collect_impl();
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: set_vsx_collect */
+/* -------------------------------------------- */
+
+static PyObject*
+_set_vsx_collect_impl(int c_enabled)
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_set_vsx_collect_impl(c_enabled);
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_set_vsx_collect_wrapper(PyObject *self, PyObject *args)
+{
+    int c_enabled = 0;
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, "i", &c_enabled))
+        return NULL;
+
+
+    ret = _set_vsx_collect_impl(c_enabled);
+
+    return ret;
+}
+
+static PyObject*
+_set_vsx_collect_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    int c_enabled = 0;
+    PyObject *ret = NULL;
+
+    if (nargs != 1) {
+        PyErr_SetString(PyExc_TypeError,
+            "set_vsx_collect expects 1 argument");
+        return NULL;
+    }
+
+    /* extract int: enabled from args[0] */
+    {
+        long _c2py_tmp = PyLong_AsLong(args[0]);
+        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
+        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "int parameter enabled out of range (must fit in C int)");
+            return NULL;
+        }
+        c_enabled = (int)_c2py_tmp;
+    }
+
+
+    ret = _set_vsx_collect_impl(c_enabled);
 
     return ret;
 }
@@ -62628,6 +63352,18 @@ cleanup:
 static PyMethodDef _methods_varargs[] = {
     {"get_dense_sparse_threshold", (PyCFunction)_get_dense_sparse_threshold_wrapper, METH_VARARGS, "get_dense_sparse_threshold()\n--\n\nget_dense_sparse_threshold() -> float\n\nCurrent compression-factor threshold routing bslz4_csc_multi_* between its dense and sparse per-(frame,block) paths -- see bslz4_core.hpp's bslz4_csc_dense_sparse_threshold(). Placeholder default, not calibrated against real detector data.\n\nOverloads\n---------\n  bslz4_get_dense_sparse_threshold_impl() -> double"},
     {"set_dense_sparse_threshold", (PyCFunction)_set_dense_sparse_threshold_wrapper, METH_VARARGS, "set_dense_sparse_threshold(x)\n--\n\nset_dense_sparse_threshold(x: float) -> void\n\nSet the compression-factor threshold routing bslz4_csc_multi_* between its dense and sparse per-(frame,block) paths. A block's (blocksize / compressed_bytes) above this uses the sparse route, at or below it uses dense.\n\nParameters\n----------\nx : float\n\nOverloads\n---------\n  bslz4_set_dense_sparse_threshold_impl(double x) -> void\n    Map: x = x (double)"},
+    {"avx512_collect_available", (PyCFunction)_avx512_collect_available_wrapper, METH_VARARGS, "avx512_collect_available()\n--\n\navx512_collect_available() -> int\n\n1 if this CPU has the AVX-512 subset (F+BW+VL) the u16/u32 collect kernel needs, 0 otherwise -- independent of whether it's currently enabled, see get/set_avx512_collect().\n\nOverloads\n---------\n  bslz4_avx512_collect_available_impl() -> int"},
+    {"get_avx512_collect", (PyCFunction)_get_avx512_collect_wrapper, METH_VARARGS, "get_avx512_collect()\n--\n\nget_avx512_collect() -> int\n\n1 if the AVX-512 mask+threshold collect kernel (u16/u32 only) is currently enabled, 0 otherwise. Off by default -- see set_avx512_collect().\n\nOverloads\n---------\n  bslz4_get_avx512_collect_impl() -> int"},
+    {"set_avx512_collect", (PyCFunction)_set_avx512_collect_wrapper, METH_VARARGS, "set_avx512_collect(enabled)\n--\n\nset_avx512_collect(enabled: int) -> int\n\nEnable/disable the AVX-512 mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but avx512_collect_available() is False (the flag is left unchanged in that case). Never auto-enabled: AVX-512 can throttle clocks on some chips enough to net-lose for this workload, so measure on your own machine with set_backend()-style A/B timing before turning it on. Tried before avx2/sse2 when more than one is enabled at once.\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_avx512_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
+    {"avx2_collect_available", (PyCFunction)_avx2_collect_available_wrapper, METH_VARARGS, "avx2_collect_available()\n--\n\navx2_collect_available() -> int\n\n1 if this CPU has AVX2 (what the u16/u32 collect kernel's AVX2 tier needs), 0 otherwise -- independent of whether it's currently enabled, see get/set_avx2_collect().\n\nOverloads\n---------\n  bslz4_avx2_collect_available_impl() -> int"},
+    {"get_avx2_collect", (PyCFunction)_get_avx2_collect_wrapper, METH_VARARGS, "get_avx2_collect()\n--\n\nget_avx2_collect() -> int\n\n1 if the AVX2 mask+threshold collect kernel (u16/u32 only) is currently enabled, 0 otherwise. Off by default -- see set_avx2_collect().\n\nOverloads\n---------\n  bslz4_get_avx2_collect_impl() -> int"},
+    {"set_avx2_collect", (PyCFunction)_set_avx2_collect_wrapper, METH_VARARGS, "set_avx2_collect(enabled)\n--\n\nset_avx2_collect(enabled: int) -> int\n\nEnable/disable the AVX2 mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but avx2_collect_available() is false. Ignored when avx512 collect is also enabled (avx512 is tried first). Not auto-enabled by default either, though AVX2 carries much less frequency-throttling risk than AVX-512 on most chips -- measure before relying on that.\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_avx2_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
+    {"sse2_collect_available", (PyCFunction)_sse2_collect_available_wrapper, METH_VARARGS, "sse2_collect_available()\n--\n\nsse2_collect_available() -> int\n\n1 on any x86-64 build with a compiler that supports the SSE2 collect kernel tier (SSE2 itself is the x86-64 ABI baseline, always present -- this just reflects whether bslz4_collect_simd.hpp compiled that tier in), 0 otherwise (non-x86 builds, or a compiler without GCC/Clang-style target attributes).\n\nOverloads\n---------\n  bslz4_sse2_collect_available_impl() -> int"},
+    {"get_sse2_collect", (PyCFunction)_get_sse2_collect_wrapper, METH_VARARGS, "get_sse2_collect()\n--\n\nget_sse2_collect() -> int\n\n1 if the SSE2 mask+threshold collect kernel (u16/u32 only) is currently enabled, 0 otherwise. Off by default -- see set_sse2_collect().\n\nOverloads\n---------\n  bslz4_get_sse2_collect_impl() -> int"},
+    {"set_sse2_collect", (PyCFunction)_set_sse2_collect_wrapper, METH_VARARGS, "set_sse2_collect(enabled)\n--\n\nset_sse2_collect(enabled: int) -> int\n\nEnable/disable the SSE2 mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but sse2_collect_available() is false. Ignored when avx512 or avx2 collect is also enabled (tried last). Unlike the other two tiers this one is always safe to enable on any x86-64 CPU (no capability gap, no known throttling risk) -- still off by default for consistency with set_backend()'s measure-first philosophy, not because it's expected to be a bad idea.\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_sse2_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
+    {"vsx_collect_available", (PyCFunction)_vsx_collect_available_wrapper, METH_VARARGS, "vsx_collect_available()\n--\n\nvsx_collect_available() -> int\n\n1 if this CPU has POWER VSX (what the u16/u32 collect kernel's VSX tier needs), 0 otherwise -- independent of whether it's currently enabled, see get/set_vsx_collect(). Always 0 on non-POWER builds.\n\nOverloads\n---------\n  bslz4_vsx_collect_available_impl() -> int"},
+    {"get_vsx_collect", (PyCFunction)_get_vsx_collect_wrapper, METH_VARARGS, "get_vsx_collect()\n--\n\nget_vsx_collect() -> int\n\n1 if the VSX mask+threshold collect kernel (u16/u32 only, POWER8+) is currently enabled, 0 otherwise. Off by default -- see set_vsx_collect().\n\nOverloads\n---------\n  bslz4_get_vsx_collect_impl() -> int"},
+    {"set_vsx_collect", (PyCFunction)_set_vsx_collect_wrapper, METH_VARARGS, "set_vsx_collect(enabled)\n--\n\nset_vsx_collect(enabled: int) -> int\n\nEnable/disable the VSX mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but vsx_collect_available() is false. Real-hardware-measured on a POWER9 box: 3.75-8.2x faster than scalar on sparse data via a vec_any_gt fast-skip gate (see the file comment in bslz4_collect_simd.hpp and tools/bslz4_power9_collect_probe.c for how that number was reached). Still off by default for consistency with set_backend()'s measure-first philosophy.\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_vsx_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
     {"note_chunk", (PyCFunction)_note_chunk_wrapper, METH_VARARGS, "note_chunk(chunk, index, pointers, lengths)\n--\n\nnote_chunk(chunk: buffer, index: int, pointers: buffer, lengths: buffer) -> void\n\nWrite chunk's raw address and byte length into pointers[index]/lengths[index]. The only place a buffer's address is extracted -- via c2py23's own buffer acquisition, not any Python-side ctypes/numpy trick -- so a plain Python loop can batch independent chunk objects (bytes, bytearray, memoryview, mmap slices, ...) into bslz4_multi_* or bslz4_csc_multi_*'s compressed_ptrs/compressed_lengths arrays. See _gather_chunks() in __init__.py.\n\nParameters\n----------\nchunk : buffer\nindex : int\npointers : buffer\n    Writable\nlengths : buffer\n    Writable\n\nOverloads\n---------\n  bslz4_note_chunk(const char *chunk, size_t chunk_len, int index, int64_t *pointers, int32_t *lengths)\n    Map: chunk = chunk.ptr (const char *)\n         chunk_len = chunk.len (size_t)\n         index = index (int)\n         pointers = pointers.ptr (int64_t *)\n         lengths = lengths.ptr (int32_t *)"},
     {"bslz4_multi_u8", (PyCFunction)_bslz4_multi_u8_wrapper, METH_VARARGS, "bslz4_multi_u8(compressed_ptrs, compressed_lengths, mask, output, output_adr, npx_out, threshold, workspace, cursors, codec)\n--\n\nbslz4_multi_u8(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, output: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, codec: int = 2) -> int\n\nDecode nframes bitshuffle-LZ4/zstd chunks (uint8_t pixels) from the same dataset into per-frame masked/thresholded sparse (output, output_adr, npx_out). The single-frame case is just nframes==1 -- there is no separate single-frame entry point.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\nmask : buffer\noutput : buffer\n    Writable\noutput_adr : buffer\n    Type: uint32 (format 'I')\n    Writable\nnpx_out : buffer\n    Type: int32 (format 'i')\n    Writable\nthreshold : int\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ncodec : int\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  output_adr.format == 'I'  [ValueError]\n  npx_out.format == 'i'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n\nOverloads\n---------\n  Group\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         codec = codec (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         output = output.ptr (uint8_t *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n    bslz4_multi_u8_kcb -> bslz4_multi_u8_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint8_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n    bslz4_multi_u8_sse -> bslz4_multi_u8_sse(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint8_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n      When: c2py_amd64_sse2\n    bslz4_multi_u8_scal -> bslz4_multi_u8_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint8_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n\nTypeError: unsupported output dtype for bslz4_multi_u8"},
     {"bslz4_multi_u16", (PyCFunction)_bslz4_multi_u16_wrapper, METH_VARARGS, "bslz4_multi_u16(compressed_ptrs, compressed_lengths, mask, output, output_adr, npx_out, threshold, workspace, cursors, codec)\n--\n\nbslz4_multi_u16(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, output: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, codec: int = 2) -> int\n\nDecode nframes bitshuffle-LZ4/zstd chunks (uint16_t pixels) from the same dataset into per-frame masked/thresholded sparse (output, output_adr, npx_out). The single-frame case is just nframes==1 -- there is no separate single-frame entry point.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\nmask : buffer\noutput : buffer\n    Writable\noutput_adr : buffer\n    Type: uint32 (format 'I')\n    Writable\nnpx_out : buffer\n    Type: int32 (format 'i')\n    Writable\nthreshold : int\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ncodec : int\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  output_adr.format == 'I'  [ValueError]\n  npx_out.format == 'i'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n\nOverloads\n---------\n  Group\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         codec = codec (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         output = output.ptr (uint16_t *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n    bslz4_multi_u16_kcb -> bslz4_multi_u16_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint16_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n    bslz4_multi_u16_sse -> bslz4_multi_u16_sse(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint16_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n      When: c2py_amd64_sse2\n    bslz4_multi_u16_scal -> bslz4_multi_u16_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint16_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n\nTypeError: unsupported output dtype for bslz4_multi_u16"},
@@ -62785,6 +63521,18 @@ static PyMethodDef _methods_varargs[] = {
 static PyMethodDef _methods_fastcall[] = {
     {"get_dense_sparse_threshold", (PyCFunction)_get_dense_sparse_threshold_fastcall, METH_FASTCALL, "get_dense_sparse_threshold()\n--\n\nget_dense_sparse_threshold() -> float\n\nCurrent compression-factor threshold routing bslz4_csc_multi_* between its dense and sparse per-(frame,block) paths -- see bslz4_core.hpp's bslz4_csc_dense_sparse_threshold(). Placeholder default, not calibrated against real detector data.\n\nOverloads\n---------\n  bslz4_get_dense_sparse_threshold_impl() -> double"},
     {"set_dense_sparse_threshold", (PyCFunction)_set_dense_sparse_threshold_fastcall, METH_FASTCALL, "set_dense_sparse_threshold(x)\n--\n\nset_dense_sparse_threshold(x: float) -> void\n\nSet the compression-factor threshold routing bslz4_csc_multi_* between its dense and sparse per-(frame,block) paths. A block's (blocksize / compressed_bytes) above this uses the sparse route, at or below it uses dense.\n\nParameters\n----------\nx : float\n\nOverloads\n---------\n  bslz4_set_dense_sparse_threshold_impl(double x) -> void\n    Map: x = x (double)"},
+    {"avx512_collect_available", (PyCFunction)_avx512_collect_available_fastcall, METH_FASTCALL, "avx512_collect_available()\n--\n\navx512_collect_available() -> int\n\n1 if this CPU has the AVX-512 subset (F+BW+VL) the u16/u32 collect kernel needs, 0 otherwise -- independent of whether it's currently enabled, see get/set_avx512_collect().\n\nOverloads\n---------\n  bslz4_avx512_collect_available_impl() -> int"},
+    {"get_avx512_collect", (PyCFunction)_get_avx512_collect_fastcall, METH_FASTCALL, "get_avx512_collect()\n--\n\nget_avx512_collect() -> int\n\n1 if the AVX-512 mask+threshold collect kernel (u16/u32 only) is currently enabled, 0 otherwise. Off by default -- see set_avx512_collect().\n\nOverloads\n---------\n  bslz4_get_avx512_collect_impl() -> int"},
+    {"set_avx512_collect", (PyCFunction)_set_avx512_collect_fastcall, METH_FASTCALL, "set_avx512_collect(enabled)\n--\n\nset_avx512_collect(enabled: int) -> int\n\nEnable/disable the AVX-512 mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but avx512_collect_available() is False (the flag is left unchanged in that case). Never auto-enabled: AVX-512 can throttle clocks on some chips enough to net-lose for this workload, so measure on your own machine with set_backend()-style A/B timing before turning it on. Tried before avx2/sse2 when more than one is enabled at once.\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_avx512_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
+    {"avx2_collect_available", (PyCFunction)_avx2_collect_available_fastcall, METH_FASTCALL, "avx2_collect_available()\n--\n\navx2_collect_available() -> int\n\n1 if this CPU has AVX2 (what the u16/u32 collect kernel's AVX2 tier needs), 0 otherwise -- independent of whether it's currently enabled, see get/set_avx2_collect().\n\nOverloads\n---------\n  bslz4_avx2_collect_available_impl() -> int"},
+    {"get_avx2_collect", (PyCFunction)_get_avx2_collect_fastcall, METH_FASTCALL, "get_avx2_collect()\n--\n\nget_avx2_collect() -> int\n\n1 if the AVX2 mask+threshold collect kernel (u16/u32 only) is currently enabled, 0 otherwise. Off by default -- see set_avx2_collect().\n\nOverloads\n---------\n  bslz4_get_avx2_collect_impl() -> int"},
+    {"set_avx2_collect", (PyCFunction)_set_avx2_collect_fastcall, METH_FASTCALL, "set_avx2_collect(enabled)\n--\n\nset_avx2_collect(enabled: int) -> int\n\nEnable/disable the AVX2 mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but avx2_collect_available() is false. Ignored when avx512 collect is also enabled (avx512 is tried first). Not auto-enabled by default either, though AVX2 carries much less frequency-throttling risk than AVX-512 on most chips -- measure before relying on that.\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_avx2_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
+    {"sse2_collect_available", (PyCFunction)_sse2_collect_available_fastcall, METH_FASTCALL, "sse2_collect_available()\n--\n\nsse2_collect_available() -> int\n\n1 on any x86-64 build with a compiler that supports the SSE2 collect kernel tier (SSE2 itself is the x86-64 ABI baseline, always present -- this just reflects whether bslz4_collect_simd.hpp compiled that tier in), 0 otherwise (non-x86 builds, or a compiler without GCC/Clang-style target attributes).\n\nOverloads\n---------\n  bslz4_sse2_collect_available_impl() -> int"},
+    {"get_sse2_collect", (PyCFunction)_get_sse2_collect_fastcall, METH_FASTCALL, "get_sse2_collect()\n--\n\nget_sse2_collect() -> int\n\n1 if the SSE2 mask+threshold collect kernel (u16/u32 only) is currently enabled, 0 otherwise. Off by default -- see set_sse2_collect().\n\nOverloads\n---------\n  bslz4_get_sse2_collect_impl() -> int"},
+    {"set_sse2_collect", (PyCFunction)_set_sse2_collect_fastcall, METH_FASTCALL, "set_sse2_collect(enabled)\n--\n\nset_sse2_collect(enabled: int) -> int\n\nEnable/disable the SSE2 mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but sse2_collect_available() is false. Ignored when avx512 or avx2 collect is also enabled (tried last). Unlike the other two tiers this one is always safe to enable on any x86-64 CPU (no capability gap, no known throttling risk) -- still off by default for consistency with set_backend()'s measure-first philosophy, not because it's expected to be a bad idea.\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_sse2_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
+    {"vsx_collect_available", (PyCFunction)_vsx_collect_available_fastcall, METH_FASTCALL, "vsx_collect_available()\n--\n\nvsx_collect_available() -> int\n\n1 if this CPU has POWER VSX (what the u16/u32 collect kernel's VSX tier needs), 0 otherwise -- independent of whether it's currently enabled, see get/set_vsx_collect(). Always 0 on non-POWER builds.\n\nOverloads\n---------\n  bslz4_vsx_collect_available_impl() -> int"},
+    {"get_vsx_collect", (PyCFunction)_get_vsx_collect_fastcall, METH_FASTCALL, "get_vsx_collect()\n--\n\nget_vsx_collect() -> int\n\n1 if the VSX mask+threshold collect kernel (u16/u32 only, POWER8+) is currently enabled, 0 otherwise. Off by default -- see set_vsx_collect().\n\nOverloads\n---------\n  bslz4_get_vsx_collect_impl() -> int"},
+    {"set_vsx_collect", (PyCFunction)_set_vsx_collect_fastcall, METH_FASTCALL, "set_vsx_collect(enabled)\n--\n\nset_vsx_collect(enabled: int) -> int\n\nEnable/disable the VSX mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but vsx_collect_available() is false. Real-hardware-measured on a POWER9 box: 3.75-8.2x faster than scalar on sparse data via a vec_any_gt fast-skip gate (see the file comment in bslz4_collect_simd.hpp and tools/bslz4_power9_collect_probe.c for how that number was reached). Still off by default for consistency with set_backend()'s measure-first philosophy.\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_vsx_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
     {"note_chunk", (PyCFunction)_note_chunk_fastcall, METH_FASTCALL, "note_chunk(chunk, index, pointers, lengths)\n--\n\nnote_chunk(chunk: buffer, index: int, pointers: buffer, lengths: buffer) -> void\n\nWrite chunk's raw address and byte length into pointers[index]/lengths[index]. The only place a buffer's address is extracted -- via c2py23's own buffer acquisition, not any Python-side ctypes/numpy trick -- so a plain Python loop can batch independent chunk objects (bytes, bytearray, memoryview, mmap slices, ...) into bslz4_multi_* or bslz4_csc_multi_*'s compressed_ptrs/compressed_lengths arrays. See _gather_chunks() in __init__.py.\n\nParameters\n----------\nchunk : buffer\nindex : int\npointers : buffer\n    Writable\nlengths : buffer\n    Writable\n\nOverloads\n---------\n  bslz4_note_chunk(const char *chunk, size_t chunk_len, int index, int64_t *pointers, int32_t *lengths)\n    Map: chunk = chunk.ptr (const char *)\n         chunk_len = chunk.len (size_t)\n         index = index (int)\n         pointers = pointers.ptr (int64_t *)\n         lengths = lengths.ptr (int32_t *)"},
     {"bslz4_multi_u8", (PyCFunction)_bslz4_multi_u8_fastcall, METH_FASTCALL, "bslz4_multi_u8(compressed_ptrs, compressed_lengths, mask, output, output_adr, npx_out, threshold, workspace, cursors, codec)\n--\n\nbslz4_multi_u8(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, output: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, codec: int = 2) -> int\n\nDecode nframes bitshuffle-LZ4/zstd chunks (uint8_t pixels) from the same dataset into per-frame masked/thresholded sparse (output, output_adr, npx_out). The single-frame case is just nframes==1 -- there is no separate single-frame entry point.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\nmask : buffer\noutput : buffer\n    Writable\noutput_adr : buffer\n    Type: uint32 (format 'I')\n    Writable\nnpx_out : buffer\n    Type: int32 (format 'i')\n    Writable\nthreshold : int\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ncodec : int\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  output_adr.format == 'I'  [ValueError]\n  npx_out.format == 'i'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n\nOverloads\n---------\n  Group\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         codec = codec (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         output = output.ptr (uint8_t *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n    bslz4_multi_u8_kcb -> bslz4_multi_u8_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint8_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n    bslz4_multi_u8_sse -> bslz4_multi_u8_sse(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint8_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n      When: c2py_amd64_sse2\n    bslz4_multi_u8_scal -> bslz4_multi_u8_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint8_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n\nTypeError: unsupported output dtype for bslz4_multi_u8"},
     {"bslz4_multi_u16", (PyCFunction)_bslz4_multi_u16_fastcall, METH_FASTCALL, "bslz4_multi_u16(compressed_ptrs, compressed_lengths, mask, output, output_adr, npx_out, threshold, workspace, cursors, codec)\n--\n\nbslz4_multi_u16(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, output: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, codec: int = 2) -> int\n\nDecode nframes bitshuffle-LZ4/zstd chunks (uint16_t pixels) from the same dataset into per-frame masked/thresholded sparse (output, output_adr, npx_out). The single-frame case is just nframes==1 -- there is no separate single-frame entry point.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\nmask : buffer\noutput : buffer\n    Writable\noutput_adr : buffer\n    Type: uint32 (format 'I')\n    Writable\nnpx_out : buffer\n    Type: int32 (format 'i')\n    Writable\nthreshold : int\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ncodec : int\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  output_adr.format == 'I'  [ValueError]\n  npx_out.format == 'i'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n\nOverloads\n---------\n  Group\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         codec = codec (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         output = output.ptr (uint16_t *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n    bslz4_multi_u16_kcb -> bslz4_multi_u16_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint16_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n    bslz4_multi_u16_sse -> bslz4_multi_u16_sse(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint16_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n      When: c2py_amd64_sse2\n    bslz4_multi_u16_scal -> bslz4_multi_u16_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, uint16_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int\n\nTypeError: unsupported output dtype for bslz4_multi_u16"},
