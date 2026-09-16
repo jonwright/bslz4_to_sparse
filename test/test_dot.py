@@ -10,6 +10,7 @@ import bslz4_to_sparse
 from bslz4_to_sparse import chunk2sparseCSC
 
 print("Running from", bslz4_to_sparse.__file__)
+print("Backends:", bslz4_to_sparse.available_backends())
 
 try:
     from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # pyFAI >= 2024.10

@@ -1554,10 +1554,6 @@ static void _resolve_bslz4_multi_u8_0(void) {
         _var_bslz4_multi_u8_0 = 1; _vname_bslz4_multi_u8_0 = "bslz4_multi_u8_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_multi_u8_0 = 2; _vname_bslz4_multi_u8_0 = "bslz4_multi_u8_neon";
-        return;
-    }
     _var_bslz4_multi_u8_0 = 0; _vname_bslz4_multi_u8_0 = "bslz4_multi_u8_kcb";
 }
 
@@ -2922,10 +2918,6 @@ static const char *_vname_bslz4_multi_u16_0 = NULL;
 static void _resolve_bslz4_multi_u16_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_multi_u16_0 = 1; _vname_bslz4_multi_u16_0 = "bslz4_multi_u16_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_multi_u16_0 = 2; _vname_bslz4_multi_u16_0 = "bslz4_multi_u16_neon";
         return;
     }
     _var_bslz4_multi_u16_0 = 0; _vname_bslz4_multi_u16_0 = "bslz4_multi_u16_kcb";
@@ -4294,10 +4286,6 @@ static void _resolve_bslz4_multi_u32_0(void) {
         _var_bslz4_multi_u32_0 = 1; _vname_bslz4_multi_u32_0 = "bslz4_multi_u32_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_multi_u32_0 = 2; _vname_bslz4_multi_u32_0 = "bslz4_multi_u32_neon";
-        return;
-    }
     _var_bslz4_multi_u32_0 = 0; _vname_bslz4_multi_u32_0 = "bslz4_multi_u32_kcb";
 }
 
@@ -5662,10 +5650,6 @@ static const char *_vname_bslz4_multi_u64_0 = NULL;
 static void _resolve_bslz4_multi_u64_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_multi_u64_0 = 1; _vname_bslz4_multi_u64_0 = "bslz4_multi_u64_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_multi_u64_0 = 2; _vname_bslz4_multi_u64_0 = "bslz4_multi_u64_neon";
         return;
     }
     _var_bslz4_multi_u64_0 = 0; _vname_bslz4_multi_u64_0 = "bslz4_multi_u64_kcb";
@@ -7034,10 +7018,6 @@ static void _resolve_bslz4_multi_i8_0(void) {
         _var_bslz4_multi_i8_0 = 1; _vname_bslz4_multi_i8_0 = "bslz4_multi_i8_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_multi_i8_0 = 2; _vname_bslz4_multi_i8_0 = "bslz4_multi_i8_neon";
-        return;
-    }
     _var_bslz4_multi_i8_0 = 0; _vname_bslz4_multi_i8_0 = "bslz4_multi_i8_kcb";
 }
 
@@ -8402,10 +8382,6 @@ static const char *_vname_bslz4_multi_i16_0 = NULL;
 static void _resolve_bslz4_multi_i16_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_multi_i16_0 = 1; _vname_bslz4_multi_i16_0 = "bslz4_multi_i16_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_multi_i16_0 = 2; _vname_bslz4_multi_i16_0 = "bslz4_multi_i16_neon";
         return;
     }
     _var_bslz4_multi_i16_0 = 0; _vname_bslz4_multi_i16_0 = "bslz4_multi_i16_kcb";
@@ -9774,10 +9750,6 @@ static void _resolve_bslz4_multi_i32_0(void) {
         _var_bslz4_multi_i32_0 = 1; _vname_bslz4_multi_i32_0 = "bslz4_multi_i32_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_multi_i32_0 = 2; _vname_bslz4_multi_i32_0 = "bslz4_multi_i32_neon";
-        return;
-    }
     _var_bslz4_multi_i32_0 = 0; _vname_bslz4_multi_i32_0 = "bslz4_multi_i32_kcb";
 }
 
@@ -11142,10 +11114,6 @@ static const char *_vname_bslz4_multi_i64_0 = NULL;
 static void _resolve_bslz4_multi_i64_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_multi_i64_0 = 1; _vname_bslz4_multi_i64_0 = "bslz4_multi_i64_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_multi_i64_0 = 2; _vname_bslz4_multi_i64_0 = "bslz4_multi_i64_neon";
         return;
     }
     _var_bslz4_multi_i64_0 = 0; _vname_bslz4_multi_i64_0 = "bslz4_multi_i64_kcb";
@@ -12514,10 +12482,6 @@ static void _resolve_bslz4_multi_f32_0(void) {
         _var_bslz4_multi_f32_0 = 1; _vname_bslz4_multi_f32_0 = "bslz4_multi_f32_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_multi_f32_0 = 2; _vname_bslz4_multi_f32_0 = "bslz4_multi_f32_neon";
-        return;
-    }
     _var_bslz4_multi_f32_0 = 0; _vname_bslz4_multi_f32_0 = "bslz4_multi_f32_kcb";
 }
 
@@ -13884,10 +13848,6 @@ static void _resolve_bslz4_multi_f64_0(void) {
         _var_bslz4_multi_f64_0 = 1; _vname_bslz4_multi_f64_0 = "bslz4_multi_f64_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_multi_f64_0 = 2; _vname_bslz4_multi_f64_0 = "bslz4_multi_f64_neon";
-        return;
-    }
     _var_bslz4_multi_f64_0 = 0; _vname_bslz4_multi_f64_0 = "bslz4_multi_f64_kcb";
 }
 
@@ -15252,10 +15212,6 @@ static const char *_vname_bslz4_csc_multi_u8_0 = NULL;
 static void _resolve_bslz4_csc_multi_u8_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_csc_multi_u8_0 = 1; _vname_bslz4_csc_multi_u8_0 = "bslz4_csc_multi_u8_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_u8_0 = 2; _vname_bslz4_csc_multi_u8_0 = "bslz4_csc_multi_u8_neon";
         return;
     }
     _var_bslz4_csc_multi_u8_0 = 0; _vname_bslz4_csc_multi_u8_0 = "bslz4_csc_multi_u8_kcb";
@@ -17537,10 +17493,6 @@ static void _resolve_bslz4_csc_multi_u16_0(void) {
         _var_bslz4_csc_multi_u16_0 = 1; _vname_bslz4_csc_multi_u16_0 = "bslz4_csc_multi_u16_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_u16_0 = 2; _vname_bslz4_csc_multi_u16_0 = "bslz4_csc_multi_u16_neon";
-        return;
-    }
     _var_bslz4_csc_multi_u16_0 = 0; _vname_bslz4_csc_multi_u16_0 = "bslz4_csc_multi_u16_kcb";
 }
 
@@ -19818,10 +19770,6 @@ static const char *_vname_bslz4_csc_multi_u32_0 = NULL;
 static void _resolve_bslz4_csc_multi_u32_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_csc_multi_u32_0 = 1; _vname_bslz4_csc_multi_u32_0 = "bslz4_csc_multi_u32_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_u32_0 = 2; _vname_bslz4_csc_multi_u32_0 = "bslz4_csc_multi_u32_neon";
         return;
     }
     _var_bslz4_csc_multi_u32_0 = 0; _vname_bslz4_csc_multi_u32_0 = "bslz4_csc_multi_u32_kcb";
@@ -22103,10 +22051,6 @@ static void _resolve_bslz4_csc_multi_u64_0(void) {
         _var_bslz4_csc_multi_u64_0 = 1; _vname_bslz4_csc_multi_u64_0 = "bslz4_csc_multi_u64_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_u64_0 = 2; _vname_bslz4_csc_multi_u64_0 = "bslz4_csc_multi_u64_neon";
-        return;
-    }
     _var_bslz4_csc_multi_u64_0 = 0; _vname_bslz4_csc_multi_u64_0 = "bslz4_csc_multi_u64_kcb";
 }
 
@@ -24384,10 +24328,6 @@ static const char *_vname_bslz4_csc_multi_i8_0 = NULL;
 static void _resolve_bslz4_csc_multi_i8_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_csc_multi_i8_0 = 1; _vname_bslz4_csc_multi_i8_0 = "bslz4_csc_multi_i8_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_i8_0 = 2; _vname_bslz4_csc_multi_i8_0 = "bslz4_csc_multi_i8_neon";
         return;
     }
     _var_bslz4_csc_multi_i8_0 = 0; _vname_bslz4_csc_multi_i8_0 = "bslz4_csc_multi_i8_kcb";
@@ -26669,10 +26609,6 @@ static void _resolve_bslz4_csc_multi_i16_0(void) {
         _var_bslz4_csc_multi_i16_0 = 1; _vname_bslz4_csc_multi_i16_0 = "bslz4_csc_multi_i16_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_i16_0 = 2; _vname_bslz4_csc_multi_i16_0 = "bslz4_csc_multi_i16_neon";
-        return;
-    }
     _var_bslz4_csc_multi_i16_0 = 0; _vname_bslz4_csc_multi_i16_0 = "bslz4_csc_multi_i16_kcb";
 }
 
@@ -28950,10 +28886,6 @@ static const char *_vname_bslz4_csc_multi_i32_0 = NULL;
 static void _resolve_bslz4_csc_multi_i32_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_csc_multi_i32_0 = 1; _vname_bslz4_csc_multi_i32_0 = "bslz4_csc_multi_i32_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_i32_0 = 2; _vname_bslz4_csc_multi_i32_0 = "bslz4_csc_multi_i32_neon";
         return;
     }
     _var_bslz4_csc_multi_i32_0 = 0; _vname_bslz4_csc_multi_i32_0 = "bslz4_csc_multi_i32_kcb";
@@ -31235,10 +31167,6 @@ static void _resolve_bslz4_csc_multi_i64_0(void) {
         _var_bslz4_csc_multi_i64_0 = 1; _vname_bslz4_csc_multi_i64_0 = "bslz4_csc_multi_i64_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_i64_0 = 2; _vname_bslz4_csc_multi_i64_0 = "bslz4_csc_multi_i64_neon";
-        return;
-    }
     _var_bslz4_csc_multi_i64_0 = 0; _vname_bslz4_csc_multi_i64_0 = "bslz4_csc_multi_i64_kcb";
 }
 
@@ -33516,10 +33444,6 @@ static const char *_vname_bslz4_csc_multi_f32_0 = NULL;
 static void _resolve_bslz4_csc_multi_f32_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_csc_multi_f32_0 = 1; _vname_bslz4_csc_multi_f32_0 = "bslz4_csc_multi_f32_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_f32_0 = 2; _vname_bslz4_csc_multi_f32_0 = "bslz4_csc_multi_f32_neon";
         return;
     }
     _var_bslz4_csc_multi_f32_0 = 0; _vname_bslz4_csc_multi_f32_0 = "bslz4_csc_multi_f32_kcb";
@@ -35801,10 +35725,6 @@ static void _resolve_bslz4_csc_multi_f64_0(void) {
         _var_bslz4_csc_multi_f64_0 = 1; _vname_bslz4_csc_multi_f64_0 = "bslz4_csc_multi_f64_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_f64_0 = 2; _vname_bslz4_csc_multi_f64_0 = "bslz4_csc_multi_f64_neon";
-        return;
-    }
     _var_bslz4_csc_multi_f64_0 = 0; _vname_bslz4_csc_multi_f64_0 = "bslz4_csc_multi_f64_kcb";
 }
 
@@ -38082,10 +38002,6 @@ static const char *_vname_bslz4_csc_multi_base_u8_0 = NULL;
 static void _resolve_bslz4_csc_multi_base_u8_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_csc_multi_base_u8_0 = 1; _vname_bslz4_csc_multi_base_u8_0 = "bslz4_csc_multi_base_u8_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_base_u8_0 = 2; _vname_bslz4_csc_multi_base_u8_0 = "bslz4_csc_multi_base_u8_neon";
         return;
     }
     _var_bslz4_csc_multi_base_u8_0 = 0; _vname_bslz4_csc_multi_base_u8_0 = "bslz4_csc_multi_base_u8_kcb";
@@ -40716,10 +40632,6 @@ static void _resolve_bslz4_csc_multi_base_u16_0(void) {
         _var_bslz4_csc_multi_base_u16_0 = 1; _vname_bslz4_csc_multi_base_u16_0 = "bslz4_csc_multi_base_u16_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_base_u16_0 = 2; _vname_bslz4_csc_multi_base_u16_0 = "bslz4_csc_multi_base_u16_neon";
-        return;
-    }
     _var_bslz4_csc_multi_base_u16_0 = 0; _vname_bslz4_csc_multi_base_u16_0 = "bslz4_csc_multi_base_u16_kcb";
 }
 
@@ -43346,10 +43258,6 @@ static const char *_vname_bslz4_csc_multi_base_u32_0 = NULL;
 static void _resolve_bslz4_csc_multi_base_u32_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_csc_multi_base_u32_0 = 1; _vname_bslz4_csc_multi_base_u32_0 = "bslz4_csc_multi_base_u32_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_base_u32_0 = 2; _vname_bslz4_csc_multi_base_u32_0 = "bslz4_csc_multi_base_u32_neon";
         return;
     }
     _var_bslz4_csc_multi_base_u32_0 = 0; _vname_bslz4_csc_multi_base_u32_0 = "bslz4_csc_multi_base_u32_kcb";
@@ -45980,10 +45888,6 @@ static void _resolve_bslz4_csc_multi_base_u64_0(void) {
         _var_bslz4_csc_multi_base_u64_0 = 1; _vname_bslz4_csc_multi_base_u64_0 = "bslz4_csc_multi_base_u64_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_base_u64_0 = 2; _vname_bslz4_csc_multi_base_u64_0 = "bslz4_csc_multi_base_u64_neon";
-        return;
-    }
     _var_bslz4_csc_multi_base_u64_0 = 0; _vname_bslz4_csc_multi_base_u64_0 = "bslz4_csc_multi_base_u64_kcb";
 }
 
@@ -48610,10 +48514,6 @@ static const char *_vname_bslz4_csc_multi_base_i8_0 = NULL;
 static void _resolve_bslz4_csc_multi_base_i8_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_csc_multi_base_i8_0 = 1; _vname_bslz4_csc_multi_base_i8_0 = "bslz4_csc_multi_base_i8_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_base_i8_0 = 2; _vname_bslz4_csc_multi_base_i8_0 = "bslz4_csc_multi_base_i8_neon";
         return;
     }
     _var_bslz4_csc_multi_base_i8_0 = 0; _vname_bslz4_csc_multi_base_i8_0 = "bslz4_csc_multi_base_i8_kcb";
@@ -51244,10 +51144,6 @@ static void _resolve_bslz4_csc_multi_base_i16_0(void) {
         _var_bslz4_csc_multi_base_i16_0 = 1; _vname_bslz4_csc_multi_base_i16_0 = "bslz4_csc_multi_base_i16_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_base_i16_0 = 2; _vname_bslz4_csc_multi_base_i16_0 = "bslz4_csc_multi_base_i16_neon";
-        return;
-    }
     _var_bslz4_csc_multi_base_i16_0 = 0; _vname_bslz4_csc_multi_base_i16_0 = "bslz4_csc_multi_base_i16_kcb";
 }
 
@@ -53874,10 +53770,6 @@ static const char *_vname_bslz4_csc_multi_base_i32_0 = NULL;
 static void _resolve_bslz4_csc_multi_base_i32_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_csc_multi_base_i32_0 = 1; _vname_bslz4_csc_multi_base_i32_0 = "bslz4_csc_multi_base_i32_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_base_i32_0 = 2; _vname_bslz4_csc_multi_base_i32_0 = "bslz4_csc_multi_base_i32_neon";
         return;
     }
     _var_bslz4_csc_multi_base_i32_0 = 0; _vname_bslz4_csc_multi_base_i32_0 = "bslz4_csc_multi_base_i32_kcb";
@@ -56508,10 +56400,6 @@ static void _resolve_bslz4_csc_multi_base_i64_0(void) {
         _var_bslz4_csc_multi_base_i64_0 = 1; _vname_bslz4_csc_multi_base_i64_0 = "bslz4_csc_multi_base_i64_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_base_i64_0 = 2; _vname_bslz4_csc_multi_base_i64_0 = "bslz4_csc_multi_base_i64_neon";
-        return;
-    }
     _var_bslz4_csc_multi_base_i64_0 = 0; _vname_bslz4_csc_multi_base_i64_0 = "bslz4_csc_multi_base_i64_kcb";
 }
 
@@ -59140,10 +59028,6 @@ static void _resolve_bslz4_csc_multi_base_f32_0(void) {
         _var_bslz4_csc_multi_base_f32_0 = 1; _vname_bslz4_csc_multi_base_f32_0 = "bslz4_csc_multi_base_f32_sse";
         return;
     }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_base_f32_0 = 2; _vname_bslz4_csc_multi_base_f32_0 = "bslz4_csc_multi_base_f32_neon";
-        return;
-    }
     _var_bslz4_csc_multi_base_f32_0 = 0; _vname_bslz4_csc_multi_base_f32_0 = "bslz4_csc_multi_base_f32_kcb";
 }
 
@@ -61770,10 +61654,6 @@ static const char *_vname_bslz4_csc_multi_base_f64_0 = NULL;
 static void _resolve_bslz4_csc_multi_base_f64_0(void) {
     if (c2py_ppc64_vsx) {
         _var_bslz4_csc_multi_base_f64_0 = 1; _vname_bslz4_csc_multi_base_f64_0 = "bslz4_csc_multi_base_f64_sse";
-        return;
-    }
-    if (c2py_arm64_asimd) {
-        _var_bslz4_csc_multi_base_f64_0 = 2; _vname_bslz4_csc_multi_base_f64_0 = "bslz4_csc_multi_base_f64_neon";
         return;
     }
     _var_bslz4_csc_multi_base_f64_0 = 0; _vname_bslz4_csc_multi_base_f64_0 = "bslz4_csc_multi_base_f64_kcb";

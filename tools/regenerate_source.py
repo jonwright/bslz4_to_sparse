@@ -44,9 +44,11 @@ BACKENDS = [
     # 2.59x), and kcb stays the unconditional default everywhere else.
     ("sse", "untranspose_bshuf_sse", "c2py_ppc64_vsx", True,
      "defined(__SSE2__) || defined(NO_WARN_X86_INTRINSICS)"),
-    # Guarded default on aarch64 for the same reason as sse on POWER: kcb
-    # dispatches only on x86, so it has nothing but portable C to offer here.
-    ("neon", "untranspose_bshuf_neon", "c2py_arm64_asimd", True,
+    # Selectable but NOT a default: measured on a Cortex-A72 (Pinebook,
+    # aarch64) this NEON kernel is slower than kcb's portable C -- 8.63 vs
+    # 6.24 ms/frame, against scal's 11.10 -- so kcb stays the default on
+    # ARM. Worth re-measuring on other ARM cores before changing that.
+    ("neon", "untranspose_bshuf_neon", "c2py_arm64_asimd", False,
      "defined(__ARM_NEON) && defined(__aarch64__)"),
     ("scal", "untranspose_bshuf_scal", None, False, None),
 ]
