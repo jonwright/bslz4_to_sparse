@@ -69,7 +69,14 @@ elif platform.machine() in ("ppc64le", "ppc64"):
     # Needed globally: the VSX collect kernel in bslz4_collect_simd.hpp
     # uses no per-function target attribute. Whether it is actually used
     # is still a runtime check (c2py_ppc64_vsx).
-    flags = flags + ["-maltivec", "-mvsx"]
+    #
+    # NO_WARN_X86_INTRINSICS makes upstream bitshuffle's SSE2 untranspose
+    # kernels real code here: GCC's x86-intrinsic compatibility headers
+    # implement emmintrin.h over VSX on ppc64le, and bitshuffle guards
+    # those kernels with `defined(__SSE2__) || defined(NO_WARN_X86_INTRINSICS)`
+    # for exactly this. Upstream's own setup.py does the same. Without it
+    # the "sse" backend is a stub returning -14 on POWER.
+    flags = flags + ["-maltivec", "-mvsx", "-DNO_WARN_X86_INTRINSICS"]
 
 
 class BuildExtCppStd(build_ext):

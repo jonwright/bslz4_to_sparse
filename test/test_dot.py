@@ -172,6 +172,46 @@ def test_plain_multi_matches_single():
             assert s1 == s2, (name, i, "single vs multi sparse set differs")
 
 
+def test_every_available_backend_matches():
+    """Each untranspose backend available_backends() advertises must decode
+    identically -- they differ only in the bit/byte de-shuffle kernel. Also
+    checks a backend it does not advertise is refused rather than silently
+    running upstream bitshuffle's absent-ISA stub."""
+    from bslz4_to_sparse import available_backends, set_backend
+
+    usable = available_backends()
+    assert "kcb" in usable and "scal" in usable, usable
+    reference = {}
+    try:
+        for name in usable:
+            set_backend(name)
+            for dsname in chunks:
+                dt, shp, chunklist = chunks[dsname]
+                bufs = [c for (filt, c) in chunklist]
+                npx, (val, adr) = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt))(bufs, 0)
+                # Only the first npx[i] entries of each row are written; the
+                # rest of the worst-case-sized buffer is uninitialised.
+                got = (npx.copy(), [(val[i, :npx[i]].copy(), adr[i, :npx[i]].copy())
+                                    for i in range(len(bufs))])
+                ref = reference.setdefault(dsname, got)
+                assert np.array_equal(got[0], ref[0]), (name, dsname, "npx differs")
+                for i, ((v, a), (rv, ra)) in enumerate(zip(got[1], ref[1])):
+                    assert np.array_equal(v, rv), (name, dsname, i, "values differ")
+                    assert np.array_equal(a, ra), (name, dsname, i, "indices differ")
+    finally:
+        set_backend(None)
+
+    for name in ("kcb", "sse", "neon", "scal"):
+        if name not in usable:
+            try:
+                set_backend(name)
+            except ValueError:
+                pass
+            else:
+                set_backend(None)
+                raise AssertionError("set_backend(%r) should have been refused" % name)
+
+
 def _make_tiny_csc(npix, nbins, seed=1):
     """1 entry/pixel, weight 1.0 -- sum(csc) must equal sum(masked image)
     exactly, including negative pixel values, independent of pyFAI."""
@@ -394,5 +434,6 @@ test_csc_dense_and_sparse_routes_both_match_reference()
 test_plain_multi_matches_single()
 test_u64_i64_and_signed_negative_values()
 test_csc_multi_base_matches_multi()
+test_every_available_backend_matches()
 print("all multi-frame / dense-sparse-route / u64-i64 / multi_base tests passed")
 print("(SIMD collect tier tests only run under pytest -- see test_*_collect_matches_scalar)")

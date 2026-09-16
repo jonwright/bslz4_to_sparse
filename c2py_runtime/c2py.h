@@ -709,6 +709,42 @@ extern c2py_ndarray_layout_t C2PY_NDARRAY;
 /* NPY_ARRAY_WRITEABLE = 0x0400 (stable since numpy 1.0) */
 #define C2PY_NPY_WRITEABLE  0x0400
 
+/* Host byte order, resolved at compile time: a compiled .so is built
+ * for one architecture, so this is a fixed build property, never a
+ * runtime probe.  __BYTE_ORDER__ is provided by GCC and Clang on every
+ * target (including big-endian ones, e.g. a future ppc64be); MSVC only
+ * ever targets little-endian architectures (x86/x64/ARM), so it is
+ * safe to default to little-endian when the macro is unavailable. */
+#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+#define C2PY_BIG_ENDIAN 1
+#else
+#define C2PY_BIG_ENDIAN 0
+#endif
+
+/* c2py23 only supports native-byte-order buffers -- a buffer whose PEP
+ * 3118 format string carries an explicit non-native prefix ('<', '>',
+ * or '!') would otherwise be read with the wrong byte order, silently
+ * producing wrong values instead of an error.  Returns 1 (native, or
+ * unspecified/NULL) when the format is safe to read as-is, 0 when it
+ * explicitly requests the other byte order. */
+static inline int
+c2py_format_is_native(const char *fmt)
+{
+    size_t len;
+    char prefix;
+
+    if (!fmt) return 1;
+    len = strlen(fmt);
+    if (len < 2) return 1;
+
+    prefix = fmt[len - 2];
+#if C2PY_BIG_ENDIAN
+    return prefix != '<';
+#else
+    return prefix != '>' && prefix != '!';
+#endif
+}
+
 /* Map a PEP 3118 type character to itemsize.
  * Excludes 'l'/'L' (platform-sized -- callers use sizeof(long) at
  * the expression level).  Used by both ndarray and DLPack backends. */
@@ -846,6 +882,10 @@ c2py_pin_buffer(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
 #define C2PY_DESCR_TYPE_CHAR_OFF 13
 #endif
 
+/* PyArray_Descr's 'byteorder' field ('<','>','=','|') immediately
+ * follows 'type' in the struct (kind, type, byteorder, ...). */
+#define C2PY_DESCR_BYTEORDER_OFF (C2PY_DESCR_TYPE_CHAR_OFF + 1)
+
 /* Acquire via numpy ndarray struct-cast (no PyObject_GetBuffer).
  * Returns 0 on success, -1 to signal "try next backend" or real failure.
  * On first encounter of a numpy.ndarray, probes the data-pointer
@@ -945,6 +985,17 @@ fill:
 
     descr = *(void**)(base + L->data_off + C2PY_NDARR_OFF_DESCR);
     if (descr) {
+        /* Explicit non-native byte order: this fast path only ever
+         * synthesizes a bare type char (no PEP 3118 prefix), so it
+         * cannot be checked downstream -- fall through to the buffer
+         * protocol backend instead, whose format string does carry
+         * the prefix and gets checked by c2py_format_is_native(). */
+        char byteorder = ((char*)descr)[C2PY_DESCR_BYTEORDER_OFF];
+#if C2PY_BIG_ENDIAN
+        if (byteorder == '<') return -1;
+#else
+        if (byteorder == '>') return -1;
+#endif
         /* type char at a fixed byte offset within PyArray_Descr
          * (stable since numpy 1.0 through 2.x on GIL builds) */
         type_char = ((char*)descr)[C2PY_DESCR_TYPE_CHAR_OFF];

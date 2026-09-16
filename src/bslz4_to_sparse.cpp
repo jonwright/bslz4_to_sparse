@@ -8,26 +8,30 @@
  * replaced by C++ templates (bslz4_core.hpp), instantiated explicitly below
  * behind plain extern "C" names for c2py23 to call.
  *
- * Three untranspose backends are wired in and compiled together: kcb
+ * Four untranspose backends are wired in and compiled together: kcb
  * (https://github.com/kalcutter/bitshuffle, does its own CPU dispatch,
- * the default), sse (upstream bitshuffle's SSE2 kernel -- real code, SSE2
- * is x86-64 baseline so this compiles under the project's plain -O2 build
- * with no extra flags), and scal, the portable scalar reference kernel
- * (also upstream bitshuffle). avx2/avx512/neon variants exist in
- * bslz4_backends.hpp but are NOT wired in here: upstream bitshuffle gates
- * their real SIMD code behind compiler-predefined macros (__AVX2__ etc,
- * only set by -mavx2/-mavx512f) and falls back to a stub returning -14
- * otherwise (bitshuffle_core.c) -- calling them under today's single
- * -O2-for-everything build would silently always fail. Wiring them in
- * needs per-ISA compiled objects first (separate translation units built
- * with the matching -m flags per tier, as c2bslz4's meson build does),
- * not just a spec change.
+ * the default, x86-only internally), scal (the portable scalar reference
+ * kernel), and two from upstream bitshuffle
+ * (https://github.com/kiyo-masui/bitshuffle) whose ISA is baseline for
+ * the architecture, so they are real code under the project's plain -O2
+ * build with no -m flags: sse (guarded __SSE2__, x86-64 baseline; also
+ * reached on ppc64le, where setup.py passes -DNO_WARN_X86_INTRINSICS and
+ * GCC's x86-intrinsic compatibility headers implement it over VSX, as
+ * upstream bitshuffle's own setup.py does) and neon (guarded __ARM_NEON
+ * && __aarch64__, ARMv8-A baseline).
+ *
+ * avx2/avx512 adapters exist in bslz4_backends.hpp but are NOT wired in:
+ * upstream gates their real code behind __AVX2__/__AVX512F__, set only by
+ * -mavx2/-mavx512f, and falls back to a stub returning -14 otherwise, so
+ * under this single -O2-for-everything build they would always fail.
+ * Wiring them in needs per-ISA translation units built with the matching
+ * -m flags, as c2bslz4's meson build does, not just a spec change.
  *
  * Dtype dispatch is a Python-level choice, not a C-level one: each dtype
  * gets its own generated Python function (bslz4_multi_u8, bslz4_multi_u16,
  * ..., bslz4_csc_multi_u8, ...) via c2py23's "expand" template mechanism,
  * rather than one polymorphic function branching on a buffer's runtime
- * format string. Backend choice (kcb/sse/scal) stays an orthogonal
+ * format string. Backend choice (kcb/sse/neon/scal) stays an orthogonal
  * per-call C-level "variants" switch, set once via
  * set_backend()/_rebind_bslz4_multi_<suffix> and applied identically to
  * every dtype.
@@ -165,6 +169,30 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
     lengths[index] = (int32_t) chunk_len;
 }
 
+int bslz4_backend_kcb_available_impl() {
+    return 1;
+}
+
+int bslz4_backend_sse_available_impl() {
+#if defined(__SSE2__) || defined(NO_WARN_X86_INTRINSICS)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int bslz4_backend_neon_available_impl() {
+#if defined(__ARM_NEON) && defined(__aarch64__)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int bslz4_backend_scal_available_impl() {
+    return 1;
+}
+
 int bslz4_multi_u8_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                         int nframes, int codec,
                         const uint8_t *mask, int NIJ,
@@ -182,6 +210,17 @@ int bslz4_multi_u8_sse(const int64_t *compressed_ptrs, const int32_t *compressed
                         uint8_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
                         uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
     return bslz4_decode_multi<uint8_t, untranspose_bshuf_sse>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        output, output_adr, npx_out, threshold,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_multi_u8_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                        int nframes, int codec,
+                        const uint8_t *mask, int NIJ,
+                        uint8_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                        uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_decode_multi<uint8_t, untranspose_bshuf_neon>(
         compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
         output, output_adr, npx_out, threshold,
         workspace, workspace_len, cursors);
@@ -220,6 +259,17 @@ int bslz4_multi_u16_sse(const int64_t *compressed_ptrs, const int32_t *compresse
         workspace, workspace_len, cursors);
 }
 
+int bslz4_multi_u16_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                        int nframes, int codec,
+                        const uint8_t *mask, int NIJ,
+                        uint16_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                        uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_decode_multi<uint16_t, untranspose_bshuf_neon>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        output, output_adr, npx_out, threshold,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_multi_u16_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                         int nframes, int codec,
                         const uint8_t *mask, int NIJ,
@@ -248,6 +298,17 @@ int bslz4_multi_u32_sse(const int64_t *compressed_ptrs, const int32_t *compresse
                         uint32_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
                         uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
     return bslz4_decode_multi<uint32_t, untranspose_bshuf_sse>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        output, output_adr, npx_out, threshold,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_multi_u32_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                        int nframes, int codec,
+                        const uint8_t *mask, int NIJ,
+                        uint32_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                        uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_decode_multi<uint32_t, untranspose_bshuf_neon>(
         compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
         output, output_adr, npx_out, threshold,
         workspace, workspace_len, cursors);
@@ -286,6 +347,17 @@ int bslz4_multi_u64_sse(const int64_t *compressed_ptrs, const int32_t *compresse
         workspace, workspace_len, cursors);
 }
 
+int bslz4_multi_u64_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                        int nframes, int codec,
+                        const uint8_t *mask, int NIJ,
+                        uint64_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                        uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_decode_multi<uint64_t, untranspose_bshuf_neon>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        output, output_adr, npx_out, threshold,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_multi_u64_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                         int nframes, int codec,
                         const uint8_t *mask, int NIJ,
@@ -314,6 +386,17 @@ int bslz4_multi_i8_sse(const int64_t *compressed_ptrs, const int32_t *compressed
                         int8_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
                         uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
     return bslz4_decode_multi<int8_t, untranspose_bshuf_sse>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        output, output_adr, npx_out, threshold,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_multi_i8_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                        int nframes, int codec,
+                        const uint8_t *mask, int NIJ,
+                        int8_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                        uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_decode_multi<int8_t, untranspose_bshuf_neon>(
         compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
         output, output_adr, npx_out, threshold,
         workspace, workspace_len, cursors);
@@ -352,6 +435,17 @@ int bslz4_multi_i16_sse(const int64_t *compressed_ptrs, const int32_t *compresse
         workspace, workspace_len, cursors);
 }
 
+int bslz4_multi_i16_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                        int nframes, int codec,
+                        const uint8_t *mask, int NIJ,
+                        int16_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                        uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_decode_multi<int16_t, untranspose_bshuf_neon>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        output, output_adr, npx_out, threshold,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_multi_i16_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                         int nframes, int codec,
                         const uint8_t *mask, int NIJ,
@@ -380,6 +474,17 @@ int bslz4_multi_i32_sse(const int64_t *compressed_ptrs, const int32_t *compresse
                         int32_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
                         uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
     return bslz4_decode_multi<int32_t, untranspose_bshuf_sse>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        output, output_adr, npx_out, threshold,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_multi_i32_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                        int nframes, int codec,
+                        const uint8_t *mask, int NIJ,
+                        int32_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                        uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_decode_multi<int32_t, untranspose_bshuf_neon>(
         compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
         output, output_adr, npx_out, threshold,
         workspace, workspace_len, cursors);
@@ -418,6 +523,17 @@ int bslz4_multi_i64_sse(const int64_t *compressed_ptrs, const int32_t *compresse
         workspace, workspace_len, cursors);
 }
 
+int bslz4_multi_i64_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                        int nframes, int codec,
+                        const uint8_t *mask, int NIJ,
+                        int64_t *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                        uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_decode_multi<int64_t, untranspose_bshuf_neon>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        output, output_adr, npx_out, threshold,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_multi_i64_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                         int nframes, int codec,
                         const uint8_t *mask, int NIJ,
@@ -446,6 +562,17 @@ int bslz4_multi_f32_sse(const int64_t *compressed_ptrs, const int32_t *compresse
                         float *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
                         uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
     return bslz4_decode_multi<float, untranspose_bshuf_sse>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        output, output_adr, npx_out, threshold,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_multi_f32_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                        int nframes, int codec,
+                        const uint8_t *mask, int NIJ,
+                        float *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                        uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_decode_multi<float, untranspose_bshuf_neon>(
         compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
         output, output_adr, npx_out, threshold,
         workspace, workspace_len, cursors);
@@ -484,6 +611,17 @@ int bslz4_multi_f64_sse(const int64_t *compressed_ptrs, const int32_t *compresse
         workspace, workspace_len, cursors);
 }
 
+int bslz4_multi_f64_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                        int nframes, int codec,
+                        const uint8_t *mask, int NIJ,
+                        double *output, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                        uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_decode_multi<double, untranspose_bshuf_neon>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        output, output_adr, npx_out, threshold,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_multi_f64_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                         int nframes, int codec,
                         const uint8_t *mask, int NIJ,
@@ -517,6 +655,20 @@ int bslz4_csc_multi_u8_sse(const int64_t *compressed_ptrs, const int32_t *compre
                               const float *data, const uint32_t *indices, const uint32_t *indptr,
                               uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
     return bslz4_csc_decode_multi<uint8_t, untranspose_bshuf_sse>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_u8_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<uint8_t, untranspose_bshuf_neon>(
         compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
         outpx, output_adr, npx_out, threshold,
         output, NOUT, data, indices, indptr,
@@ -565,6 +717,20 @@ int bslz4_csc_multi_u16_sse(const int64_t *compressed_ptrs, const int32_t *compr
         workspace, workspace_len, cursors);
 }
 
+int bslz4_csc_multi_u16_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<uint16_t, untranspose_bshuf_neon>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_csc_multi_u16_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                               int nframes, int codec,
                               const uint8_t *mask, int NIJ,
@@ -601,6 +767,20 @@ int bslz4_csc_multi_u32_sse(const int64_t *compressed_ptrs, const int32_t *compr
                               const float *data, const uint32_t *indices, const uint32_t *indptr,
                               uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
     return bslz4_csc_decode_multi<uint32_t, untranspose_bshuf_sse>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_u32_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<uint32_t, untranspose_bshuf_neon>(
         compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
         outpx, output_adr, npx_out, threshold,
         output, NOUT, data, indices, indptr,
@@ -649,6 +829,20 @@ int bslz4_csc_multi_u64_sse(const int64_t *compressed_ptrs, const int32_t *compr
         workspace, workspace_len, cursors);
 }
 
+int bslz4_csc_multi_u64_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint64_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<uint64_t, untranspose_bshuf_neon>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_csc_multi_u64_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                               int nframes, int codec,
                               const uint8_t *mask, int NIJ,
@@ -685,6 +879,20 @@ int bslz4_csc_multi_i8_sse(const int64_t *compressed_ptrs, const int32_t *compre
                               const float *data, const uint32_t *indices, const uint32_t *indptr,
                               uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
     return bslz4_csc_decode_multi<int8_t, untranspose_bshuf_sse>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_i8_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<int8_t, untranspose_bshuf_neon>(
         compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
         outpx, output_adr, npx_out, threshold,
         output, NOUT, data, indices, indptr,
@@ -733,6 +941,20 @@ int bslz4_csc_multi_i16_sse(const int64_t *compressed_ptrs, const int32_t *compr
         workspace, workspace_len, cursors);
 }
 
+int bslz4_csc_multi_i16_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<int16_t, untranspose_bshuf_neon>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_csc_multi_i16_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                               int nframes, int codec,
                               const uint8_t *mask, int NIJ,
@@ -769,6 +991,20 @@ int bslz4_csc_multi_i32_sse(const int64_t *compressed_ptrs, const int32_t *compr
                               const float *data, const uint32_t *indices, const uint32_t *indptr,
                               uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
     return bslz4_csc_decode_multi<int32_t, untranspose_bshuf_sse>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_i32_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<int32_t, untranspose_bshuf_neon>(
         compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
         outpx, output_adr, npx_out, threshold,
         output, NOUT, data, indices, indptr,
@@ -817,6 +1053,20 @@ int bslz4_csc_multi_i64_sse(const int64_t *compressed_ptrs, const int32_t *compr
         workspace, workspace_len, cursors);
 }
 
+int bslz4_csc_multi_i64_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int64_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<int64_t, untranspose_bshuf_neon>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_csc_multi_i64_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                               int nframes, int codec,
                               const uint8_t *mask, int NIJ,
@@ -859,6 +1109,20 @@ int bslz4_csc_multi_f32_sse(const int64_t *compressed_ptrs, const int32_t *compr
         workspace, workspace_len, cursors);
 }
 
+int bslz4_csc_multi_f32_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              float *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<float, untranspose_bshuf_neon>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_csc_multi_f32_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                               int nframes, int codec,
                               const uint8_t *mask, int NIJ,
@@ -895,6 +1159,20 @@ int bslz4_csc_multi_f64_sse(const int64_t *compressed_ptrs, const int32_t *compr
                               const float *data, const uint32_t *indices, const uint32_t *indptr,
                               uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
     return bslz4_csc_decode_multi<double, untranspose_bshuf_sse>(
+        compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_f64_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              double *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    return bslz4_csc_decode_multi<double, untranspose_bshuf_neon>(
         compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
         outpx, output_adr, npx_out, threshold,
         output, NOUT, data, indices, indptr,
@@ -951,6 +1229,27 @@ int bslz4_csc_multi_base_u8_sse(const char *base, int64_t *offsets, const int32_
         offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
     }
     return bslz4_csc_decode_multi<uint8_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u8_neon(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint8_t, untranspose_bshuf_neon>(
         offsets, lengths, nframes, codec, mask, NIJ,
         outpx, output_adr, npx_out, threshold,
         output, NOUT, data, indices, indptr,
@@ -1020,6 +1319,27 @@ int bslz4_csc_multi_base_u16_sse(const char *base, int64_t *offsets, const int32
         workspace, workspace_len, cursors);
 }
 
+int bslz4_csc_multi_base_u16_neon(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint16_t, untranspose_bshuf_neon>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_csc_multi_base_u16_scal(const char *base, int64_t *offsets, const int32_t *lengths,
                               int nframes, int codec,
                               const uint8_t *mask, int NIJ,
@@ -1077,6 +1397,27 @@ int bslz4_csc_multi_base_u32_sse(const char *base, int64_t *offsets, const int32
         offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
     }
     return bslz4_csc_decode_multi<uint32_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_u32_neon(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint32_t, untranspose_bshuf_neon>(
         offsets, lengths, nframes, codec, mask, NIJ,
         outpx, output_adr, npx_out, threshold,
         output, NOUT, data, indices, indptr,
@@ -1146,6 +1487,27 @@ int bslz4_csc_multi_base_u64_sse(const char *base, int64_t *offsets, const int32
         workspace, workspace_len, cursors);
 }
 
+int bslz4_csc_multi_base_u64_neon(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              uint64_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<uint64_t, untranspose_bshuf_neon>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_csc_multi_base_u64_scal(const char *base, int64_t *offsets, const int32_t *lengths,
                               int nframes, int codec,
                               const uint8_t *mask, int NIJ,
@@ -1203,6 +1565,27 @@ int bslz4_csc_multi_base_i8_sse(const char *base, int64_t *offsets, const int32_
         offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
     }
     return bslz4_csc_decode_multi<int8_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i8_neon(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int8_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int8_t, untranspose_bshuf_neon>(
         offsets, lengths, nframes, codec, mask, NIJ,
         outpx, output_adr, npx_out, threshold,
         output, NOUT, data, indices, indptr,
@@ -1272,6 +1655,27 @@ int bslz4_csc_multi_base_i16_sse(const char *base, int64_t *offsets, const int32
         workspace, workspace_len, cursors);
 }
 
+int bslz4_csc_multi_base_i16_neon(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int16_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int16_t, untranspose_bshuf_neon>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_csc_multi_base_i16_scal(const char *base, int64_t *offsets, const int32_t *lengths,
                               int nframes, int codec,
                               const uint8_t *mask, int NIJ,
@@ -1329,6 +1733,27 @@ int bslz4_csc_multi_base_i32_sse(const char *base, int64_t *offsets, const int32
         offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
     }
     return bslz4_csc_decode_multi<int32_t, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_i32_neon(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int32_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int32_t, untranspose_bshuf_neon>(
         offsets, lengths, nframes, codec, mask, NIJ,
         outpx, output_adr, npx_out, threshold,
         output, NOUT, data, indices, indptr,
@@ -1398,6 +1823,27 @@ int bslz4_csc_multi_base_i64_sse(const char *base, int64_t *offsets, const int32
         workspace, workspace_len, cursors);
 }
 
+int bslz4_csc_multi_base_i64_neon(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              int64_t *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<int64_t, untranspose_bshuf_neon>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_csc_multi_base_i64_scal(const char *base, int64_t *offsets, const int32_t *lengths,
                               int nframes, int codec,
                               const uint8_t *mask, int NIJ,
@@ -1461,6 +1907,27 @@ int bslz4_csc_multi_base_f32_sse(const char *base, int64_t *offsets, const int32
         workspace, workspace_len, cursors);
 }
 
+int bslz4_csc_multi_base_f32_neon(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              float *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<float, untranspose_bshuf_neon>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
 int bslz4_csc_multi_base_f32_scal(const char *base, int64_t *offsets, const int32_t *lengths,
                               int nframes, int codec,
                               const uint8_t *mask, int NIJ,
@@ -1518,6 +1985,27 @@ int bslz4_csc_multi_base_f64_sse(const char *base, int64_t *offsets, const int32
         offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
     }
     return bslz4_csc_decode_multi<double, untranspose_bshuf_sse>(
+        offsets, lengths, nframes, codec, mask, NIJ,
+        outpx, output_adr, npx_out, threshold,
+        output, NOUT, data, indices, indptr,
+        workspace, workspace_len, cursors);
+}
+
+int bslz4_csc_multi_base_f64_neon(const char *base, int64_t *offsets, const int32_t *lengths,
+                              int nframes, int codec,
+                              const uint8_t *mask, int NIJ,
+                              double *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                              double *output, int NOUT,
+                              const float *data, const uint32_t *indices, const uint32_t *indptr,
+                              uint8_t *workspace, size_t workspace_len, int64_t *cursors) {
+    /* offsets is caller-owned scratch: turn it into absolute pointers in
+     * place, avoiding a second (nframes-sized) allocation just to hold
+     * them -- same trick bslz4_csc_decode_multi already plays with
+     * cursors/workspace. */
+    for (int f = 0; f < nframes; f++) {
+        offsets[f] = (int64_t) (intptr_t) (base + offsets[f]);
+    }
+    return bslz4_csc_decode_multi<double, untranspose_bshuf_neon>(
         offsets, lengths, nframes, codec, mask, NIJ,
         outpx, output_adr, npx_out, threshold,
         output, NOUT, data, indices, indptr,
@@ -1653,6 +2141,34 @@ int bslz4_csc_multi_base_f64_scal(const char *base, int64_t *offsets, const int3
             ],
         },
         {
+            "py_sig": "backend_kcb_available() -> int",
+            "doc": "1 always: the kcb untranspose backend is portable C, real on every build. See set_backend().",
+            "c_overloads": [
+                {"sig": "bslz4_backend_kcb_available_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "backend_sse_available() -> int",
+            "doc": "1 if the sse untranspose backend is real code in this build, 0 if it is the stub upstream bitshuffle compiles when the ISA is absent (it is guarded by defined(__SSE2__) || defined(NO_WARN_X86_INTRINSICS)). available_backends() filters on this and set_backend() refuses a backend reporting 0, because the compiled symbol exists either way.",
+            "c_overloads": [
+                {"sig": "bslz4_backend_sse_available_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "backend_neon_available() -> int",
+            "doc": "1 if the neon untranspose backend is real code in this build, 0 if it is the stub upstream bitshuffle compiles when the ISA is absent (it is guarded by defined(__ARM_NEON) && defined(__aarch64__)). available_backends() filters on this and set_backend() refuses a backend reporting 0, because the compiled symbol exists either way.",
+            "c_overloads": [
+                {"sig": "bslz4_backend_neon_available_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "backend_scal_available() -> int",
+            "doc": "1 always: the scal untranspose backend is portable C, real on every build. See set_backend().",
+            "c_overloads": [
+                {"sig": "bslz4_backend_scal_available_impl() -> int", "map": {}},
+            ],
+        },
+        {
             "py_sig": "note_chunk(chunk: buffer, index: int, pointers: buffer, lengths: buffer) -> void",
             "doc": "Write chunk's raw address and byte length into pointers[index]/lengths[index]. The only place a buffer's address is extracted -- via c2py23's own buffer acquisition, not any Python-side ctypes/numpy trick -- so a plain Python loop can batch independent chunk objects (bytes, bytearray, memoryview, mmap slices, ...) into bslz4_multi_* or bslz4_csc_multi_*'s compressed_ptrs/compressed_lengths arrays. See _gather_chunks() in __init__.py.",
             "c_overloads": [
@@ -1699,7 +2215,8 @@ int bslz4_csc_multi_base_f64_scal(const char *base, int64_t *offsets, const int3
                     },
             "variants": [
                 {"sig": "bslz4_multi_${SUFFIX}_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "default": True},
-                {"sig": "bslz4_multi_${SUFFIX}_sse(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "when": "c2py_amd64_sse2", "default": False},
+                {"sig": "bslz4_multi_${SUFFIX}_sse(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "when": "c2py_ppc64_vsx", "default": True},
+                {"sig": "bslz4_multi_${SUFFIX}_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "when": "c2py_arm64_asimd", "default": True},
                 {"sig": "bslz4_multi_${SUFFIX}_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *output, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "default": False},
             ],
                 },
@@ -1750,7 +2267,8 @@ int bslz4_csc_multi_base_f64_scal(const char *base, int64_t *offsets, const int3
                     },
             "variants": [
                 {"sig": "bslz4_csc_multi_${SUFFIX}_kcb(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "default": True},
-                {"sig": "bslz4_csc_multi_${SUFFIX}_sse(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "when": "c2py_amd64_sse2", "default": False},
+                {"sig": "bslz4_csc_multi_${SUFFIX}_sse(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "when": "c2py_ppc64_vsx", "default": True},
+                {"sig": "bslz4_csc_multi_${SUFFIX}_neon(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "when": "c2py_arm64_asimd", "default": True},
                 {"sig": "bslz4_csc_multi_${SUFFIX}_scal(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "default": False},
             ],
                 },
@@ -1802,7 +2320,8 @@ int bslz4_csc_multi_base_f64_scal(const char *base, int64_t *offsets, const int3
                     },
             "variants": [
                 {"sig": "bslz4_csc_multi_base_${SUFFIX}_kcb(const char *base, int64_t *offsets, const int32_t *lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "default": True},
-                {"sig": "bslz4_csc_multi_base_${SUFFIX}_sse(const char *base, int64_t *offsets, const int32_t *lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "when": "c2py_amd64_sse2", "default": False},
+                {"sig": "bslz4_csc_multi_base_${SUFFIX}_sse(const char *base, int64_t *offsets, const int32_t *lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "when": "c2py_ppc64_vsx", "default": True},
+                {"sig": "bslz4_csc_multi_base_${SUFFIX}_neon(const char *base, int64_t *offsets, const int32_t *lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "when": "c2py_arm64_asimd", "default": True},
                 {"sig": "bslz4_csc_multi_base_${SUFFIX}_scal(const char *base, int64_t *offsets, const int32_t *lengths, int nframes, int codec, const uint8_t *mask, int NIJ, ${TYPE} *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *output, int NOUT, const float *data, const uint32_t *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors) -> int", "default": False},
             ],
                 },

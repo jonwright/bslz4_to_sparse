@@ -376,22 +376,35 @@ def _workspace_bytes_csc(cmp, itemsize):
 
 def available_backends():
     """
-    Names of the untranspose backends compiled into this build (e.g.
+    Names of the untranspose backends usable on this machine (e.g.
     'kcb', 'sse', 'scal'). See set_backend(). Every dtype has the same
     set, so this just asks a representative one (u16).
+
+    Names whose kernel is a stub in this build are filtered out: every
+    backend is compiled for every platform, but upstream bitshuffle
+    compiles a stub when the ISA is absent, so 'neon' is not usable on
+    x86-64 and 'sse' is not usable on ARM.
     """
     names = [v.decode() for v in _ext._variants_bslz4_multi_u16()]
-    return tuple(sorted(set(name.rsplit("_", 1)[-1] for name in names)))
+    return tuple(sorted(name for name in set(n.rsplit("_", 1)[-1] for n in names)
+                        if _backend_available(name)))
+
+
+def _backend_available(name):
+    fn = getattr(_ext, "backend_%s_available" % name, None)
+    return bool(fn is None or fn())
 
 
 def set_backend(name):
     """
     Select which untranspose (bit/byte de-shuffle) backend bslz4_to_sparse
     uses. 'kcb' (https://github.com/kalcutter/bitshuffle) is the default
-    and does its own CPU dispatch; 'sse' and 'scal' are upstream
-    bitshuffle's SSE2 and portable scalar reference kernels
-    (https://github.com/kiyo-masui/bitshuffle). See available_backends()
-    for the names compiled into this build.
+    and does its own CPU dispatch, though only on x86. 'sse', 'neon' and
+    'scal' are upstream bitshuffle's kernels
+    (https://github.com/kiyo-masui/bitshuffle): 'sse' is its SSE2 kernel,
+    which also serves POWER via GCC's VSX-backed x86-intrinsic headers;
+    'neon' is aarch64; 'scal' is the portable scalar reference. See
+    available_backends() for the ones usable here.
 
     Applies to every pixel type and to all three multi-frame decode
     families (plain, CSC, and the base+offsets CSC variant -- there is no
@@ -400,6 +413,11 @@ def set_backend(name):
     than one being silently fixed at build time. Pass None to restore
     auto-resolve.
     """
+    if name is not None and not _backend_available(name):
+        raise ValueError(
+            "backend %r is not usable in this build (available: %s)"
+            % (name, ", ".join(available_backends()))
+        )
     for suffix, (rbm, rbcm, rbcmb) in _REBIND.items():
         rbm(None if name is None else "bslz4_multi_%s_%s" % (suffix, name))
         rbcm(None if name is None else "bslz4_csc_multi_%s_%s" % (suffix, name))

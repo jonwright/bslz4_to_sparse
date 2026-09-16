@@ -21,8 +21,12 @@ all. c2py23 is still needed as a developer tool to *regenerate*
 embedded in `src/bslz4_to_sparse.cpp` -- see the C2PY_BEGIN block there
 and `tools/regenerate_wrapper.py`.
 
-Source: https://github.com/jonwright/c2py23, tag `v0.5.4`,
-commit `3aeeb8bb62ad750721ef626b04e5a4f9def15303`. License: MIT (see
+Source: https://github.com/jonwright/c2py23, `v0.5.4+8`,
+commit `4e099be12845da18ca4c52e258807ef7ddd6f9ef`. Past v0.5.4 because
+that release mis-generates the auto-resolve fallback for a group with a
+`when:`-guarded `default: True` variant, which is how the POWER and ARM
+untranspose defaults are selected; the runtime moved with it, gaining the
+non-native-byte-order buffer rejection. License: MIT (see
 `c2py23`'s own `LICENSE`; same terms as this project).
 
 To update: pull a newer c2py23 tag, copy its `c2py23/runtime/*.c` and
