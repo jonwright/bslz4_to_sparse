@@ -110,13 +110,14 @@ get_dense_sparse_threshold = _ext.get_dense_sparse_threshold
 set_dense_sparse_threshold = _ext.set_dense_sparse_threshold
 
 # SIMD mask+threshold collect tiers (u16/u32 only, see
-# bslz4_collect_simd.hpp): avx512, avx2, sse2, vsx, tried in that order.
-# The best available tier is on by default, decided in
+# bslz4_collect_simd.hpp): avx512, avx2, sse2, vsx, neon, tried in that
+# order. The best available tier is on by default, decided in
 # bslz4_collect_simd.hpp; these are just the runtime getters/setters.
 # AVX-512 can throttle clocks on some chips enough to net-lose for this
 # workload -- set_avx512_collect(False) then set_avx2_collect(True) if
 # so, since disabling one tier does not auto-promote the next. vsx
-# (POWER8+) measures 3.75-8.2x on sparse data.
+# (POWER8+) measures 3.75-8.2x on sparse data; neon (AArch64) measures
+# 4.18x (u16) / 4.38x (u32) on a Cortex-A72.
 avx512_collect_available = _ext.avx512_collect_available
 get_avx512_collect = _ext.get_avx512_collect
 avx2_collect_available = _ext.avx2_collect_available
@@ -125,6 +126,8 @@ sse2_collect_available = _ext.sse2_collect_available
 get_sse2_collect = _ext.get_sse2_collect
 vsx_collect_available = _ext.vsx_collect_available
 get_vsx_collect = _ext.get_vsx_collect
+neon_collect_available = _ext.neon_collect_available
+get_neon_collect = _ext.get_neon_collect
 
 
 def set_avx512_collect(enabled):
@@ -205,6 +208,26 @@ def set_vsx_collect(enabled):
         raise RuntimeError(
             "VSX collect kernel requested but this build/CPU doesn't support it "
             "(vsx_collect_available() is False)"
+        )
+
+
+def set_neon_collect(enabled):
+    """
+    Enable/disable the ARM NEON collect kernel for bslz4_multi_u16/u32
+    and bslz4_csc_multi_u16/u32's sparse-route compaction -- see
+    set_avx512_collect(), same shape. On by default when available.
+    Real-hardware-measured on a Cortex-A72 (Pinebook, see
+    bslz4_collect_simd.hpp and tools/bslz4_neon_collect_probe.c for the
+    full story): 4.18x (u16) / 4.38x (u32) faster than scalar via a
+    vmaxvq any-match fast-skip gate.
+
+    Raises RuntimeError if enabled=True is requested on a non-aarch64
+    build (see neon_collect_available()).
+    """
+    if _ext.set_neon_collect(1 if enabled else 0) < 0:
+        raise RuntimeError(
+            "NEON collect kernel requested but this build/CPU doesn't support it "
+            "(neon_collect_available() is False)"
         )
 
 

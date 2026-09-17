@@ -38,6 +38,6 @@ once per machine: a single `lib/` on a shared filesystem holds all of
 them. `C2PY_TRACE=1` reports which file the loader picks.
 
 SIMD collect tiers the machine cannot run are skipped:
-`test_vsx_collect_matches_scalar` on x86_64, the avx512/avx2/sse2 ones
-on POWER.
+`test_vsx_collect_matches_scalar` on x86_64, `test_neon_collect_matches_scalar`
+on x86_64/POWER, the avx512/avx2/sse2 ones on POWER/ARM.
 

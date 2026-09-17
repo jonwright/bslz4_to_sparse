@@ -30,6 +30,9 @@ extern int bslz4_set_sse2_collect_impl(int enabled);
 extern int bslz4_vsx_collect_available_impl();
 extern int bslz4_get_vsx_collect_impl();
 extern int bslz4_set_vsx_collect_impl(int enabled);
+extern int bslz4_neon_collect_available_impl();
+extern int bslz4_get_neon_collect_impl();
+extern int bslz4_set_neon_collect_impl(int enabled);
 extern int bslz4_backend_kcb_available_impl();
 extern int bslz4_backend_sse_available_impl();
 extern int bslz4_backend_neon_available_impl();
@@ -982,6 +985,184 @@ _set_vsx_collect_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t narg
 
 
     ret = _set_vsx_collect_impl(c_enabled);
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: neon_collect_available */
+/* -------------------------------------------- */
+
+static PyObject*
+_neon_collect_available_impl()
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_neon_collect_available_impl();
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_neon_collect_available_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, ""))
+        return NULL;
+
+
+    ret = _neon_collect_available_impl();
+
+    return ret;
+}
+
+static PyObject*
+_neon_collect_available_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *ret = NULL;
+
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError,
+            "neon_collect_available expects 0 arguments");
+        return NULL;
+    }
+
+
+
+    ret = _neon_collect_available_impl();
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: get_neon_collect */
+/* -------------------------------------------- */
+
+static PyObject*
+_get_neon_collect_impl()
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_get_neon_collect_impl();
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_get_neon_collect_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, ""))
+        return NULL;
+
+
+    ret = _get_neon_collect_impl();
+
+    return ret;
+}
+
+static PyObject*
+_get_neon_collect_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *ret = NULL;
+
+    if (nargs != 0) {
+        PyErr_SetString(PyExc_TypeError,
+            "get_neon_collect expects 0 arguments");
+        return NULL;
+    }
+
+
+
+    ret = _get_neon_collect_impl();
+
+    return ret;
+}
+
+/* -------------------------------------------- */
+/* Wrapper for: set_neon_collect */
+/* -------------------------------------------- */
+
+static PyObject*
+_set_neon_collect_impl(int c_enabled)
+{
+    /* overload 0 (always) */
+    {
+        int _ret = bslz4_set_neon_collect_impl(c_enabled);
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_set_neon_collect_wrapper(PyObject *self, PyObject *args)
+{
+    int c_enabled = 0;
+    PyObject *ret = NULL;
+
+    if (!PyArg_ParseTuple(args, "i", &c_enabled))
+        return NULL;
+
+
+    ret = _set_neon_collect_impl(c_enabled);
+
+    return ret;
+}
+
+static PyObject*
+_set_neon_collect_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    int c_enabled = 0;
+    PyObject *ret = NULL;
+
+    if (nargs != 1) {
+        PyErr_SetString(PyExc_TypeError,
+            "set_neon_collect expects 1 argument");
+        return NULL;
+    }
+
+    /* extract int: enabled from args[0] */
+    {
+        long _c2py_tmp = PyLong_AsLong(args[0]);
+        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
+        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "int parameter enabled out of range (must fit in C int)");
+            return NULL;
+        }
+        c_enabled = (int)_c2py_tmp;
+    }
+
+
+    ret = _set_neon_collect_impl(c_enabled);
 
     return ret;
 }
@@ -64288,6 +64469,9 @@ static PyMethodDef _methods_varargs[] = {
     {"vsx_collect_available", (PyCFunction)_vsx_collect_available_wrapper, METH_VARARGS, "vsx_collect_available()\n--\n\nvsx_collect_available() -> int\n\n1 if this CPU has POWER VSX (what the u16/u32 collect kernel's VSX tier needs), 0 otherwise -- independent of whether it's currently enabled, see get/set_vsx_collect(). Always 0 on non-POWER builds.\n\nOverloads\n---------\n  bslz4_vsx_collect_available_impl() -> int"},
     {"get_vsx_collect", (PyCFunction)_get_vsx_collect_wrapper, METH_VARARGS, "get_vsx_collect()\n--\n\nget_vsx_collect() -> int\n\n1 if the VSX mask+threshold collect kernel (u16/u32 only, POWER8+) is currently enabled, 0 otherwise. Defaults to 1 iff vsx_collect_available() -- see set_vsx_collect().\n\nOverloads\n---------\n  bslz4_get_vsx_collect_impl() -> int"},
     {"set_vsx_collect", (PyCFunction)_set_vsx_collect_wrapper, METH_VARARGS, "set_vsx_collect(enabled)\n--\n\nset_vsx_collect(enabled: int) -> int\n\nEnable/disable the VSX mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but vsx_collect_available() is false. On by default when available -- real-hardware-measured on a POWER9 box: 3.75-8.2x faster than scalar on sparse data via a vec_any_gt fast-skip gate (see the file comment in bslz4_collect_simd.hpp and tools/bslz4_power9_collect_probe.c for how that number was reached).\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_vsx_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
+    {"neon_collect_available", (PyCFunction)_neon_collect_available_wrapper, METH_VARARGS, "neon_collect_available()\n--\n\nneon_collect_available() -> int\n\n1 if this CPU has ARM NEON/ASIMD (what the u16/u32 collect kernel's NEON tier needs), 0 otherwise -- independent of whether it's currently enabled, see get/set_neon_collect(). Always 0 on non-aarch64 builds.\n\nOverloads\n---------\n  bslz4_neon_collect_available_impl() -> int"},
+    {"get_neon_collect", (PyCFunction)_get_neon_collect_wrapper, METH_VARARGS, "get_neon_collect()\n--\n\nget_neon_collect() -> int\n\n1 if the NEON mask+threshold collect kernel (u16/u32 only, AArch64) is currently enabled, 0 otherwise. Defaults to 1 iff neon_collect_available() -- see set_neon_collect().\n\nOverloads\n---------\n  bslz4_get_neon_collect_impl() -> int"},
+    {"set_neon_collect", (PyCFunction)_set_neon_collect_wrapper, METH_VARARGS, "set_neon_collect(enabled)\n--\n\nset_neon_collect(enabled: int) -> int\n\nEnable/disable the NEON mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but neon_collect_available() is false. On by default when available -- real-hardware-measured on a Cortex-A72 (Pinebook): 4.18x (u16) / 4.38x (u32) faster than scalar via a vmaxvq any-match fast-skip gate (see the file comment in bslz4_collect_simd.hpp and tools/bslz4_neon_collect_probe.c for how that number was reached).\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_neon_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
     {"backend_kcb_available", (PyCFunction)_backend_kcb_available_wrapper, METH_VARARGS, "backend_kcb_available()\n--\n\nbackend_kcb_available() -> int\n\n1 always: the kcb untranspose backend is portable C, real on every build. See set_backend().\n\nOverloads\n---------\n  bslz4_backend_kcb_available_impl() -> int"},
     {"backend_sse_available", (PyCFunction)_backend_sse_available_wrapper, METH_VARARGS, "backend_sse_available()\n--\n\nbackend_sse_available() -> int\n\n1 if the sse untranspose backend is real code in this build, 0 if it is the stub upstream bitshuffle compiles when the ISA is absent (it is guarded by defined(__SSE2__) || defined(NO_WARN_X86_INTRINSICS)). available_backends() filters on this and set_backend() refuses a backend reporting 0, because the compiled symbol exists either way.\n\nOverloads\n---------\n  bslz4_backend_sse_available_impl() -> int"},
     {"backend_neon_available", (PyCFunction)_backend_neon_available_wrapper, METH_VARARGS, "backend_neon_available()\n--\n\nbackend_neon_available() -> int\n\n1 if the neon untranspose backend is real code in this build, 0 if it is the stub upstream bitshuffle compiles when the ISA is absent (it is guarded by defined(__ARM_NEON) && defined(__aarch64__)). available_backends() filters on this and set_backend() refuses a backend reporting 0, because the compiled symbol exists either way.\n\nOverloads\n---------\n  bslz4_backend_neon_available_impl() -> int"},
@@ -64461,6 +64645,9 @@ static PyMethodDef _methods_fastcall[] = {
     {"vsx_collect_available", (PyCFunction)_vsx_collect_available_fastcall, METH_FASTCALL, "vsx_collect_available()\n--\n\nvsx_collect_available() -> int\n\n1 if this CPU has POWER VSX (what the u16/u32 collect kernel's VSX tier needs), 0 otherwise -- independent of whether it's currently enabled, see get/set_vsx_collect(). Always 0 on non-POWER builds.\n\nOverloads\n---------\n  bslz4_vsx_collect_available_impl() -> int"},
     {"get_vsx_collect", (PyCFunction)_get_vsx_collect_fastcall, METH_FASTCALL, "get_vsx_collect()\n--\n\nget_vsx_collect() -> int\n\n1 if the VSX mask+threshold collect kernel (u16/u32 only, POWER8+) is currently enabled, 0 otherwise. Defaults to 1 iff vsx_collect_available() -- see set_vsx_collect().\n\nOverloads\n---------\n  bslz4_get_vsx_collect_impl() -> int"},
     {"set_vsx_collect", (PyCFunction)_set_vsx_collect_fastcall, METH_FASTCALL, "set_vsx_collect(enabled)\n--\n\nset_vsx_collect(enabled: int) -> int\n\nEnable/disable the VSX mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but vsx_collect_available() is false. On by default when available -- real-hardware-measured on a POWER9 box: 3.75-8.2x faster than scalar on sparse data via a vec_any_gt fast-skip gate (see the file comment in bslz4_collect_simd.hpp and tools/bslz4_power9_collect_probe.c for how that number was reached).\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_vsx_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
+    {"neon_collect_available", (PyCFunction)_neon_collect_available_fastcall, METH_FASTCALL, "neon_collect_available()\n--\n\nneon_collect_available() -> int\n\n1 if this CPU has ARM NEON/ASIMD (what the u16/u32 collect kernel's NEON tier needs), 0 otherwise -- independent of whether it's currently enabled, see get/set_neon_collect(). Always 0 on non-aarch64 builds.\n\nOverloads\n---------\n  bslz4_neon_collect_available_impl() -> int"},
+    {"get_neon_collect", (PyCFunction)_get_neon_collect_fastcall, METH_FASTCALL, "get_neon_collect()\n--\n\nget_neon_collect() -> int\n\n1 if the NEON mask+threshold collect kernel (u16/u32 only, AArch64) is currently enabled, 0 otherwise. Defaults to 1 iff neon_collect_available() -- see set_neon_collect().\n\nOverloads\n---------\n  bslz4_get_neon_collect_impl() -> int"},
+    {"set_neon_collect", (PyCFunction)_set_neon_collect_fastcall, METH_FASTCALL, "set_neon_collect(enabled)\n--\n\nset_neon_collect(enabled: int) -> int\n\nEnable/disable the NEON mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but neon_collect_available() is false. On by default when available -- real-hardware-measured on a Cortex-A72 (Pinebook): 4.18x (u16) / 4.38x (u32) faster than scalar via a vmaxvq any-match fast-skip gate (see the file comment in bslz4_collect_simd.hpp and tools/bslz4_neon_collect_probe.c for how that number was reached).\n\nParameters\n----------\nenabled : int\n\nOverloads\n---------\n  bslz4_set_neon_collect_impl(int enabled) -> int\n    Map: enabled = enabled (int)"},
     {"backend_kcb_available", (PyCFunction)_backend_kcb_available_fastcall, METH_FASTCALL, "backend_kcb_available()\n--\n\nbackend_kcb_available() -> int\n\n1 always: the kcb untranspose backend is portable C, real on every build. See set_backend().\n\nOverloads\n---------\n  bslz4_backend_kcb_available_impl() -> int"},
     {"backend_sse_available", (PyCFunction)_backend_sse_available_fastcall, METH_FASTCALL, "backend_sse_available()\n--\n\nbackend_sse_available() -> int\n\n1 if the sse untranspose backend is real code in this build, 0 if it is the stub upstream bitshuffle compiles when the ISA is absent (it is guarded by defined(__SSE2__) || defined(NO_WARN_X86_INTRINSICS)). available_backends() filters on this and set_backend() refuses a backend reporting 0, because the compiled symbol exists either way.\n\nOverloads\n---------\n  bslz4_backend_sse_available_impl() -> int"},
     {"backend_neon_available", (PyCFunction)_backend_neon_available_fastcall, METH_FASTCALL, "backend_neon_available()\n--\n\nbackend_neon_available() -> int\n\n1 if the neon untranspose backend is real code in this build, 0 if it is the stub upstream bitshuffle compiles when the ISA is absent (it is guarded by defined(__ARM_NEON) && defined(__aarch64__)). available_backends() filters on this and set_backend() refuses a backend reporting 0, because the compiled symbol exists either way.\n\nOverloads\n---------\n  bslz4_backend_neon_available_impl() -> int"},

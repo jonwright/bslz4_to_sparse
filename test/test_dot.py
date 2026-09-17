@@ -347,6 +347,7 @@ from bslz4_to_sparse import (
     avx2_collect_available, get_avx2_collect, set_avx2_collect,
     sse2_collect_available, get_sse2_collect, set_sse2_collect,
     vsx_collect_available, get_vsx_collect, set_vsx_collect,
+    neon_collect_available, get_neon_collect, set_neon_collect,
 )
 
 
@@ -428,6 +429,10 @@ def test_sse2_collect_matches_scalar():
 
 def test_vsx_collect_matches_scalar():
     _check_collect_tier_matches_scalar("vsx", vsx_collect_available, get_vsx_collect, set_vsx_collect)
+
+
+def test_neon_collect_matches_scalar():
+    _check_collect_tier_matches_scalar("neon", neon_collect_available, get_neon_collect, set_neon_collect)
 
 
 test_csc_multi_matches_single_and_reference()

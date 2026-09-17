@@ -33,7 +33,7 @@
  * bslz4_collect_gt<T>/bslz4_collect_nz<T> (bslz4_collect_simd.hpp),
  * which are the scalar loops seen here for every T except uint16_t/
  * uint32_t, where an explicit template specialization takes a SIMD path
- * instead (AVX-512, AVX2, SSE2 or VSX, tried in that order). The best
+ * instead (AVX-512, AVX2, SSE2, VSX or NEON, tried in that order). The best
  * tier the machine actually supports is enabled by default; see that
  * header for how that is decided and how to override it.
  */

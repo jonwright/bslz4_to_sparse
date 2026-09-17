@@ -123,13 +123,14 @@ HEADER = '''/*
  * _gather_chunks()/harvest_chunk_offsets()/pack_offsets_lengths() in
  * __init__.py.
  *
- * {avx512,avx2,sse2,vsx}_collect_available()/get_*_collect()/set_*_collect()
+ * {avx512,avx2,sse2,vsx,neon}_collect_available()/get_*_collect()/set_*_collect()
  * control the optional SIMD mask+threshold collect kernel tiers for
  * u16/u32 (bslz4_collect_simd.hpp). The best available tier defaults on
- * automatically (avx512 > avx2 > sse2, or vsx on POWER) -- that default
- * is decided in bslz4_collect_simd.hpp itself (each bslz4_<tier>_collect_
- * enabled()'s own static initializer), not here or in __init__.py; these
- * functions just expose the runtime override. AVX-512 in particular can
+ * automatically (avx512 > avx2 > sse2 on x86, vsx on POWER, neon on
+ * aarch64) -- that default is decided in bslz4_collect_simd.hpp itself
+ * (each bslz4_<tier>_collect_enabled()'s own static initializer), not
+ * here or in __init__.py; these functions just expose the runtime
+ * override. AVX-512 in particular can
  * throttle clocks on some chips enough to net-lose for this workload --
  * set_avx512_collect(False) if that turns out to matter on yours.
  */
@@ -208,6 +209,21 @@ int bslz4_set_vsx_collect_impl(int enabled) {
     if (enabled && !bslz4_vsx_collect_available_impl())
         return -1;
     bslz4_vsx_collect_enabled() = (enabled != 0);
+    return 0;
+}
+
+int bslz4_neon_collect_available_impl() {
+    return bslz4_neon_collect_capable() ? 1 : 0;
+}
+
+int bslz4_get_neon_collect_impl() {
+    return bslz4_neon_collect_enabled() ? 1 : 0;
+}
+
+int bslz4_set_neon_collect_impl(int enabled) {
+    if (enabled && !bslz4_neon_collect_available_impl())
+        return -1;
+    bslz4_neon_collect_enabled() = (enabled != 0);
     return 0;
 }
 
@@ -611,6 +627,27 @@ C2PY_BLOCK = '''
             "doc": "Enable/disable the VSX mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but vsx_collect_available() is false. On by default when available -- real-hardware-measured on a POWER9 box: 3.75-8.2x faster than scalar on sparse data via a vec_any_gt fast-skip gate (see the file comment in bslz4_collect_simd.hpp and tools/bslz4_power9_collect_probe.c for how that number was reached).",
             "c_overloads": [
                 {"sig": "bslz4_set_vsx_collect_impl(int enabled) -> int", "map": {"enabled": "enabled"}},
+            ],
+        },
+        {
+            "py_sig": "neon_collect_available() -> int",
+            "doc": "1 if this CPU has ARM NEON/ASIMD (what the u16/u32 collect kernel's NEON tier needs), 0 otherwise -- independent of whether it's currently enabled, see get/set_neon_collect(). Always 0 on non-aarch64 builds.",
+            "c_overloads": [
+                {"sig": "bslz4_neon_collect_available_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "get_neon_collect() -> int",
+            "doc": "1 if the NEON mask+threshold collect kernel (u16/u32 only, AArch64) is currently enabled, 0 otherwise. Defaults to 1 iff neon_collect_available() -- see set_neon_collect().",
+            "c_overloads": [
+                {"sig": "bslz4_get_neon_collect_impl() -> int", "map": {}},
+            ],
+        },
+        {
+            "py_sig": "set_neon_collect(enabled: int) -> int",
+            "doc": "Enable/disable the NEON mask+threshold collect kernel for bslz4_multi_u16/u32 and bslz4_csc_multi_u16/u32's sparse-route compaction (bslz4_collect_simd.hpp). Returns 0 on success, -1 if enabled=1 was requested but neon_collect_available() is false. On by default when available -- real-hardware-measured on a Cortex-A72 (Pinebook): 4.18x (u16) / 4.38x (u32) faster than scalar via a vmaxvq any-match fast-skip gate (see the file comment in bslz4_collect_simd.hpp and tools/bslz4_neon_collect_probe.c for how that number was reached).",
+            "c_overloads": [
+                {"sig": "bslz4_set_neon_collect_impl(int enabled) -> int", "map": {"enabled": "enabled"}},
             ],
         },
 ''' + spec_backends() + spec_note_chunk() + spec_family2() + spec_family4() + spec_family6() + '''    ],

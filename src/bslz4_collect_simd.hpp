@@ -5,22 +5,24 @@
  * bslz4_csc_decode_multi's sparse-route compaction (mask>0 & value!=0,
  * called here with cut==0 -- identical to !=0 for unsigned T).
  *
- * Four tiers, u16/u32 only: AVX-512 (F+BW+VL), AVX2, SSE2 (x86-64 ABI
- * baseline, always present) and VSX (POWER8+, probe in
- * tools/bslz4_power9_collect_probe.c). The x86 tiers carry
- * __attribute__((target(...))), so this file compiles under the
- * project's ordinary -O2; VSX instead needs setup.py to pass
- * -maltivec -mvsx globally on ppc64le. MSVC has neither, and the
+ * Five tiers, u16/u32 only: AVX-512 (F+BW+VL), AVX2, SSE2 (x86-64 ABI
+ * baseline, always present), VSX (POWER8+, probe in
+ * tools/bslz4_power9_collect_probe.c) and NEON (AArch64, ASIMD is
+ * ARMv8-A baseline, probe in tools/bslz4_neon_collect_probe.c). The x86
+ * tiers carry __attribute__((target(...))), so this file compiles under
+ * the project's ordinary -O2; VSX needs setup.py to pass -maltivec -mvsx
+ * globally on ppc64le, NEON needs nothing extra on aarch64 (ASIMD is
+ * baseline, like SSE2 on x86-64). MSVC has none of these, and the
  * BSLZ4_HAVE_*_COLLECT guards below make this file inert there.
  *
  * Each tier has a runtime flag (bslz4_avx512_collect_enabled() /
- * _avx2_ / _sse2_ / _vsx_), enabled by default iff it is the
+ * _avx2_ / _sse2_ / _vsx_ / _neon_), enabled by default iff it is the
  * highest-priority tier compiled in and bslz4_<tier>_collect_capable()
  * says this CPU supports it -- checked once, at first use, via c2py23's
  * cpuid-equivalent globals (c2py_amd64_avx512f/bw/vl, c2py_amd64_avx2,
- * c2py_ppc64_vsx; SSE2 needs no check). capable() is the single source
- * of truth, shared with the Python-visible <tier>_collect_available()
- * query in bslz4_to_sparse.cpp.
+ * c2py_ppc64_vsx, c2py_arm64_asimd; SSE2 needs no check). capable() is
+ * the single source of truth, shared with the Python-visible
+ * <tier>_collect_available() query in bslz4_to_sparse.cpp.
  *
  * set_<tier>_collect(True/False) overrides at runtime. AVX-512 can
  * trigger frequency throttling on some chips that outweighs the wider
@@ -36,6 +38,7 @@
 #include <cstring>
 
 #include "c2py_amd64.h"
+#include "c2py_arm64.h"
 #include "c2py_ppc64.h"
 
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
@@ -54,6 +57,13 @@
 #include <altivec.h>
 #else
 #define BSLZ4_HAVE_VSX_COLLECT 0
+#endif
+
+#if defined(__ARM_NEON) && defined(__aarch64__)
+#define BSLZ4_HAVE_NEON_COLLECT 1
+#include <arm_neon.h>
+#else
+#define BSLZ4_HAVE_NEON_COLLECT 0
 #endif
 
 namespace bslz4 {
@@ -95,6 +105,14 @@ inline bool bslz4_vsx_collect_capable() {
 #endif
 }
 
+inline bool bslz4_neon_collect_capable() {
+#if BSLZ4_HAVE_NEON_COLLECT
+    return c2py_arm64_asimd != 0;
+#else
+    return false;
+#endif
+}
+
 /* Each defaults to true iff it's the highest-priority capable tier --
  * so exactly one of these (or none, on a build/CPU with nothing
  * available) starts enabled, matching the priority order
@@ -115,6 +133,12 @@ inline bool &bslz4_vsx_collect_enabled() {
      * VSX_COLLECT and BSLZ4_HAVE_{AVX512,AVX2,SSE2}_COLLECT can't both
      * be 1 in the same build), so no priority check against them needed. */
     static bool x = bslz4_vsx_collect_capable();
+    return x;
+}
+
+inline bool &bslz4_neon_collect_enabled() {
+    /* Mutually exclusive with every other tier by compilation, same as VSX. */
+    static bool x = bslz4_neon_collect_capable();
     return x;
 }
 
@@ -484,13 +508,101 @@ inline int bslz4_collect_vsx_u32(const uint32_t *BSLZ4_RESTRICT block,
 
 #endif /* BSLZ4_HAVE_VSX_COLLECT */
 
+#if BSLZ4_HAVE_NEON_COLLECT
+
+/*
+ * NEON has native unsigned compare-greater (vcgtq_u16/u32) -- no
+ * sign-bias trick, like VSX, unlike x86 SSE2/AVX2.
+ *
+ * vmaxvq_u16/u32 (AArch64-only) reduces a compare result to its max
+ * lane in one instruction: if that max is 0, no lane exceeded cut, so
+ * the whole per-lane extraction is safe to skip -- the same gate VSX
+ * uses via vec_any_gt, real-hardware-measured on a Cortex-A72 at
+ * 4.18x/4.38x (u16/u32) over scalar, see
+ * tools/bslz4_neon_collect_probe.c.
+ *
+ * vgetq_lane_u16/u32 need a compile-time-constant lane index (a real
+ * ACLE restriction VSX's vec_extract does not have), so when the gate
+ * does not fire, the vector and compare result are spilled to small
+ * stack arrays via vst1q_u16/u32 and indexed as plain scalars instead
+ * of fighting that restriction with an unrolled constant-index ladder.
+ */
+
+inline int bslz4_collect_neon_u16(const uint16_t *BSLZ4_RESTRICT block,
+                                   const uint8_t *BSLZ4_RESTRICT mask,
+                                   size_t i0, size_t n, uint16_t cut,
+                                   uint16_t *BSLZ4_RESTRICT out_vals,
+                                   uint32_t *BSLZ4_RESTRICT out_adr) {
+    int npx = 0;
+    size_t j = 0;
+    uint16x8_t vcut = vdupq_n_u16(cut);
+    for (; j + 8 <= n; j += 8) {
+        uint16x8_t v = vld1q_u16(&block[j]);
+        uint16x8_t gt = vcgtq_u16(v, vcut);
+        if (vmaxvq_u16(gt) == 0) continue;
+        uint16_t vbuf[8], gbuf[8];
+        vst1q_u16(vbuf, v);
+        vst1q_u16(gbuf, gt);
+        for (int lane = 0; lane < 8; lane++) {
+            if (mask[j + i0 + lane] > 0 && gbuf[lane]) {
+                out_vals[npx] = vbuf[lane];
+                out_adr[npx] = (uint32_t) (j + i0 + lane);
+                npx++;
+            }
+        }
+    }
+    for (; j < n; j++) {
+        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+            out_vals[npx] = block[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+
+inline int bslz4_collect_neon_u32(const uint32_t *BSLZ4_RESTRICT block,
+                                   const uint8_t *BSLZ4_RESTRICT mask,
+                                   size_t i0, size_t n, uint32_t cut,
+                                   uint32_t *BSLZ4_RESTRICT out_vals,
+                                   uint32_t *BSLZ4_RESTRICT out_adr) {
+    int npx = 0;
+    size_t j = 0;
+    uint32x4_t vcut = vdupq_n_u32(cut);
+    for (; j + 4 <= n; j += 4) {
+        uint32x4_t v = vld1q_u32(&block[j]);
+        uint32x4_t gt = vcgtq_u32(v, vcut);
+        if (vmaxvq_u32(gt) == 0) continue;
+        uint32_t vbuf[4], gbuf[4];
+        vst1q_u32(vbuf, v);
+        vst1q_u32(gbuf, gt);
+        for (int lane = 0; lane < 4; lane++) {
+            if (mask[j + i0 + lane] > 0 && gbuf[lane]) {
+                out_vals[npx] = vbuf[lane];
+                out_adr[npx] = (uint32_t) (j + i0 + lane);
+                npx++;
+            }
+        }
+    }
+    for (; j < n; j++) {
+        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+            out_vals[npx] = block[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+
+#endif /* BSLZ4_HAVE_NEON_COLLECT */
+
 /*
  * bslz4_collect_gt<T>: mask[j+i0]>0 & block[j]>cut, compacted into
  * (out_vals, out_adr). Generic (scalar) for every T; explicitly
  * specialized for uint16_t/uint32_t to try SIMD tiers in priority order
- * (avx512, avx2, sse2, vsx -- each checked via its own runtime enabled
- * flag, the best available one being enabled by default: see the top of
- * this file), falling back to the same scalar loop otherwise.
+ * (avx512, avx2, sse2, vsx, neon -- each checked via its own runtime
+ * enabled flag, the best available one being enabled by default: see
+ * the top of this file), falling back to the same scalar loop otherwise.
  * Used by bslz4_decode_multi's real threshold-collect (bslz4_core.hpp).
  */
 template<typename T>
@@ -534,7 +646,7 @@ inline int bslz4_collect_nz(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_
     return npx;
 }
 
-#if BSLZ4_HAVE_AVX512_COLLECT || BSLZ4_HAVE_AVX2_COLLECT || BSLZ4_HAVE_SSE2_COLLECT || BSLZ4_HAVE_VSX_COLLECT
+#if BSLZ4_HAVE_AVX512_COLLECT || BSLZ4_HAVE_AVX2_COLLECT || BSLZ4_HAVE_SSE2_COLLECT || BSLZ4_HAVE_VSX_COLLECT || BSLZ4_HAVE_NEON_COLLECT
 
 template<>
 inline int bslz4_collect_gt<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
@@ -555,6 +667,10 @@ inline int bslz4_collect_gt<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
 #if BSLZ4_HAVE_VSX_COLLECT
     if (bslz4_vsx_collect_enabled())
         return bslz4_collect_vsx_u16(block, mask, i0, n, cut, out_vals, out_adr);
+#endif
+#if BSLZ4_HAVE_NEON_COLLECT
+    if (bslz4_neon_collect_enabled())
+        return bslz4_collect_neon_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
@@ -586,6 +702,10 @@ inline int bslz4_collect_gt<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
 #if BSLZ4_HAVE_VSX_COLLECT
     if (bslz4_vsx_collect_enabled())
         return bslz4_collect_vsx_u32(block, mask, i0, n, cut, out_vals, out_adr);
+#endif
+#if BSLZ4_HAVE_NEON_COLLECT
+    if (bslz4_neon_collect_enabled())
+        return bslz4_collect_neon_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
@@ -619,6 +739,10 @@ inline int bslz4_collect_nz<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
     if (bslz4_vsx_collect_enabled())
         return bslz4_collect_vsx_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
+#if BSLZ4_HAVE_NEON_COLLECT
+    if (bslz4_neon_collect_enabled())
+        return bslz4_collect_neon_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+#endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
         uint16_t px = block[j];
@@ -650,6 +774,10 @@ inline int bslz4_collect_nz<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
 #if BSLZ4_HAVE_VSX_COLLECT
     if (bslz4_vsx_collect_enabled())
         return bslz4_collect_vsx_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+#endif
+#if BSLZ4_HAVE_NEON_COLLECT
+    if (bslz4_neon_collect_enabled())
+        return bslz4_collect_neon_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
