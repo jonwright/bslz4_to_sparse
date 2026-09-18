@@ -1,9 +1,14 @@
 build/
+/lib/
 dist/
+/Trash/
+build.out
 *.egg-info/
 __pycache__/
 *.so
 *.pyd
 test/*.h5
+/bslz4testcases.h5
+/sparsetest.h5
 /c2bslz4/
 c2bslz4-src-*.tar.gz

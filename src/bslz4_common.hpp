@@ -43,9 +43,8 @@ inline uint64_t read_be64(const uint8_t *p) {
 /* Default bitshuffle block size (bytes) when the stream header encodes zero. */
 constexpr size_t DEFAULT_BLOCK_BYTES = 8192;
 
-/* Error codes returned by bslz4_decode / bslz4_csc_decode.
- * Kept numerically compatible with the previous C implementation
- * where a code already existed for the same condition. */
+/* Error codes returned by bslz4_decode_multi / bslz4_csc_decode_multi.
+ * The values are part of the C API: keep them stable. */
 enum : int {
     ERR_TOO_MANY_PIXELS = -99,     /* decompressed size needs more room than NIJ */
     ERR_TOO_LARGE = -98,           /* decompressed size does not fit an int */

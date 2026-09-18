@@ -1,12 +1,25 @@
 
+import os
+import sys
 
+path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
+if path:
+    sys.path.insert(0, path)
+
+import bslz4_to_sparse
 from bslz4_to_sparse import chunk2sparseCSC
 
-import pyFAI.integrator.azimuthal
+print("Running from", bslz4_to_sparse.__file__)
+print("Backends:", bslz4_to_sparse.available_backends())
+
+try:
+    from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # pyFAI >= 2024.10
+except ImportError:
+    from pyFAI.azimuthalIntegrator import AzimuthalIntegrator  # older pyFAI
+import pyFAI
 import numpy as np
 import h5py
 import hdf5plugin
-import os
 import timeit
 
 NFR = 5
@@ -39,7 +52,7 @@ with h5py.File('sparsetest.h5','r') as h5f:
 npt = 1500
 
 
-ai = pyFAI.integrator.azimuthal.AzimuthalIntegrator(
+ai = AzimuthalIntegrator(
     dist = 0.25,
     poni1 = 0.07,
     poni2 = 0.08,
@@ -58,7 +71,7 @@ result = ai.integrate1d( testdata[0],
                 1500, method = method )
 reference_results = [ ai.integrate1d( frm, npt, method=method )
                       for frm in testdata ]
-method = [ e for e in ai.engines if ( e.algo == 'CSC' ) ][0]
+method = [ e for e in ai.engines if ( e.algorithm == 'CSC' ) ][0]
 
 
 def R( y1, y2 ):
@@ -92,11 +105,9 @@ testfun()
 # Multi-frame batching, dense/sparse routing, and u64/i64 dtype coverage.
 #
 # "single is multi with n==1" (bslz4_core.hpp): chunk2sparse/chunk2sparseCSC
-# are thin wrappers over the same bslz4_decode_multi/bslz4_csc_decode_multi
-# templates chunk2sparseMulti/chunk2sparseCSCmulti call with nframes>1, so
-# these tests check the batched and single-frame paths agree with each
-# other and with the pyFAI reference, not two independently-implemented
-# decoders.
+# are thin wrappers over the same templates with nframes==1, so these check
+# that the batched and single-frame paths agree with each other and with the
+# pyFAI reference.
 # ---------------------------------------------------------------------------
 
 from bslz4_to_sparse import chunk2sparse, chunk2sparseCSCmulti, chunk2sparseMulti
@@ -125,7 +136,14 @@ def test_csc_multi_matches_single_and_reference():
 def test_csc_dense_and_sparse_routes_both_match_reference():
     saved = get_dense_sparse_threshold()
     try:
-        for threshold, label in ((1e9, "sparse"), (0.0, "dense")):
+        # bslz4_csc_dense_sparse_threshold() is compared against each
+        # block's own compression RATIO (blocksize/compressed_bytes):
+        # ratio > threshold picks the sparse (compaction) route, so a
+        # huge threshold like 1e9 is virtually never exceeded -- that
+        # forces DENSE -- and 0.0 is virtually always exceeded -- that
+        # forces SPARSE. (Backwards from what the numbers might suggest
+        # at a glance: this bit a benchmark script once already.)
+        for threshold, label in ((1e9, "dense"), (0.0, "sparse")):
             set_dense_sparse_threshold(threshold)
             for name in chunks:
                 dt, shp, chunklist = chunks[name]
@@ -153,6 +171,46 @@ def test_plain_multi_matches_single():
             s1 = set(zip(adr1[:npx1].tolist(), val1[:npx1].tolist()))
             s2 = set(zip(adr_multi[i, :npx_multi[i]].tolist(), val_multi[i, :npx_multi[i]].tolist()))
             assert s1 == s2, (name, i, "single vs multi sparse set differs")
+
+
+def test_every_available_backend_matches():
+    """Each untranspose backend available_backends() advertises must decode
+    identically -- they differ only in the bit/byte de-shuffle kernel. Also
+    checks a backend it does not advertise is refused rather than silently
+    running upstream bitshuffle's absent-ISA stub."""
+    from bslz4_to_sparse import available_backends, set_backend
+
+    usable = available_backends()
+    assert "kcb" in usable and "scal" in usable, usable
+    reference = {}
+    try:
+        for name in usable:
+            set_backend(name)
+            for dsname in chunks:
+                dt, shp, chunklist = chunks[dsname]
+                bufs = [c for (filt, c) in chunklist]
+                npx, (val, adr) = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt))(bufs, 0)
+                # Only the first npx[i] entries of each row are written; the
+                # rest of the worst-case-sized buffer is uninitialised.
+                got = (npx.copy(), [(val[i, :npx[i]].copy(), adr[i, :npx[i]].copy())
+                                    for i in range(len(bufs))])
+                ref = reference.setdefault(dsname, got)
+                assert np.array_equal(got[0], ref[0]), (name, dsname, "npx differs")
+                for i, ((v, a), (rv, ra)) in enumerate(zip(got[1], ref[1])):
+                    assert np.array_equal(v, rv), (name, dsname, i, "values differ")
+                    assert np.array_equal(a, ra), (name, dsname, i, "indices differ")
+    finally:
+        set_backend(None)
+
+    for name in ("kcb", "sse", "neon", "scal"):
+        if name not in usable:
+            try:
+                set_backend(name)
+            except ValueError:
+                pass
+            else:
+                set_backend(None)
+                raise AssertionError("set_backend(%r) should have been refused" % name)
 
 
 def _make_tiny_csc(npix, nbins, seed=1):
@@ -221,19 +279,13 @@ def test_u64_i64_and_signed_negative_values():
 
 
 # ---------------------------------------------------------------------------
-# Ctypes/numpy-free chunk feeding (issue #16) and the base+offsets fast
-# path for callers who already have the whole HDF5 file open/mapped as
-# one buffer, re-ported from the pre-redesign chunk-batch-feed branch
-# onto the current dense/sparse-routed decode core and expand dispatch.
+# Ctypes-free chunk feeding (issue #16) and the base+offsets fast path,
+# for callers who already hold the whole HDF5 file as one buffer.
 #
-# note_chunk()/_gather_chunks() are exercised implicitly by every test
-# above already: chunk2sparse/chunk2sparseCSC/chunk2sparseMulti/
-# chunk2sparseCSCmulti/bslz4_to_sparse() all build their compressed_ptrs/
-# compressed_lengths arrays via _gather_chunks() now, not ctypes. Only
+# note_chunk()/_gather_chunks() are exercised by every test above.
 # harvest_chunk_offsets()/pack_offsets_lengths()/bslz4_csc_multi_base_*
-# (the base+offsets path) have no other coverage, so that's what this
-# checks -- against chunk2sparseCSCmulti (already pyFAI-validated above)
-# reading the very same chunks, as the reference.
+# have no other coverage, so they are checked here against
+# chunk2sparseCSCmulti reading the very same chunks.
 # ---------------------------------------------------------------------------
 
 from bslz4_to_sparse import harvest_chunk_offsets, pack_offsets_lengths
@@ -283,9 +335,111 @@ def test_csc_multi_base_matches_multi():
             np.testing.assert_allclose(powder[i], powder_ref[i])
 
 
+# ---------------------------------------------------------------------------
+# SIMD mask+threshold collect tiers (u16/u32 only). A tier this machine
+# cannot run is skipped, not passed. These run under pytest only, and are
+# absent from the call list at the end of this file: pytest.skip() raised
+# outside a pytest run aborts collection of the whole file.
+# ---------------------------------------------------------------------------
+
+from bslz4_to_sparse import (
+    avx512_collect_available, get_avx512_collect, set_avx512_collect,
+    avx2_collect_available, get_avx2_collect, set_avx2_collect,
+    sse2_collect_available, get_sse2_collect, set_sse2_collect,
+    vsx_collect_available, get_vsx_collect, set_vsx_collect,
+    neon_collect_available, get_neon_collect, set_neon_collect,
+)
+
+
+def _check_collect_tier_matches_scalar(tier, available, getter, setter):
+    """Shared body for test_{avx512,avx2,sse2,vsx}_collect_matches_scalar:
+    a SIMD collect tier must give byte-identical results to the scalar
+    path it replaces -- same values, same indices, same order (both
+    visit pixels in ascending index order): bslz4_multi_u16/u32's plain
+    threshold-collect, and bslz4_csc_multi_u16/u32's sparse-route
+    compaction (the dense route never calls the collect kernel at all,
+    so only checked here for its own pyFAI-vs-reference agreement)."""
+    if not available():
+        import pytest  # here, not at module top: a direct `python3
+        # test_dot.py` run must not need pytest installed
+        pytest.skip(f"{tier} not available on this build/CPU")
+    # Best available tier is on by default now (decided in
+    # bslz4_collect_simd.hpp, not here) -- don't assume either state,
+    # just restore whatever it was when this test started.
+    original_state = getter()
+
+    saved_threshold = get_dense_sparse_threshold()
+    try:
+        for name in ("frm2", "frm4"):
+            dt, shp, chunklist = chunks[name]
+            bufs = [c for (filt, c) in chunklist]
+
+            setter(False)
+            c2sm = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt))
+            npx_s, (val_s, adr_s) = c2sm(bufs, 0)
+            npx_s, val_s, adr_s = npx_s.copy(), val_s.copy(), adr_s.copy()
+
+            references = {}
+            for threshold in (1e9, 0.0):  # dense route, sparse route (see the
+                                           # comment in the dense/sparse test above)
+                set_dense_sparse_threshold(threshold)
+                c2scm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
+                npx_c, (outpx_c, outadr_c), powder_c = c2scm(bufs, 1)
+                references[threshold] = (npx_c.copy(), outpx_c.copy(), outadr_c.copy(), powder_c.copy())
+
+            setter(True)
+            try:
+                c2sm2 = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt))
+                npx_a, (val_a, adr_a) = c2sm2(bufs, 0)
+                for i in range(len(bufs)):
+                    n = npx_s[i]
+                    assert npx_a[i] == n, (tier, name, i, "plain npx differs")
+                    assert np.array_equal(val_a[i, :n], val_s[i, :n]), (tier, name, i, "plain values differ")
+                    assert np.array_equal(adr_a[i, :n], adr_s[i, :n]), (tier, name, i, "plain indices differ")
+
+                for threshold, label in ((1e9, "dense"), (0.0, "sparse")):
+                    set_dense_sparse_threshold(threshold)
+                    c2scm2 = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
+                    npx_c2, (outpx_c2, outadr_c2), powder_c2 = c2scm2(bufs, 1)
+                    npx_ref, outpx_ref, outadr_ref, powder_ref = references[threshold]
+                    for i in range(len(bufs)):
+                        e = R(powder_c2[i], reference_results[i].sum_signal)
+                        assert e[0] < 1e-4, (tier, name, label, i, "powder vs pyFAI", e)
+                        n = npx_c2[i]
+                        assert n == npx_ref[i], (tier, name, label, i, "csc npx differs")
+                        assert np.array_equal(outpx_c2[i, :n], outpx_ref[i, :n]), (tier, name, label, i, "csc values differ")
+                        assert np.array_equal(outadr_c2[i, :n], outadr_ref[i, :n]), (tier, name, label, i, "csc indices differ")
+            finally:
+                setter(original_state)
+    finally:
+        set_dense_sparse_threshold(saved_threshold)
+
+
+def test_avx512_collect_matches_scalar():
+    _check_collect_tier_matches_scalar("avx512", avx512_collect_available, get_avx512_collect, set_avx512_collect)
+
+
+def test_avx2_collect_matches_scalar():
+    _check_collect_tier_matches_scalar("avx2", avx2_collect_available, get_avx2_collect, set_avx2_collect)
+
+
+def test_sse2_collect_matches_scalar():
+    _check_collect_tier_matches_scalar("sse2", sse2_collect_available, get_sse2_collect, set_sse2_collect)
+
+
+def test_vsx_collect_matches_scalar():
+    _check_collect_tier_matches_scalar("vsx", vsx_collect_available, get_vsx_collect, set_vsx_collect)
+
+
+def test_neon_collect_matches_scalar():
+    _check_collect_tier_matches_scalar("neon", neon_collect_available, get_neon_collect, set_neon_collect)
+
+
 test_csc_multi_matches_single_and_reference()
 test_csc_dense_and_sparse_routes_both_match_reference()
 test_plain_multi_matches_single()
 test_u64_i64_and_signed_negative_values()
 test_csc_multi_base_matches_multi()
+test_every_available_backend_matches()
 print("all multi-frame / dense-sparse-route / u64-i64 / multi_base tests passed")
+print("(SIMD collect tier tests only run under pytest -- see test_*_collect_matches_scalar)")
