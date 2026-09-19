@@ -31,7 +31,10 @@ from setuptools.dist import Distribution
 try:
     from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 except ImportError:  # pragma: no cover - older setuptools
-    from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
+    try:
+        from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
+    except ImportError:  # no bdist_wheel available (plain `setup.py build`)
+        _bdist_wheel = None
 
 HERE = os.path.abspath(os.path.dirname(__file__))
 
@@ -70,17 +73,23 @@ class build_native(build_py):
         build_py.run(self)
 
 
-class bdist_wheel_override(_bdist_wheel):
-    """Tag the wheel py2.py3-none-<plat> instead of cpXY-cpXY-<plat>."""
+_cmdclass = {"build_py": build_native}
 
-    def finalize_options(self):
-        _bdist_wheel.finalize_options(self)
-        self.root_is_pure = False
+if _bdist_wheel is not None:
 
-    def get_tag(self):
-        _impl, _abi, plat = _bdist_wheel.get_tag(self)
-        plat = os.environ.get("BSLZ4_WHEEL_PLAT", plat)
-        return os.environ.get("BSLZ4_PYTHON_TAG", "py2.py3"), "none", plat
+    class bdist_wheel_override(_bdist_wheel):
+        """Tag the wheel py2.py3-none-<plat> instead of cpXY-cpXY-<plat>."""
+
+        def finalize_options(self):
+            _bdist_wheel.finalize_options(self)
+            self.root_is_pure = False
+
+        def get_tag(self):
+            _impl, _abi, plat = _bdist_wheel.get_tag(self)
+            plat = os.environ.get("BSLZ4_WHEEL_PLAT", plat)
+            return os.environ.get("BSLZ4_PYTHON_TAG", "py2.py3"), "none", plat
+
+    _cmdclass["bdist_wheel"] = bdist_wheel_override
 
 
 with open(os.path.join(HERE, "README.md"), "r") as f:
@@ -102,7 +111,7 @@ setup(
         ],
     },
     distclass=PlatlibDistribution,
-    cmdclass={"build_py": build_native, "bdist_wheel": bdist_wheel_override},
+    cmdclass=_cmdclass,
     # numpy is a runtime dependency (src/__init__.py imports it); h5py/pyFAI
     # are test-only and intentionally absent here.
     install_requires=["numpy"],
