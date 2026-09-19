@@ -5,9 +5,11 @@ dist/
 build.out
 *.egg-info/
 __pycache__/
+*.pyc
 *.so
 *.pyd
 test/*.h5
+test/matrix.json
 /bslz4testcases.h5
 /sparsetest.h5
 /c2bslz4/

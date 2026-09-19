@@ -1,4 +1,5 @@
 import os
+import struct
 import numpy as np
 import ctypes
 from .c2py_loader import load_native
@@ -263,13 +264,12 @@ def _blocksize_bytes(cmp):
     The bitshuffle block size (bytes) encoded in this compressed chunk's
     stream header (bytes 8:12, big endian; 0 means the 8192 byte default).
 
-    Works on any buffer-protocol object whose integer indexing returns
-    ints -- bytes/bytearray/memoryview/numpy uint8 array, all fine in
-    Python 3 as-is, no conversion needed first.
+    struct.unpack handles the big-endian uint32 directly on both Python 2.7
+    (where indexing a str returns a 1-char str) and Python 3 (bytes).
     """
     if len(cmp) < 12:
         return DEFAULT_BLOCK_BYTES
-    blocksize = (int(cmp[8]) << 24) | (int(cmp[9]) << 16) | (int(cmp[10]) << 8) | int(cmp[11])
+    blocksize = struct.unpack(">I", cmp[8:12])[0]
     return blocksize if blocksize else DEFAULT_BLOCK_BYTES
 
 
@@ -397,20 +397,26 @@ def _workspace_bytes_csc(cmp, itemsize):
     return 3 * blocksize + block_elems * (4 + itemsize)
 
 
+# Untranspose backend names, in spec order (the "variants" lists in the
+# C2PY_BEGIN block of src/bslz4_to_sparse.cpp).  Hardcoded here on purpose:
+# enumerating them via c2py23's generated _variants_* introspection ties this
+# Python API to generated C code (and segfaulted on Python 2.7 before the
+# c2py23 0.5.5 runtime fix).  Which ones are *usable* is still decided by the
+# backend_<name>_available() C functions below.
+_BACKEND_NAMES = ("kcb", "sse", "neon", "scal")
+
+
 def available_backends():
     """
     Names of the untranspose backends usable on this machine (e.g.
-    'kcb', 'sse', 'scal'). See set_backend(). Every dtype has the same
-    set, so this just asks a representative one (u16).
+    'kcb', 'sse', 'scal'). See set_backend().
 
     Names whose kernel is a stub in this build are filtered out: every
     backend is compiled for every platform, but upstream bitshuffle
     compiles a stub when the ISA is absent, so 'neon' is not usable on
     x86-64 and 'sse' is not usable on ARM.
     """
-    names = [v.decode() for v in _ext._variants_bslz4_multi_u16()]
-    return tuple(sorted(name for name in set(n.rsplit("_", 1)[-1] for n in names)
-                        if _backend_available(name)))
+    return tuple(sorted(name for name in _BACKEND_NAMES if _backend_available(name)))
 
 
 def _backend_available(name):
