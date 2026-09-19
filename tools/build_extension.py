@@ -84,6 +84,11 @@ def _build_msvc(srcs, incs, outpath, builddir):
     cmd += ["/Fe%s" % outpath]
     cmd += srcs
     subprocess.check_call(cmd)
+    # cl honours /Fe, but if it still emitted a .dll, normalise to .pyd.
+    if not os.path.exists(outpath):
+        alt = os.path.splitext(outpath)[0] + ".dll"
+        if os.path.exists(alt):
+            os.rename(alt, outpath)
 
 
 def main():
