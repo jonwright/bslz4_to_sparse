@@ -25,7 +25,10 @@ if _path:
 import numpy as np
 import pytest
 
-from bslz4_to_sparse import chunk2sparse
+from bslz4_to_sparse import (
+    chunk2sparse, chunk2sparseCSCmulti,
+    set_dense_sparse_threshold, get_dense_sparse_threshold,
+)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDEX_PATH = os.path.join(REPO_ROOT, "test", "matrix.json")
@@ -78,3 +81,64 @@ else:
 
         assert npx == len(expected), (entry["name"], npx, len(expected))
         assert got == expected, (entry["name"], got, expected)
+
+    def _make_tiny_csc(npix, nbin, seed=7):
+        """A minimal self-contained csc: 1 entry/pixel, weight 1.0, so that
+        sum(powder) == sum(masked image).  Mirrors test_dot._make_tiny_csc but
+        keeps this file's only hard deps at numpy (no pyFAI/scipy).  Uses
+        RandomState for numpy<1.17 (py2.7) compatibility."""
+        class _CSC:
+            pass
+        rng = np.random.RandomState(seed)
+        csc = _CSC()
+        csc.indptr = np.arange(npix + 1, dtype=np.uint32)
+        csc.indices = rng.randint(0, nbin, size=npix).astype(np.uint32)
+        csc.data = np.ones(npix, dtype=np.float32)
+        csc.shape = (nbin,)
+        return csc
+
+    @pytest.mark.parametrize("entry", _ENTRIES, ids=lambda e: e["name"])
+    def test_decode_matrix_csc(entry):
+        with open(H5_PATH, "rb") as fh:
+            fh.seek(entry["offset"])
+            chunk = fh.read(entry["length"])
+        assert len(chunk) == entry["length"], "short read"
+
+        dtype = _DTYPES[entry["dtype"]]
+        cut = entry["cut"]
+        rows = entry["rows"]
+        cols = entry["cols"]
+        codec = entry["codec"]
+
+        mask = np.ones((rows, cols), np.uint8)
+        npix = mask.size
+        csc = _make_tiny_csc(npix, nbin=8)
+        c2sc = chunk2sparseCSCmulti(mask, csc, dtype=dtype, codec=codec)
+
+        expected = dict((int(i), v) for i, v in entry["nonzero"])
+        ref_sum = float(sum(expected.values()))
+
+        saved = get_dense_sparse_threshold()
+        try:
+            # Both routes must agree with the same reference: huge threshold
+            # forces the dense route, 0.0 forces the sparse (compaction) route.
+            for threshold in (1e9, 0.0):
+                set_dense_sparse_threshold(threshold)
+                npx_arr, (vals, adrs), powder = c2sc([chunk], cut)
+                # batch-of-1: unwrap the length-1 npx and the (1, npix) buffers
+                npx = int(npx_arr[0])
+                vals = vals[0]
+                adrs = adrs[0]
+                powder = powder[0]
+
+                got = {}
+                for k in range(npx):
+                    got[int(adrs[k])] = vals[k].item()
+                assert npx == len(expected), (entry["name"], threshold, npx, len(expected))
+                assert got == expected, (entry["name"], threshold, got, expected)
+                # 1 entry/pixel, weight 1.0 => powder integrates the whole
+                # masked frame, so sum(powder) == sum of the >cut pixels.
+                assert abs(float(powder.sum()) - ref_sum) <= 1e-6 * max(1.0, abs(ref_sum)), (
+                    entry["name"], threshold, float(powder.sum()), ref_sum)
+        finally:
+            set_dense_sparse_threshold(saved)
