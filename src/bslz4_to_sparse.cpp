@@ -2226,7 +2226,7 @@ int bslz4_csc_multi_base_f64_scal(const char *base, int64_t *offsets, const int3
             "doc": "Decode nframes bitshuffle-LZ4/zstd chunks (${TYPE} pixels) from the same dataset into per-frame masked/thresholded sparse (output, output_adr, npx_out). The single-frame case is just nframes==1 -- there is no separate single-frame entry point.",
             "checks": [
                 "mask.format == 'B' or mask.format == 'b'",
-                "output_adr.format == 'I'",
+                "output_adr.format == 'I' or output_adr.format == 'L'",
                 "npx_out.format == 'i'",
                 "workspace.format == 'B'",
                 "compressed_ptrs.itemsize == 8",
@@ -2269,7 +2269,7 @@ int bslz4_csc_multi_base_f64_scal(const char *base, int64_t *offsets, const int3
             "doc": "Decode a batch of bitshuffle-LZ4/zstd chunks (${TYPE} pixels) from the same dataset into per-frame sparse (outpx, output_adr, npx_out) and per-frame CSC powder integrations (powder). Routes each (frame, block) between a dense and a sparse CSC strategy based on that block's own compression ratio -- see bslz4_core.hpp's bslz4_csc_decode_multi.",
             "checks": [
                 "mask.format == 'B' or mask.format == 'b'",
-                "output_adr.format == 'I'",
+                "output_adr.format == 'I' or output_adr.format == 'L'",
                 "npx_out.format == 'i'",
                 "powder.format == 'd'",
                 "data.format == 'f'",
@@ -2321,7 +2321,7 @@ int bslz4_csc_multi_base_f64_scal(const char *base, int64_t *offsets, const int3
             "doc": "Like bslz4_csc_multi_${SUFFIX}, but for chunks that all share one base buffer (e.g. an mmap'ed HDF5 file): offsets are byte offsets from base rather than absolute addresses, avoiding any Python-side pointer arithmetic -- see harvest_chunk_offsets()/pack_offsets_lengths() in __init__.py. NOTE: offsets is mutated in place into absolute pointers by this call (reused as scratch, like cursors/workspace already are).",
             "checks": [
                 "mask.format == 'B' or mask.format == 'b'",
-                "output_adr.format == 'I'",
+                "output_adr.format == 'I' or output_adr.format == 'L'",
                 "npx_out.format == 'i'",
                 "powder.format == 'd'",
                 "data.format == 'f'",

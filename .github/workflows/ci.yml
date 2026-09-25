@@ -90,9 +90,36 @@ jobs:
           name: wheel-${{ matrix.target }}
           path: dist/*.whl
 
+  # --- Generate the decode-matrix fixture ONCE ---
+  #
+  # The decode test itself only needs numpy + pytest at runtime; h5py/hdf5plugin
+  # (and pyFAI) are only needed to *write* the fixture, and h5py has no wheels
+  # for some Pythons (e.g. 3.15) and pyFAI refuses to resolve on 3.14t.  So
+  # generate the fixture once here on a known-good Python and share it.
+  fixture:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install fixture-generation deps (binary only)
+        run: |
+          python -m pip install --quiet --only-binary :all: h5py hdf5plugin numpy
+      - name: Generate decode-matrix fixture
+        run: python test/make_testcases.py matrix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: |
+            test/matrix.h5
+            test/matrix.json
+
   # --- Linux x86_64: full decode test across a Python subset ---
   test-linux:
-    needs: build
+    needs: [build, fixture]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -106,24 +133,24 @@ jobs:
         with:
           name: wheel-linux_x86_64
           path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: test/
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
       - name: Install wheel + test deps (binary only)
-        id: deps
         run: |
           python -m pip install --quiet dist/*.whl
-          python -m pip install --quiet --only-binary :all: pytest
-          python -m pip install --quiet --only-binary :all: h5py hdf5plugin pyFAI
-      - name: Generate decode-matrix fixture
-        run: python test/make_testcases.py matrix
+          python -m pip install --quiet --only-binary :all: numpy pytest
       - name: Run decode matrix
         run: python -m pytest test/test_decode_matrix.py -q
 
   # --- Windows x64: native build + test ---
   test-windows:
-    needs: build
+    needs: [build, fixture]
     runs-on: windows-latest
     defaults:
       run:
@@ -136,29 +163,23 @@ jobs:
         with:
           name: wheel-win_amd64
           path: dist\
+      - uses: actions/download-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: test/
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install wheel
-        run: for /f %%f in ('dir /b /s dist\*.whl') do python -m pip install --quiet "%%f"
-      - name: Install pytest
-        run: "python -m pip install --quiet --only-binary :all: pytest"
-      - name: Install test deps (binary only; skip if any wheel is missing)
-        id: deps
-        continue-on-error: true
-        run: "python -m pip install --quiet --only-binary :all: h5py hdf5plugin pyFAI"
-      - name: Generate decode-matrix fixture
-        if: steps.deps.outcome == 'success'
-        run: python test\make_testcases.py matrix
+      - name: Install wheel + test deps (binary only)
+        run: |
+          for /f %%f in ('dir /b /s dist\*.whl') do python -m pip install --quiet "%%f"
+          python -m pip install --quiet --only-binary :all: numpy pytest
       - name: Run decode matrix
-        if: steps.deps.outcome == 'success'
         run: python -m pytest test\test_decode_matrix.py -q
-      - name: SKIP note (no binary deps for this Python)
-        if: steps.deps.outcome != 'success'
-        run: echo "SKIP - binary deps unavailable for this Python"
 
   # --- Python 2.7: build in an old-glibc (18.04) container, test decode ---
   test-py27:
+    needs: fixture
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -167,10 +188,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Generate decode-matrix fixture (py3x, needs modern h5py)
-        run: |
-          python -m pip install --quiet --only-binary :all: h5py hdf5plugin numpy
-          python test/make_testcases.py matrix
+      - uses: actions/download-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: test/
       - name: Build + test in ubuntu:18.04 (python2.7, glibc 2.27)
         run: |
           docker run --rm -v "$PWD:/workspace" ubuntu:18.04 bash -lc '
