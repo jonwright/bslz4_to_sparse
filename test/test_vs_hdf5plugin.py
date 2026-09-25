@@ -4,6 +4,10 @@ import hdf5plugin
 import h5py
 import numpy as np
 import sys, os
+
+path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
+if path:
+    sys.path.insert(0, path)
 import bslz4_to_sparse
 
 print("Running from", bslz4_to_sparse.__file__)

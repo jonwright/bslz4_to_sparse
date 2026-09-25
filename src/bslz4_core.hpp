@@ -1,56 +1,46 @@
 #pragma once
 /*
  * Bitshuffle-LZ4/zstd decode, generic over pixel type T and the
- * untranspose backend. Templates replace the previous #define DATATYPE /
- * #include macro-repetition; each (T, Untranspose) combination compiles
- * to its own ordinary function, instantiated explicitly (see
+ * untranspose backend. Each (T, Untranspose) combination compiles to its
+ * own ordinary function, instantiated explicitly (see
  * bslz4_to_sparse.cpp) behind a plain extern "C" name.
  *
- * codec (lz4 vs zstd, see bslz4_codec.hpp) is an ordinary runtime int
- * parameter rather than a template axis: which codec a dataset used is
- * HDF5 filter metadata the Python caller already has, and can differ
- * between two datasets read with the very same compiled function in the
- * same process, unlike the untranspose backend (a session-wide choice
- * for benchmarking kernels against each other).
+ * codec (lz4 vs zstd, see bslz4_codec.hpp) is a runtime int parameter
+ * rather than a template axis: it is HDF5 filter metadata the Python
+ * caller already has, and can differ between two datasets read by the
+ * same compiled function in one process. The untranspose backend is a
+ * session-wide choice, so it stays a template axis.
  *
  * No malloc, no VLA: the only scratch space used is a caller-owned
  * "workspace" buffer, carved by pointer arithmetic.
  *
- * Single-frame vs multi-frame: there is exactly one implementation of
- * each decode family (plain sparse, CSC), taking nframes frames per
- * call -- no separate single-frame code path at all, at the C++ template
- * level or the Python-visible level. A single frame is just nframes == 1:
+ * There is one implementation of each decode family (plain sparse, CSC),
+ * taking nframes frames per call. A single frame is nframes == 1:
  * src/__init__.py's chunk2sparse/chunk2sparseCSC/bslz4_to_sparse() build
  * a 1-element compressed_ptrs/compressed_lengths/npx_out/cursors set and
- * call bslz4_decode_multi/bslz4_csc_decode_multi directly. An earlier
- * version of this file kept single-frame wrapper templates
- * (bslz4_decode/bslz4_csc_decode) that just forwarded to these with
- * nframes==1; once nothing above them needed a different C-level entry
- * point for the single-frame case either, they were removed rather than
- * kept as a second, unused way to reach the same code.
+ * call bslz4_decode_multi/bslz4_csc_decode_multi directly.
  *
- * Both multi-frame decoders are block-outer / frame-inner (decode the
- * current ~8KB block for every frame before moving to the next block
- * position), which keeps the workspace's raw/scratch/block regions a
- * single shared set reused per frame -- 3*blocksize total, independent
- * of nframes -- rather than nframes copies. There is deliberately no
- * cross-frame sharing of the CSC indptr/indices/data lookup (the
- * previous design here batched only the CSC product this way, on the
- * theory that looking up indptr[j] once and applying it across every
- * frame's value at pixel j would pay for itself): measured against a
- * real ID11 CSC and independent reference data it did not -- it was
- * slower than doing nothing across every occupancy level tested,
- * because it unconditionally reads indptr[j]/indptr[j+1] for every
- * masked pixel position regardless of whether any frame in the batch
- * has a non-zero value there. Batching here instead means: decode
- * every frame's block before deciding, per (frame, block), how to
- * spend the CSC work on it (see bslz4_csc_decode_multi below) -- that
- * decision is inherently per-frame, so there is nothing to share across
- * frames at the indptr level regardless.
+ * Both decoders are block-outer / frame-inner (decode the current ~8KB
+ * block for every frame before moving to the next block position), so
+ * the workspace's raw/scratch/block regions are one shared set reused
+ * per frame -- 3*blocksize total, independent of nframes. The CSC
+ * indptr/indices/data lookup is not shared across frames: how much CSC
+ * work a block deserves is decided per (frame, block), see
+ * bslz4_csc_decode_multi below.
+ *
+ * The mask+threshold collect step in both decoders (scan a block,
+ * compact matching (index, value) pairs) goes through
+ * bslz4_collect_gt<T>/bslz4_collect_nz<T> (bslz4_collect_simd.hpp),
+ * which are the scalar loops seen here for every T except uint16_t/
+ * uint32_t, where an explicit template specialization takes a SIMD path
+ * instead (AVX-512, AVX2, SSE2, VSX or NEON, tried in that order). The best
+ * tier the machine actually supports is enabled by default; see that
+ * header for how that is decided and how to override it.
  */
 
 #include "bslz4_codec.hpp"
 #include "bslz4_common.hpp"
+#include "bslz4_collect_simd.hpp"
 
 #include <cstring>
 #include <cstdint>
@@ -61,10 +51,8 @@ namespace bslz4 {
  * Batched plain sparse decode over "nframes" frames from the same
  * dataset (same detector shape/dtype/block size). One caller-owned
  * workspace (3*blocksize: raw/scratch/block, shared and reused per
- * frame -- there is no cross-frame state to keep here, batching exists
- * to amortise the Python/C call boundary over nframes and to keep the
- * mask slice for the current block hot across frames, not to share any
- * per-pixel lookup).
+ * frame). Batching amortises the Python/C call boundary over nframes
+ * and keeps the mask slice for the current block hot across frames.
  *
  * compressed_ptrs/compressed_lengths are address+length pairs (Python
  * ints from e.g. a numpy array's .ctypes.data) rather than one buffer
@@ -99,6 +87,17 @@ int bslz4_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 
     if (nframes <= 0) return ERR_BAD_NFRAMES;
     if (threshold < 0) return ERR_BAD_THRESHOLD;
+    /* TODO(threshold API, needs cleanup): threshold is a plain C int for
+     * every dtype, including f32/f64 -- (T) threshold can only ever
+     * express a whole-number cut for float data, never a fractional
+     * one, and for u8/u16 there is no check that the value actually
+     * fits the destination type (threshold=300 for u8 data silently
+     * becomes (uint8_t)300 == 44 here, no error, unlike the existing
+     * hard ValueError c2py23 already raises for threshold > INT32_MAX).
+     * Not fixed here -- deliberately deferred; a real fix likely means
+     * validating threshold against each dtype's representable range at
+     * the API boundary, and/or taking a wider (e.g. double) threshold
+     * for the float dtype family specifically. */
     const T cut = (T) threshold;
 
     const char *compressed0 = (const char *) (intptr_t) compressed_ptrs[0];
@@ -148,13 +147,8 @@ int bslz4_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             T *outf = output + (size_t) f * NIJ;
             uint32_t *outadrf = output_adr + (size_t) f * NIJ;
             int32_t npx = npx_out[f];
-            for (size_t j = 0; j < block_elems; j++) {
-                if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (block[j] > cut))) {
-                    outf[npx] = block[j];
-                    outadrf[npx] = (uint32_t) (j + i0);
-                    npx++;
-                }
-            }
+            npx += bslz4_collect_gt<T>(block, mask, (size_t) i0, block_elems, cut,
+                                        outf + npx, outadrf + npx);
             npx_out[f] = npx;
         }
         i0 += (int) block_elems;
@@ -180,13 +174,9 @@ int bslz4_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         T *outf = output + (size_t) f * NIJ;
         uint32_t *outadrf = output_adr + (size_t) f * NIJ;
         int32_t npx = npx_out[f];
-        for (size_t j = 0; j < (size_t(rem_f) + tail_block) / NB; j++) {
-            if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (block[j] > cut))) {
-                outf[npx] = block[j];
-                outadrf[npx] = (uint32_t) (j + i0);
-                npx++;
-            }
-        }
+        size_t ntail = (size_t(rem_f) + tail_block) / NB;
+        npx += bslz4_collect_gt<T>(block, mask, (size_t) i0, ntail, cut,
+                                    outf + npx, outadrf + npx);
         npx_out[f] = npx;
     }
     return 0;
@@ -263,6 +253,8 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 
     if (nframes <= 0) return ERR_BAD_NFRAMES;
     if (threshold < 0) return ERR_BAD_THRESHOLD;
+    /* TODO(threshold API, needs cleanup): see the identical note in
+     * bslz4_decode_multi above -- same open issue, same cast. */
     const T cut = (T) threshold;
     const double dense_sparse_x = bslz4_csc_dense_sparse_threshold();
 
@@ -322,15 +314,7 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 
             if ((double) blocksize > dense_sparse_x * (double) nbytes) {
                 /* sparse route */
-                int nz = 0;
-                for (size_t j = 0; j < block_elems; j++) {
-                    T px = block[j];
-                    if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (px != 0))) {
-                        tidx[nz] = (uint32_t) (j + i0);
-                        tval[nz] = px;
-                        nz++;
-                    }
-                }
+                int nz = bslz4_collect_nz<T>(block, mask, (size_t) i0, block_elems, tval, tidx);
                 for (int kk = 0; kk < nz; kk++) {
                     uint32_t addr = tidx[kk];
                     T val = tval[kk];
@@ -401,15 +385,7 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             ? (double) tail_block > dense_sparse_x * (double) tail_nbytes
             : true; /* pure literal remainder (no compressed tail block): trivially cheap either way */
         if (use_sparse) {
-            int nz = 0;
-            for (size_t j = 0; j < ntail; j++) {
-                T px = block[j];
-                if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (px != 0))) {
-                    tidx[nz] = (uint32_t) (j + i0);
-                    tval[nz] = px;
-                    nz++;
-                }
-            }
+            int nz = bslz4_collect_nz<T>(block, mask, (size_t) i0, ntail, tval, tidx);
             for (int kk = 0; kk < nz; kk++) {
                 uint32_t addr = tidx[kk];
                 T val = tval[kk];

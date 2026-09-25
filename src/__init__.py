@@ -1,8 +1,19 @@
+import os
+import struct
 import numpy as np
 import ctypes
-from . import bslz4_to_sparse as _ext
+from .c2py_loader import load_native
 
-version = "0.1.0"
+# Loaded by explicit platform-tagged filename
+# (_bslz4_to_sparse.c2py23-<os>_<arch>.so) rather than by a plain import:
+# c2py23 resolves the CPython API at runtime via dlsym, so the binary is
+# not tied to a Python version, and naming it this way lets builds for
+# several architectures sit in the same directory. setup.py's
+# get_ext_filename writes exactly this name, from this same loader's
+# _platform_key().
+_ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse")
+
+version = "0.0.20"
 
 # c2py23's per-call timing instrumentation is compiled OUT entirely
 # ("timing": False in the .c2py spec, src/bslz4_to_sparse.cpp) -- it adds
@@ -99,6 +110,128 @@ note_chunk = _ext.note_chunk
 get_dense_sparse_threshold = _ext.get_dense_sparse_threshold
 set_dense_sparse_threshold = _ext.set_dense_sparse_threshold
 
+# SIMD mask+threshold collect tiers (u16/u32 only, see
+# bslz4_collect_simd.hpp): avx512, avx2, sse2, vsx, neon, tried in that
+# order. The best available tier is on by default, decided in
+# bslz4_collect_simd.hpp; these are just the runtime getters/setters.
+# AVX-512 can throttle clocks on some chips enough to net-lose for this
+# workload -- set_avx512_collect(False) then set_avx2_collect(True) if
+# so, since disabling one tier does not auto-promote the next. vsx
+# (POWER8+) measures 3.75-8.2x on sparse data; neon (AArch64) measures
+# 4.18x (u16) / 4.38x (u32) on a Cortex-A72.
+avx512_collect_available = _ext.avx512_collect_available
+get_avx512_collect = _ext.get_avx512_collect
+avx2_collect_available = _ext.avx2_collect_available
+get_avx2_collect = _ext.get_avx2_collect
+sse2_collect_available = _ext.sse2_collect_available
+get_sse2_collect = _ext.get_sse2_collect
+vsx_collect_available = _ext.vsx_collect_available
+get_vsx_collect = _ext.get_vsx_collect
+neon_collect_available = _ext.neon_collect_available
+get_neon_collect = _ext.get_neon_collect
+
+
+def set_avx512_collect(enabled):
+    """
+    Enable/disable the AVX-512 collect kernel for bslz4_multi_u16/u32 and
+    bslz4_csc_multi_u16/u32's sparse-route compaction. Applies immediately
+    to every call already made with those functions (it's a runtime
+    switch, not a per-call or per-dtype choice). On by default when
+    available (it's the highest-priority tier, tried first) -- it is not
+    always a win, see the module docstring in bslz4_collect_simd.hpp, so
+    disable it explicitly if it measures as a net loss on your machine.
+
+    Raises RuntimeError if enabled=True is requested on a CPU without the
+    required AVX-512F+BW+VL feature bits (see avx512_collect_available()).
+    """
+    if _ext.set_avx512_collect(1 if enabled else 0) < 0:
+        raise RuntimeError(
+            "AVX-512 collect kernel requested but this CPU lacks the required "
+            "AVX512F+AVX512BW+AVX512VL feature bits (avx512_collect_available() "
+            "is False)"
+        )
+
+
+def set_avx2_collect(enabled):
+    """
+    Enable/disable the AVX2 collect kernel for bslz4_multi_u16/u32 and
+    bslz4_csc_multi_u16/u32's sparse-route compaction -- see
+    set_avx512_collect(), same shape. Ignored when AVX-512 collect is
+    also enabled (avx512 is tried first). On by default when available
+    and avx512 isn't. AVX2 carries much less frequency-throttling risk
+    than AVX-512 on most chips, but measure before relying on that
+    rather than assuming it.
+
+    Raises RuntimeError if enabled=True is requested on a CPU without AVX2
+    (see avx2_collect_available()).
+    """
+    if _ext.set_avx2_collect(1 if enabled else 0) < 0:
+        raise RuntimeError(
+            "AVX2 collect kernel requested but this CPU lacks AVX2 "
+            "(avx2_collect_available() is False)"
+        )
+
+
+def set_sse2_collect(enabled):
+    """
+    Enable/disable the SSE2 collect kernel for bslz4_multi_u16/u32 and
+    bslz4_csc_multi_u16/u32's sparse-route compaction -- see
+    set_avx512_collect(), same shape. Ignored when AVX-512 or AVX2
+    collect is also enabled (tried last). On by default whenever neither
+    of those is -- unlike them, SSE2 is the x86-64 ABI baseline: always
+    available, no capability gap, no known throttling risk.
+
+    Raises RuntimeError if enabled=True is requested on a non-x86-64
+    build, or one whose compiler lacks GCC/Clang-style target attributes
+    (see sse2_collect_available()).
+    """
+    if _ext.set_sse2_collect(1 if enabled else 0) < 0:
+        raise RuntimeError(
+            "SSE2 collect kernel requested but this build doesn't support it "
+            "(sse2_collect_available() is False)"
+        )
+
+
+def set_vsx_collect(enabled):
+    """
+    Enable/disable the POWER VSX collect kernel for bslz4_multi_u16/u32
+    and bslz4_csc_multi_u16/u32's sparse-route compaction -- see
+    set_avx512_collect(), same shape. On by default when available.
+    Real-hardware-measured on a POWER9 box (see bslz4_collect_simd.hpp
+    and tools/bslz4_power9_collect_probe.c for the full story): 3.75-8.2x
+    faster than scalar on sparse data via a vec_any_gt fast-skip gate.
+
+    Raises RuntimeError if enabled=True is requested on a non-POWER
+    build, or POWER hardware/build without VSX (see
+    vsx_collect_available()).
+    """
+    if _ext.set_vsx_collect(1 if enabled else 0) < 0:
+        raise RuntimeError(
+            "VSX collect kernel requested but this build/CPU doesn't support it "
+            "(vsx_collect_available() is False)"
+        )
+
+
+def set_neon_collect(enabled):
+    """
+    Enable/disable the ARM NEON collect kernel for bslz4_multi_u16/u32
+    and bslz4_csc_multi_u16/u32's sparse-route compaction -- see
+    set_avx512_collect(), same shape. On by default when available.
+    Real-hardware-measured on a Cortex-A72 (Pinebook, see
+    bslz4_collect_simd.hpp and tools/bslz4_neon_collect_probe.c for the
+    full story): 4.18x (u16) / 4.38x (u32) faster than scalar via a
+    vmaxvq any-match fast-skip gate.
+
+    Raises RuntimeError if enabled=True is requested on a non-aarch64
+    build (see neon_collect_available()).
+    """
+    if _ext.set_neon_collect(1 if enabled else 0) < 0:
+        raise RuntimeError(
+            "NEON collect kernel requested but this build/CPU doesn't support it "
+            "(neon_collect_available() is False)"
+        )
+
+
 DEFAULT_BLOCK_BYTES = 8192
 
 # bitshuffle-hdf5 filter id and its cd_values[4] block-codec numbering
@@ -131,13 +264,12 @@ def _blocksize_bytes(cmp):
     The bitshuffle block size (bytes) encoded in this compressed chunk's
     stream header (bytes 8:12, big endian; 0 means the 8192 byte default).
 
-    Works on any buffer-protocol object whose integer indexing returns
-    ints -- bytes/bytearray/memoryview/numpy uint8 array, all fine in
-    Python 3 as-is, no conversion needed first.
+    struct.unpack handles the big-endian uint32 directly on both Python 2.7
+    (where indexing a str returns a 1-char str) and Python 3 (bytes).
     """
     if len(cmp) < 12:
         return DEFAULT_BLOCK_BYTES
-    blocksize = (int(cmp[8]) << 24) | (int(cmp[9]) << 16) | (int(cmp[10]) << 8) | int(cmp[11])
+    blocksize = struct.unpack(">I", cmp[8:12])[0]
     return blocksize if blocksize else DEFAULT_BLOCK_BYTES
 
 
@@ -265,24 +397,43 @@ def _workspace_bytes_csc(cmp, itemsize):
     return 3 * blocksize + block_elems * (4 + itemsize)
 
 
+# Untranspose backend names, in spec order (the "variants" lists in the
+# C2PY_BEGIN block of src/bslz4_to_sparse.cpp).  Hardcoded here on purpose:
+# enumerating them via c2py23's generated _variants_* introspection ties this
+# Python API to generated C code (and segfaulted on Python 2.7 before the
+# c2py23 0.5.5 runtime fix).  Which ones are *usable* is still decided by the
+# backend_<name>_available() C functions below.
+_BACKEND_NAMES = ("kcb", "sse", "neon", "scal")
+
+
 def available_backends():
     """
-    Names of the untranspose backends compiled into this build (e.g.
-    'kcb', 'sse', 'scal'). See set_backend(). Every dtype has the same
-    set, so this just asks a representative one (u16).
+    Names of the untranspose backends usable on this machine (e.g.
+    'kcb', 'sse', 'scal'). See set_backend().
+
+    Names whose kernel is a stub in this build are filtered out: every
+    backend is compiled for every platform, but upstream bitshuffle
+    compiles a stub when the ISA is absent, so 'neon' is not usable on
+    x86-64 and 'sse' is not usable on ARM.
     """
-    names = [v.decode() for v in _ext._variants_bslz4_multi_u16()]
-    return tuple(sorted(set(name.rsplit("_", 1)[-1] for name in names)))
+    return tuple(sorted(name for name in _BACKEND_NAMES if _backend_available(name)))
+
+
+def _backend_available(name):
+    fn = getattr(_ext, "backend_%s_available" % name, None)
+    return bool(fn is None or fn())
 
 
 def set_backend(name):
     """
     Select which untranspose (bit/byte de-shuffle) backend bslz4_to_sparse
     uses. 'kcb' (https://github.com/kalcutter/bitshuffle) is the default
-    and does its own CPU dispatch; 'sse' and 'scal' are upstream
-    bitshuffle's SSE2 and portable scalar reference kernels
-    (https://github.com/kiyo-masui/bitshuffle). See available_backends()
-    for the names compiled into this build.
+    and does its own CPU dispatch, though only on x86. 'sse', 'neon' and
+    'scal' are upstream bitshuffle's kernels
+    (https://github.com/kiyo-masui/bitshuffle): 'sse' is its SSE2 kernel,
+    which also serves POWER via GCC's VSX-backed x86-intrinsic headers;
+    'neon' is aarch64; 'scal' is the portable scalar reference. See
+    available_backends() for the ones usable here.
 
     Applies to every pixel type and to all three multi-frame decode
     families (plain, CSC, and the base+offsets CSC variant -- there is no
@@ -291,23 +442,16 @@ def set_backend(name):
     than one being silently fixed at build time. Pass None to restore
     auto-resolve.
     """
+    if name is not None and not _backend_available(name):
+        raise ValueError(
+            "backend %r is not usable in this build (available: %s)"
+            % (name, ", ".join(available_backends()))
+        )
     for suffix, (rbm, rbcm, rbcmb) in _REBIND.items():
         rbm(None if name is None else "bslz4_multi_%s_%s" % (suffix, name))
         rbcm(None if name is None else "bslz4_csc_multi_%s_%s" % (suffix, name))
         rbcmb(None if name is None else "bslz4_csc_multi_base_%s_%s" % (suffix, name))
 
-
-# Historical note (see bug_variant.md): a c2py23 code-generation bug used
-# to make set_backend(None)'s auto-resolve land on the wrong variant
-# regardless of "default": True in the .c2py spec. Fixed upstream
-# (c2py23 branch "variant-fallback-marker", commit ed4e9f9) but not yet
-# released to PyPI, which is what `pip install c2py23` still gives you --
-# and our own .c2py spec is written so that fix isn't even load-bearing
-# for us regardless (sse/scal are "default": False, so kcb is the sole
-# unconditional default:true variant per group, unambiguous either way).
-# Set explicitly anyway, to fix the *actually* released c2py23 and to
-# make the intended default explicit rather than implicit.
-set_backend("kcb")
 
 
 class chunk2sparseMulti:
@@ -379,6 +523,9 @@ class chunk2sparseMulti:
             self.codec,
         )
         if ret < 0:
+            # TODO(error strings): map the bslz4_common.hpp error codes to
+            # messages here (and at the other two `ret < 0` raises), so a
+            # corrupt chunk reports what was wrong instead of a bare number.
             raise Exception("Error decoding batch: %d" % (ret))
         return self._npx_out, (self._output, self._output_adr)
 

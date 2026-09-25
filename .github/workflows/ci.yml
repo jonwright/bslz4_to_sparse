@@ -1,0 +1,209 @@
+# CI: build one version-independent wheel per platform, then test it.
+#
+# The extension is package data (see setup.py/tools/build_extension.py), so a
+# single wheel per platform serves Python 2.7-3.15 (c2py23 dlsym) and is
+# tested across a Python-version subset.  Cross-arch aarch64/ppc64le are
+# cross-compiled from the x86_64 runner (built-only here; runtime tests run on
+# real hardware / qemu, see the notes).  Windows is built + tested natively.
+name: CI
+
+on:
+  push:
+    branches: [main, "jonwright/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build-${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux_x86_64
+            os: ubuntu-24.04
+            cc: ""
+            cxx: ""
+            tag: linux_x86_64
+          - target: linux_aarch64
+            os: ubuntu-24.04
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+            tag: linux_aarch64
+          - target: linux_ppc64le
+            os: ubuntu-24.04
+            cc: powerpc64le-linux-gnu-gcc
+            cxx: powerpc64le-linux-gnu-g++
+            tag: linux_ppc64le
+          - target: win_amd64
+            os: windows-latest
+            cc: cl
+            cxx: cl
+            tag: win_amd64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Linux cross toolchains
+        if: runner.os == 'Linux' && matrix.cc != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+                                gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu
+
+      - name: Build extension (GCC)
+        if: runner.os == 'Linux'
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: python3 tools/build_extension.py --target-platform ${{ matrix.target }}
+
+      - name: Build extension (MSVC)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat" >nul
+          set MSVC_ENV=1
+          set CC=cl
+          set CXX=cl
+          python tools\build_extension.py --target-platform win_amd64
+
+      - name: Build wheel
+        env:
+          BSLZ4_SKIP_NATIVE_BUILD: "1"
+          BSLZ4_WHEEL_PLAT: ${{ matrix.tag }}
+        run: |
+          python -m pip install --quiet build
+          python -m build --wheel
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.target }}
+          path: dist/*.whl
+
+  # --- Generate the decode-matrix fixture ONCE ---
+  #
+  # The decode test itself only needs numpy + pytest at runtime; h5py/hdf5plugin
+  # (and pyFAI) are only needed to *write* the fixture, and h5py has no wheels
+  # for some Pythons (e.g. 3.15) and pyFAI refuses to resolve on 3.14t.  So
+  # generate the fixture once here on a known-good Python and share it.
+  fixture:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install fixture-generation deps (binary only)
+        run: |
+          python -m pip install --quiet --only-binary :all: h5py hdf5plugin numpy
+      - name: Generate decode-matrix fixture
+        run: python test/make_testcases.py matrix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: |
+            test/matrix.h5
+            test/matrix.json
+
+  # --- Linux x86_64: full decode test across a Python subset ---
+  test-linux:
+    needs: [build, fixture]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.13", "3.14", "3.14t", "3.15"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux_x86_64
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: test/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
+      - name: Install wheel + test deps (binary only)
+        run: |
+          python -m pip install --quiet dist/*.whl
+          python -m pip install --quiet --only-binary :all: numpy pytest
+      - name: Run decode matrix
+        run: python -m pytest test/test_decode_matrix.py -q
+
+  # --- Windows x64: native build + test ---
+  test-windows:
+    needs: [build, fixture]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-win_amd64
+          path: dist\
+      - uses: actions/download-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: test/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install wheel + test deps (binary only)
+        run: |
+          for /f %%f in ('dir /b /s dist\*.whl') do python -m pip install --quiet "%%f"
+          python -m pip install --quiet --only-binary :all: numpy pytest
+      - name: Run decode matrix
+        run: python -m pytest test\test_decode_matrix.py -q
+
+  # --- Python 2.7: build in an old-glibc (18.04) container, test decode ---
+  test-py27:
+    needs: fixture
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: test/
+      - name: Build + test in ubuntu:18.04 (python2.7, glibc 2.27)
+        run: |
+          docker run --rm -v "$PWD:/workspace" ubuntu:18.04 bash -lc '
+            set -e
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq && apt-get install -y -qq \
+              python2.7 python2.7-dev python3 python3-pip build-essential curl >/dev/null
+            curl -sS https://bootstrap.pypa.io/pip/2.7/get-pip.py | python2.7
+            python2.7 -m pip install --quiet "numpy<1.17" pytest
+            cd /workspace
+            python3 tools/build_extension.py
+            python3 setup.py build --build-lib=lib
+            BSLZ4_TO_SPARSE_PATH=/workspace/lib \
+              python2.7 -m pytest test/test_decode_matrix.py -q
+          '

@@ -408,6 +408,8 @@ static void _c2py_runtime_init_once(void)
     if (C2PY.Tuple_New == NULL || C2PY.Tuple_SetItem == NULL) return;
 
     RESOLVE(C2PY.Bytes_FromStringAndSize, "PyBytes_FromStringAndSize");
+    if (C2PY.Bytes_FromStringAndSize == NULL)
+        RESOLVE(C2PY.Bytes_FromStringAndSize, "PyString_FromStringAndSize");
 
     RESOLVE_REQ(C2PY.Long_AsLong, "PyLong_AsLong");
     RESOLVE_REQ(C2PY.Long_AsLongLong, "PyLong_AsLongLong");
