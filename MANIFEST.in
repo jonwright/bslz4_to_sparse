@@ -1,4 +1,5 @@
 include lz4/lib/lz4.h
+include lz4/lib/lz4.c
 include bitshuffle/src/bitshuffle.h
 include bitshuffle/src/bitshuffle_internals.h
 include bitshuffle/src/bitshuffle_core.h
@@ -6,9 +7,27 @@ include bitshuffle/src/bitshuffle_core.c
 include bitshuffle/src/iochain.h
 include bitshuffle/src/iochain.c
 include kcb/src/bitshuffle.h
+include kcb/src/bitshuffle.c
+
+# The C++ core and its generated c2py23 wrapper: without these the sdist
+# cannot compile the extension.  (An older setup.py had a setuptools.Extension,
+# which made setuptools add its sources automatically; the extension is
+# package data now, so nothing is added implicitly.)
 include src/bslz4_common.hpp
 include src/bslz4_backends.hpp
 include src/bslz4_core.hpp
 include src/bslz4_codec.hpp
+include src/bslz4_collect_simd.hpp
+include src/bslz4_to_sparse.cpp
+include src/bslz4_to_sparse_wrapper.c
 include src/msvc_include/stdint.h
+
+# Vendored c2py23 runtime (dlsym-based, so one binary serves every Python) and
+# the build driver setup.py's build_py invokes.
+graft c2py_runtime
+graft tools
+
 recursive-include zstd/lib *.c *.h
+
+# Don't let build leftovers leak into the sdist.
+global-exclude *.py[cod]

@@ -13,7 +13,7 @@ from .c2py_loader import load_native
 # _platform_key().
 _ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse")
 
-version = "0.0.20"
+version = "0.0.20a1"
 
 # c2py23's per-call timing instrumentation is compiled OUT entirely
 # ("timing": False in the .c2py spec, src/bslz4_to_sparse.cpp) -- it adds
