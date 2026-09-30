@@ -273,6 +273,44 @@ def _blocksize_bytes(cmp):
     return blocksize if blocksize else DEFAULT_BLOCK_BYTES
 
 
+# Messages for the negative return codes of the decode functions (the values
+# are the ERR_* constants in bslz4_common.hpp and are part of the C API).
+_DECODE_ERRORS = {
+    -2: "a chunk failed to decompress (its compressed data is corrupt)",
+    -98: "a chunk's decompressed size does not fit in an int",
+    -99: "a chunk's decompressed size needs more pixels than the mask has",
+    -100: "threshold must not be negative",
+    -103: "the workspace is too small",
+    -104: "the untranspose kernel reported a failure (corrupt chunk data)",
+    -105: "no chunks were given",
+    -106: "the chunks do not share the same total size and block size",
+    -107: "a chunk is corrupt or truncated (its header, a block length or its "
+    "raw tail lies outside the chunk)",
+    -108: "a chunk offset or size lies outside the buffer it refers to",
+}
+# Codes that mean "the compressed bytes of some chunk are bad" rather than a
+# problem with how the call was made.
+_CORRUPT_CODES = (-2, -104, -107, -108)
+
+
+def _decode_error(ret, batch=True):
+    """
+    Exception for a negative decode return code.
+
+    A batched call stops at the first bad chunk and does not say which one:
+    the decode runs block by block across all frames, so every frame's output
+    is left partly filled and nothing from this call may be used. Decode the
+    chunks one at a time to find the bad one.
+    """
+    what = _DECODE_ERRORS.get(ret, "unknown error")
+    msg = "Error decoding %s: %d: %s." % ("batch" if batch else "chunk", ret, what)
+    if batch and ret in _CORRUPT_CODES:
+        msg += (" At least one chunk in this batch is bad; the outputs of the whole"
+                " batch are incomplete and must not be used. Decode the chunks one"
+                " at a time to find which.")
+    return Exception(msg)
+
+
 def _gather_chunks(chunks):
     """
     Build the (pointers, lengths) pair bslz4_multi_*/bslz4_csc_multi_*
@@ -523,10 +561,10 @@ class chunk2sparseMulti:
             self.codec,
         )
         if ret < 0:
-            # TODO(error strings): map the bslz4_common.hpp error codes to
-            # messages here (and at the other two `ret < 0` raises), so a
-            # corrupt chunk reports what was wrong instead of a bare number.
-            raise Exception("Error decoding batch: %d" % (ret))
+            # Frames are decoded block by block, so a failure leaves every
+            # frame partly filled: zero the counts so nothing looks valid.
+            self._npx_out[:] = 0
+            raise _decode_error(ret)
         return self._npx_out, (self._output, self._output_adr)
 
 
@@ -602,7 +640,7 @@ def bslz4_to_sparse(ds, num, cut, mask=None, pixelbuffer=None, workspace=None, c
     cursors = np.empty(1, np.int64)
     ret = fn(pointers, lengths, mask, values, indices, npx_out, cut, workspace, cursors, codec)
     if ret < 0:
-        raise Exception("Error decoding: %d" % (ret))
+        raise _decode_error(ret, batch=False)
     npixels = int(npx_out[0])
     return npixels, (values, indices)
 
@@ -710,7 +748,10 @@ class chunk2sparseCSCmulti:
             self.codec,
         )
         if ret < 0:
-            raise Exception("Error decoding batch: %d" % (ret))
+            # Frames are decoded block by block, so a failure leaves every
+            # frame partly filled: zero the counts so nothing looks valid.
+            self._npx_out[:] = 0
+            raise _decode_error(ret)
         return self._npx_out, (self._outpx, self._output_adr), self._powder
 
 
