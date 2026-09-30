@@ -58,7 +58,16 @@ def _include_dirs():
     ]
 
 
+# The C++ is template expansion only: no libstdc++ types, no new/delete, no
+# exceptions, no RTTI.  The one hidden libstdc++ dependency is
+# __cxa_guard_acquire/release, emitted for thread-safe function-local statics
+# (the idempotent SIMD capability probes), so turn that off too.  With these
+# flags the .so needs only libc/libm and is linked with the C driver.
+_CXX_FLAGS = ["-std=c++11", "-fno-threadsafe-statics", "-fno-exceptions", "-fno-rtti"]
+
+
 def _build_gcc(srcs, incs, outpath, plat, builddir):
+    """gcc- or clang-style driver (CC/CXX from the environment)."""
     cc = os.environ.get("CC") or "gcc"
     cxx = os.environ.get("CXX") or "g++"
     ppc_flags = ["-maltivec", "-mvsx", "-DNO_WARN_X86_INTRINSICS"] if plat == "linux_ppc64le" else []
@@ -67,19 +76,23 @@ def _build_gcc(srcs, incs, outpath, plat, builddir):
         obj = os.path.join(builddir, os.path.basename(s) + ".o")
         cmd = [cc if s.endswith(".c") else cxx, "-O2", "-DZSTD_DISABLE_ASM", "-fPIC"]
         cmd += ["-I%s" % i for i in incs]
-        cmd += ["-std=c++11"] if s.endswith(".cpp") else []
+        cmd += _CXX_FLAGS if s.endswith(".cpp") else []
         cmd += ppc_flags
         cmd += ["-c", s, "-o", obj]
         subprocess.check_call(cmd)
         objs.append(obj)
-    subprocess.check_call([cxx, "-shared", "-o", outpath] + objs)
+    link = [cc, "-shared", "-o", outpath] + objs + ["-lm"]
+    if not plat.startswith("darwin"):
+        link.append("-static-libgcc")
+    subprocess.check_call(link)
 
 
 def _build_msvc(srcs, incs, outpath, builddir):
     # Assumes the MSVC environment (vcvars) is set up by the caller. cl
     # compiles .c as C and .cpp as C++ and links in one /LD invocation.
     cl = os.environ.get("CC") or "cl"
-    cmd = [cl, "/nologo", "/LD", "/O2", "/DZSTD_DISABLE_ASM", "/std:c++14"]
+    cmd = [cl, "/nologo", "/LD", "/O2", "/DZSTD_DISABLE_ASM", "/std:c++14",
+           "/GR-", "/EHs-c-", "/Zc:threadSafeInit-"]
     cmd += ["/I%s" % i for i in incs]
     cmd += ["/Fe%s" % outpath]
     cmd += srcs
@@ -95,6 +108,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--target-platform", default=None,
                     help="platform key for the output filename (e.g. linux_aarch64); default host")
+    ap.add_argument("--build-dir", default=None,
+                    help="scratch dir for object files (default: build/build_extension); "
+                         "use a distinct one per target when building several in one tree")
     ap.add_argument("--out", default=None,
                     help="output directory (default: the package source dir src/)")
     args = ap.parse_args()
@@ -112,7 +128,7 @@ def main():
 
     srcs = _sources()
     incs = _include_dirs()
-    builddir = os.path.join(REPO, "build", "build_extension")
+    builddir = os.path.abspath(args.build_dir or os.path.join(REPO, "build", "build_extension"))
     os.makedirs(builddir, exist_ok=True)
 
     if is_windows and os.environ.get("MSVC_ENV", "").lower() not in ("1", "true", "yes"):
