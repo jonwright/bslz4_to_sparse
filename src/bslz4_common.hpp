@@ -54,6 +54,9 @@ enum : int {
     ERR_UNTRANSPOSE = -104,        /* backend untranspose kernel reported failure */
     ERR_BAD_NFRAMES = -105,        /* nframes <= 0 in a multi-frame call */
     ERR_FRAME_MISMATCH = -106,     /* a multi-frame call's frames don't share total size/block size */
+    ERR_CORRUPT_CHUNK = -107,      /* a chunk is shorter than its header, or a block length word /
+                                    * the raw tail lies outside that chunk: corrupt or truncated */
+    ERR_BAD_CHUNK_BOUNDS = -108,   /* a chunk offset/size lies outside the buffer it was said to be in */
 };
 
 } /* namespace bslz4 */

@@ -293,7 +293,7 @@ jobs:
           python -m pip install --quiet dist/*.whl
           python -m pip install --quiet --only-binary :all: numpy pytest
       - name: Run decode matrix
-        run: python -m pytest test/test_decode_matrix.py -q
+        run: python -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py -q
 
   # --- Old glibc: the x86_64 wheel on the oldest distros we claim to support ---
   # (Python 2.7 / Ubuntu 18.04 is covered separately by test-py27.)
@@ -334,7 +334,7 @@ jobs:
             ${{ matrix.setup }}
             ${{ matrix.py }} -m pip install --quiet dist/*.whl
             ${{ matrix.py }} -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
-            ${{ matrix.py }} -m pytest test/test_decode_matrix.py -q
+            ${{ matrix.py }} -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py -q
           '
 
   # --- aarch64 / ppc64le: run the cross-built wheels under qemu ---
@@ -377,7 +377,7 @@ jobs:
               pip install --quiet --only-binary :all: '${{ matrix.numpy }}' pytest
               pip install --quiet dist/*.whl
               python -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
-              python -m pytest test/test_decode_matrix.py -q
+              python -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py -q
             '
 
   # --- Windows x64: native build + test ---

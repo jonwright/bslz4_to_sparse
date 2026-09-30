@@ -100,6 +100,14 @@ int bslz4_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
      * for the float dtype family specifically. */
     const T cut = (T) threshold;
 
+    /* Every read below is held inside its own chunk: compressed_lengths[f]
+     * is the number of bytes the caller owns at compressed_ptrs[f]. A chunk
+     * too short for the 12 byte header (or with a negative length) is
+     * rejected before any header is read. */
+    for (int f = 0; f < nframes; f++) {
+        if (BSLZ4_UNLIKELY(compressed_lengths[f] < 12)) return ERR_CORRUPT_CHUNK;
+    }
+
     const char *compressed0 = (const char *) (intptr_t) compressed_ptrs[0];
     const uint64_t total_output_length = read_be64((const uint8_t *) compressed0);
     if (total_output_length / NB > (uint64_t) NIJ) return ERR_TOO_MANY_PIXELS;
@@ -135,8 +143,13 @@ int bslz4_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     for (; remaining >= (int64_t) blocksize; remaining -= (int64_t) blocksize) {
         for (int f = 0; f < nframes; f++) {
             const char *cf = (const char *) (intptr_t) compressed_ptrs[f];
+            const int64_t clen = compressed_lengths[f];
             int64_t p = cursors[f];
+            /* p <= clen always holds here (starts at 12 <= clen, and only
+             * advances past a block that was checked to fit). */
+            if (BSLZ4_UNLIKELY(clen - p < 4)) return ERR_CORRUPT_CHUNK;
             uint32_t nbytes = read_be32((const uint8_t *) cf + p);
+            if (BSLZ4_UNLIKELY((int64_t) nbytes > clen - p - 4)) return ERR_CORRUPT_CHUNK;
             int ret = bslz4_decompress(codec, cf + p + 4, (int) nbytes,
                                         (char *) raw, (int) blocksize);
             cursors[f] = p + (int64_t) nbytes + 4;
@@ -158,8 +171,13 @@ int bslz4_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     for (int f = 0; f < nframes; f++) {
         const char *cf = (const char *) (intptr_t) compressed_ptrs[f];
         if (tail_block > 0) {
+            const int64_t clen = compressed_lengths[f];
             int64_t p = cursors[f];
+            /* p <= clen always holds here (starts at 12 <= clen, and only
+             * advances past a block that was checked to fit). */
+            if (BSLZ4_UNLIKELY(clen - p < 4)) return ERR_CORRUPT_CHUNK;
             uint32_t nbytes = read_be32((const uint8_t *) cf + p);
+            if (BSLZ4_UNLIKELY((int64_t) nbytes > clen - p - 4)) return ERR_CORRUPT_CHUNK;
             int ret = bslz4_decompress(codec, cf + p + 4, (int) nbytes,
                                         (char *) raw, (int) tail_block);
             cursors[f] = p + (int64_t) nbytes + 4;
@@ -169,6 +187,11 @@ int bslz4_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         }
         int64_t rem_f = remaining - (int64_t) tail_block;
         if (rem_f > 0) {
+            /* The last rem_f bytes of the chunk are stored raw; they must
+             * start at or after the end of the last compressed block. */
+            if (BSLZ4_UNLIKELY(compressed_lengths[f] < rem_f ||
+                               cursors[f] > (int64_t) compressed_lengths[f] - rem_f))
+                return ERR_CORRUPT_CHUNK;
             memcpy(&block[tail_block / NB], cf + compressed_lengths[f] - rem_f, (size_t) rem_f);
         }
         T *outf = output + (size_t) f * NIJ;
@@ -258,6 +281,14 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     const T cut = (T) threshold;
     const double dense_sparse_x = bslz4_csc_dense_sparse_threshold();
 
+    /* Every read below is held inside its own chunk: compressed_lengths[f]
+     * is the number of bytes the caller owns at compressed_ptrs[f]. A chunk
+     * too short for the 12 byte header (or with a negative length) is
+     * rejected before any header is read. */
+    for (int f = 0; f < nframes; f++) {
+        if (BSLZ4_UNLIKELY(compressed_lengths[f] < 12)) return ERR_CORRUPT_CHUNK;
+    }
+
     const char *compressed0 = (const char *) (intptr_t) compressed_ptrs[0];
     const uint64_t total_output_length = read_be64((const uint8_t *) compressed0);
     if (total_output_length / NB > (uint64_t) NIJ) return ERR_TOO_MANY_PIXELS;
@@ -298,8 +329,13 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     for (; remaining >= (int64_t) blocksize; remaining -= (int64_t) blocksize) {
         for (int f = 0; f < nframes; f++) {
             const char *cf = (const char *) (intptr_t) compressed_ptrs[f];
+            const int64_t clen = compressed_lengths[f];
             int64_t p = cursors[f];
+            /* p <= clen always holds here (starts at 12 <= clen, and only
+             * advances past a block that was checked to fit). */
+            if (BSLZ4_UNLIKELY(clen - p < 4)) return ERR_CORRUPT_CHUNK;
             uint32_t nbytes = read_be32((const uint8_t *) cf + p);
+            if (BSLZ4_UNLIKELY((int64_t) nbytes > clen - p - 4)) return ERR_CORRUPT_CHUNK;
             int ret = bslz4_decompress(codec, cf + p + 4, (int) nbytes,
                                         (char *) raw, (int) blocksize);
             cursors[f] = p + (int64_t) nbytes + 4;
@@ -361,8 +397,11 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         const char *cf = (const char *) (intptr_t) compressed_ptrs[f];
         uint32_t tail_nbytes = 0;
         if (tail_block > 0) {
+            const int64_t clen = compressed_lengths[f];
             int64_t p = cursors[f];
+            if (BSLZ4_UNLIKELY(clen - p < 4)) return ERR_CORRUPT_CHUNK;
             tail_nbytes = read_be32((const uint8_t *) cf + p);
+            if (BSLZ4_UNLIKELY((int64_t) tail_nbytes > clen - p - 4)) return ERR_CORRUPT_CHUNK;
             int ret = bslz4_decompress(codec, cf + p + 4, (int) tail_nbytes,
                                         (char *) raw, (int) tail_block);
             cursors[f] = p + (int64_t) tail_nbytes + 4;
@@ -372,6 +411,11 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         }
         int64_t rem_f = remaining - (int64_t) tail_block;
         if (rem_f > 0) {
+            /* The last rem_f bytes of the chunk are stored raw; they must
+             * start at or after the end of the last compressed block. */
+            if (BSLZ4_UNLIKELY(compressed_lengths[f] < rem_f ||
+                               cursors[f] > (int64_t) compressed_lengths[f] - rem_f))
+                return ERR_CORRUPT_CHUNK;
             memcpy(&block[tail_block / NB], cf + compressed_lengths[f] - rem_f, (size_t) rem_f);
         }
         size_t ntail = (size_t(rem_f) + tail_block) / NB;
