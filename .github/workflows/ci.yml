@@ -178,10 +178,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install build tooling
-        # setuptools too: check_sdist.py compiles the extracted sdist with a
-        # bare `setup.py build`, and setup-python's 3.12+ no longer ships it.
-        run: python -m pip install --quiet build setuptools
-      - name: Check sdist contents and compile from the sdist
+        # Only `build` is needed here: check_sdist.py pip-installs the sdist
+        # into its own venv, which resolves the build-system and runtime deps.
+        run: python -m pip install --quiet build
+      - name: Check sdist contents and install it
         run: python tools/check_sdist.py --build
       - uses: actions/upload-artifact@v4
         with:

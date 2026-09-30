@@ -13,18 +13,18 @@ It does two things:
 
   1. a static check that every file build_extension._sources() compiles, plus
      the files setup.py needs at build time, is present in the tarball;
-  2. (unless --no-compile) extracts the sdist to a temp dir and runs its own
-     `setup.py build`, which exercises the real build path with only the
-     files that made it into the sdist -- the definitive check.
+  2. (unless --contents-only) `pip install`s the sdist into a throwaway venv
+     and imports it.  That is the real release path: pip resolves the PEP 517
+     build requires (setuptools/wheel) and install_requires (numpy) itself, so
+     this script never hand-installs build or runtime dependencies.
 
 Usage:
-    python3 tools/check_sdist.py --build          # build sdist, then check + compile it
-    python3 tools/check_sdist.py dist/*.tar.gz    # check an existing sdist
-    python3 tools/check_sdist.py --no-compile     # static contents check only
+    python3 tools/check_sdist.py --build           # build sdist, then check + install it
+    python3 tools/check_sdist.py dist/*.tar.gz     # check an existing sdist
+    python3 tools/check_sdist.py --contents-only   # static contents check only
 """
 import argparse
 import glob
-import importlib.util
 import os
 import shutil
 import subprocess
@@ -96,34 +96,29 @@ def check_contents(path):
     return True
 
 
-def compile_sdist(path):
+def install_sdist(path):
+    """pip install the sdist into a throwaway venv and import it.
+
+    Deliberately uses pip, not `setup.py build`: pip reads the sdist's
+    metadata and installs install_requires (numpy) plus, in an isolated
+    build, the pyproject build-system requires (setuptools/wheel).  That is
+    the path a user without a wheel actually takes, and it needs no
+    hand-installed dependencies here.
+    """
     tmp = tempfile.mkdtemp(prefix="check_sdist_")
     try:
-        with tarfile.open(path) as tf:
-            try:
-                tf.extractall(tmp, filter="data")
-            except TypeError:  # Python < 3.12
-                tf.extractall(tmp)
-        root = os.path.join(tmp, os.listdir(tmp)[0])
-        if importlib.util.find_spec("setuptools") is None:
-            print("cannot compile the sdist: this interpreter has no setuptools "
-                  "(pip install setuptools, or let `python -m build` isolate it)",
-                  file=sys.stderr)
-            return False
-        subprocess.check_call([sys.executable, "setup.py", "build",
-                               "--build-lib", os.path.join(tmp, "lib")], cwd=root)
-        built = glob.glob(os.path.join(tmp, "lib", "bslz4_to_sparse",
-                                       "_bslz4_to_sparse.c2py23-*"))
-        if not built:
-            print("build produced no native module under lib/", file=sys.stderr)
-            return False
+        venv_dir = os.path.join(tmp, "venv")
+        subprocess.check_call([sys.executable, "-m", "venv", venv_dir])
+        py = os.path.join(venv_dir, "Scripts" if os.name == "nt" else "bin",
+                          "python")
         subprocess.check_call(
-            [sys.executable, "-c",
-             "import bslz4_to_sparse; print('loaded', bslz4_to_sparse.__file__); "
-             "print('backends', bslz4_to_sparse.available_backends())"],
-            env=dict(os.environ, PYTHONPATH=os.path.join(tmp, "lib")))
-        print("compile OK: extracted sdist built and imported %s"
-              % os.path.basename(built[0]))
+            [py, "-m", "pip", "install", "--quiet", os.path.abspath(path)])
+        subprocess.check_call(
+            [py, "-c",
+             "import bslz4_to_sparse as b; "
+             "print('installed', b.__file__); "
+             "print('backends', b.available_backends())"])
+        print("install OK: pip installed and imported %s" % os.path.basename(path))
         return True
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -134,8 +129,8 @@ def main():
     ap.add_argument("sdist", nargs="?", help="path to .tar.gz (default: newest in dist/)")
     ap.add_argument("--build", action="store_true",
                     help="run `python -m build --sdist` first")
-    ap.add_argument("--no-compile", action="store_true",
-                    help="skip the extract-and-build step (contents check only)")
+    ap.add_argument("--contents-only", action="store_true",
+                    help="skip the pip-install step (static contents check only)")
     args = ap.parse_args()
 
     if args.build:
@@ -146,8 +141,8 @@ def main():
 
     path = find_sdist(args.sdist)
     ok = check_contents(path)
-    if ok and not args.no_compile:
-        ok = compile_sdist(path)
+    if ok and not args.contents_only:
+        ok = install_sdist(path)
     return 0 if ok else 1
 
 
