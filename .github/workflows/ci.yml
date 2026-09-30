@@ -95,6 +95,44 @@ jobs:
           name: wheel-${{ matrix.target }}
           path: dist/*.whl
 
+  # --- macOS arm64: build, but only on main / manual dispatch ---
+  #
+  # Intel macOS (macos-13) is retired and macos-latest is Apple Silicon, so
+  # this ships macosx_*_arm64 only. Gated off PRs and feature branches so the
+  # slow macOS runner is not spent on every push. The binary is
+  # version-independent (c2py23 dlsym), so the 2.7-3.15 coverage stays on
+  # test-linux/test-py27; test-macos just validates the Darwin build.
+  build-macos:
+    name: build-macosx_arm64
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    env:
+      # Choose the deployment floor explicitly: the runner SDK is newer than
+      # the oldest macOS we ship a wheel for.
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build extension
+        # No --target-platform: the host key is darwin_arm64, which is the
+        # filename the runtime loader looks for. The wheel tag is set below.
+        run: python3 tools/build_extension.py
+      - name: Build wheel
+        env:
+          BSLZ4_SKIP_NATIVE_BUILD: "1"
+          BSLZ4_WHEEL_PLAT: macosx_11_0_arm64
+        run: |
+          python -m pip install --quiet build
+          python -m build --wheel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-macosx_arm64
+          path: dist/*.whl
+
   # --- Generate the decode-matrix fixture ONCE ---
   #
   # The decode test itself only needs numpy + pytest at runtime; h5py/hdf5plugin
@@ -140,7 +178,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install build tooling
-        run: python -m pip install --quiet build
+        # setuptools too: check_sdist.py compiles the extracted sdist with a
+        # bare `setup.py build`, and setup-python's 3.12+ no longer ships it.
+        run: python -m pip install --quiet build setuptools
       - name: Check sdist contents and compile from the sdist
         run: python tools/check_sdist.py --build
       - uses: actions/upload-artifact@v4
@@ -159,7 +199,7 @@ jobs:
   # test.pypi.org for this repo; alternatively set a TEST_PYPI_API_TOKEN
   # secret and pass `password: ${{ secrets.TEST_PYPI_API_TOKEN }}` below.
   publish-testpypi:
-    needs: [build, sdist]
+    needs: [build, build-macos, sdist]
     if: github.event_name == 'workflow_dispatch' && inputs.publish_testpypi
     runs-on: ubuntu-latest
     environment: testpypi
@@ -271,3 +311,36 @@ jobs:
             BSLZ4_TO_SPARSE_PATH=/workspace/lib \
               python2.7 -m pytest test/test_decode_matrix.py -q
           '
+
+  # --- macOS arm64: decode test, same gating as build-macos ---
+  test-macos:
+    needs: [build-macos, fixture]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-macosx_arm64
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: test/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install wheel + test deps (binary only)
+        run: |
+          python -m pip install --quiet dist/*.whl
+          python -m pip install --quiet --only-binary :all: numpy pytest
+      - name: Smoke test
+        run: python -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
+      - name: Run decode matrix
+        run: python -m pytest test/test_decode_matrix.py -q

@@ -24,6 +24,7 @@ Usage:
 """
 import argparse
 import glob
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -104,6 +105,11 @@ def compile_sdist(path):
             except TypeError:  # Python < 3.12
                 tf.extractall(tmp)
         root = os.path.join(tmp, os.listdir(tmp)[0])
+        if importlib.util.find_spec("setuptools") is None:
+            print("cannot compile the sdist: this interpreter has no setuptools "
+                  "(pip install setuptools, or let `python -m build` isolate it)",
+                  file=sys.stderr)
+            return False
         subprocess.check_call([sys.executable, "setup.py", "build",
                                "--build-lib", os.path.join(tmp, "lib")], cwd=root)
         built = glob.glob(os.path.join(tmp, "lib", "bslz4_to_sparse",
