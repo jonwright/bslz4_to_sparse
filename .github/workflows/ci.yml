@@ -2,15 +2,20 @@
 #
 # The extension is package data (see setup.py/tools/build_extension.py), so a
 # single wheel per platform serves Python 2.7-3.15 (c2py23 dlsym) and is
-# tested across a Python-version subset.  Cross-arch aarch64/ppc64le are
-# cross-compiled from the x86_64 runner (built-only here; runtime tests run on
-# real hardware / qemu, see the notes).  Windows is built + tested natively.
+# tested across a Python-version subset.  One Linux worker builds x86_64,
+# aarch64 and ppc64le (gcc 10 in the pypa manylinux2014 images, glibc 2.17;
+# the manylinux tag is derived from the binary by tools/elf_check.py);
+# the aarch64/ppc64le wheels are then run under qemu.  macOS builds for itself
+# and Windows natively.  A published GitHub release uploads to PyPI, but only
+# after every build + test job has passed.
 name: CI
 
 on:
   push:
     branches: [main, "jonwright/**"]
   pull_request:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       publish_testpypi:
@@ -23,33 +28,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: build-${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: linux_x86_64
-            os: ubuntu-24.04
-            cc: ""
-            cxx: ""
-            tag: linux_x86_64
-          - target: linux_aarch64
-            os: ubuntu-24.04
-            cc: aarch64-linux-gnu-gcc
-            cxx: aarch64-linux-gnu-g++
-            tag: linux_aarch64
-          - target: linux_ppc64le
-            os: ubuntu-24.04
-            cc: powerpc64le-linux-gnu-gcc
-            cxx: powerpc64le-linux-gnu-g++
-            tag: linux_ppc64le
-          - target: win_amd64
-            os: windows-latest
-            cc: cl
-            cxx: cl
-            tag: win_amd64
+  # --- Linux: one worker, three targets, gcc 10 on glibc 2.17 ---
+  #
+  # Each target is built natively inside the pypa manylinux2014 image for its
+  # arch (aarch64/ppc64le under qemu; only the compile is emulated).  gcc 10
+  # (devtoolset-10) gives good code -- gcc 7 was measured ~1.8x slower on the
+  # kcb kernel -- and glibc 2.17 keeps the wheel loadable everywhere down to
+  # CentOS 7 / Ubuntu 18.04.  The extension links only libc/libm, so the floor
+  # is set by the image; elf_check.py reads it back from the binary (and fails
+  # if libstdc++/libgcc_s ever return) and the wheel tag is derived from that.
+  build-linux:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,23 +46,57 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install Linux cross toolchains
-        if: runner.os == 'Linux' && matrix.cc != ''
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,ppc64le
+      - name: Build extensions (x86_64, aarch64, ppc64le) in manylinux2014
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-                                gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu
+          mkdir -p stage
+          build() {  # <key> <docker platform> <image arch>
+            docker run --rm --platform "$2" -v "$PWD:/workspace" -w /workspace \
+              "quay.io/pypa/manylinux2014_$3" bash -c "
+                set -e
+                mkdir -p /tmp/b_$1
+                /opt/python/cp312-cp312/bin/python tools/build_extension.py \
+                  --target-platform $1 --out stage --build-dir /tmp/b_$1"
+          }
+          build linux_x86_64  linux/amd64   x86_64 &
+          build linux_aarch64 linux/arm64   aarch64 &
+          build linux_ppc64le linux/ppc64le ppc64le &
+          wait $(jobs -p)
+          ls -l stage
+      - name: Package one wheel per target
+        run: |
+          python -m pip install --quiet build
+          for spec in linux_x86_64:x86_64 linux_aarch64:aarch64 linux_ppc64le:ppc64le; do
+            key=${spec%%:*}; arch=${spec##*:}
+            so=stage/_bslz4_to_sparse.c2py23-$key.so
+            tag=$(python tools/elf_check.py "$so" "$arch")
+            echo "$key -> $tag"
+            rm -f src/_bslz4_to_sparse.c2py23-*.so
+            cp "$so" src/
+            BSLZ4_SKIP_NATIVE_BUILD=1 BSLZ4_WHEEL_PLAT=$tag python -m build --wheel
+          done
+          rm -f src/_bslz4_to_sparse.c2py23-*.so
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with: {name: wheel-linux_x86_64, path: "dist/*x86_64.whl"}
+      - uses: actions/upload-artifact@v4
+        with: {name: wheel-linux_aarch64, path: "dist/*aarch64.whl"}
+      - uses: actions/upload-artifact@v4
+        with: {name: wheel-linux_ppc64le, path: "dist/*ppc64le.whl"}
 
-      - name: Build extension (GCC)
-        if: runner.os == 'Linux'
-        env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
-        run: python3 tools/build_extension.py --target-platform ${{ matrix.target }}
-
+  # --- Windows x64: MSVC, native ---
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Build extension (MSVC)
-        if: runner.os == 'Windows'
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat" >nul
@@ -81,18 +104,16 @@ jobs:
           set CC=cl
           set CXX=cl
           python tools\build_extension.py --target-platform win_amd64
-
       - name: Build wheel
         env:
           BSLZ4_SKIP_NATIVE_BUILD: "1"
-          BSLZ4_WHEEL_PLAT: ${{ matrix.tag }}
+          BSLZ4_WHEEL_PLAT: win_amd64
         run: |
           python -m pip install --quiet build
           python -m build --wheel
-
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.target }}
+          name: wheel-win_amd64
           path: dist/*.whl
 
   # --- macOS arm64: build, but only on main / manual dispatch ---
@@ -104,7 +125,7 @@ jobs:
   # test-linux/test-py27; test-macos just validates the Darwin build.
   build-macos:
     name: build-macosx_arm64
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || github.event_name != 'pull_request' && github.event_name != 'push'
     runs-on: macos-latest
     env:
       # Choose the deployment floor explicitly: the runner SDK is newer than
@@ -185,7 +206,7 @@ jobs:
         run: python tools/check_sdist.py --build
       - uses: actions/upload-artifact@v4
         with:
-          name: cibw-sdist
+          name: sdist
           path: dist/*.tar.gz
 
   # --- Optional: publish the built artifacts to TestPyPI (pre-release test) ---
@@ -199,7 +220,7 @@ jobs:
   # test.pypi.org for this repo; alternatively set a TEST_PYPI_API_TOKEN
   # secret and pass `password: ${{ secrets.TEST_PYPI_API_TOKEN }}` below.
   publish-testpypi:
-    needs: [build, build-macos, sdist]
+    needs: [build-linux, build-windows, build-macos, sdist, test-linux, test-oldlibc, test-qemu, test-windows, test-py27, test-macos]
     if: github.event_name == 'workflow_dispatch' && inputs.publish_testpypi
     runs-on: ubuntu-latest
     environment: testpypi
@@ -213,7 +234,7 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
-          name: cibw-sdist
+          name: sdist
           path: dist
       - name: Show artifacts to be published
         run: ls -l dist
@@ -221,9 +242,30 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
 
+  # --- Real PyPI: only on a published release, only after everything passed ---
+  publish-pypi:
+    needs: [build-linux, build-windows, build-macos, sdist, test-linux, test-oldlibc, test-qemu, test-windows, test-py27, test-macos]
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+      - run: ls -l dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
   # --- Linux x86_64: full decode test across a Python subset ---
   test-linux:
-    needs: [build, fixture]
+    needs: [build-linux, fixture]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -252,9 +294,89 @@ jobs:
       - name: Run decode matrix
         run: python -m pytest test/test_decode_matrix.py -q
 
+  # --- Old glibc: the x86_64 wheel on the oldest distros we claim to support ---
+  test-oldlibc:
+    needs: [build-linux, fixture]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 18.04: glibc 2.27, Python 3.6
+          - image: ubuntu:18.04
+            setup: |
+              apt-get update -qq && apt-get install -y -qq python3 python3-pip >/dev/null
+              python3 -m pip install --quiet --upgrade pip
+              python3 -m pip install --quiet "numpy<1.20" pytest
+            py: python3
+          # CentOS 7 (manylinux2014): glibc 2.17
+          - image: quay.io/pypa/manylinux2014_x86_64
+            setup: |
+              /opt/python/cp39-cp39/bin/python -m pip install --quiet numpy pytest
+            py: /opt/python/cp39-cp39/bin/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux_x86_64
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: test/
+      - name: Install wheel + decode matrix on ${{ matrix.image }}
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w ${{ matrix.image }} bash -c '
+            set -e
+            export DEBIAN_FRONTEND=noninteractive
+            ${{ matrix.setup }}
+            ${{ matrix.py }} -m pip install --quiet dist/*.whl
+            ${{ matrix.py }} -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
+            ${{ matrix.py }} -m pytest test/test_decode_matrix.py -q
+          '
+
+  # --- aarch64 / ppc64le: run the cross-built wheels under qemu ---
+  #
+  # Proves the wheel installs, loads and decodes correctly on the target
+  # ISA.  Under emulation the NEON/VSX tiers may report unavailable and fall
+  # back to scalar; real-hardware SIMD coverage stays a manual/bench matter.
+  test-qemu:
+    needs: [build-linux, fixture]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: aarch64, platform: linux/arm64}
+          - {arch: ppc64le, platform: linux/ppc64le}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux_${{ matrix.arch }}
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: test/
+      - name: Install + decode matrix under qemu
+        timeout-minutes: 30
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} -v "$PWD:/w" -w /w \
+            python:3.12-slim-bookworm bash -c '
+              set -e
+              pip install --quiet --only-binary :all: numpy pytest
+              pip install --quiet dist/*.whl
+              python -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
+              python -m pytest test/test_decode_matrix.py -q
+            '
+
   # --- Windows x64: native build + test ---
   test-windows:
-    needs: [build, fixture]
+    needs: [build-windows, fixture]
     runs-on: windows-latest
     defaults:
       run:
@@ -315,7 +437,7 @@ jobs:
   # --- macOS arm64: decode test, same gating as build-macos ---
   test-macos:
     needs: [build-macos, fixture]
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || github.event_name != 'pull_request' && github.event_name != 'push'
     runs-on: macos-latest
     strategy:
       fail-fast: false

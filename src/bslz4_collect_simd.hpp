@@ -35,7 +35,7 @@
 
 #include "bslz4_common.hpp"
 
-#include <cstring>
+#include <string.h>
 
 #include "c2py_amd64.h"
 #include "c2py_arm64.h"

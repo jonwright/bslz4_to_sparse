@@ -7,8 +7,8 @@
  * by the Python caller and passed in as flat pointers.
  */
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 #if defined(_MSC_VER)
 #define BSLZ4_RESTRICT __restrict

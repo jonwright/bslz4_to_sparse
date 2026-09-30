@@ -42,8 +42,8 @@
 #include "bslz4_common.hpp"
 #include "bslz4_collect_simd.hpp"
 
-#include <cstring>
-#include <cstdint>
+#include <string.h>
+#include <stdint.h>
 
 namespace bslz4 {
 
