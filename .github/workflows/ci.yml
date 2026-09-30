@@ -164,9 +164,8 @@ jobs:
   fixture:
     runs-on: ubuntu-24.04
     steps:
+      # Tests only use test/ and the installed wheel: no submodules needed.
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -273,9 +272,8 @@ jobs:
       matrix:
         python-version: ["3.9", "3.11", "3.13", "3.14", "3.14t", "3.15"]
     steps:
+      # Tests only use test/ and the installed wheel: no submodules needed.
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: actions/download-artifact@v4
         with:
           name: wheel-linux_x86_64
@@ -388,9 +386,8 @@ jobs:
       run:
         shell: cmd
     steps:
+      # Tests only use test/ and the installed wheel: no submodules needed.
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: actions/download-artifact@v4
         with:
           name: wheel-win_amd64
@@ -450,9 +447,8 @@ jobs:
       matrix:
         python-version: ["3.12", "3.13"]
     steps:
+      # Tests only use test/ and the installed wheel: no submodules needed.
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: actions/download-artifact@v4
         with:
           name: wheel-macosx_arm64
