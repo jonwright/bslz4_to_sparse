@@ -365,7 +365,12 @@ jobs:
       - name: Install + decode matrix under qemu
         timeout-minutes: 30
         run: |
+          # PyPI has no ppc64le numpy wheel; the silx wheelhouse does (as the
+          # old cibuildwheel config used). Its TLS certificate has expired, so
+          # it is marked trusted-host; wheels are still fetched binary-only.
           docker run --rm --platform ${{ matrix.platform }} -v "$PWD:/w" -w /w \
+            -e PIP_FIND_LINKS=https://www.silx.org/pub/wheelhouse/ \
+            -e PIP_TRUSTED_HOST=www.silx.org \
             python:3.12-slim-bookworm bash -c '
               set -e
               pip install --quiet --only-binary :all: numpy pytest
