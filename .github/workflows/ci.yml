@@ -308,6 +308,7 @@ jobs:
           - image: ubuntu:20.04
             setup: |
               apt-get update -qq && apt-get install -y -qq python3 python3-pip >/dev/null
+              python3 -m pip install --quiet --upgrade pip
               python3 -m pip install --quiet numpy pytest
             py: python3
           # AlmaLinux 8 (manylinux_2_28): glibc 2.28, the floor itself
@@ -348,8 +349,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {arch: aarch64, platform: linux/arm64}
-          - {arch: ppc64le, platform: linux/ppc64le}
+          - {arch: aarch64, platform: linux/arm64, numpy: numpy}
+          # PyPI has no ppc64le numpy wheel; the silx wheelhouse does. Its index
+          # page has broken links (so --find-links cannot work) and an expired
+          # TLS certificate, hence a direct URL + trusted-host.
+          - {arch: ppc64le, platform: linux/ppc64le, numpy: "https://www.silx.org/pub/wheelhouse/numpy-2.3.4-cp312-cp312-manylinux_2_27_ppc64le.manylinux_2_28_ppc64le.whl"}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -366,15 +370,11 @@ jobs:
       - name: Install + decode matrix under qemu
         timeout-minutes: 30
         run: |
-          # PyPI has no ppc64le numpy wheel; the silx wheelhouse does (as the
-          # old cibuildwheel config used). Its TLS certificate has expired, so
-          # it is marked trusted-host; wheels are still fetched binary-only.
           docker run --rm --platform ${{ matrix.platform }} -v "$PWD:/w" -w /w \
-            -e PIP_FIND_LINKS=https://www.silx.org/pub/wheelhouse/ \
             -e PIP_TRUSTED_HOST=www.silx.org \
             python:3.12-slim-bookworm bash -c '
               set -e
-              pip install --quiet --only-binary :all: numpy pytest
+              pip install --quiet --only-binary :all: '${{ matrix.numpy }}' pytest
               pip install --quiet dist/*.whl
               python -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
               python -m pytest test/test_decode_matrix.py -q
