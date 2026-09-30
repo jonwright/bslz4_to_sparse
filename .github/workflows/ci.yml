@@ -3,7 +3,7 @@
 # The extension is package data (see setup.py/tools/build_extension.py), so a
 # single wheel per platform serves Python 2.7-3.15 (c2py23 dlsym) and is
 # tested across a Python-version subset.  One Linux worker builds x86_64,
-# aarch64 and ppc64le (gcc 10 in the pypa manylinux2014 images, glibc 2.17;
+# aarch64 and ppc64le (gcc 14 in the pypa manylinux_2_28 images, glibc 2.28;
 # the manylinux tag is derived from the binary by tools/elf_check.py);
 # the aarch64/ppc64le wheels are then run under qemu.  macOS builds for itself
 # and Windows natively.  A published GitHub release uploads to PyPI, but only
@@ -28,15 +28,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # --- Linux: one worker, three targets, gcc 10 on glibc 2.17 ---
+  # --- Linux: one worker, three targets, modern gcc on glibc 2.28 ---
   #
-  # Each target is built natively inside the pypa manylinux2014 image for its
-  # arch (aarch64/ppc64le under qemu; only the compile is emulated).  gcc 10
-  # (devtoolset-10) gives good code -- gcc 7 was measured ~1.8x slower on the
-  # kcb kernel -- and glibc 2.17 keeps the wheel loadable everywhere down to
-  # CentOS 7 / Ubuntu 18.04.  The extension links only libc/libm, so the floor
-  # is set by the image; elf_check.py reads it back from the binary (and fails
-  # if libstdc++/libgcc_s ever return) and the wheel tag is derived from that.
+  # Each target is built natively inside the pypa manylinux_2_28 image for its
+  # arch (aarch64/ppc64le under qemu; only the compile is emulated).  The
+  # image's gcc-toolset gives good code (gcc 7 was measured ~1.8x slower on the
+  # kcb kernel, gcc 10 ~5-15% behind gcc 13) and glibc 2.28 keeps the wheel
+  # loadable on every current distro.  The extension links only libc/libm, so
+  # the floor is set by the image; elf_check.py reads it back from the binary
+  # (and fails if libstdc++/libgcc_s ever return) and the wheel tag is derived
+  # from that.
   build-linux:
     runs-on: ubuntu-24.04
     steps:
@@ -49,12 +50,12 @@ jobs:
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64,ppc64le
-      - name: Build extensions (x86_64, aarch64, ppc64le) in manylinux2014
+      - name: Build extensions (x86_64, aarch64, ppc64le) in manylinux_2_28
         run: |
           mkdir -p stage
           build() {  # <key> <docker platform> <image arch>
             docker run --rm --platform "$2" -v "$PWD:/workspace" -w /workspace \
-              "quay.io/pypa/manylinux2014_$3" bash -c "
+              "quay.io/pypa/manylinux_2_28_$3" bash -c "
                 set -e
                 mkdir -p /tmp/b_$1
                 /opt/python/cp312-cp312/bin/python tools/build_extension.py \
@@ -295,6 +296,7 @@ jobs:
         run: python -m pytest test/test_decode_matrix.py -q
 
   # --- Old glibc: the x86_64 wheel on the oldest distros we claim to support ---
+  # (Python 2.7 / Ubuntu 18.04 is covered separately by test-py27.)
   test-oldlibc:
     needs: [build-linux, fixture]
     runs-on: ubuntu-24.04
@@ -302,15 +304,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Ubuntu 18.04: glibc 2.27, Python 3.6
-          - image: ubuntu:18.04
+          # Ubuntu 20.04: glibc 2.31, Python 3.8
+          - image: ubuntu:20.04
             setup: |
               apt-get update -qq && apt-get install -y -qq python3 python3-pip >/dev/null
-              python3 -m pip install --quiet --upgrade pip
-              python3 -m pip install --quiet "numpy<1.20" pytest
+              python3 -m pip install --quiet numpy pytest
             py: python3
-          # CentOS 7 (manylinux2014): glibc 2.17
-          - image: quay.io/pypa/manylinux2014_x86_64
+          # AlmaLinux 8 (manylinux_2_28): glibc 2.28, the floor itself
+          - image: quay.io/pypa/manylinux_2_28_x86_64
             setup: |
               /opt/python/cp39-cp39/bin/python -m pip install --quiet numpy pytest
             py: /opt/python/cp39-cp39/bin/python

@@ -32,7 +32,7 @@ def main():
     vers = [tuple(int(x) for x in v.split("."))
             for v in re.findall(r"GLIBC_(\d+(?:\.\d+)+)", syms)]
     floor = max(vers) if vers else (2, 17)
-    # manylinux tags start at 2_17 (the manylinux2014 baseline).
+    # manylinux tags start at 2_17 (the manylinux2014 baseline; manylinux_2_28 builds land higher).
     floor = max(floor[:2], (2, 17))
     sys.stderr.write("%s: needs %s, glibc floor %d.%d\n"
                      % (so, ",".join(needed), floor[0], floor[1]))
