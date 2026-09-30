@@ -369,23 +369,15 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             } else {
                 /* dense route */
                 for (size_t j = 0; j < block_elems; j++) {
-                    if (BSLZ4_UNLIKELY(mask[j + i0] > 0)) {
+                    if (mask[j + i0] > 0) {
                         uint32_t k0 = indptr[j + i0], k1 = indptr[j + i0 + 1];
                         T px = block[j];
                         for (uint32_t k = k0; k < k1; k++)
                             outf[indices[k]] += (double) data[k] * (double) px;
                     }
                 }
-                for (size_t j = 0; j < block_elems; j++) {
-                    if (BSLZ4_UNLIKELY(mask[j + i0] > 0)) {
-                        T px = block[j];
-                        if (BSLZ4_UNLIKELY(px > cut)) {
-                            outpxf[npx] = px;
-                            outadrf[npx] = (uint32_t) (j + i0);
-                            npx++;
-                        }
-                    }
-                }
+                npx += bslz4_collect_gt<T>(block, mask, (size_t) i0, block_elems, cut,
+                                            outpxf + npx, outadrf + npx);
             }
             npx_out[f] = npx;
         }
@@ -447,23 +439,15 @@ int bslz4_csc_decode_multi(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             }
         } else {
             for (size_t j = 0; j < ntail; j++) {
-                if (BSLZ4_UNLIKELY(mask[j + i0] > 0)) {
+                if (mask[j + i0] > 0) {
                     uint32_t k0 = indptr[j + i0], k1 = indptr[j + i0 + 1];
                     T px = block[j];
                     for (uint32_t k = k0; k < k1; k++)
                         outf[indices[k]] += (double) data[k] * (double) px;
                 }
             }
-            for (size_t j = 0; j < ntail; j++) {
-                if (BSLZ4_UNLIKELY(mask[j + i0] > 0)) {
-                    T px = block[j];
-                    if (BSLZ4_UNLIKELY(px > cut)) {
-                        outpxf[npx] = px;
-                        outadrf[npx] = (uint32_t) (j + i0);
-                        npx++;
-                    }
-                }
-            }
+            npx += bslz4_collect_gt<T>(block, mask, (size_t) i0, ntail, cut,
+                                        outpxf + npx, outadrf + npx);
         }
         npx_out[f] = npx;
     }
