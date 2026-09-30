@@ -109,16 +109,14 @@ def load_native(package_dir, module_name="_native", tag="c2py23"):
 
         loader = importlib.machinery.ExtensionFileLoader(module_name, _path)
         spec = importlib.util.spec_from_file_location(module_name, _path, loader=loader)
+        # Sample sys.modules BEFORE module_from_spec(): that call itself registers
+        # single-phase-init extensions -- what c2py23 generates -- so sampling after
+        # it always finds a module and never detects anything.
+        _existing = sys.modules.get(module_name)
+        mod = importlib.util.module_from_spec(spec)
         # Warn if overwriting an existing module in sys.modules.
         # Using distinct module names per package (e.g. '_mymodule'
         # instead of '_native') avoids collisions.
-        #
-        # LOCAL PATCH (not upstream v0.5.4): sample sys.modules before
-        # module_from_spec(), which itself registers single-phase-init
-        # extensions -- what c2py23 generates -- so sampling after it
-        # always finds a module and never detects anything.
-        _existing = sys.modules.get(module_name)
-        mod = importlib.util.module_from_spec(spec)
         if _existing is not None and _existing is not mod:
             import warnings as _w
 

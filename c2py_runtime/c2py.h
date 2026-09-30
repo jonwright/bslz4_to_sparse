@@ -385,9 +385,11 @@ typedef struct {
     PyObject* (*Long_FromUnsignedLongLong)(unsigned long long);
     PyObject* (*Float_FromDouble)(double);
 
-    /* Tuple construction */
+    /* Tuple construction and access (access used by the VARARGS shim) */
     PyObject* (*Tuple_New)(Py_ssize_t);
     int (*Tuple_SetItem)(PyObject*, Py_ssize_t, PyObject*);
+    Py_ssize_t (*Tuple_Size)(PyObject*);
+    PyObject* (*Tuple_GetItem)(PyObject*, Py_ssize_t);
 
     /* String construction (ASCII bytes only, no unicode/encodings) */
     PyObject* (*Bytes_FromStringAndSize)(const char*, Py_ssize_t);
@@ -504,6 +506,8 @@ extern c2py_api_t C2PY;
 #define PyLong_FromVoidPtr(p)          C2PY.Long_FromVoidPtr((void*)(p))
 #define PyTuple_New(s)                 C2PY.Tuple_New(s)
 #define PyTuple_SetItem(t, i, o)       C2PY.Tuple_SetItem((PyObject*)(t), (i), (PyObject*)(o))
+#define PyTuple_Size(t)                C2PY.Tuple_Size((PyObject*)(t))
+#define PyTuple_GetItem(t, i)          C2PY.Tuple_GetItem((PyObject*)(t), (i))
 #define PyEval_SaveThread()            C2PY.SaveThread()
 #define PyEval_RestoreThread(s)        C2PY.RestoreThread((void*)(s))
 
@@ -651,6 +655,103 @@ typedef struct {
     Py_ssize_t *shape;        /* per-dimension sizes (may be NULL for 1D) */
     Py_ssize_t *strides;      /* per-dimension strides (may be NULL) */
 } c2py_ptr_info;
+
+/* Runtime enforcement of the no-alias contract generated wrappers rely
+ * on when passing buffer pointers to C functions as restrict.
+ *
+ * The first `n_writable` entries of `infos` are writable buffers and the
+ * rest are read-only.  Any pair with at least one writable endpoint must
+ * not overlap in memory; read-only/read-only overlap is allowed.  Returns
+ * 0 when clean, or -1 with ValueError set when a writable buffer overlaps
+ * another buffer.
+ *
+ * `infos` is an array of pointers to the wrapper's c2py_ptr_info locals,
+ * ordered writables-first by the generator.  This centralizes the O(n^2)
+ * check in one out-of-line helper instead of inlining a block per pair
+ * (which exploded generated wrapper size for many-buffer functions). */
+static inline int
+c2py_check_no_overlap(c2py_ptr_info *const *infos, int n_writable, int n)
+{
+    int i, j;
+    for (i = 0; i < n_writable; i++) {
+        for (j = 0; j < n; j++) {
+            if (i == j) continue;
+            if ((char*)infos[i]->ptr >= (char*)infos[j]->ptr &&
+                (char*)infos[i]->ptr < (char*)infos[j]->ptr + infos[j]->len) {
+                PyErr_SetString(PyExc_ValueError, "buffer aliasing forbidden");
+                return -1;
+            }
+            if ((char*)infos[j]->ptr >= (char*)infos[i]->ptr &&
+                (char*)infos[j]->ptr < (char*)infos[i]->ptr + infos[i]->len) {
+                PyErr_SetString(PyExc_ValueError, "buffer aliasing forbidden");
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* Validate that a buffer is C-contiguous or Fortran-contiguous and report
+ * the slowest/fastest varying axis indices through `slow_axis`/`fast_axis`
+ * (used by `when:` dispatch on `.slow_axis`/`.fast_axis`).  The caller
+ * must initialize both out-params; they are left untouched only for the
+ * degenerate ndim<1-with-strides case, which the wrapper initializes to
+ * -1.  Returns 0 when contiguous, or -1 with ValueError set otherwise.
+ *
+ * Centralizing this keeps the generated wrapper small: the check body is
+ * ~40 lines per buffer and was previously inlined into every expanded
+ * method.  `shape`/`strides` are read-only here. */
+static inline int
+c2py_check_contiguity(const c2py_ptr_info *info, int *slow_axis, int *fast_axis)
+{
+    int _ok = 1;
+    int _d;
+    Py_ssize_t _expected;
+
+    if (info->strides == NULL && info->ndim <= 1) {
+        *slow_axis = 0;
+        *fast_axis = (int)(info->ndim - 1);
+        return 0;
+    }
+    if (info->len == 0) {
+        *slow_axis = 0;
+        *fast_axis = (int)(info->ndim - 1);
+        return 0;
+    }
+    if (info->ndim >= 1) {
+        _expected = info->itemsize;
+        /* check F-contiguous (column-major): first dim varies fastest */
+        for (_d = 0; _d < info->ndim; _d++) {
+            if (info->strides[_d] < 0) { _ok = 0; break; }
+            if (info->strides[_d] != _expected) { _ok = 0; break; }
+            _expected *= info->shape[_d];
+        }
+        if (_ok) {
+            *slow_axis = (int)(info->ndim - 1);
+            *fast_axis = 0;
+            return 0;
+        }
+        /* check C-contiguous (row-major): last dim varies fastest */
+        _ok = 1;
+        _expected = info->itemsize;
+        for (_d = info->ndim - 1; _d >= 0; _d--) {
+            if (info->strides[_d] < 0) { _ok = 0; break; }
+            if (info->strides[_d] != _expected) { _ok = 0; break; }
+            _expected *= info->shape[_d];
+        }
+        if (_ok) {
+            *slow_axis = 0;
+            *fast_axis = (int)(info->ndim - 1);
+            return 0;
+        }
+    }
+    if (!_ok) {
+        PyErr_SetString(PyExc_ValueError,
+            "buffer not contiguous (C or Fortran contiguous required)");
+        return -1;
+    }
+    return 0;
+}
 
 /* Backend tags for c2py_buf_pin.kind -- tells c2py_unpin_buffer
  * which release path to use.  Zero-init = C2PY_PIN_NONE = no-op. */
@@ -2441,7 +2542,10 @@ static void _c2py_runtime_init_once(void)
 
     RESOLVE_REQ(C2PY.Tuple_New, "PyTuple_New");
     RESOLVE_REQ(C2PY.Tuple_SetItem, "PyTuple_SetItem");
-    if (C2PY.Tuple_New == NULL || C2PY.Tuple_SetItem == NULL) return;
+    RESOLVE_REQ(C2PY.Tuple_Size, "PyTuple_Size");
+    RESOLVE_REQ(C2PY.Tuple_GetItem, "PyTuple_GetItem");
+    if (C2PY.Tuple_New == NULL || C2PY.Tuple_SetItem == NULL ||
+        C2PY.Tuple_Size == NULL || C2PY.Tuple_GetItem == NULL) return;
 
     RESOLVE(C2PY.Bytes_FromStringAndSize, "PyBytes_FromStringAndSize");
     if (C2PY.Bytes_FromStringAndSize == NULL)

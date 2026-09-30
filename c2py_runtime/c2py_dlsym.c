@@ -405,7 +405,10 @@ static void _c2py_runtime_init_once(void)
 
     RESOLVE_REQ(C2PY.Tuple_New, "PyTuple_New");
     RESOLVE_REQ(C2PY.Tuple_SetItem, "PyTuple_SetItem");
-    if (C2PY.Tuple_New == NULL || C2PY.Tuple_SetItem == NULL) return;
+    RESOLVE_REQ(C2PY.Tuple_Size, "PyTuple_Size");
+    RESOLVE_REQ(C2PY.Tuple_GetItem, "PyTuple_GetItem");
+    if (C2PY.Tuple_New == NULL || C2PY.Tuple_SetItem == NULL ||
+        C2PY.Tuple_Size == NULL || C2PY.Tuple_GetItem == NULL) return;
 
     RESOLVE(C2PY.Bytes_FromStringAndSize, "PyBytes_FromStringAndSize");
     if (C2PY.Bytes_FromStringAndSize == NULL)
