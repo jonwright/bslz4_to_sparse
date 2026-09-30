@@ -14,3 +14,5 @@ test/matrix.json
 /sparsetest.h5
 /c2bslz4/
 c2bslz4-src-*.tar.gz
+# local working notes, not part of the package
+c2py23_wrapper_size_issue.md
