@@ -26,12 +26,12 @@
 #endif
 
 /* bitshuffle-lz4 stream headers are big endian, see https://justine.lol/endian.html */
-static inline uint32_t bslz4_read_be32(const uint8_t *p) {
+static inline uint32_t bslz4_read_be32(const uint8_t *BSLZ4_RESTRICT p) {
     return ((uint32_t) p[0] << 24) | ((uint32_t) p[1] << 16) |
            ((uint32_t) p[2] << 8) | (uint32_t) p[3];
 }
 
-static inline uint64_t bslz4_read_be64(const uint8_t *p) {
+static inline uint64_t bslz4_read_be64(const uint8_t *BSLZ4_RESTRICT p) {
     uint64_t v = 0;
     for (int i = 0; i < 8; i++) {
         v = (v << 8) | (uint64_t) p[i];

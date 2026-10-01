@@ -24,8 +24,8 @@
 /* Decompress one block.  Returns the number of decompressed bytes on
  * success (== dst_capacity), or -1 on error -- same contract as the old
  * C++ bslz4_decompress. */
-static inline int bslz4_decompress(int codec, const char *src, int compressed_size,
-                                   char *dst, int dst_capacity) {
+static inline int bslz4_decompress(int codec, const char *BSLZ4_RESTRICT src, int compressed_size,
+                                   char *BSLZ4_RESTRICT dst, int dst_capacity) {
     if (codec == BSLZ4_CODEC_ZSTD) {
         int64_t ret = (int64_t) ZSTD_decompress(dst, (size_t) dst_capacity,
                                                 src, (size_t) compressed_size);

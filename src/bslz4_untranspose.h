@@ -4,7 +4,7 @@
  * C untranspose backend adapters (the C side of bslz4_backends.hpp).
  *
  * Each backend exposes a function of the uniform signature
- *   int64_t (*)(void *out, const void *in, void *scratch, size_t size, size_t elem_size)
+ *   int64_t (*)(void *BSLZ4_RESTRICT out, const void *BSLZ4_RESTRICT in, void *BSLZ4_RESTRICT scratch, size_t size, size_t elem_size)
  * where "size" is a number of elements (a multiple of 8) and "elem_size"
  * is the byte width of one element.  "scratch" must point at size*elem_size
  * writable bytes; it is a slice of the caller-owned workspace buffer.
@@ -34,40 +34,40 @@ int64_t bshuf_shuffle_bit_eightelem_AVX512(const void *in, void *out, size_t siz
 int64_t bshuf_trans_byte_bitrow_NEON(const void *in, void *out, size_t size, size_t elem_size);
 int64_t bshuf_shuffle_bit_eightelem_NEON(const void *in, void *out, size_t size, size_t elem_size);
 
-static inline int64_t bslz4_untranspose_kcb(void *out, const void *in, void *scratch,
+static inline int64_t bslz4_untranspose_kcb(void *BSLZ4_RESTRICT out, const void *BSLZ4_RESTRICT in, void *BSLZ4_RESTRICT scratch,
                                              size_t size, size_t elem_size) {
     return bitshuf_decode_block((char *) out, (const char *) in, (char *) scratch, size, elem_size);
 }
 
-static inline int64_t bslz4_untranspose_bshuf_scal(void *out, const void *in, void *scratch,
+static inline int64_t bslz4_untranspose_bshuf_scal(void *BSLZ4_RESTRICT out, const void *BSLZ4_RESTRICT in, void *BSLZ4_RESTRICT scratch,
                                                     size_t size, size_t elem_size) {
     int64_t c = bshuf_trans_byte_bitrow_scal(in, scratch, size, elem_size);
     if (c < 0) return c;
     return bshuf_shuffle_bit_eightelem_scal(scratch, out, size, elem_size);
 }
 
-static inline int64_t bslz4_untranspose_bshuf_sse(void *out, const void *in, void *scratch,
+static inline int64_t bslz4_untranspose_bshuf_sse(void *BSLZ4_RESTRICT out, const void *BSLZ4_RESTRICT in, void *BSLZ4_RESTRICT scratch,
                                                    size_t size, size_t elem_size) {
     int64_t c = bshuf_trans_byte_bitrow_SSE(in, scratch, size, elem_size);
     if (c < 0) return c;
     return bshuf_shuffle_bit_eightelem_SSE(scratch, out, size, elem_size);
 }
 
-static inline int64_t bslz4_untranspose_bshuf_avx2(void *out, const void *in, void *scratch,
+static inline int64_t bslz4_untranspose_bshuf_avx2(void *BSLZ4_RESTRICT out, const void *BSLZ4_RESTRICT in, void *BSLZ4_RESTRICT scratch,
                                                     size_t size, size_t elem_size) {
     int64_t c = bshuf_trans_byte_bitrow_AVX(in, scratch, size, elem_size);
     if (c < 0) return c;
     return bshuf_shuffle_bit_eightelem_AVX(scratch, out, size, elem_size);
 }
 
-static inline int64_t bslz4_untranspose_bshuf_avx512(void *out, const void *in, void *scratch,
+static inline int64_t bslz4_untranspose_bshuf_avx512(void *BSLZ4_RESTRICT out, const void *BSLZ4_RESTRICT in, void *BSLZ4_RESTRICT scratch,
                                                       size_t size, size_t elem_size) {
     int64_t c = bshuf_trans_byte_bitrow_AVX(in, scratch, size, elem_size);
     if (c < 0) return c;
     return bshuf_shuffle_bit_eightelem_AVX512(scratch, out, size, elem_size);
 }
 
-static inline int64_t bslz4_untranspose_bshuf_neon(void *out, const void *in, void *scratch,
+static inline int64_t bslz4_untranspose_bshuf_neon(void *BSLZ4_RESTRICT out, const void *BSLZ4_RESTRICT in, void *BSLZ4_RESTRICT scratch,
                                                     size_t size, size_t elem_size) {
     int64_t c = bshuf_trans_byte_bitrow_NEON(in, scratch, size, elem_size);
     if (c < 0) return c;

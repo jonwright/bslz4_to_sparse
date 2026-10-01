@@ -83,20 +83,27 @@ extern "C" int bslz4_active_collect_tier(void) {
 
 /* plain sparse, generic */
 template<typename T>
-static int bslz4_inner_sparse(const void *block, size_t n, const uint8_t *mask, size_t i0,
-                              int64_t threshold, void *out_vals, uint32_t *out_adr) {
+static int bslz4_inner_sparse(const void *BSLZ4_RESTRICT block, size_t n,
+                              const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+                              int64_t threshold, void *BSLZ4_RESTRICT out_vals,
+                              uint32_t *BSLZ4_RESTRICT out_adr) {
     const T cut = (T) threshold;
     return bslz4_collect_gt<T>((const T *) block, mask, i0, n, cut, (T *) out_vals, out_adr);
 }
 
 /* CSC, generic: routes dense or sparse (see bslz4_core.hpp comments). */
 template<typename T>
-static int bslz4_inner_sparse_dot(const void *block, size_t n, size_t decoded_bytes,
-                                  size_t nbytes, const uint8_t *mask, size_t i0,
-                                  int64_t threshold, void *out_vals, uint32_t *out_adr,
-                                  double *out, int nout, const float *data,
-                                  const uint32_t *indices, const uint32_t *indptr,
-                                  double dense_sparse_x, uint32_t *tidx, void *tval) {
+static int bslz4_inner_sparse_dot(const void *BSLZ4_RESTRICT block, size_t n,
+                                  size_t decoded_bytes, size_t nbytes,
+                                  const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+                                  int64_t threshold, void *BSLZ4_RESTRICT out_vals,
+                                  uint32_t *BSLZ4_RESTRICT out_adr,
+                                  double *BSLZ4_RESTRICT out, int nout,
+                                  const float *BSLZ4_RESTRICT data,
+                                  const uint32_t *BSLZ4_RESTRICT indices,
+                                  const uint32_t *BSLZ4_RESTRICT indptr,
+                                  double dense_sparse_x, uint32_t *BSLZ4_RESTRICT tidx,
+                                  void *BSLZ4_RESTRICT tval) {
     const T cut = (T) threshold;
     const T *px = (const T *) block;
     T *tv = (T *) tval;
@@ -140,17 +147,20 @@ static int bslz4_inner_sparse_dot(const void *block, size_t n, size_t decoded_by
 /* extern "C" wrappers, one per dtype, for the bslz4_inner_table. */
 #define BSLZ4_DEFINE_SPARSE_DTYPE(T, SUFFIX)                                        \
     extern "C" int bslz4_inner_sparse_##SUFFIX(                                    \
-        const void *block, size_t n, const uint8_t *mask, size_t i0,               \
-        int64_t threshold, void *out_vals, uint32_t *out_adr) {                    \
+        const void *BSLZ4_RESTRICT block, size_t n, const uint8_t *BSLZ4_RESTRICT mask, \
+        size_t i0, int64_t threshold, void *BSLZ4_RESTRICT out_vals,                \
+        uint32_t *BSLZ4_RESTRICT out_adr) {                                        \
         return bslz4_inner_sparse<T>(block, n, mask, i0, threshold, out_vals,      \
                                      out_adr);                                      \
     }                                                                              \
     extern "C" int bslz4_inner_sparse_dot_##SUFFIX(                                \
-        const void *block, size_t n, size_t decoded_bytes, size_t nbytes,          \
-        const uint8_t *mask, size_t i0, int64_t threshold, void *out_vals,         \
-        uint32_t *out_adr, double *out, int nout, const float *data,               \
-        const uint32_t *indices, const uint32_t *indptr, double dense_sparse_x,    \
-        uint32_t *tidx, void *tval) {                                              \
+        const void *BSLZ4_RESTRICT block, size_t n, size_t decoded_bytes, size_t nbytes, \
+        const uint8_t *BSLZ4_RESTRICT mask, size_t i0, int64_t threshold,          \
+        void *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr,           \
+        double *BSLZ4_RESTRICT out, int nout, const float *BSLZ4_RESTRICT data,    \
+        const uint32_t *BSLZ4_RESTRICT indices, const uint32_t *BSLZ4_RESTRICT indptr, \
+        double dense_sparse_x, uint32_t *BSLZ4_RESTRICT tidx,                      \
+        void *BSLZ4_RESTRICT tval) {                                               \
         return bslz4_inner_sparse_dot<T>(block, n, decoded_bytes, nbytes, mask,    \
                                          i0, threshold, out_vals, out_adr, out,    \
                                          nout, data, indices, indptr,              \

@@ -15,23 +15,33 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef int (*bslz4_decompress_fn)(int codec, const char *src, int compressed_size,
-                                   char *dst, int dst_capacity);
+#include "bslz4_common.h"
 
-typedef int64_t (*bslz4_untranspose_fn)(void *out, const void *in, void *scratch,
+typedef int (*bslz4_decompress_fn)(int codec, const char *BSLZ4_RESTRICT src, int compressed_size,
+                                   char *BSLZ4_RESTRICT dst, int dst_capacity);
+
+typedef int64_t (*bslz4_untranspose_fn)(void *BSLZ4_RESTRICT out, const void *BSLZ4_RESTRICT in,
+                                         void *BSLZ4_RESTRICT scratch,
                                          size_t size, size_t elem_size);
 
 /* Per-block plain-sparse call: mask>0 & val>threshold, compacted. */
-typedef int (*bslz4_sparse_fn)(const void *block, size_t n, const uint8_t *mask, size_t i0,
-                                int64_t threshold, void *out_vals, uint32_t *out_adr);
+typedef int (*bslz4_sparse_fn)(const void *BSLZ4_RESTRICT block, size_t n,
+                                const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+                                int64_t threshold, void *BSLZ4_RESTRICT out_vals,
+                                uint32_t *BSLZ4_RESTRICT out_adr);
 
 /* Per-block CSC call: may route dense or sparse (see kernels_generic.cpp). */
-typedef int (*bslz4_sparse_dot_fn)(const void *block, size_t n, size_t decoded_bytes,
-                                    size_t nbytes, const uint8_t *mask, size_t i0,
-                                    int64_t threshold, void *out_vals, uint32_t *out_adr,
-                                    double *out, int nout, const float *data,
-                                    const uint32_t *indices, const uint32_t *indptr,
-                                    double dense_sparse_x, uint32_t *tidx, void *tval);
+typedef int (*bslz4_sparse_dot_fn)(const void *BSLZ4_RESTRICT block, size_t n,
+                                    size_t decoded_bytes, size_t nbytes,
+                                    const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+                                    int64_t threshold, void *BSLZ4_RESTRICT out_vals,
+                                    uint32_t *BSLZ4_RESTRICT out_adr,
+                                    double *BSLZ4_RESTRICT out, int nout,
+                                    const float *BSLZ4_RESTRICT data,
+                                    const uint32_t *BSLZ4_RESTRICT indices,
+                                    const uint32_t *BSLZ4_RESTRICT indptr,
+                                    double dense_sparse_x, uint32_t *BSLZ4_RESTRICT tidx,
+                                    void *BSLZ4_RESTRICT tval);
 
 typedef struct bslz4_stage {
     size_t elem_size;            /* sizeof(pixel dtype) */
@@ -55,20 +65,30 @@ extern "C" {
  * (u8,u16,u32,u64,i8,i16,i32,i64,f32,f64). */
 extern const bslz4_inner_entry bslz4_inner_table[10];
 
-int bslz4_driver_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
-                          int nframes, int codec, const uint8_t *mask, int NIJ,
-                          void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
-                          uint8_t *workspace, size_t workspace_len, int64_t *cursors,
-                          const bslz4_stage *st);
+int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
+                          const int32_t *BSLZ4_RESTRICT compressed_lengths,
+                          int nframes, int codec,
+                          const uint8_t *BSLZ4_RESTRICT mask, int NIJ,
+                          void *BSLZ4_RESTRICT outpx, uint32_t *BSLZ4_RESTRICT output_adr,
+                          int32_t *BSLZ4_RESTRICT npx_out, int threshold,
+                          uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len,
+                          int64_t *BSLZ4_RESTRICT cursors,
+                          const bslz4_stage *BSLZ4_RESTRICT st);
 
-int bslz4_driver_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
-                                  int nframes, int codec, const uint8_t *mask, int NIJ,
-                                  void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
-                                  double *powder, int nout, const float *data,
-                                  const uint32_t *indices, const uint32_t *indptr,
+int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
+                                  const int32_t *BSLZ4_RESTRICT compressed_lengths,
+                                  int nframes, int codec,
+                                  const uint8_t *BSLZ4_RESTRICT mask, int NIJ,
+                                  void *BSLZ4_RESTRICT outpx, uint32_t *BSLZ4_RESTRICT output_adr,
+                                  int32_t *BSLZ4_RESTRICT npx_out, int threshold,
+                                  double *BSLZ4_RESTRICT powder, int nout,
+                                  const float *BSLZ4_RESTRICT data,
+                                  const uint32_t *BSLZ4_RESTRICT indices,
+                                  const uint32_t *BSLZ4_RESTRICT indptr,
                                   double dense_sparse_x,
-                                  uint8_t *workspace, size_t workspace_len, int64_t *cursors,
-                                  const bslz4_stage *st);
+                                  uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len,
+                                  int64_t *BSLZ4_RESTRICT cursors,
+                                  const bslz4_stage *BSLZ4_RESTRICT st);
 
 /* ---- Registry / resolve (bslz4_registry.c) ---- */
 
@@ -83,14 +103,14 @@ int bslz4_driver_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t 
  *   stage ids known + available        -> BSLZ4_ERR_UNAVAILABLE / BSLZ4_ERR_BAD_PIPELINE
  *   no unknown option bits             -> BSLZ4_ERR_BAD_PIPELINE
  * Returns 0 on success. */
-int bslz4_resolve(int dtype, uint64_t pipeline, bslz4_stage *st);
+int bslz4_resolve(int dtype, uint64_t pipeline, bslz4_stage *BSLZ4_RESTRICT st);
 
 /* availability: 1 available, 0 known but not usable here, -1 unknown id */
 int bslz4_impl_available(int stage, int id);
 
 /* optional test instrumentation */
 void bslz4_reset_counters(void);
-int  bslz4_read_counters(uint64_t *out, int n);   /* flattened [stage][impl] */
+int  bslz4_read_counters(uint64_t *BSLZ4_RESTRICT out, int n);   /* flattened [stage][impl] */
 void bslz4_counters_bump(int stage, int id);       /* internal */
 
 /* ---- Native entry points (bslz4_to_sparse.c) ---- */

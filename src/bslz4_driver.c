@@ -17,23 +17,24 @@
 
 #include <string.h>
 
-static int bslz4_driver_check_frames(const int64_t *compressed_ptrs,
-                                      const int32_t *compressed_lengths,
-                                      int nframes, const bslz4_stage *st,
-                                      uint64_t *out_total, size_t *out_blocksize) {
+static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
+                                      const int32_t *BSLZ4_RESTRICT compressed_lengths,
+                                      int nframes, const bslz4_stage *BSLZ4_RESTRICT st,
+                                      uint64_t *BSLZ4_RESTRICT out_total,
+                                      size_t *BSLZ4_RESTRICT out_blocksize) {
     if (nframes <= 0) return BSLZ4_ERR_BAD_NFRAMES;
     for (int f = 0; f < nframes; f++) {
         if (BSLZ4_UNLIKELY(compressed_lengths[f] < 12)) return BSLZ4_ERR_CORRUPT_CHUNK;
     }
 
-    const char *compressed0 = (const char *) (intptr_t) compressed_ptrs[0];
+    const char *BSLZ4_RESTRICT compressed0 = (const char *) (intptr_t) compressed_ptrs[0];
     const uint64_t total_output_length = bslz4_read_be64((const uint8_t *) compressed0);
 
     size_t blocksize = (size_t) bslz4_read_be32((const uint8_t *) compressed0 + 8);
     if (blocksize == 0) blocksize = BSLZ4_DEFAULT_BLOCK_BYTES;
 
     for (int f = 1; f < nframes; f++) {
-        const char *cf = (const char *) (intptr_t) compressed_ptrs[f];
+        const char *BSLZ4_RESTRICT cf = (const char *) (intptr_t) compressed_ptrs[f];
         if (BSLZ4_UNLIKELY(bslz4_read_be64((const uint8_t *) cf) != total_output_length))
             return BSLZ4_ERR_FRAME_MISMATCH;
         size_t bsf = (size_t) bslz4_read_be32((const uint8_t *) cf + 8);
@@ -46,11 +47,15 @@ static int bslz4_driver_check_frames(const int64_t *compressed_ptrs,
     return 0;
 }
 
-int bslz4_driver_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
-                          int nframes, int codec, const uint8_t *mask, int NIJ,
-                          void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
-                          uint8_t *workspace, size_t workspace_len, int64_t *cursors,
-                          const bslz4_stage *st) {
+int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
+                          const int32_t *BSLZ4_RESTRICT compressed_lengths,
+                          int nframes, int codec,
+                          const uint8_t *BSLZ4_RESTRICT mask, int NIJ,
+                          void *BSLZ4_RESTRICT outpx, uint32_t *BSLZ4_RESTRICT output_adr,
+                          int32_t *BSLZ4_RESTRICT npx_out, int threshold,
+                          uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len,
+                          int64_t *BSLZ4_RESTRICT cursors,
+                          const bslz4_stage *BSLZ4_RESTRICT st) {
     const size_t NB = st->elem_size;
 
     if (threshold < 0) return BSLZ4_ERR_BAD_THRESHOLD;
@@ -66,9 +71,9 @@ int bslz4_driver_sparsify(const int64_t *compressed_ptrs, const int32_t *compres
 
     if (workspace_len < 3 * blocksize) return BSLZ4_ERR_WORKSPACE_TOO_SMALL;
 
-    uint8_t *raw = workspace;
-    uint8_t *scratch = workspace + blocksize;
-    uint8_t *block = workspace + 2 * blocksize;
+    uint8_t *BSLZ4_RESTRICT raw = workspace;
+    uint8_t *BSLZ4_RESTRICT scratch = workspace + blocksize;
+    uint8_t *BSLZ4_RESTRICT block = workspace + 2 * blocksize;
     const size_t block_elems = blocksize / NB;
 
     for (int f = 0; f < nframes; f++) {
@@ -81,7 +86,7 @@ int bslz4_driver_sparsify(const int64_t *compressed_ptrs, const int32_t *compres
 
     for (; remaining >= (int64_t) blocksize; remaining -= (int64_t) blocksize) {
         for (int f = 0; f < nframes; f++) {
-            const char *cf = (const char *) (intptr_t) compressed_ptrs[f];
+            const char *BSLZ4_RESTRICT cf = (const char *) (intptr_t) compressed_ptrs[f];
             const int64_t clen = compressed_lengths[f];
             int64_t p = cursors[f];
             if (BSLZ4_UNLIKELY(clen - p < 4)) return BSLZ4_ERR_CORRUPT_CHUNK;
@@ -93,8 +98,8 @@ int bslz4_driver_sparsify(const int64_t *compressed_ptrs, const int32_t *compres
             if (BSLZ4_UNLIKELY(st->untranspose(block, raw, scratch, block_elems, NB) < 0))
                 return BSLZ4_ERR_UNTRANSPOSE;
 
-            uint8_t *outf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
-            uint32_t *outadrf = output_adr + (size_t) f * NIJ;
+            uint8_t *BSLZ4_RESTRICT outf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
+            uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
             int32_t npx = npx_out[f];
             npx += st->sparse(block, block_elems, mask, (size_t) i0, (int64_t) threshold,
                               outf + (size_t) npx * NB, outadrf + npx);
@@ -105,7 +110,7 @@ int bslz4_driver_sparsify(const int64_t *compressed_ptrs, const int32_t *compres
 
     size_t tail_block = (8 * NB) * ((size_t) remaining / (8 * NB));
     for (int f = 0; f < nframes; f++) {
-        const char *cf = (const char *) (intptr_t) compressed_ptrs[f];
+        const char *BSLZ4_RESTRICT cf = (const char *) (intptr_t) compressed_ptrs[f];
         if (tail_block > 0) {
             const int64_t clen = compressed_lengths[f];
             int64_t p = cursors[f];
@@ -125,8 +130,8 @@ int bslz4_driver_sparsify(const int64_t *compressed_ptrs, const int32_t *compres
                 return BSLZ4_ERR_CORRUPT_CHUNK;
             memcpy(block + tail_block, cf + compressed_lengths[f] - rem_f, (size_t) rem_f);
         }
-        uint8_t *outf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
-        uint32_t *outadrf = output_adr + (size_t) f * NIJ;
+        uint8_t *BSLZ4_RESTRICT outf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
+        uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
         int32_t npx = npx_out[f];
         size_t ntail = ((size_t) rem_f + tail_block) / NB;
         npx += st->sparse(block, ntail, mask, (size_t) i0, (int64_t) threshold,
@@ -136,14 +141,20 @@ int bslz4_driver_sparsify(const int64_t *compressed_ptrs, const int32_t *compres
     return 0;
 }
 
-int bslz4_driver_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
-                                  int nframes, int codec, const uint8_t *mask, int NIJ,
-                                  void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
-                                  double *powder, int nout, const float *data,
-                                  const uint32_t *indices, const uint32_t *indptr,
+int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
+                                  const int32_t *BSLZ4_RESTRICT compressed_lengths,
+                                  int nframes, int codec,
+                                  const uint8_t *BSLZ4_RESTRICT mask, int NIJ,
+                                  void *BSLZ4_RESTRICT outpx, uint32_t *BSLZ4_RESTRICT output_adr,
+                                  int32_t *BSLZ4_RESTRICT npx_out, int threshold,
+                                  double *BSLZ4_RESTRICT powder, int nout,
+                                  const float *BSLZ4_RESTRICT data,
+                                  const uint32_t *BSLZ4_RESTRICT indices,
+                                  const uint32_t *BSLZ4_RESTRICT indptr,
                                   double dense_sparse_x,
-                                  uint8_t *workspace, size_t workspace_len, int64_t *cursors,
-                                  const bslz4_stage *st) {
+                                  uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len,
+                                  int64_t *BSLZ4_RESTRICT cursors,
+                                  const bslz4_stage *BSLZ4_RESTRICT st) {
     const size_t NB = st->elem_size;
 
     if (threshold < 0) return BSLZ4_ERR_BAD_THRESHOLD;
@@ -161,14 +172,14 @@ int bslz4_driver_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t 
     if (workspace_len < 3 * blocksize + block_elems * (sizeof(uint32_t) + NB))
         return BSLZ4_ERR_WORKSPACE_TOO_SMALL;
 
-    uint8_t *raw = workspace;
-    uint8_t *scratch = workspace + blocksize;
-    uint8_t *block = workspace + 2 * blocksize;
-    uint32_t *tidx = (uint32_t *) (workspace + 3 * blocksize);
-    void *tval = (void *) ((uint8_t *) tidx + block_elems * sizeof(uint32_t));
+    uint8_t *BSLZ4_RESTRICT raw = workspace;
+    uint8_t *BSLZ4_RESTRICT scratch = workspace + blocksize;
+    uint8_t *BSLZ4_RESTRICT block = workspace + 2 * blocksize;
+    uint32_t *BSLZ4_RESTRICT tidx = (uint32_t *) (workspace + 3 * blocksize);
+    void *BSLZ4_RESTRICT tval = (void *) ((uint8_t *) tidx + block_elems * sizeof(uint32_t));
 
     for (int f = 0; f < nframes; f++) {
-        double *outf = powder + (size_t) f * nout;
+        double *BSLZ4_RESTRICT outf = powder + (size_t) f * nout;
         for (int j = 0; j < nout; j++) outf[j] = 0.0;
         npx_out[f] = 0;
         cursors[f] = 12;
@@ -179,7 +190,7 @@ int bslz4_driver_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t 
 
     for (; remaining >= (int64_t) blocksize; remaining -= (int64_t) blocksize) {
         for (int f = 0; f < nframes; f++) {
-            const char *cf = (const char *) (intptr_t) compressed_ptrs[f];
+            const char *BSLZ4_RESTRICT cf = (const char *) (intptr_t) compressed_ptrs[f];
             const int64_t clen = compressed_lengths[f];
             int64_t p = cursors[f];
             if (BSLZ4_UNLIKELY(clen - p < 4)) return BSLZ4_ERR_CORRUPT_CHUNK;
@@ -191,9 +202,9 @@ int bslz4_driver_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t 
             if (BSLZ4_UNLIKELY(st->untranspose(block, raw, scratch, block_elems, NB) < 0))
                 return BSLZ4_ERR_UNTRANSPOSE;
 
-            double *outf = powder + (size_t) f * nout;
-            uint8_t *outpxf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
-            uint32_t *outadrf = output_adr + (size_t) f * NIJ;
+            double *BSLZ4_RESTRICT outf = powder + (size_t) f * nout;
+            uint8_t *BSLZ4_RESTRICT outpxf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
+            uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
             int32_t npx = npx_out[f];
             npx += st->sparse_dot(block, block_elems, blocksize, (size_t) nbytes,
                                   mask, (size_t) i0, (int64_t) threshold,
@@ -207,7 +218,7 @@ int bslz4_driver_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t 
 
     size_t tail_block = (8 * NB) * ((size_t) remaining / (8 * NB));
     for (int f = 0; f < nframes; f++) {
-        const char *cf = (const char *) (intptr_t) compressed_ptrs[f];
+        const char *BSLZ4_RESTRICT cf = (const char *) (intptr_t) compressed_ptrs[f];
         uint32_t tail_nbytes = 0;
         if (tail_block > 0) {
             const int64_t clen = compressed_lengths[f];
@@ -230,9 +241,9 @@ int bslz4_driver_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t 
         }
         size_t ntail = ((size_t) rem_f + tail_block) / NB;
 
-        double *outf = powder + (size_t) f * nout;
-        uint8_t *outpxf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
-        uint32_t *outadrf = output_adr + (size_t) f * NIJ;
+        double *BSLZ4_RESTRICT outf = powder + (size_t) f * nout;
+        uint8_t *BSLZ4_RESTRICT outpxf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
+        uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
         int32_t npx = npx_out[f];
         npx += st->sparse_dot(block, ntail, tail_block, (size_t) tail_nbytes,
                               mask, (size_t) i0, (int64_t) threshold,

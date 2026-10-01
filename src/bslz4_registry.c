@@ -78,7 +78,7 @@ static bslz4_untranspose_fn untranspose_by_id(int id) {
     }
 }
 
-int bslz4_resolve(int dtype, uint64_t pipeline, bslz4_stage *st) {
+int bslz4_resolve(int dtype, uint64_t pipeline, bslz4_stage *BSLZ4_RESTRICT st) {
     if (dtype < 0 || dtype > 9) return BSLZ4_ERR_DTYPE;
 
     int dec = BSLZ4_PIPE_DECOMPRESS(pipeline);
@@ -115,7 +115,7 @@ void bslz4_reset_counters(void) {
     memset(bslz4_counters, 0, sizeof(bslz4_counters));
 }
 
-int bslz4_read_counters(uint64_t *out, int n) {
+int bslz4_read_counters(uint64_t *BSLZ4_RESTRICT out, int n) {
     int k = 0;
     for (int s = 0; s < BSLZ4_NSTAGES; s++)
         for (int i = 0; i < BSLZ4_ID_SLOTS && k < n; i++)
