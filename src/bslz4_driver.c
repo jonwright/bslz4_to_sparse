@@ -101,8 +101,9 @@ int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             uint8_t *BSLZ4_RESTRICT outf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
             uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
             int32_t npx = npx_out[f];
-            npx += st->sparse(block, block_elems, mask, (size_t) i0, (int64_t) threshold,
-                              outf + (size_t) npx * NB, outadrf + npx);
+            npx += bslz4_sparse_dispatch(st->dtype, block, block_elems, mask, (size_t) i0,
+                                         (int64_t) threshold,
+                                         outf + (size_t) npx * NB, outadrf + npx);
             npx_out[f] = npx;
         }
         i0 += (int) block_elems;
@@ -134,8 +135,9 @@ int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
         int32_t npx = npx_out[f];
         size_t ntail = ((size_t) rem_f + tail_block) / NB;
-        npx += st->sparse(block, ntail, mask, (size_t) i0, (int64_t) threshold,
-                          outf + (size_t) npx * NB, outadrf + npx);
+        npx += bslz4_sparse_dispatch(st->dtype, block, ntail, mask, (size_t) i0,
+                                     (int64_t) threshold,
+                                     outf + (size_t) npx * NB, outadrf + npx);
         npx_out[f] = npx;
     }
     return 0;
@@ -206,11 +208,12 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             uint8_t *BSLZ4_RESTRICT outpxf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
             uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
             int32_t npx = npx_out[f];
-            npx += st->sparse_dot(block, block_elems, blocksize, (size_t) nbytes,
-                                  mask, (size_t) i0, (int64_t) threshold,
-                                  outpxf + (size_t) npx * NB, outadrf + npx,
-                                  outf, nout, data, indices, indptr,
-                                  dense_sparse_x, tidx, tval);
+            int route = (double) blocksize > dense_sparse_x * (double) nbytes;
+            bslz4_csc csc = {outf, nout, data, indices, indptr};
+            npx += bslz4_sparse_dot_dispatch(st->dtype, route, block, block_elems,
+                                             mask, (size_t) i0, (int64_t) threshold,
+                                             outpxf + (size_t) npx * NB, outadrf + npx,
+                                             &csc, tidx, tval);
             npx_out[f] = npx;
         }
         i0 += (int) block_elems;
@@ -245,11 +248,14 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         uint8_t *BSLZ4_RESTRICT outpxf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
         uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
         int32_t npx = npx_out[f];
-        npx += st->sparse_dot(block, ntail, tail_block, (size_t) tail_nbytes,
-                              mask, (size_t) i0, (int64_t) threshold,
-                              outpxf + (size_t) npx * NB, outadrf + npx,
-                              outf, nout, data, indices, indptr,
-                              dense_sparse_x, tidx, tval);
+        int route = tail_block > 0
+            ? (double) tail_block > dense_sparse_x * (double) tail_nbytes
+            : 1; /* pure literal remainder: trivially cheap either way */
+        bslz4_csc csc = {outf, nout, data, indices, indptr};
+        npx += bslz4_sparse_dot_dispatch(st->dtype, route, block, ntail,
+                                         mask, (size_t) i0, (int64_t) threshold,
+                                         outpxf + (size_t) npx * NB, outadrf + npx,
+                                         &csc, tidx, tval);
         npx_out[f] = npx;
     }
     return 0;

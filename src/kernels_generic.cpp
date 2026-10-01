@@ -83,112 +83,131 @@ extern "C" int bslz4_active_collect_tier(void) {
 
 /* plain sparse, generic */
 template<typename T>
-static int bslz4_inner_sparse(const void *BSLZ4_RESTRICT block, size_t n,
-                              const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
-                              int64_t threshold, void *BSLZ4_RESTRICT out_vals,
-                              uint32_t *BSLZ4_RESTRICT out_adr) {
+static inline
+int sparse_plain(const void *BSLZ4_RESTRICT block, size_t n,
+                 const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+                 int64_t threshold, void *BSLZ4_RESTRICT out_vals,
+                 uint32_t *BSLZ4_RESTRICT out_adr) {
     const T cut = (T) threshold;
     return bslz4_collect_gt<T>((const T *) block, mask, i0, n, cut, (T *) out_vals, out_adr);
 }
 
-/* CSC, generic: routes dense or sparse (see bslz4_core.hpp comments). */
+/* dense CSC route: dot.dense over every masked pixel, then the >cut collect.
+ * No compaction: the output is written once and tidx/tval are not needed. */
 template<typename T>
-static int bslz4_inner_sparse_dot(const void *BSLZ4_RESTRICT block, size_t n,
-                                  size_t decoded_bytes, size_t nbytes,
-                                  const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
-                                  int64_t threshold, void *BSLZ4_RESTRICT out_vals,
-                                  uint32_t *BSLZ4_RESTRICT out_adr,
-                                  double *BSLZ4_RESTRICT out, int nout,
-                                  const float *BSLZ4_RESTRICT data,
-                                  const uint32_t *BSLZ4_RESTRICT indices,
-                                  const uint32_t *BSLZ4_RESTRICT indptr,
-                                  double dense_sparse_x, uint32_t *BSLZ4_RESTRICT tidx,
-                                  void *BSLZ4_RESTRICT tval) {
+static inline
+int dense_dot(const void *BSLZ4_RESTRICT block, size_t n,
+              const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+              int64_t threshold, void *BSLZ4_RESTRICT out_vals,
+              uint32_t *BSLZ4_RESTRICT out_adr,
+              const bslz4_csc *BSLZ4_RESTRICT csc) {
+    const T cut = (T) threshold;
+    const T *px = (const T *) block;
+    double *BSLZ4_RESTRICT out = csc->out;
+    const float *BSLZ4_RESTRICT data = csc->data;
+    const uint32_t *BSLZ4_RESTRICT indices = csc->indices;
+    const uint32_t *BSLZ4_RESTRICT indptr = csc->indptr;
+    for (size_t j = 0; j < n; j++) {
+        if (mask[j + i0] > 0) {
+            uint32_t k0 = indptr[j + i0], k1 = indptr[j + i0 + 1];
+            T pv = px[j];
+            for (uint32_t k = k0; k < k1; k++)
+                out[indices[k]] += (double) data[k] * (double) pv;
+        }
+    }
+    return bslz4_collect_gt<T>(px, mask, i0, n, cut, (T *) out_vals, out_adr);
+}
+
+/* sparse CSC route: compact non-zeros into (tval,tidx), dot.sparse over the
+ * list, then the >cut collect over the same list. */
+template<typename T>
+static inline
+int sparse_dot(const void *BSLZ4_RESTRICT block, size_t n,
+               const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+               int64_t threshold, void *BSLZ4_RESTRICT out_vals,
+               uint32_t *BSLZ4_RESTRICT out_adr,
+               const bslz4_csc *BSLZ4_RESTRICT csc, uint32_t *BSLZ4_RESTRICT tidx,
+               void *BSLZ4_RESTRICT tval) {
     const T cut = (T) threshold;
     const T *px = (const T *) block;
     T *tv = (T *) tval;
-    const bool use_sparse = decoded_bytes > 0
-        ? (double) decoded_bytes > dense_sparse_x * (double) nbytes
-        : true;
+    int npx = 0;
+    int nz = bslz4_collect_nz<T>(px, mask, i0, n, tv, tidx);
+    double *BSLZ4_RESTRICT out = csc->out;
+    const float *BSLZ4_RESTRICT data = csc->data;
+    const uint32_t *BSLZ4_RESTRICT indices = csc->indices;
+    const uint32_t *BSLZ4_RESTRICT indptr = csc->indptr;
+    for (int kk = 0; kk < nz; kk++) {
+        uint32_t addr = tidx[kk];
+        T val = tv[kk];
+        uint32_t k0 = indptr[addr], k1 = indptr[addr + 1];
+        for (uint32_t k = k0; k < k1; k++)
+            out[indices[k]] += (double) data[k] * (double) val;
+    }
+    T *ov = (T *) out_vals;
+    for (int kk = 0; kk < nz; kk++) {
+        T val = tv[kk];
+        if (BSLZ4_UNLIKELY(val > cut)) {
+            ov[npx] = val;
+            out_adr[npx] = tidx[kk];
+            npx++;
+        }
+    }
+    return npx;
+}
 
-    if (use_sparse) {
-        int npx = 0;
-        int nz = bslz4_collect_nz<T>(px, mask, i0, n, tv, tidx);
-        for (int kk = 0; kk < nz; kk++) {
-            uint32_t addr = tidx[kk];
-            T val = tv[kk];
-            uint32_t k0 = indptr[addr], k1 = indptr[addr + 1];
-            for (uint32_t k = k0; k < k1; k++)
-                out[indices[k]] += (double) data[k] * (double) val;
-        }
-        T *ov = (T *) out_vals;
-        for (int kk = 0; kk < nz; kk++) {
-            T val = tv[kk];
-            if (BSLZ4_UNLIKELY(val > cut)) {
-                ov[npx] = val;
-                out_adr[npx] = tidx[kk];
-                npx++;
-            }
-        }
-        return npx;
-    } else {
-        for (size_t j = 0; j < n; j++) {
-            if (mask[j + i0] > 0) {
-                uint32_t k0 = indptr[j + i0], k1 = indptr[j + i0 + 1];
-                T pv = px[j];
-                for (uint32_t k = k0; k < k1; k++)
-                    out[indices[k]] += (double) data[k] * (double) pv;
-            }
-        }
-        return bslz4_collect_gt<T>(px, mask, i0, n, cut, (T *) out_vals, out_adr);
+/* Direct-call, dtype-switching entry points.  The per-dtype handlers are
+ * static + always_inline in this TU, so the switch bodies inline: one jump
+ * table, no function-pointer indirect call, no second call boundary. */
+
+extern "C" int bslz4_sparse_dispatch(
+    int dtype, const void *BSLZ4_RESTRICT block, size_t n,
+    const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+    int64_t threshold, void *BSLZ4_RESTRICT out_vals,
+    uint32_t *BSLZ4_RESTRICT out_adr) {
+    switch (dtype) {
+    case 0: return sparse_plain<uint8_t>(block, n, mask, i0, threshold, out_vals, out_adr);
+    case 1: return sparse_plain<uint16_t>(block, n, mask, i0, threshold, out_vals, out_adr);
+    case 2: return sparse_plain<uint32_t>(block, n, mask, i0, threshold, out_vals, out_adr);
+    case 3: return sparse_plain<uint64_t>(block, n, mask, i0, threshold, out_vals, out_adr);
+    case 4: return sparse_plain<int8_t>(block, n, mask, i0, threshold, out_vals, out_adr);
+    case 5: return sparse_plain<int16_t>(block, n, mask, i0, threshold, out_vals, out_adr);
+    case 6: return sparse_plain<int32_t>(block, n, mask, i0, threshold, out_vals, out_adr);
+    case 7: return sparse_plain<int64_t>(block, n, mask, i0, threshold, out_vals, out_adr);
+    case 8: return sparse_plain<float>(block, n, mask, i0, threshold, out_vals, out_adr);
+    case 9: return sparse_plain<double>(block, n, mask, i0, threshold, out_vals, out_adr);
+    default: return BSLZ4_ERR_DTYPE;
     }
 }
 
-/* extern "C" wrappers, one per dtype, for the bslz4_inner_table. */
-#define BSLZ4_DEFINE_SPARSE_DTYPE(T, SUFFIX)                                        \
-    extern "C" int bslz4_inner_sparse_##SUFFIX(                                    \
-        const void *BSLZ4_RESTRICT block, size_t n, const uint8_t *BSLZ4_RESTRICT mask, \
-        size_t i0, int64_t threshold, void *BSLZ4_RESTRICT out_vals,                \
-        uint32_t *BSLZ4_RESTRICT out_adr) {                                        \
-        return bslz4_inner_sparse<T>(block, n, mask, i0, threshold, out_vals,      \
-                                     out_adr);                                      \
-    }                                                                              \
-    extern "C" int bslz4_inner_sparse_dot_##SUFFIX(                                \
-        const void *BSLZ4_RESTRICT block, size_t n, size_t decoded_bytes, size_t nbytes, \
-        const uint8_t *BSLZ4_RESTRICT mask, size_t i0, int64_t threshold,          \
-        void *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr,           \
-        double *BSLZ4_RESTRICT out, int nout, const float *BSLZ4_RESTRICT data,    \
-        const uint32_t *BSLZ4_RESTRICT indices, const uint32_t *BSLZ4_RESTRICT indptr, \
-        double dense_sparse_x, uint32_t *BSLZ4_RESTRICT tidx,                      \
-        void *BSLZ4_RESTRICT tval) {                                               \
-        return bslz4_inner_sparse_dot<T>(block, n, decoded_bytes, nbytes, mask,    \
-                                         i0, threshold, out_vals, out_adr, out,    \
-                                         nout, data, indices, indptr,              \
-                                         dense_sparse_x, tidx, tval);              \
+extern "C" int bslz4_sparse_dot_dispatch(
+    int dtype, int route, const void *BSLZ4_RESTRICT block, size_t n,
+    const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+    int64_t threshold, void *BSLZ4_RESTRICT out_vals,
+    uint32_t *BSLZ4_RESTRICT out_adr,
+    const bslz4_csc *BSLZ4_RESTRICT csc, uint32_t *BSLZ4_RESTRICT tidx,
+    void *BSLZ4_RESTRICT tval) {
+    switch (dtype) {
+    case 0: return route ? sparse_dot<uint8_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc, tidx, tval)
+                         : dense_dot<uint8_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc);
+    case 1: return route ? sparse_dot<uint16_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc, tidx, tval)
+                         : dense_dot<uint16_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc);
+    case 2: return route ? sparse_dot<uint32_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc, tidx, tval)
+                         : dense_dot<uint32_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc);
+    case 3: return route ? sparse_dot<uint64_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc, tidx, tval)
+                         : dense_dot<uint64_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc);
+    case 4: return route ? sparse_dot<int8_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc, tidx, tval)
+                         : dense_dot<int8_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc);
+    case 5: return route ? sparse_dot<int16_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc, tidx, tval)
+                         : dense_dot<int16_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc);
+    case 6: return route ? sparse_dot<int32_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc, tidx, tval)
+                         : dense_dot<int32_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc);
+    case 7: return route ? sparse_dot<int64_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc, tidx, tval)
+                         : dense_dot<int64_t>(block, n, mask, i0, threshold, out_vals, out_adr, csc);
+    case 8: return route ? sparse_dot<float>(block, n, mask, i0, threshold, out_vals, out_adr, csc, tidx, tval)
+                         : dense_dot<float>(block, n, mask, i0, threshold, out_vals, out_adr, csc);
+    case 9: return route ? sparse_dot<double>(block, n, mask, i0, threshold, out_vals, out_adr, csc, tidx, tval)
+                         : dense_dot<double>(block, n, mask, i0, threshold, out_vals, out_adr, csc);
+    default: return BSLZ4_ERR_DTYPE;
     }
-
-BSLZ4_DEFINE_SPARSE_DTYPE(uint8_t, u8)
-BSLZ4_DEFINE_SPARSE_DTYPE(uint16_t, u16)
-BSLZ4_DEFINE_SPARSE_DTYPE(uint32_t, u32)
-BSLZ4_DEFINE_SPARSE_DTYPE(uint64_t, u64)
-BSLZ4_DEFINE_SPARSE_DTYPE(int8_t, i8)
-BSLZ4_DEFINE_SPARSE_DTYPE(int16_t, i16)
-BSLZ4_DEFINE_SPARSE_DTYPE(int32_t, i32)
-BSLZ4_DEFINE_SPARSE_DTYPE(int64_t, i64)
-BSLZ4_DEFINE_SPARSE_DTYPE(float, f32)
-BSLZ4_DEFINE_SPARSE_DTYPE(double, f64)
-
-#undef BSLZ4_DEFINE_SPARSE_DTYPE
-
-extern "C" const bslz4_inner_entry bslz4_inner_table[10] = {
-    {sizeof(uint8_t),  bslz4_inner_sparse_u8,  bslz4_inner_sparse_dot_u8},
-    {sizeof(uint16_t), bslz4_inner_sparse_u16, bslz4_inner_sparse_dot_u16},
-    {sizeof(uint32_t), bslz4_inner_sparse_u32, bslz4_inner_sparse_dot_u32},
-    {sizeof(uint64_t), bslz4_inner_sparse_u64, bslz4_inner_sparse_dot_u64},
-    {sizeof(int8_t),   bslz4_inner_sparse_i8,  bslz4_inner_sparse_dot_i8},
-    {sizeof(int16_t),  bslz4_inner_sparse_i16, bslz4_inner_sparse_dot_i16},
-    {sizeof(int32_t),  bslz4_inner_sparse_i32, bslz4_inner_sparse_dot_i32},
-    {sizeof(int64_t),  bslz4_inner_sparse_i64, bslz4_inner_sparse_dot_i64},
-    {sizeof(float),    bslz4_inner_sparse_f32, bslz4_inner_sparse_dot_f32},
-    {sizeof(double),   bslz4_inner_sparse_f64, bslz4_inner_sparse_dot_f64},
-};
+}

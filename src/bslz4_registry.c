@@ -78,6 +78,22 @@ static bslz4_untranspose_fn untranspose_by_id(int id) {
     }
 }
 
+static size_t bslz4_elem_size(int dtype) {
+    switch (dtype) {
+    case 0: return 1;  /* u8 */
+    case 1: return 2;  /* u16 */
+    case 2: return 4;  /* u32 */
+    case 3: return 8;  /* u64 */
+    case 4: return 1;  /* i8 */
+    case 5: return 2;  /* i16 */
+    case 6: return 4;  /* i32 */
+    case 7: return 8;  /* i64 */
+    case 8: return 4;  /* f32 */
+    case 9: return 8;  /* f64 */
+    default: return 1;
+    }
+}
+
 int bslz4_resolve(int dtype, uint64_t pipeline, bslz4_stage *BSLZ4_RESTRICT st) {
     if (dtype < 0 || dtype > 9) return BSLZ4_ERR_DTYPE;
 
@@ -102,12 +118,10 @@ int bslz4_resolve(int dtype, uint64_t pipeline, bslz4_stage *BSLZ4_RESTRICT st) 
     if (!((dot_dtype_mask(dot) >> dtype) & 1u)) return BSLZ4_ERR_DTYPE;
     if (!options_ok(pipeline)) return BSLZ4_ERR_BAD_PIPELINE;
 
-    const bslz4_inner_entry *ie = &bslz4_inner_table[dtype];
-    st->elem_size = ie->elem_size;
+    st->elem_size = (size_t) bslz4_elem_size(dtype);
+    st->dtype = dtype;
     st->decompress = &bslz4_decompress;
     st->untranspose = untranspose_by_id(unt);
-    st->sparse = ie->sparse;
-    st->sparse_dot = ie->sparse_dot;
     return 0;
 }
 

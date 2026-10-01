@@ -1,15 +1,13 @@
 #ifndef BSLZ4_REGISTRY_H
 #define BSLZ4_REGISTRY_H
 /*
- * Stage/inner function-pointer types shared by the C driver and the
- * generic C++ kernels (kernels_generic.cpp), plus the driver entry
- * points themselves.
+ * Types shared by the C driver and the generic C++ kernels
+ * (kernels_generic.cpp), plus the driver entry points themselves.
  *
- * Phase 1 keeps the existing generated layer and native API unchanged:
- * the old C++ templates (bslz4_core.hpp) build a bslz4_stage and call
- * the driver, which owns the block/tail loop once.  The only genuinely
- * dtype-generic work (the per-block sparse / sparse_dot call) is reached
- * through the pointers below.
+ * The driver is dtype-agnostic C and owns the block/tail loop once; the only
+ * dtype-generic work (the per-block sparse / sparse_dot call) is a direct
+ * call into a dtype-switching dispatch in the C++ TU, so the per-dtype
+ * kernels can be inlined there (no function-pointer indirection).
  */
 
 #include <stddef.h>
@@ -24,46 +22,49 @@ typedef int64_t (*bslz4_untranspose_fn)(void *BSLZ4_RESTRICT out, const void *BS
                                          void *BSLZ4_RESTRICT scratch,
                                          size_t size, size_t elem_size);
 
-/* Per-block plain-sparse call: mask>0 & val>threshold, compacted. */
-typedef int (*bslz4_sparse_fn)(const void *BSLZ4_RESTRICT block, size_t n,
-                                const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
-                                int64_t threshold, void *BSLZ4_RESTRICT out_vals,
-                                uint32_t *BSLZ4_RESTRICT out_adr);
+/* The CSC matrix + powder destination, bundled so the per-block dispatch
+ * takes one pointer instead of five flat arguments. */
+typedef struct bslz4_csc {
+    double *BSLZ4_RESTRICT out;        /* powder output (nout doubles) */
+    int nout;
+    const float *BSLZ4_RESTRICT data;  /* CSC weights */
+    const uint32_t *BSLZ4_RESTRICT indices;
+    const uint32_t *BSLZ4_RESTRICT indptr;
+} bslz4_csc;
 
-/* Per-block CSC call: may route dense or sparse (see kernels_generic.cpp). */
-typedef int (*bslz4_sparse_dot_fn)(const void *BSLZ4_RESTRICT block, size_t n,
-                                    size_t decoded_bytes, size_t nbytes,
-                                    const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
-                                    int64_t threshold, void *BSLZ4_RESTRICT out_vals,
-                                    uint32_t *BSLZ4_RESTRICT out_adr,
-                                    double *BSLZ4_RESTRICT out, int nout,
-                                    const float *BSLZ4_RESTRICT data,
-                                    const uint32_t *BSLZ4_RESTRICT indices,
-                                    const uint32_t *BSLZ4_RESTRICT indptr,
-                                    double dense_sparse_x, uint32_t *BSLZ4_RESTRICT tidx,
-                                    void *BSLZ4_RESTRICT tval);
-
+/* What the dtype-agnostic driver needs to decode: element width, dtype
+ * index (for the C++ dispatch switch) and the per-block, non-generic
+ * decompress / untranspose operations.  The per-block dtype-generic work is
+ * a direct call into a dtype-dispatching switch rather than a function
+ * pointer, so the compiler can inline the per-dtype kernels. */
 typedef struct bslz4_stage {
     size_t elem_size;            /* sizeof(pixel dtype) */
+    int dtype;                   /* pixel dtype index 0..9 */
     bslz4_decompress_fn decompress;
     bslz4_untranspose_fn untranspose;
-    bslz4_sparse_fn sparse;      /* used by the plain-sparse driver */
-    bslz4_sparse_dot_fn sparse_dot; /* used by the CSC driver */
 } bslz4_stage;
-
-typedef struct bslz4_inner_entry {
-    size_t elem_size;
-    bslz4_sparse_fn sparse;
-    bslz4_sparse_dot_fn sparse_dot;
-} bslz4_inner_entry;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Defined in kernels_generic.cpp; indexed by dtype 0..9
- * (u8,u16,u32,u64,i8,i16,i32,i64,f32,f64). */
-extern const bslz4_inner_entry bslz4_inner_table[10];
+/* Direct-call dispatch (kernels_generic.cpp): route is 0=dense, 1=sparse.
+ * The per-dtype handlers are static/inline in that TU, so the switch bodies
+ * inline.  The CSC matrix comes bundled in *csc. */
+int bslz4_sparse_dispatch(int dtype,
+                          const void *BSLZ4_RESTRICT block, size_t n,
+                          const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+                          int64_t threshold, void *BSLZ4_RESTRICT out_vals,
+                          uint32_t *BSLZ4_RESTRICT out_adr);
+
+int bslz4_sparse_dot_dispatch(int dtype, int route,
+                              const void *BSLZ4_RESTRICT block, size_t n,
+                              const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+                              int64_t threshold, void *BSLZ4_RESTRICT out_vals,
+                              uint32_t *BSLZ4_RESTRICT out_adr,
+                              const bslz4_csc *BSLZ4_RESTRICT csc,
+                              uint32_t *BSLZ4_RESTRICT tidx,
+                              void *BSLZ4_RESTRICT tval);
 
 int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                           const int32_t *BSLZ4_RESTRICT compressed_lengths,
