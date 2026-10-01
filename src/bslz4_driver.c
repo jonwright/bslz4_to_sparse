@@ -101,10 +101,17 @@ int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
             int32_t npx = npx_out[f];
             bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
-            npx += bslz4_sparse_dispatch(st->dtype, block, block_elems, mask, (size_t) i0,
-                                         (int64_t) threshold,
-                                         outf + (size_t) npx * NB, outadrf + npx,
-                                         st->collect_id);
+            bslz4_work w = {0};
+            w.dtype = st->dtype;
+            w.collect_id = st->collect_id;
+            w.n = block_elems;
+            w.i0 = (size_t) i0;
+            w.threshold = (int64_t) threshold;
+            w.block = block;
+            w.mask = mask;
+            w.out_vals = outf + (size_t) npx * NB;
+            w.out_adr = outadrf + npx;
+            npx += bslz4_sparse_dispatch(&w);
             npx_out[f] = npx;
         }
         i0 += (int) block_elems;
@@ -139,10 +146,17 @@ int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         int32_t npx = npx_out[f];
         size_t ntail = ((size_t) rem_f + tail_block) / NB;
         bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
-        npx += bslz4_sparse_dispatch(st->dtype, block, ntail, mask, (size_t) i0,
-                                     (int64_t) threshold,
-                                     outf + (size_t) npx * NB, outadrf + npx,
-                                     st->collect_id);
+        bslz4_work w = {0};
+        w.dtype = st->dtype;
+        w.collect_id = st->collect_id;
+        w.n = ntail;
+        w.i0 = (size_t) i0;
+        w.threshold = (int64_t) threshold;
+        w.block = block;
+        w.mask = mask;
+        w.out_vals = outf + (size_t) npx * NB;
+        w.out_adr = outadrf + npx;
+        npx += bslz4_sparse_dispatch(&w);
         npx_out[f] = npx;
     }
     return 0;
@@ -215,14 +229,28 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             uint8_t *BSLZ4_RESTRICT outpxf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
             uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
             int32_t npx = npx_out[f];
-            int route = (double) blocksize > dense_sparse_x * (double) nbytes;
-            bslz4_csc csc = {outf, nout, data, indices, indptr};
             bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
             bslz4_counters_bump(BSLZ4_STAGE_DOT, st->dot_id);
-            npx += bslz4_sparse_dot_dispatch(st->dtype, route, block, block_elems,
-                                             mask, (size_t) i0, (int64_t) threshold,
-                                             outpxf + (size_t) npx * NB, outadrf + npx,
-                                             &csc, tidx, tval, st->collect_id);
+            bslz4_work w = {0};
+            w.dtype = st->dtype;
+            w.route = (double) blocksize > dense_sparse_x * (double) nbytes;
+            w.collect_id = st->collect_id;
+            w.dot_id = st->dot_id;
+            w.n = block_elems;
+            w.i0 = (size_t) i0;
+            w.threshold = (int64_t) threshold;
+            w.block = block;
+            w.mask = mask;
+            w.out_vals = outpxf + (size_t) npx * NB;
+            w.out_adr = outadrf + npx;
+            w.powder = outf;
+            w.nout = nout;
+            w.data = data;
+            w.indices = indices;
+            w.indptr = indptr;
+            w.tidx = tidx;
+            w.tval = tval;
+            npx += bslz4_sparse_dot_dispatch(&w);
             npx_out[f] = npx;
         }
         i0 += (int) block_elems;
@@ -259,16 +287,30 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         uint8_t *BSLZ4_RESTRICT outpxf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
         uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
         int32_t npx = npx_out[f];
-        int route = tail_block > 0
-            ? (double) tail_block > dense_sparse_x * (double) tail_nbytes
-            : 1; /* pure literal remainder: trivially cheap either way */
-        bslz4_csc csc = {outf, nout, data, indices, indptr};
         bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
         bslz4_counters_bump(BSLZ4_STAGE_DOT, st->dot_id);
-        npx += bslz4_sparse_dot_dispatch(st->dtype, route, block, ntail,
-                                         mask, (size_t) i0, (int64_t) threshold,
-                                         outpxf + (size_t) npx * NB, outadrf + npx,
-                                         &csc, tidx, tval, st->collect_id);
+        bslz4_work w = {0};
+        w.dtype = st->dtype;
+        w.route = tail_block > 0
+            ? (double) tail_block > dense_sparse_x * (double) tail_nbytes
+            : 1; /* pure literal remainder: trivially cheap either way */
+        w.collect_id = st->collect_id;
+        w.dot_id = st->dot_id;
+        w.n = ntail;
+        w.i0 = (size_t) i0;
+        w.threshold = (int64_t) threshold;
+        w.block = block;
+        w.mask = mask;
+        w.out_vals = outpxf + (size_t) npx * NB;
+        w.out_adr = outadrf + npx;
+        w.powder = outf;
+        w.nout = nout;
+        w.data = data;
+        w.indices = indices;
+        w.indptr = indptr;
+        w.tidx = tidx;
+        w.tval = tval;
+        npx += bslz4_sparse_dot_dispatch(&w);
         npx_out[f] = npx;
     }
     return 0;

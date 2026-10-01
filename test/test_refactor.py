@@ -190,3 +190,75 @@ def test_resolution_errors():
                               np.arange(NPIX, dtype=np.uint32),
                               np.arange(NPIX, dtype=np.uint32),
                               ws, np.empty(1, np.int64), NBINS, 1e9, 1, b.pack_pipeline())
+
+
+# ---- dot variants: the per-dtype/kernel mechanism ---------------------------
+# dot id 0 = csc "dot then threshold" (a dot.dense pass, then a separate >cut
+# collect); dot id 1 = a new variant that fuses the dense CSC loop with the
+# >cut sparsify into a single pass.  Both must give bit-identical powder and
+# sparse output, and the counters must show the *selected* dot impl ran.
+
+def _variant_chunks(h5py, hdf5plugin, nf=2, h=8, w=8):
+    """A tiny real bitshuffle-lz4 dataset with a mix of above/below-cut pixels
+    so both dot variants have real work to do."""
+    arr = (np.arange(nf * h * w, dtype=np.uint32).reshape(nf, h, w) % 8).astype(np.uint16)
+    fn = "/tmp/_bslz4_variant.h5"
+    with h5py.File(fn, "w") as f:
+        f.create_dataset("d", data=arr, chunks=(1, h, w),
+                         **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
+    with h5py.File(fn, "r") as f:
+        return [f["d"].id.read_direct_chunk((i, 0, 0))[1] for i in range(nf)]
+
+
+def test_dot_variants_fused_and_plain_agree():
+    h5py = pytest.importorskip("h5py")
+    hdf5plugin = pytest.importorskip("hdf5plugin")
+
+    # the fused variant must be a known, available dot implementation
+    assert b.impl_available(b._STAGE_DOT, 1) == 1
+    assert b.impl_available(b._STAGE_DOT, 0) == 1
+    assert b.impl_available(b._STAGE_DOT, 99) == -1
+    b.pack_pipeline(dot=1)   # must not raise
+
+    chunks = _variant_chunks(h5py, hdf5plugin)
+    mask = np.ones((1, 8 * 8), np.uint8)
+    npix = mask.size
+    nbins = 4
+    indptr = np.arange(npix + 1, dtype=np.uint32)
+    indices = (np.arange(npix) % nbins).astype(np.uint32)
+    data = np.ones(npix, np.float32)
+    csc = type("_CSC", (), {"indptr": indptr, "indices": indices, "data": data,
+                            "shape": (nbins, npix)})()
+
+    def _run(dot, thr):
+        b.set_dense_sparse_threshold(thr)
+        c = b.chunk2sparseCSCmulti(mask, csc, dtype=np.uint16, dot=dot)
+        b.reset_counters()
+        npx, (vals, adr), powder = c(chunks, 1)
+        out = np.empty(64, np.uint64)
+        b.read_counters(out)
+        D = b._STAGE_DOT * 16
+        assert out[D + dot] > 0, (dot, "selected dot impl did not run")
+        assert out[D + 1 - dot] == 0, (dot, "the other dot impl should not run")
+        return npx, vals[0:], adr[0:], powder
+
+    def _check_equal(npx_a, v_a, a_a, p_a, npx_b, v_b, a_b, p_b):
+        np.testing.assert_array_equal(npx_a, npx_b)
+        for i in range(len(npx_a)):
+            n = int(npx_a[i])
+            np.testing.assert_array_equal(v_a[i][:n], v_b[i][:n])
+            np.testing.assert_array_equal(a_a[i][:n], a_b[i][:n])
+        np.testing.assert_array_equal(p_a, p_b)
+
+    saved = b.get_dense_sparse_threshold()
+    try:
+        # dense route: dot=0 (dot then threshold) vs dot=1 (fused) -- identical
+        npx0, v0, a0, p0 = _run(0, 1e9)
+        npx1, v1, a1, p1 = _run(1, 1e9)
+        _check_equal(npx0, v0, a0, p0, npx1, v1, a1, p1)
+        # sparse route: both dot ids run the same sparse kernel -- identical too
+        npxs0, vs0, as0, ps0 = _run(0, 0.0)
+        npxs1, vs1, as1, ps1 = _run(1, 0.0)
+        _check_equal(npxs0, vs0, as0, ps0, npxs1, vs1, as1, ps1)
+    finally:
+        b.set_dense_sparse_threshold(saved)

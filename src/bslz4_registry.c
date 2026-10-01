@@ -39,7 +39,7 @@ int bslz4_impl_available(int stage, int id) {
         default: return -1;
         }
     case BSLZ4_STAGE_DOT:
-        return (id == 0) ? 1 : -1;  /* csc */
+        return (id == 0 || id == 1) ? 1 : -1;  /* 0=csc, 1=csc-fused (dot+threshold interleaved) */
     default:
         return -1;
     }

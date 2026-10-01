@@ -13,8 +13,10 @@
 
 #if defined(_MSC_VER)
 #define BSLZ4_RESTRICT __restrict
+#define BSLZ4_NOINLINE __declspec(noinline)
 #else
 #define BSLZ4_RESTRICT __restrict__
+#define BSLZ4_NOINLINE __attribute__((noinline))
 #endif
 
 #ifndef BSLZ4_UNLIKELY
@@ -42,30 +44,35 @@ static inline uint64_t bslz4_read_be64(const uint8_t *BSLZ4_RESTRICT p) {
 /* Default bitshuffle block size (bytes) when the stream header encodes zero. */
 #define BSLZ4_DEFAULT_BLOCK_BYTES 8192
 
-/* Pipeline word (uint64_t, pass by value).  12 bits per stage:
- *  63            48 47            36 35            24 23             12 11              0
- * +----------------+----------------+----------------+-----------------+----------------+
- * |  options (16)  |    dot (12)    |  collect (12)  | untranspose(12) | decompress (12)|
- * +----------------+----------------+----------------+-----------------+----------------+
+/* Pipeline word (uint64_t, pass by value).  c2py23 only accepts a signed
+ * 32-bit int for the pipeline argument, so the fields are packed into the
+ * low 24 bits (4 bits per stage id, 8 bits of options) rather than the
+ * 12-bit-per-stage / 16-bit-options layout originally sketched in plan.md:
+ * that 64-bit layout put the dot/options fields at bits 36+/48+, which
+ * cannot be represented in the signed int the generated wrapper accepts.
+ *  23        16 15        12 11        8 7         4 3          0
+ * +------------+------------+-----------+-----------+-----------+
+ * |  options(8)|    dot(4)  | collect(4)| untrans(4)| decomp(4) |
+ * +------------+------------+-----------+-----------+-----------+
  * "options" bits are named below.  All options zero reproduces today's
  * behaviour exactly. */
 #define BSLZ4_PIPE_SHIFT_DECOMPRESS  0
-#define BSLZ4_PIPE_SHIFT_UNTRANSPOSE 12
-#define BSLZ4_PIPE_SHIFT_COLLECT     24
-#define BSLZ4_PIPE_SHIFT_DOT         36
-#define BSLZ4_PIPE_SHIFT_OPTIONS     48
-#define BSLZ4_PIPE_MASK             0xFFFu
+#define BSLZ4_PIPE_SHIFT_UNTRANSPOSE 4
+#define BSLZ4_PIPE_SHIFT_COLLECT     8
+#define BSLZ4_PIPE_SHIFT_DOT         12
+#define BSLZ4_PIPE_SHIFT_OPTIONS     16
+#define BSLZ4_PIPE_MASK             0xFu
 
 #define BSLZ4_PIPE_DECOMPRESS(p)   ((int) (((p) >> BSLZ4_PIPE_SHIFT_DECOMPRESS) & BSLZ4_PIPE_MASK))
 #define BSLZ4_PIPE_UNTRANSPOSE(p)  ((int) (((p) >> BSLZ4_PIPE_SHIFT_UNTRANSPOSE) & BSLZ4_PIPE_MASK))
 #define BSLZ4_PIPE_COLLECT(p)      ((int) (((p) >> BSLZ4_PIPE_SHIFT_COLLECT) & BSLZ4_PIPE_MASK))
 #define BSLZ4_PIPE_DOT(p)          ((int) (((p) >> BSLZ4_PIPE_SHIFT_DOT) & BSLZ4_PIPE_MASK))
-#define BSLZ4_PIPE_OPTIONS(p)      ((int) (((p) >> BSLZ4_PIPE_SHIFT_OPTIONS) & 0xFFFFu))
+#define BSLZ4_PIPE_OPTIONS(p)      ((int) (((p) >> BSLZ4_PIPE_SHIFT_OPTIONS) & 0xFFu))
 #define BSLZ4_PIPE_OPT_BIT(p, bit) ((((p) >> BSLZ4_PIPE_SHIFT_OPTIONS) & ((uint64_t) 1 << (bit))) != 0)
 
 /* Build a pipeline word from the four stage ids + options. */
 #define BSLZ4_PIPE_MAKE(decomp, untranspose, collect, dot, opt) \
-    ((((uint64_t) (opt) & 0xFFFFu) << BSLZ4_PIPE_SHIFT_OPTIONS) | \
+    ((((uint64_t) (opt) & 0xFFu) << BSLZ4_PIPE_SHIFT_OPTIONS) | \
      (((uint64_t) (dot) & BSLZ4_PIPE_MASK) << BSLZ4_PIPE_SHIFT_DOT) | \
      (((uint64_t) (collect) & BSLZ4_PIPE_MASK) << BSLZ4_PIPE_SHIFT_COLLECT) | \
      (((uint64_t) (untranspose) & BSLZ4_PIPE_MASK) << BSLZ4_PIPE_SHIFT_UNTRANSPOSE) | \

@@ -5,9 +5,11 @@
  * (kernels_generic.cpp), plus the driver entry points themselves.
  *
  * The driver is dtype-agnostic C and owns the block/tail loop once; the only
- * dtype-generic work (the per-block sparse / sparse_dot call) is a direct
- * call into a dtype-switching dispatch in the C++ TU, so the per-dtype
- * kernels can be inlined there (no function-pointer indirection).
+ * dtype-generic work (the per-block sparse / sparse_dot call) is reached
+ * through a thin dtype-dispatching switch in the C++ TU.  That switch calls
+ * a small, per-dtype noinline kernel (so the switch body stays small and
+ * each kernel is independently register-allocated), and every kernel takes
+ * a single pointer to a bslz4_work context rather than a dozen scalar args.
  */
 
 #include <stddef.h>
@@ -22,26 +24,42 @@ typedef int64_t (*bslz4_untranspose_fn)(void *BSLZ4_RESTRICT out, const void *BS
                                          void *BSLZ4_RESTRICT scratch,
                                          size_t size, size_t elem_size);
 
-/* The CSC matrix + powder destination, bundled so the per-block dispatch
- * takes one pointer instead of five flat arguments. */
-typedef struct bslz4_csc {
-    double *BSLZ4_RESTRICT out;        /* powder output (nout doubles) */
-    int nout;
-    const float *BSLZ4_RESTRICT data;  /* CSC weights */
+/* Per-block working state for the dtype-generic inner call.  The driver
+ * fills one of these per block and passes a single pointer; the C++ kernel
+ * unpacks it once into locals (no repeated struct-pointer indirection, no
+ * ABI stack spill of a dozen scalar arguments).  The CSC-only fields are
+ * ignored by the plain sparse path. */
+typedef struct bslz4_work {
+    int    dtype;                    /* pixel dtype index 0..9 */
+    int    route;                    /* 0=dense, 1=sparse (CSC only) */
+    int    collect_id;               /* resolved collect tier 0..5 */
+    int    dot_id;                   /* resolved dot impl: 0=csc, 1=csc-fused */
+    size_t n;                        /* pixels in this block/tail */
+    size_t i0;                       /* global pixel offset of block start */
+    int64_t threshold;
+    const void   *BSLZ4_RESTRICT block;    /* decoded + transposed block */
+    const uint8_t *BSLZ4_RESTRICT mask;
+    void          *BSLZ4_RESTRICT out_vals;/* sparse output values */
+    uint32_t      *BSLZ4_RESTRICT out_adr;
+    double        *BSLZ4_RESTRICT powder;  /* CSC output (nout doubles) */
+    int           nout;
+    const float   *BSLZ4_RESTRICT data;    /* CSC weights */
     const uint32_t *BSLZ4_RESTRICT indices;
     const uint32_t *BSLZ4_RESTRICT indptr;
-} bslz4_csc;
+    uint32_t      *BSLZ4_RESTRICT tidx;    /* sparse-route compaction scratch */
+    void          *BSLZ4_RESTRICT tval;
+} bslz4_work;
 
 /* What the dtype-agnostic driver needs to decode: element width, dtype
- * index (for the C++ dispatch switch) and the per-block, non-generic
- * decompress / untranspose operations.  The per-block dtype-generic work is
- * a direct call into a dtype-dispatching switch rather than a function
- * pointer, so the compiler can inline the per-dtype kernels. */
+ * index and the per-block, non-generic decompress / untranspose
+ * operations.  The per-block dtype-generic work is reached through a thin
+ * dtype-dispatching switch (kernels_generic.cpp) that calls small,
+ * per-dtype noinline kernels, each taking a bslz4_work*. */
 typedef struct bslz4_stage {
     size_t elem_size;            /* sizeof(pixel dtype) */
     int dtype;                   /* pixel dtype index 0..9 */
     int collect_id;              /* resolved collect tier 0..5 */
-    int dot_id;                  /* resolved dot impl 0 (csc) */
+    int dot_id;                  /* resolved dot impl 0.. */
     int untranspose_id;          /* resolved untranspose backend 0..3 */
     bslz4_decompress_fn decompress;
     bslz4_untranspose_fn untranspose;
@@ -51,25 +69,13 @@ typedef struct bslz4_stage {
 extern "C" {
 #endif
 
-/* Direct-call dispatch (kernels_generic.cpp): route is 0=dense, 1=sparse.
- * The per-dtype handlers are static/inline in that TU, so the switch bodies
- * inline.  The CSC matrix comes bundled in *csc.  collect_id/dot_id are the
- * pipeline-resolved ids, used to pick the collect tier and for the counters. */
-int bslz4_sparse_dispatch(int dtype,
-                          const void *BSLZ4_RESTRICT block, size_t n,
-                          const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
-                          int64_t threshold, void *BSLZ4_RESTRICT out_vals,
-                          uint32_t *BSLZ4_RESTRICT out_adr, int collect_id);
-
-int bslz4_sparse_dot_dispatch(int dtype, int route,
-                              const void *BSLZ4_RESTRICT block, size_t n,
-                              const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
-                              int64_t threshold, void *BSLZ4_RESTRICT out_vals,
-                              uint32_t *BSLZ4_RESTRICT out_adr,
-                              const bslz4_csc *BSLZ4_RESTRICT csc,
-                              uint32_t *BSLZ4_RESTRICT tidx,
-                              void *BSLZ4_RESTRICT tval,
-                              int collect_id);
+/* Thin dtype-dispatching switch (kernels_generic.cpp).  Each case is a
+ * direct call to a small per-dtype noinline kernel, so the switch body
+ * stays small (no inlined mega-function) and each kernel is independently
+ * register-allocated.  A single bslz4_work* replaces a dozen scalar args;
+ * the kernel unpacks the fields once into locals. */
+int bslz4_sparse_dispatch(const bslz4_work *BSLZ4_RESTRICT w);
+int bslz4_sparse_dot_dispatch(const bslz4_work *BSLZ4_RESTRICT w);
 
 int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                           const int32_t *BSLZ4_RESTRICT compressed_lengths,

@@ -184,16 +184,19 @@ def _default_codec():
 
 
 def _pack(decompress, untranspose, collect, dot, options):
-    return ((options & 0xFFFF) << 48 | (dot & 0xFFF) << 36 |
-            (collect & 0xFFF) << 24 | (untranspose & 0xFFF) << 12 |
-            (decompress & 0xFFF))
+    # Mirrors BSLZ4_PIPE_MAKE in bslz4_common.h: 4 bits per stage id, 8 bits
+    # of options, packed into the low 24 bits (c2py23 accepts a signed int,
+    # so the pipeline cannot use bits >= 31).
+    return ((options & 0xFF) << 16 | (dot & 0xF) << 12 |
+            (collect & 0xF) << 8 | (untranspose & 0xF) << 4 |
+            (decompress & 0xF))
 
 
-def _pipeline_for(codec, collect_tier):
-    """Pipeline for the current module defaults, given an explicit codec and
-    the collect tier for this dtype (0 for anything but u16/u32, which are
-    the only types the SIMD collect tiers support)."""
-    return _pack(codec, _BACKEND_TO_ID[_default_backend], collect_tier, 0, 0)
+def _pipeline_for(codec, collect_tier, dot=0):
+    """Pipeline for the current module defaults, given an explicit codec, the
+    collect tier for this dtype (0 for anything but u16/u32, which are the
+    only types the SIMD collect tiers support) and the dot implementation id."""
+    return _pack(codec, _BACKEND_TO_ID[_default_backend], collect_tier, dot, 0)
 
 
 def _collect_tier_for_suffix(suffix):
@@ -213,12 +216,12 @@ def _make_sparsify(suffix, pipeline=None):
     return fn
 
 
-def _make_csc(suffix, pipeline=None):
+def _make_csc(suffix, pipeline=None, dot=0):
     di = _SUFFIX_TO_DTYPE[suffix]
 
     def fn(pointers, lengths, mask, outpx, output_adr, npx_out, threshold, powder, data,
            indices, indptr, workspace, cursors, nout, codec):
-        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix))
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot)
         return _ext.sparsify_and_dot(pointers, lengths, mask, outpx, output_adr, npx_out,
                                      threshold, powder, data, indices, indptr,
                                      workspace, cursors, nout, _dense_sparse_threshold,
@@ -226,7 +229,7 @@ def _make_csc(suffix, pipeline=None):
     return fn
 
 
-def _make_csc_base(suffix, pipeline=None):
+def _make_csc_base(suffix, pipeline=None, dot=0):
     di = _SUFFIX_TO_DTYPE[suffix]
 
     def fn(base, offsets, lengths, mask, outpx, output_adr, npx_out, threshold, powder, data,
@@ -234,7 +237,7 @@ def _make_csc_base(suffix, pipeline=None):
         rc = _ext.offsets_to_pointers(base, offsets, lengths, len(lengths))
         if rc < 0:
             return rc
-        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix))
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot)
         return _ext.sparsify_and_dot(offsets, lengths, mask, outpx, output_adr, npx_out,
                                      threshold, powder, data, indices, indptr,
                                      workspace, cursors, nout, _dense_sparse_threshold,
@@ -424,10 +427,13 @@ def normalise_matrix(csc, npix=None):
 
 
 # Selection hook: given the matrix and a block size (bytes), decide which
-# dot implementation to use.  Only csc exists today, so it always returns 0.
+# dot implementation to use.  Only csc exists today, so it always returns 0
+# (plain csc); the csc-fused variant (id 1) is selected explicitly via the
+# `dot=` constructor argument.
 def select_dot(matrix, blocksize=0):
     """Select the dot implementation id for a matrix/block-size combo.
-    Only the csc layout exists, so this returns 0."""
+    Only the csc layout exists, so this returns 0; a specific variant can
+    be chosen with the `dot=` argument to chunk2sparseCSC/multi."""
     return 0
 
 
@@ -553,7 +559,7 @@ class chunk2sparseCSCmulti:
     strategy based on that block's compression ratio.
     """
 
-    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None):
+    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None, dot=None):
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
         nm = normalise_matrix(csc, npix=len(self.mask))
@@ -561,14 +567,16 @@ class chunk2sparseCSCmulti:
         self.cscindices = nm.indices
         self.cscindptr = nm.indptr
         self.nbins = nm.nbins
-        self.dot_id = select_dot(nm)
+        # dot implementation id: 0 = csc (dot then threshold), 1 = csc-fused
+        # (the dense >cut sparsify interleaved into the CSC loop).
+        self.dot_id = select_dot(nm) if dot is None else int(dot)
 
         self.npix = mask.size
         self.dtype = dtype
         self.itemsize = np.dtype(dtype).itemsize
         self.codec = codec
         self.pipeline = pipeline
-        self._fn = _make_csc(_suffix_for_dtype(dtype), pipeline=pipeline)
+        self._fn = _make_csc(_suffix_for_dtype(dtype), pipeline=pipeline, dot=self.dot_id)
 
         self._nframes = 0
         self._outpx = None
@@ -622,8 +630,9 @@ class chunk2sparseCSCmulti:
 class chunk2sparseCSC:
     """Single-frame CSC decode: chunk2sparseCSCmulti with nframes fixed at 1."""
 
-    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None):
-        self._multi = chunk2sparseCSCmulti(mask, csc, dtype=dtype, codec=codec, pipeline=pipeline)
+    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None, dot=None):
+        self._multi = chunk2sparseCSCmulti(mask, csc, dtype=dtype, codec=codec,
+                                           pipeline=pipeline, dot=dot)
         self.nfast = self._multi.nfast
 
     def __call__(self, buffer, cut):
