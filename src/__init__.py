@@ -202,50 +202,49 @@ def _collect_tier_for_suffix(suffix):
     return 0
 
 
-def _make_sparsify(suffix):
+def _make_sparsify(suffix, pipeline=None):
     di = _SUFFIX_TO_DTYPE[suffix]
-    ct = _collect_tier_for_suffix(suffix)
 
     def fn(pointers, lengths, mask, output, output_adr, npx_out, threshold,
            workspace, cursors, codec):
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix))
         return _ext.sparsify(pointers, lengths, mask, output, output_adr, npx_out,
-                             threshold, workspace, cursors, di, _pipeline_for(codec, ct))
+                             threshold, workspace, cursors, di, p)
     return fn
 
 
-def _make_csc(suffix):
+def _make_csc(suffix, pipeline=None):
     di = _SUFFIX_TO_DTYPE[suffix]
-    ct = _collect_tier_for_suffix(suffix)
 
     def fn(pointers, lengths, mask, outpx, output_adr, npx_out, threshold, powder, data,
            indices, indptr, workspace, cursors, nout, codec):
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix))
         return _ext.sparsify_and_dot(pointers, lengths, mask, outpx, output_adr, npx_out,
                                      threshold, powder, data, indices, indptr,
                                      workspace, cursors, nout, _dense_sparse_threshold,
-                                     di, _pipeline_for(codec, ct))
+                                     di, p)
     return fn
 
 
-def _make_csc_base(suffix):
+def _make_csc_base(suffix, pipeline=None):
     di = _SUFFIX_TO_DTYPE[suffix]
-    ct = _collect_tier_for_suffix(suffix)
 
     def fn(base, offsets, lengths, mask, outpx, output_adr, npx_out, threshold, powder, data,
            indices, indptr, workspace, cursors, nout, codec):
         rc = _ext.offsets_to_pointers(base, offsets, lengths, len(lengths))
         if rc < 0:
             return rc
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix))
         return _ext.sparsify_and_dot(offsets, lengths, mask, outpx, output_adr, npx_out,
                                      threshold, powder, data, indices, indptr,
                                      workspace, cursors, nout, _dense_sparse_threshold,
-                                     di, _pipeline_for(codec, ct))
+                                     di, p)
     return fn
 
 
 _BSLZ4_MULTI = {s: _make_sparsify(s) for s in _TYPE_SUFFIXES}
 _BSLZ4_CSC_MULTI = {s: _make_csc(s) for s in _TYPE_SUFFIXES}
 _BSLZ4_CSC_MULTI_BASE = {s: _make_csc_base(s) for s in _TYPE_SUFFIXES}
-_REBIND = {s: (None, None, None, None) for s in _TYPE_SUFFIXES}
 
 note_chunk = _ext.note_chunk
 # Availability and test counters.
@@ -439,13 +438,14 @@ class chunk2sparseMulti:
     dataset in one call. Workspace is 3*blocksize, independent of frame count.
     """
 
-    def __init__(self, mask, dtype=np.uint16, codec=CODEC_LZ4):
+    def __init__(self, mask, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None):
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
         self.npix = mask.size
         self.dtype = dtype
         self.codec = codec
-        self._fn = _BSLZ4_MULTI[_suffix_for_dtype(dtype)]
+        self.pipeline = pipeline
+        self._fn = _make_sparsify(_suffix_for_dtype(dtype), pipeline=pipeline)
 
         self._nframes = 0
         self._output = None
@@ -492,8 +492,8 @@ class chunk2sparseMulti:
 class chunk2sparse:
     """Single-frame plain sparse decode: chunk2sparseMulti with nframes fixed at 1."""
 
-    def __init__(self, mask, dtype=np.uint16, codec=CODEC_LZ4):
-        self._multi = chunk2sparseMulti(mask, dtype=dtype, codec=codec)
+    def __init__(self, mask, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None):
+        self._multi = chunk2sparseMulti(mask, dtype=dtype, codec=codec, pipeline=pipeline)
         self.nfast = self._multi.nfast
 
     def __call__(self, buffer, cut):
@@ -553,7 +553,7 @@ class chunk2sparseCSCmulti:
     strategy based on that block's compression ratio.
     """
 
-    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4):
+    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None):
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
         nm = normalise_matrix(csc, npix=len(self.mask))
@@ -567,7 +567,8 @@ class chunk2sparseCSCmulti:
         self.dtype = dtype
         self.itemsize = np.dtype(dtype).itemsize
         self.codec = codec
-        self._fn = _BSLZ4_CSC_MULTI[_suffix_for_dtype(dtype)]
+        self.pipeline = pipeline
+        self._fn = _make_csc(_suffix_for_dtype(dtype), pipeline=pipeline)
 
         self._nframes = 0
         self._outpx = None
@@ -621,8 +622,8 @@ class chunk2sparseCSCmulti:
 class chunk2sparseCSC:
     """Single-frame CSC decode: chunk2sparseCSCmulti with nframes fixed at 1."""
 
-    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4):
-        self._multi = chunk2sparseCSCmulti(mask, csc, dtype=dtype, codec=codec)
+    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None):
+        self._multi = chunk2sparseCSCmulti(mask, csc, dtype=dtype, codec=codec, pipeline=pipeline)
         self.nfast = self._multi.nfast
 
     def __call__(self, buffer, cut):

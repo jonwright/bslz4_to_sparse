@@ -32,9 +32,6 @@ int bslz4_set_sse2_collect(int enabled);
 int bslz4_set_vsx_collect(int enabled);
 int bslz4_set_neon_collect(int enabled);
 
-/* The currently-active collect tier id (0..5); used by the counters. */
-int bslz4_active_collect_tier(void);
-
 #ifdef __cplusplus
 }
 #endif

@@ -40,6 +40,9 @@ typedef struct bslz4_csc {
 typedef struct bslz4_stage {
     size_t elem_size;            /* sizeof(pixel dtype) */
     int dtype;                   /* pixel dtype index 0..9 */
+    int collect_id;              /* resolved collect tier 0..5 */
+    int dot_id;                  /* resolved dot impl 0 (csc) */
+    int untranspose_id;          /* resolved untranspose backend 0..3 */
     bslz4_decompress_fn decompress;
     bslz4_untranspose_fn untranspose;
 } bslz4_stage;
@@ -50,12 +53,13 @@ extern "C" {
 
 /* Direct-call dispatch (kernels_generic.cpp): route is 0=dense, 1=sparse.
  * The per-dtype handlers are static/inline in that TU, so the switch bodies
- * inline.  The CSC matrix comes bundled in *csc. */
+ * inline.  The CSC matrix comes bundled in *csc.  collect_id/dot_id are the
+ * pipeline-resolved ids, used to pick the collect tier and for the counters. */
 int bslz4_sparse_dispatch(int dtype,
                           const void *BSLZ4_RESTRICT block, size_t n,
                           const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
                           int64_t threshold, void *BSLZ4_RESTRICT out_vals,
-                          uint32_t *BSLZ4_RESTRICT out_adr);
+                          uint32_t *BSLZ4_RESTRICT out_adr, int collect_id);
 
 int bslz4_sparse_dot_dispatch(int dtype, int route,
                               const void *BSLZ4_RESTRICT block, size_t n,
@@ -64,7 +68,8 @@ int bslz4_sparse_dot_dispatch(int dtype, int route,
                               uint32_t *BSLZ4_RESTRICT out_adr,
                               const bslz4_csc *BSLZ4_RESTRICT csc,
                               uint32_t *BSLZ4_RESTRICT tidx,
-                              void *BSLZ4_RESTRICT tval);
+                              void *BSLZ4_RESTRICT tval,
+                              int collect_id);
 
 int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                           const int32_t *BSLZ4_RESTRICT compressed_lengths,
@@ -99,6 +104,10 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 #define BSLZ4_STAGE_COLLECT     2
 #define BSLZ4_STAGE_DOT         3
 
+/* Counter layout (flat read via bslz4_read_counters). */
+#define BSLZ4_NSTAGES  4
+#define BSLZ4_ID_SLOTS 16
+
 /* Resolve dtype + pipeline into a stage table.  Validates, in order:
  *   dtype in [0,9]                     -> BSLZ4_ERR_DTYPE
  *   stage ids known + available        -> BSLZ4_ERR_UNAVAILABLE / BSLZ4_ERR_BAD_PIPELINE
@@ -112,7 +121,21 @@ int bslz4_impl_available(int stage, int id);
 /* optional test instrumentation */
 void bslz4_reset_counters(void);
 int  bslz4_read_counters(uint64_t *BSLZ4_RESTRICT out, int n);   /* flattened [stage][impl] */
-void bslz4_counters_bump(int stage, int id);       /* internal */
+
+#ifdef __cplusplus
+}
+#endif
+
+/* A tiny inlined store (no call, no bounds check -- callers are internal and
+ * pass a valid (stage, id)); the array itself lives in bslz4_registry.c. */
+extern uint64_t bslz4_counters[BSLZ4_NSTAGES][BSLZ4_ID_SLOTS];
+static inline void bslz4_counters_bump(int stage, int id) {
+    bslz4_counters[(unsigned) stage][(unsigned) id]++;
+}
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* ---- Native entry points (bslz4_to_sparse.c) ---- */
 

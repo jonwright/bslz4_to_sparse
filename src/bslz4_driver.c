@@ -1,15 +1,12 @@
 /*
  * bslz4_driver.c -- the single decode driver for bslz4_to_sparse.
  *
- * This is the dtype-agnostic C port of the block/tail loop that used to
- * live, four times over, in the bslz4_core.hpp templates.  The only
- * dtype-generic work (the per-block sparse / sparse_dot call) is reached
- * through the function pointers in a bslz4_stage, built by the caller.
- *
- * Phase 1: the old C++ templates construct a bslz4_stage and call these;
- * the generated layer and native API are unchanged.  The loop logic is
- * identical to the previous templates (same checks, same order, same
- * workspace layout), so results are bit-identical.
+ * This is the dtype-agnostic C port of the block/tail loop.  The only
+ * dtype-generic work (the per-block sparse / sparse_dot call) is a direct
+ * call into the C++ dtype-switching dispatch (kernels_generic.cpp) with the
+ * pipeline-resolved collect/dot ids in the bslz4_stage; decompress and
+ * untranspose are plain non-generic function pointers.  The per-block
+ * instrumentation counters (decompress/untranspose) are bumped here.
  */
 
 #include "bslz4_common.h"
@@ -97,13 +94,17 @@ int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             if (BSLZ4_UNLIKELY(ret != (int) blocksize)) return BSLZ4_ERR_DECOMPRESS;
             if (BSLZ4_UNLIKELY(st->untranspose(block, raw, scratch, block_elems, NB) < 0))
                 return BSLZ4_ERR_UNTRANSPOSE;
+            bslz4_counters_bump(BSLZ4_STAGE_DECOMPRESS, codec);
+            bslz4_counters_bump(BSLZ4_STAGE_UNTRANSPOSE, st->untranspose_id);
 
             uint8_t *BSLZ4_RESTRICT outf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
             uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
             int32_t npx = npx_out[f];
+            bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
             npx += bslz4_sparse_dispatch(st->dtype, block, block_elems, mask, (size_t) i0,
                                          (int64_t) threshold,
-                                         outf + (size_t) npx * NB, outadrf + npx);
+                                         outf + (size_t) npx * NB, outadrf + npx,
+                                         st->collect_id);
             npx_out[f] = npx;
         }
         i0 += (int) block_elems;
@@ -123,6 +124,8 @@ int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             if (BSLZ4_UNLIKELY(ret != (int) tail_block)) return BSLZ4_ERR_DECOMPRESS;
             if (BSLZ4_UNLIKELY(st->untranspose(block, raw, scratch, tail_block / NB, NB) < 0))
                 return BSLZ4_ERR_UNTRANSPOSE;
+            bslz4_counters_bump(BSLZ4_STAGE_DECOMPRESS, codec);
+            bslz4_counters_bump(BSLZ4_STAGE_UNTRANSPOSE, st->untranspose_id);
         }
         int64_t rem_f = remaining - (int64_t) tail_block;
         if (rem_f > 0) {
@@ -135,9 +138,11 @@ int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         uint32_t *BSLZ4_RESTRICT outadrf = output_adr + (size_t) f * NIJ;
         int32_t npx = npx_out[f];
         size_t ntail = ((size_t) rem_f + tail_block) / NB;
+        bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
         npx += bslz4_sparse_dispatch(st->dtype, block, ntail, mask, (size_t) i0,
                                      (int64_t) threshold,
-                                     outf + (size_t) npx * NB, outadrf + npx);
+                                     outf + (size_t) npx * NB, outadrf + npx,
+                                     st->collect_id);
         npx_out[f] = npx;
     }
     return 0;
@@ -203,6 +208,8 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             if (BSLZ4_UNLIKELY(ret != (int) blocksize)) return BSLZ4_ERR_DECOMPRESS;
             if (BSLZ4_UNLIKELY(st->untranspose(block, raw, scratch, block_elems, NB) < 0))
                 return BSLZ4_ERR_UNTRANSPOSE;
+            bslz4_counters_bump(BSLZ4_STAGE_DECOMPRESS, codec);
+            bslz4_counters_bump(BSLZ4_STAGE_UNTRANSPOSE, st->untranspose_id);
 
             double *BSLZ4_RESTRICT outf = powder + (size_t) f * nout;
             uint8_t *BSLZ4_RESTRICT outpxf = (uint8_t *) outpx + (size_t) f * NIJ * NB;
@@ -210,10 +217,12 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             int32_t npx = npx_out[f];
             int route = (double) blocksize > dense_sparse_x * (double) nbytes;
             bslz4_csc csc = {outf, nout, data, indices, indptr};
+            bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
+            bslz4_counters_bump(BSLZ4_STAGE_DOT, st->dot_id);
             npx += bslz4_sparse_dot_dispatch(st->dtype, route, block, block_elems,
                                              mask, (size_t) i0, (int64_t) threshold,
                                              outpxf + (size_t) npx * NB, outadrf + npx,
-                                             &csc, tidx, tval);
+                                             &csc, tidx, tval, st->collect_id);
             npx_out[f] = npx;
         }
         i0 += (int) block_elems;
@@ -234,6 +243,8 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             if (BSLZ4_UNLIKELY(ret != (int) tail_block)) return BSLZ4_ERR_DECOMPRESS;
             if (BSLZ4_UNLIKELY(st->untranspose(block, raw, scratch, tail_block / NB, NB) < 0))
                 return BSLZ4_ERR_UNTRANSPOSE;
+            bslz4_counters_bump(BSLZ4_STAGE_DECOMPRESS, codec);
+            bslz4_counters_bump(BSLZ4_STAGE_UNTRANSPOSE, st->untranspose_id);
         }
         int64_t rem_f = remaining - (int64_t) tail_block;
         if (rem_f > 0) {
@@ -252,10 +263,12 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             ? (double) tail_block > dense_sparse_x * (double) tail_nbytes
             : 1; /* pure literal remainder: trivially cheap either way */
         bslz4_csc csc = {outf, nout, data, indices, indptr};
+        bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
+        bslz4_counters_bump(BSLZ4_STAGE_DOT, st->dot_id);
         npx += bslz4_sparse_dot_dispatch(st->dtype, route, block, ntail,
                                          mask, (size_t) i0, (int64_t) threshold,
                                          outpxf + (size_t) npx * NB, outadrf + npx,
-                                         &csc, tidx, tval);
+                                         &csc, tidx, tval, st->collect_id);
         npx_out[f] = npx;
     }
     return 0;

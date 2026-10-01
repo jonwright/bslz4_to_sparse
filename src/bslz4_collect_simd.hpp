@@ -1,9 +1,9 @@
 #pragma once
 /*
  * SIMD mask+threshold collection for the u16/u32 decode hot path:
- * bslz4_decode_multi's threshold-collect loop (mask>0 & value>cut) and
- * bslz4_csc_decode_multi's sparse-route compaction (mask>0 & value!=0,
- * called here with cut==0 -- identical to !=0 for unsigned T).
+ * the plain threshold-collect loop (mask>0 & value>cut) and the CSC
+ * sparse-route compaction (mask>0 & value!=0, called here with cut==0 --
+ * identical to !=0 for unsigned T).
  *
  * Five tiers, u16/u32 only: AVX-512 (F+BW+VL), AVX2, SSE2 (x86-64 ABI
  * baseline, always present), VSX (POWER8+, probe in
@@ -22,15 +22,16 @@
  * cpuid-equivalent globals (c2py_amd64_avx512f/bw/vl, c2py_amd64_avx2,
  * c2py_ppc64_vsx, c2py_arm64_asimd; SSE2 needs no check). capable() is
  * the single source of truth, shared with the Python-visible
- * <tier>_collect_available() query in bslz4_to_sparse.cpp.
+ * <tier>_collect_available() query (kernels_generic.cpp).
  *
  * set_<tier>_collect(True/False) overrides at runtime. AVX-512 can
  * trigger frequency throttling on some chips that outweighs the wider
  * vector for this workload; set_avx512_collect(False) drops to the next
  * tier, which does not auto-promote, so call again to reach avx2/sse2.
  *
- * bslz4_collect_gt<T>/bslz4_collect_nz<T> (bottom of this file) try the
- * tiers in that order and fall back to the plain scalar loop.
+ * bslz4_collect_gt<T>/bslz4_collect_nz<T> (bottom of this file) take the
+ * collect tier id chosen by the pipeline (bslz4_resolve already validated
+ * it) and route straight to that tier, 0 meaning the plain scalar loop.
  */
 
 #include "bslz4_common.hpp"
@@ -70,7 +71,7 @@ namespace bslz4 {
 
 /* Single source of truth for "is this tier actually usable" -- shared
  * by the default-enabled logic below and the Python-visible
- * <tier>_collect_available() query (bslz4_to_sparse.cpp delegates to
+ * <tier>_collect_available() query (kernels_generic.cpp delegates to
  * these rather than duplicating the cpuid-check logic). */
 
 inline bool bslz4_avx512_collect_capable() {
@@ -441,7 +442,7 @@ inline int bslz4_collect_sse2_u32(const uint32_t *BSLZ4_RESTRICT block,
  * __vector/__bool, not bare vector/bool: <altivec.h> defines the bare
  * keyword-macros in C mode only, leaving them undefined in C++ so they
  * cannot collide with std::vector and bool. This header is included
- * from bslz4_to_sparse.cpp, so it needs the prefixed spelling.
+ * from kernels_generic.cpp, so it needs the prefixed spelling.
  */
 
 inline int bslz4_collect_vsx_u16(const uint16_t *BSLZ4_RESTRICT block,
@@ -599,16 +600,16 @@ inline int bslz4_collect_neon_u32(const uint32_t *BSLZ4_RESTRICT block,
 /*
  * bslz4_collect_gt<T>: mask[j+i0]>0 & block[j]>cut, compacted into
  * (out_vals, out_adr). Generic (scalar) for every T; explicitly
- * specialized for uint16_t/uint32_t to try SIMD tiers in priority order
- * (avx512, avx2, sse2, vsx, neon -- each checked via its own runtime
- * enabled flag, the best available one being enabled by default: see
- * the top of this file), falling back to the same scalar loop otherwise.
- * Used by bslz4_decode_multi's real threshold-collect (bslz4_core.hpp).
+ * specialized for uint16_t/uint32_t to dispatch on the pipeline's
+ * collect tier id (avx512, avx2, sse2, vsx, neon -- see the top of this
+ * file), id 0 meaning the scalar loop. Used by the plain sparse route and
+ * the CSC dense route (kernels_generic.cpp).
  */
 template<typename T>
 inline int bslz4_collect_gt(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                             size_t i0, size_t n, T cut,
+                             size_t i0, size_t n, T cut, int collect_id,
                              T *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
+    (void) collect_id;  /* only the scalar tier is valid for non-SIMD dtypes */
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
         if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (block[j] > cut))) {
@@ -622,18 +623,19 @@ inline int bslz4_collect_gt(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_
 
 /*
  * bslz4_collect_nz<T>: mask[j+i0]>0 & block[j]!=0 (T's own domain, not
- * a cast through an unsigned type -- see bslz4_core.hpp's TODO about
- * what "!=0" should mean for signed sentinel values). Used by
- * bslz4_csc_decode_multi's sparse-route compaction pass. Deliberately
- * NOT implemented in terms of bslz4_collect_gt(..., cut=0): that would
- * be equivalent for unsigned T (this template's own SIMD specializations
- * rely on exactly that equivalence) but wrong for signed T, where !=0
- * must keep including negative values.
+ * a cast through an unsigned type -- see kernels_generic.cpp's note about
+ * what "!=0" should mean for signed sentinel values). Used by the CSC
+ * sparse-route compaction pass. Deliberately NOT implemented in terms of
+ * bslz4_collect_gt(..., cut=0): that would be equivalent for unsigned T
+ * (this template's own SIMD specializations rely on exactly that
+ * equivalence) but wrong for signed T, where !=0 must keep including
+ * negative values.
  */
 template<typename T>
 inline int bslz4_collect_nz(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                             size_t i0, size_t n,
+                             size_t i0, size_t n, int collect_id,
                              T *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
+    (void) collect_id;  /* only the scalar tier is valid for non-SIMD dtypes */
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
         T px = block[j];
@@ -650,27 +652,22 @@ inline int bslz4_collect_nz(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_
 
 template<>
 inline int bslz4_collect_gt<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                                       size_t i0, size_t n, uint16_t cut,
+                                       size_t i0, size_t n, uint16_t cut, int collect_id,
                                        uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
-    if (bslz4_avx512_collect_enabled())
-        return bslz4_collect_avx512_u16(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect_id == 1) return bslz4_collect_avx512_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (bslz4_avx2_collect_enabled())
-        return bslz4_collect_avx2_u16(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect_id == 2) return bslz4_collect_avx2_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
-    if (bslz4_sse2_collect_enabled())
-        return bslz4_collect_sse2_u16(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect_id == 3) return bslz4_collect_sse2_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_VSX_COLLECT
-    if (bslz4_vsx_collect_enabled())
-        return bslz4_collect_vsx_u16(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect_id == 4) return bslz4_collect_vsx_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_NEON_COLLECT
-    if (bslz4_neon_collect_enabled())
-        return bslz4_collect_neon_u16(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect_id == 5) return bslz4_collect_neon_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
@@ -685,27 +682,22 @@ inline int bslz4_collect_gt<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
 
 template<>
 inline int bslz4_collect_gt<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                                       size_t i0, size_t n, uint32_t cut,
+                                       size_t i0, size_t n, uint32_t cut, int collect_id,
                                        uint32_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
-    if (bslz4_avx512_collect_enabled())
-        return bslz4_collect_avx512_u32(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect_id == 1) return bslz4_collect_avx512_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (bslz4_avx2_collect_enabled())
-        return bslz4_collect_avx2_u32(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect_id == 2) return bslz4_collect_avx2_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
-    if (bslz4_sse2_collect_enabled())
-        return bslz4_collect_sse2_u32(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect_id == 3) return bslz4_collect_sse2_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_VSX_COLLECT
-    if (bslz4_vsx_collect_enabled())
-        return bslz4_collect_vsx_u32(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect_id == 4) return bslz4_collect_vsx_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_NEON_COLLECT
-    if (bslz4_neon_collect_enabled())
-        return bslz4_collect_neon_u32(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect_id == 5) return bslz4_collect_neon_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
@@ -720,28 +712,23 @@ inline int bslz4_collect_gt<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
 
 template<>
 inline int bslz4_collect_nz<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                                       size_t i0, size_t n,
+                                       size_t i0, size_t n, int collect_id,
                                        uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
     /* unsigned T: !=0 is exactly >0, so cut==0 reuses the same kernels. */
 #if BSLZ4_HAVE_AVX512_COLLECT
-    if (bslz4_avx512_collect_enabled())
-        return bslz4_collect_avx512_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+    if (collect_id == 1) return bslz4_collect_avx512_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (bslz4_avx2_collect_enabled())
-        return bslz4_collect_avx2_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+    if (collect_id == 2) return bslz4_collect_avx2_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
-    if (bslz4_sse2_collect_enabled())
-        return bslz4_collect_sse2_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+    if (collect_id == 3) return bslz4_collect_sse2_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_VSX_COLLECT
-    if (bslz4_vsx_collect_enabled())
-        return bslz4_collect_vsx_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+    if (collect_id == 4) return bslz4_collect_vsx_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_NEON_COLLECT
-    if (bslz4_neon_collect_enabled())
-        return bslz4_collect_neon_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+    if (collect_id == 5) return bslz4_collect_neon_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
@@ -757,27 +744,22 @@ inline int bslz4_collect_nz<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
 
 template<>
 inline int bslz4_collect_nz<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                                       size_t i0, size_t n,
+                                       size_t i0, size_t n, int collect_id,
                                        uint32_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
-    if (bslz4_avx512_collect_enabled())
-        return bslz4_collect_avx512_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+    if (collect_id == 1) return bslz4_collect_avx512_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (bslz4_avx2_collect_enabled())
-        return bslz4_collect_avx2_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+    if (collect_id == 2) return bslz4_collect_avx2_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
-    if (bslz4_sse2_collect_enabled())
-        return bslz4_collect_sse2_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+    if (collect_id == 3) return bslz4_collect_sse2_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_VSX_COLLECT
-    if (bslz4_vsx_collect_enabled())
-        return bslz4_collect_vsx_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+    if (collect_id == 4) return bslz4_collect_vsx_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_NEON_COLLECT
-    if (bslz4_neon_collect_enabled())
-        return bslz4_collect_neon_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+    if (collect_id == 5) return bslz4_collect_neon_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {

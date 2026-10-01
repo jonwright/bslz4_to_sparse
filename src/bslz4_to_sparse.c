@@ -30,12 +30,6 @@ int bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_len
     rc = bslz4_driver_sparsify(compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
                                outpx, output_adr, npx_out, threshold,
                                workspace, workspace_len, cursors, &st);
-    if (rc == 0) {
-        bslz4_counters_bump(BSLZ4_STAGE_DECOMPRESS, BSLZ4_PIPE_DECOMPRESS(pipeline));
-        bslz4_counters_bump(BSLZ4_STAGE_UNTRANSPOSE, BSLZ4_PIPE_UNTRANSPOSE(pipeline));
-        bslz4_counters_bump(BSLZ4_STAGE_COLLECT, bslz4_active_collect_tier());
-        bslz4_counters_bump(BSLZ4_STAGE_DOT, BSLZ4_PIPE_DOT(pipeline));
-    }
     return rc;
 }
 
@@ -55,12 +49,6 @@ int bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compre
                                        outpx, output_adr, npx_out, threshold,
                                        powder, nout, weights, indices, indptr, route_threshold,
                                        workspace, workspace_len, cursors, &st);
-    if (rc == 0) {
-        bslz4_counters_bump(BSLZ4_STAGE_DECOMPRESS, BSLZ4_PIPE_DECOMPRESS(pipeline));
-        bslz4_counters_bump(BSLZ4_STAGE_UNTRANSPOSE, BSLZ4_PIPE_UNTRANSPOSE(pipeline));
-        bslz4_counters_bump(BSLZ4_STAGE_COLLECT, bslz4_active_collect_tier());
-        bslz4_counters_bump(BSLZ4_STAGE_DOT, BSLZ4_PIPE_DOT(pipeline));
-    }
     return rc;
 }
 

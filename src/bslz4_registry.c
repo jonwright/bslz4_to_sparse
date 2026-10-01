@@ -14,10 +14,7 @@
 
 #include <string.h>
 
-#define BSLZ4_NSTAGES 4
-#define BSLZ4_ID_SLOTS 16
-
-static uint64_t bslz4_counters[BSLZ4_NSTAGES][BSLZ4_ID_SLOTS];
+uint64_t bslz4_counters[BSLZ4_NSTAGES][BSLZ4_ID_SLOTS];
 
 int bslz4_impl_available(int stage, int id) {
     switch (stage) {
@@ -120,6 +117,9 @@ int bslz4_resolve(int dtype, uint64_t pipeline, bslz4_stage *BSLZ4_RESTRICT st) 
 
     st->elem_size = (size_t) bslz4_elem_size(dtype);
     st->dtype = dtype;
+    st->collect_id = col;
+    st->dot_id = dot;
+    st->untranspose_id = unt;
     st->decompress = &bslz4_decompress;
     st->untranspose = untranspose_by_id(unt);
     return 0;
@@ -135,9 +135,4 @@ int bslz4_read_counters(uint64_t *BSLZ4_RESTRICT out, int n) {
         for (int i = 0; i < BSLZ4_ID_SLOTS && k < n; i++)
             out[k++] = bslz4_counters[s][i];
     return k;
-}
-
-void bslz4_counters_bump(int stage, int id) {
-    if (stage >= 0 && stage < BSLZ4_NSTAGES && id >= 0 && id < BSLZ4_ID_SLOTS)
-        bslz4_counters[stage][id]++;
 }
