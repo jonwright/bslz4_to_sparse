@@ -1,32 +1,29 @@
 /*
  * kernels_generic.cpp -- the only genuinely dtype-generic code.
  *
- * Per the plan, the dtype-generic work is an inner per-block/tail call,
- * never the outer multi-frame loop (which lives in bslz4_driver.c).  This
- * TU holds:
- *   * sparse<T>   -- mask>0 & val>threshold, compacted (plain route)
- *   * sparse_dot<T> -- dense-vs-sparse CSC route
+ * The dtype-generic work is an inner per-block/tail call, never the outer
+ * multi-frame loop (which lives in bslz4_driver.c).  This TU holds:
+ *   * sparse<T>          -- plain route
+ *   * sparse_dot<T>      -- sparse CSC route
+ *   * dense_dot<T>       -- dense CSC route (dot, then a separate >cut)
  *   * dense_dot_fused<T> -- dense route with the >cut sparsify fused into
  *                           the CSC loop (one pass over the block)
  * for the 10 pixel dtypes, plus the scalar/nz/dot loops they need.
  *
  * Each dtype gets a small *noinline* kernel (bslz4_sparse_u8, ...,
- * bslz4_sparse_dot_f64) that inlines its own template, so every kernel is
+ * bslz4_sparse_dot_f64) that inlines its own template, so each kernel is
  * register-allocated independently; the dispatch is a thin switch of direct
- * calls.  A new variant (e.g. another way to run the dense/sparse route) is
- * just another leaf kernel selected by dot_id -- it does not grow the switch
- * or bloat any single function.
+ * calls.  A new route strategy is just another leaf kernel selected by
+ * dot_id.
  *
- * The SIMD collect tiers are the same bslz4_collect_gt<T>/bslz4_collect_nz<T>
- * entry points (bslz4_collect_simd.hpp), but now take the collect tier id
- * chosen by the pipeline, which bslz4_resolve has already validated; the
- * tier is picked with a predicted if-chain (not an indirect jump table) so
- * the hot path is unchanged.
+ * The SIMD collect tiers are the bslz4_collect_gt<T>/bslz4_collect_nz<T>
+ * entry points (bslz4_collect_simd.hpp); the collect tier id chosen by the
+ * pipeline is dispatched with a predicted if-chain.
  *
  * The per-block instrumentation counters are bumped by the driver
- * (bslz4_driver.c), one bump per block for the collect/dot ids, so the
- * Phase 2 gate can show the selected impl ran in every route and in the
- * tail, and that the scalar collect tier was not picked for a SIMD dtype.
+ * (bslz4_driver.c), one bump per block for the collect/dot ids, so a test
+ * can show the selected impl ran in every route and in the tail and that
+ * the scalar collect tier was not picked for a SIMD dtype.
  *
  * Compiled with -fno-exceptions -fno-rtti -fno-threadsafe-statics (C++11)
  * only for this TU.
@@ -81,14 +78,11 @@ extern "C" int bslz4_set_neon_collect(int enabled) {
 
 /* ---- per-dtype generic kernels (all take a single bslz4_work*) ----
  *
- * Each is a self-contained, small function that inlines its own template
- * and collect/dot selection.  We deliberately keep them *noinline* and let
- * the dispatcher be a thin switch that calls them: the compiler then
- * register-allocates each kernel independently (a single mega-function with
- * every dtype inlined reuses one set of registers for 20 paths, which is
- * what caused the earlier codegen regression).  The collect tier and dot
- * implementation are runtime ids in the work struct, so adding a new
- * variant only means another leaf function + a case, not another dtype.
+ * Each is a self-contained function that inlines its own template and
+ * collect/dot selection.  They are *noinline* so each kernel is
+ * register-allocated independently; the dispatchers are thin switches that
+ * call them.  The collect tier and dot implementation are runtime ids in the
+ * work struct, so a new route strategy is a leaf function + a switch case.
  */
 
 /* plain sparse, generic */

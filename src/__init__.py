@@ -185,10 +185,9 @@ def _default_codec():
 
 
 def _stages(decompress, untranspose, collect, dot, options):
-    # Mirrors bslz4_common.h: a uint16 array with one entry per stage/option
-    # (BSLZ4_STAGES_N == 5).  c2py23 accepts exactly 'int'/'float'/'buffer'
-    # scalar inputs, so the old packed u64 pipeline word could not reach the
-    # C side; a buffer of one value per option avoids any bit packing.
+    # Mirrors bslz4_common.h BSLZ4_STAGES_N: a uint16 ndarray with one entry
+    # per stage/option.  c2py23 accepts int/float/buffer scalar inputs, so the
+    # options travel as a buffer rather than a single integer.
     return np.array([decompress, untranspose, collect, dot, options], dtype=np.uint16)
 
 

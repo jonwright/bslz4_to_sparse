@@ -3,9 +3,9 @@
 /*
  * Shared macros and small helpers for the bslz4_to_sparse C99 core.
  *
- * This is the C side of what was bslz4_common.hpp.  It holds the error
- * codes, big-endian readers and the default block size -- all things the
- * driver (bslz4_driver.c) needs that do not depend on C++ templates.
+ * It holds the error codes, big-endian readers and the default block size --
+ * the things the driver (bslz4_driver.c) needs that do not depend on C++
+ * templates.  (bslz4_common.hpp mirrors these for the C++ TU.)
  */
 
 #include <stddef.h>
@@ -44,26 +44,19 @@ static inline uint64_t bslz4_read_be64(const uint8_t *BSLZ4_RESTRICT p) {
 /* Default bitshuffle block size (bytes) when the stream header encodes zero. */
 #define BSLZ4_DEFAULT_BLOCK_BYTES 8192
 
-/* Decode "options" are passed as a small array of uint16, one entry per
- * stage/option, instead of a packed bit word.  c2py23 accepts only signed
- * int scalars (plus float/buffer), so a u64 pipeline word could never reach
- * the C code as more than 31 bits; a buffer of one value per option avoids
- * any packing/unpacking entirely.  The array is stages[BSLZ4_STAGES_N],
- * indexed by BSLZ4_STAGE_* (0..3) for the four stage ids, with the last
- * entry holding the options bitmask (see BSLZ4_OPT_*).  All options zero
- * reproduces today's behaviour.  `stages` is const uint16_t*. */
+/* Decode "options" are a small array of uint16, one entry per stage/option:
+ * stages[BSLZ4_STAGE_*] (0..3) hold the decompress / untranspose / collect /
+ * dot ids and stages[BSLZ4_STAGES_OPTIONS] holds the options bitmask.  c2py23
+ * accepts only int/float/buffer scalar inputs, so the options travel as a
+ * buffer rather than a single integer.  All options zero reproduces today's
+ * behaviour. */
 #define BSLZ4_STAGES_N 5
 #define BSLZ4_STAGES_OPTIONS (BSLZ4_STAGES_N - 1)
 
-/* First reserved option bit: opt in to dropping negative pixel values from
- * the powder/sparse output (issue #9).  Currently unused (default keeps
- * negatives, matching today's behaviour). */
+/* Option bit: drop negative pixel values from the powder/sparse output
+ * (issue #9).  Not wired up yet; all options zero reproduces today's
+ * behaviour. */
 #define BSLZ4_OPT_DROP_NEGATIVES ((uint16_t) 1 << 0)
-
-/* First reserved option bit: opt in to dropping negative pixel values from
- * the powder/sparse output (issue #9).  Currently unused (default keeps
- * negatives, matching today's behaviour). */
-#define BSLZ4_OPT_DROP_NEGATIVES ((uint64_t) 1 << 0)
 
 /* Error codes.  The values are part of the C API: keep them stable. */
 enum {

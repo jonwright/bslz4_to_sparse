@@ -104,8 +104,8 @@ testfun()
 # ---------------------------------------------------------------------------
 # Multi-frame batching, dense/sparse routing, and u64/i64 dtype coverage.
 #
-# "single is multi with n==1" (bslz4_core.hpp): chunk2sparse/chunk2sparseCSC
-# are thin wrappers over the same templates with nframes==1, so these check
+# "single is multi with n==1": chunk2sparse/chunk2sparseCSC
+# are thin wrappers over the same decode path with nframes==1, so these check
 # that the batched and single-frame paths agree with each other and with the
 # pyFAI reference.
 # ---------------------------------------------------------------------------

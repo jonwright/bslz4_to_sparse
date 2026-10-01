@@ -71,9 +71,9 @@ extern "C" {
 
 /* Thin dtype-dispatching switch (kernels_generic.cpp).  Each case is a
  * direct call to a small per-dtype noinline kernel, so the switch body
- * stays small (no inlined mega-function) and each kernel is independently
- * register-allocated.  A single bslz4_work* replaces a dozen scalar args;
- * the kernel unpacks the fields once into locals. */
+ * stays small and each kernel is independently register-allocated.  A
+ * single bslz4_work* carries all per-block state; the kernel unpacks the
+ * fields once into locals. */
 int bslz4_sparse_dispatch(const bslz4_work *BSLZ4_RESTRICT w);
 int bslz4_sparse_dot_dispatch(const bslz4_work *BSLZ4_RESTRICT w);
 

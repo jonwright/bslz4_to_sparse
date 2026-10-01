@@ -16,6 +16,14 @@
 #define BSLZ4_RESTRICT __restrict__
 #endif
 
+#ifndef BSLZ4_NOINLINE
+#if defined(_MSC_VER)
+#define BSLZ4_NOINLINE __declspec(noinline)
+#else
+#define BSLZ4_NOINLINE __attribute__((noinline))
+#endif
+#endif
+
 #ifndef BSLZ4_UNLIKELY
 #if defined(_MSC_VER)
 #define BSLZ4_UNLIKELY(expr) (expr)

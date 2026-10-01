@@ -3,10 +3,10 @@
  *
  * This is the dtype-agnostic C port of the block/tail loop.  The only
  * dtype-generic work (the per-block sparse / sparse_dot call) is a direct
- * call into the C++ dtype-switching dispatch (kernels_generic.cpp) with the
- * pipeline-resolved collect/dot ids in the bslz4_stage; decompress and
- * untranspose are plain non-generic function pointers.  The per-block
- * instrumentation counters (decompress/untranspose) are bumped here.
+ * call into the C++ dtype switch (kernels_generic.cpp) with the resolved
+ * collect/dot ids in the bslz4_stage; decompress and untranspose are plain
+ * non-generic function pointers.  The per-block instrumentation counters
+ * (decompress/untranspose/collect/dot) are bumped here.
  */
 
 #include "bslz4_common.h"

@@ -43,12 +43,16 @@ def _lz4_zeros(n):
 
 def _chunk():
     tail_block = 16 * (TAIL // 16)            # 8*NB-aligned bytes of the tail
+    rem = TAIL - tail_block                   # raw (literal) remainder bytes
     full = _lz4_zeros(BS)
     tail = _lz4_zeros(tail_block)
     c = bytearray(struct.pack(">QI", BS + TAIL, BS))
     c += struct.pack(">I", len(full)) + full
     c += struct.pack(">I", len(tail)) + tail
-    c += b"\0" * (TAIL - tail_block)          # raw (literal) remainder
+    # The raw remainder holds the final NB/2 = 4 uint16 pixels directly (no
+    # bitshuffle/transpose), so give them a value above cut so tail data is
+    # actually sparsified.  The aligned full+tail blocks stay zeros.
+    c += bytes([5, 0]) * (rem // NB)
     return bytes(c)
 
 
@@ -157,6 +161,19 @@ def test_counters_every_route_and_tail():
             assert out[C + 0] == 0, (label, "scalar collect should not run")
     finally:
         b.set_dense_sparse_threshold(saved)
+
+
+# ---- tail data reaches the sparse output -------------------------------------
+# _chunk() has a non-zero raw literal remainder (4 uint16 pixels, value 5) and
+# zeros everywhere else, so cut=1 must sparsify exactly those 4 tail pixels.
+
+def test_tail_remainder_pixels_are_sparsified():
+    c = b.chunk2sparseMulti(np.ones((1, NPIX), np.uint8), dtype=np.uint16)
+    npx, (vals, adr) = c([_chunk()], 1)
+    assert int(npx[0]) == 4, npx
+    np.testing.assert_array_equal(vals[0][:4], np.full(4, 5, dtype=np.uint16))
+    np.testing.assert_array_equal(
+        adr[0][:4], np.arange(NPIX - 4, NPIX, dtype=np.uint32))
 
 
 # ---- resolution / matrix errors ----------------------------------------------

@@ -30,8 +30,9 @@
  * tier, which does not auto-promote, so call again to reach avx2/sse2.
  *
  * bslz4_collect_gt<T>/bslz4_collect_nz<T> (bottom of this file) take the
- * collect tier id chosen by the pipeline (bslz4_resolve already validated
- * it) and route straight to that tier, 0 meaning the plain scalar loop.
+ * collect tier id chosen by the decode stages (bslz4_resolve already
+ * validated it) and route straight to that tier, 0 meaning the plain scalar
+ * loop.
  */
 
 #include "bslz4_common.hpp"
