@@ -70,6 +70,52 @@ int bslz4_driver_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t 
                                   uint8_t *workspace, size_t workspace_len, int64_t *cursors,
                                   const bslz4_stage *st);
 
+/* ---- Registry / resolve (bslz4_registry.c) ---- */
+
+/* Stage ids for impl_available / resolve.  Stable ABI (plan.md section 5). */
+#define BSLZ4_STAGE_DECOMPRESS  0
+#define BSLZ4_STAGE_UNTRANSPOSE 1
+#define BSLZ4_STAGE_COLLECT     2
+#define BSLZ4_STAGE_DOT         3
+
+/* Resolve dtype + pipeline into a stage table.  Validates, in order:
+ *   dtype in [0,9]                     -> BSLZ4_ERR_DTYPE
+ *   stage ids known + available        -> BSLZ4_ERR_UNAVAILABLE / BSLZ4_ERR_BAD_PIPELINE
+ *   no unknown option bits             -> BSLZ4_ERR_BAD_PIPELINE
+ * Returns 0 on success. */
+int bslz4_resolve(int dtype, uint64_t pipeline, bslz4_stage *st);
+
+/* availability: 1 available, 0 known but not usable here, -1 unknown id */
+int bslz4_impl_available(int stage, int id);
+
+/* optional test instrumentation */
+void bslz4_reset_counters(void);
+int  bslz4_read_counters(uint64_t *out, int n);   /* flattened [stage][impl] */
+void bslz4_counters_bump(int stage, int id);       /* internal */
+
+/* ---- Native entry points (bslz4_to_sparse.c) ---- */
+
+int bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes,
+                   const uint8_t *mask, int NIJ,
+                   void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                   uint8_t *workspace, size_t workspace_len, int64_t *cursors,
+                   int dtype, uint64_t pipeline);
+
+int bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                           int nframes, const uint8_t *mask, int NIJ,
+                           void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
+                           double *powder, int nout,
+                           const float *weights, const uint32_t *indices, const uint32_t *indptr,
+                           double route_threshold,
+                           uint8_t *workspace, size_t workspace_len, int64_t *cursors,
+                           int dtype, uint64_t pipeline);
+
+int bslz4_offsets_to_pointers(const char *base, size_t base_len, int64_t *offsets,
+                              const int32_t *lengths, int nframes);
+
+void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
+                      int64_t *pointers, int32_t *lengths);
+
 #ifdef __cplusplus
 }
 #endif

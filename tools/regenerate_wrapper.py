@@ -42,7 +42,7 @@ def c2py23_commit():
 
 
 def main():
-    source_path = os.path.join(REPO_ROOT, "src", "bslz4_to_sparse.cpp")
+    source_path = os.path.join(REPO_ROOT, "src", "bslz4_to_sparse.c")
     wrapper_path = os.path.join(REPO_ROOT, "src", "bslz4_to_sparse_wrapper.c")
 
     spec = extract_from_file(source_path)

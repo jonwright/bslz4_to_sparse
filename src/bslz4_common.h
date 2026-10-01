@@ -42,6 +42,40 @@ static inline uint64_t bslz4_read_be64(const uint8_t *p) {
 /* Default bitshuffle block size (bytes) when the stream header encodes zero. */
 #define BSLZ4_DEFAULT_BLOCK_BYTES 8192
 
+/* Pipeline word (uint64_t, pass by value).  12 bits per stage:
+ *  63            48 47            36 35            24 23             12 11              0
+ * +----------------+----------------+----------------+-----------------+----------------+
+ * |  options (16)  |    dot (12)    |  collect (12)  | untranspose(12) | decompress (12)|
+ * +----------------+----------------+----------------+-----------------+----------------+
+ * "options" bits are named below.  All options zero reproduces today's
+ * behaviour exactly. */
+#define BSLZ4_PIPE_SHIFT_DECOMPRESS  0
+#define BSLZ4_PIPE_SHIFT_UNTRANSPOSE 12
+#define BSLZ4_PIPE_SHIFT_COLLECT     24
+#define BSLZ4_PIPE_SHIFT_DOT         36
+#define BSLZ4_PIPE_SHIFT_OPTIONS     48
+#define BSLZ4_PIPE_MASK             0xFFFu
+
+#define BSLZ4_PIPE_DECOMPRESS(p)   ((int) (((p) >> BSLZ4_PIPE_SHIFT_DECOMPRESS) & BSLZ4_PIPE_MASK))
+#define BSLZ4_PIPE_UNTRANSPOSE(p)  ((int) (((p) >> BSLZ4_PIPE_SHIFT_UNTRANSPOSE) & BSLZ4_PIPE_MASK))
+#define BSLZ4_PIPE_COLLECT(p)      ((int) (((p) >> BSLZ4_PIPE_SHIFT_COLLECT) & BSLZ4_PIPE_MASK))
+#define BSLZ4_PIPE_DOT(p)          ((int) (((p) >> BSLZ4_PIPE_SHIFT_DOT) & BSLZ4_PIPE_MASK))
+#define BSLZ4_PIPE_OPTIONS(p)      ((int) (((p) >> BSLZ4_PIPE_SHIFT_OPTIONS) & 0xFFFFu))
+#define BSLZ4_PIPE_OPT_BIT(p, bit) ((((p) >> BSLZ4_PIPE_SHIFT_OPTIONS) & ((uint64_t) 1 << (bit))) != 0)
+
+/* Build a pipeline word from the four stage ids + options. */
+#define BSLZ4_PIPE_MAKE(decomp, untranspose, collect, dot, opt) \
+    ((((uint64_t) (opt) & 0xFFFFu) << BSLZ4_PIPE_SHIFT_OPTIONS) | \
+     (((uint64_t) (dot) & BSLZ4_PIPE_MASK) << BSLZ4_PIPE_SHIFT_DOT) | \
+     (((uint64_t) (collect) & BSLZ4_PIPE_MASK) << BSLZ4_PIPE_SHIFT_COLLECT) | \
+     (((uint64_t) (untranspose) & BSLZ4_PIPE_MASK) << BSLZ4_PIPE_SHIFT_UNTRANSPOSE) | \
+     ((uint64_t) (decomp) & BSLZ4_PIPE_MASK))
+
+/* First reserved option bit: opt in to dropping negative pixel values from
+ * the powder/sparse output (issue #9).  Currently unused (default keeps
+ * negatives, matching today's behaviour). */
+#define BSLZ4_OPT_DROP_NEGATIVES ((uint64_t) 1 << 0)
+
 /* Error codes.  The values are part of the C API: keep them stable. */
 enum {
     BSLZ4_ERR_TOO_MANY_PIXELS = -99,     /* decompressed size needs more room than NIJ */
@@ -55,6 +89,10 @@ enum {
     BSLZ4_ERR_CORRUPT_CHUNK = -107,      /* chunk too short, or a block/raw tail lies outside it */
     BSLZ4_ERR_BAD_CHUNK_BOUNDS = -108,   /* a chunk offset/size lies outside the buffer */
     BSLZ4_ERR_BAD_LAYOUT = -109,         /* a padded-CSC layout argument is inconsistent */
+    BSLZ4_ERR_BAD_MATRIX = -110,         /* CSC matrix arrays inconsistent (sizes/itemsize) */
+    BSLZ4_ERR_BAD_PIPELINE = -111,       /* unknown stage id or unknown option bit */
+    BSLZ4_ERR_UNAVAILABLE = -112,        /* a known implementation is unavailable here */
+    BSLZ4_ERR_DTYPE = -113,              /* dtype index out of range or unsupported */
 };
 
 #endif /* BSLZ4_COMMON_H */
