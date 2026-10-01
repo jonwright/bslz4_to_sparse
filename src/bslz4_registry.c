@@ -60,9 +60,8 @@ static uint32_t dot_dtype_mask(int id) {
 
 /* Known options bits.  Only the reserved DROP_NEGATIVES flag exists; it is
  * not yet implemented, so requesting it is currently rejected. */
-static int options_ok(uint64_t pipeline) {
-    uint64_t opt = (uint64_t) BSLZ4_PIPE_OPTIONS(pipeline);
-    return (opt & ~(uint64_t) BSLZ4_OPT_DROP_NEGATIVES) == 0;
+static int options_ok(uint16_t options) {
+    return (options & (uint16_t) ~BSLZ4_OPT_DROP_NEGATIVES) == 0;
 }
 
 static bslz4_untranspose_fn untranspose_by_id(int id) {
@@ -91,13 +90,14 @@ static size_t bslz4_elem_size(int dtype) {
     }
 }
 
-int bslz4_resolve(int dtype, uint64_t pipeline, bslz4_stage *BSLZ4_RESTRICT st) {
+int bslz4_resolve(int dtype, const uint16_t *stages, bslz4_stage *BSLZ4_RESTRICT st) {
     if (dtype < 0 || dtype > 9) return BSLZ4_ERR_DTYPE;
 
-    int dec = BSLZ4_PIPE_DECOMPRESS(pipeline);
-    int unt = BSLZ4_PIPE_UNTRANSPOSE(pipeline);
-    int col = BSLZ4_PIPE_COLLECT(pipeline);
-    int dot = BSLZ4_PIPE_DOT(pipeline);
+    int dec = stages[BSLZ4_STAGE_DECOMPRESS];
+    int unt = stages[BSLZ4_STAGE_UNTRANSPOSE];
+    int col = stages[BSLZ4_STAGE_COLLECT];
+    int dot = stages[BSLZ4_STAGE_DOT];
+    uint16_t options = stages[BSLZ4_STAGES_OPTIONS];
 
     if (bslz4_impl_available(BSLZ4_STAGE_DECOMPRESS, dec) <= 0)
         return bslz4_impl_available(BSLZ4_STAGE_DECOMPRESS, dec) < 0 ? BSLZ4_ERR_BAD_PIPELINE
@@ -113,7 +113,7 @@ int bslz4_resolve(int dtype, uint64_t pipeline, bslz4_stage *BSLZ4_RESTRICT st) 
                                                                : BSLZ4_ERR_UNAVAILABLE;
     if (!((collect_dtype_mask(col) >> dtype) & 1u)) return BSLZ4_ERR_DTYPE;
     if (!((dot_dtype_mask(dot) >> dtype) & 1u)) return BSLZ4_ERR_DTYPE;
-    if (!options_ok(pipeline)) return BSLZ4_ERR_BAD_PIPELINE;
+    if (!options_ok(options)) return BSLZ4_ERR_BAD_PIPELINE;
 
     st->elem_size = (size_t) bslz4_elem_size(dtype);
     st->dtype = dtype;

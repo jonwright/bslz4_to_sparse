@@ -83,10 +83,13 @@ def test_ids_and_c_agree():
 
 def test_pack_pipeline_defaults_and_rejects():
     p = b.pack_pipeline()
-    # the default pipeline must be accepted by the decoder
-    assert isinstance(p, int)
-    assert p == b._pack(b._default_codec(), b._BACKEND_TO_ID[b._default_backend],
-                        b._active_collect_tier(), 0, 0)
+    # the default stages array must be accepted by the decoder
+    assert isinstance(p, np.ndarray) and p.dtype == np.uint16 and p.shape == (5,)
+    np.testing.assert_array_equal(
+        p,
+        b._stages(b._default_codec(), b._BACKEND_TO_ID[b._default_backend],
+                  b._active_collect_tier(), 0, 0),
+    )
 
     with pytest.raises(NotImplementedError):
         b.pack_pipeline(collect=99)

@@ -147,13 +147,14 @@ def _active_collect_tier():
     return 0
 
 
-# ---- Pipeline packing ----
+# ---- Stage-array ("pipeline") helpers ----
 def pack_pipeline(decompress=None, untranspose=None, collect=None, dot=None, options=0):
     """
-    Build the u64 pipeline word from stage ids, defaulting each stage from
-    the module-level defaults (codec, untranspose backend, active collect
-    tier, csc).  Unavailable selections raise NotImplementedError naming the
-    stage and implementation.
+    Build the stages array (a uint16 ndarray of BSLZ4_STAGES_N entries --
+    one per stage/option: decompress, untranspose, collect, dot, options)
+    from stage ids, defaulting each stage from the module-level defaults
+    (codec, untranspose backend, active collect tier, csc).  Unavailable
+    selections raise NotImplementedError naming the stage and implementation.
     """
     if decompress is None:
         decompress = _default_codec()
@@ -175,28 +176,28 @@ def pack_pipeline(decompress=None, untranspose=None, collect=None, dot=None, opt
                 "%s implementation (id %d) is not available in this build/CPU" % (name, value)
             )
     if options & ~(1 << 0):
-        raise ValueError("unknown option bits in pipeline: %r" % (options,))
-    return _pack(decompress, untranspose, collect, dot, options)
+        raise ValueError("unknown option bits: %r" % (options,))
+    return _stages(decompress, untranspose, collect, dot, options)
 
 
 def _default_codec():
     return CODEC_LZ4
 
 
-def _pack(decompress, untranspose, collect, dot, options):
-    # Mirrors BSLZ4_PIPE_MAKE in bslz4_common.h: 4 bits per stage id, 8 bits
-    # of options, packed into the low 24 bits (c2py23 accepts a signed int,
-    # so the pipeline cannot use bits >= 31).
-    return ((options & 0xFF) << 16 | (dot & 0xF) << 12 |
-            (collect & 0xF) << 8 | (untranspose & 0xF) << 4 |
-            (decompress & 0xF))
+def _stages(decompress, untranspose, collect, dot, options):
+    # Mirrors bslz4_common.h: a uint16 array with one entry per stage/option
+    # (BSLZ4_STAGES_N == 5).  c2py23 accepts exactly 'int'/'float'/'buffer'
+    # scalar inputs, so the old packed u64 pipeline word could not reach the
+    # C side; a buffer of one value per option avoids any bit packing.
+    return np.array([decompress, untranspose, collect, dot, options], dtype=np.uint16)
 
 
 def _pipeline_for(codec, collect_tier, dot=0):
-    """Pipeline for the current module defaults, given an explicit codec, the
-    collect tier for this dtype (0 for anything but u16/u32, which are the
-    only types the SIMD collect tiers support) and the dot implementation id."""
-    return _pack(codec, _BACKEND_TO_ID[_default_backend], collect_tier, dot, 0)
+    """Stages array for the current module defaults, given an explicit codec,
+    the collect tier for this dtype (0 for anything but u16/u32, which are
+    the only types the SIMD collect tiers support) and the dot implementation
+    id."""
+    return _stages(codec, _BACKEND_TO_ID[_default_backend], collect_tier, dot, 0)
 
 
 def _collect_tier_for_suffix(suffix):

@@ -114,12 +114,14 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 #define BSLZ4_NSTAGES  4
 #define BSLZ4_ID_SLOTS 16
 
-/* Resolve dtype + pipeline into a stage table.  Validates, in order:
+/* Resolve dtype + stages (a uint16 array, one entry per stage/option, see
+ * BSLZ4_STAGES_N in bslz4_common.h) into a stage table.  Validates, in
+ * order:
  *   dtype in [0,9]                     -> BSLZ4_ERR_DTYPE
  *   stage ids known + available        -> BSLZ4_ERR_UNAVAILABLE / BSLZ4_ERR_BAD_PIPELINE
  *   no unknown option bits             -> BSLZ4_ERR_BAD_PIPELINE
  * Returns 0 on success. */
-int bslz4_resolve(int dtype, uint64_t pipeline, bslz4_stage *BSLZ4_RESTRICT st);
+int bslz4_resolve(int dtype, const uint16_t *stages, bslz4_stage *BSLZ4_RESTRICT st);
 
 /* availability: 1 available, 0 known but not usable here, -1 unknown id */
 int bslz4_impl_available(int stage, int id);
@@ -149,7 +151,7 @@ int bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_len
                    const uint8_t *mask, int NIJ,
                    void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
                    uint8_t *workspace, size_t workspace_len, int64_t *cursors,
-                   int dtype, uint64_t pipeline);
+                   int dtype, const uint16_t *stages);
 
 int bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                            int nframes, const uint8_t *mask, int NIJ,
@@ -158,7 +160,7 @@ int bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compre
                            const float *weights, const uint32_t *indices, const uint32_t *indptr,
                            double route_threshold,
                            uint8_t *workspace, size_t workspace_len, int64_t *cursors,
-                           int dtype, uint64_t pipeline);
+                           int dtype, const uint16_t *stages);
 
 int bslz4_offsets_to_pointers(const char *base, size_t base_len, int64_t *offsets,
                               const int32_t *lengths, int nframes);

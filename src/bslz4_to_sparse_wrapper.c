@@ -15,8 +15,8 @@
 #include "c2py_arm64.h"
 #include "c2py_ppc64.h"
 
-extern int bslz4_sparsify(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, int threshold, uint8_t * workspace, size_t workspace_len, int64_t * cursors, int dtype, uint64_t pipeline);
-extern int bslz4_sparsify_and_dot(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, int threshold, double * powder, int nout, const float * weights, const uint32_t * indices, const uint32_t * indptr, double route_threshold, uint8_t * workspace, size_t workspace_len, int64_t * cursors, int dtype, uint64_t pipeline);
+extern int bslz4_sparsify(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, int threshold, uint8_t * workspace, size_t workspace_len, int64_t * cursors, int dtype, const uint16_t * stages);
+extern int bslz4_sparsify_and_dot(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, int threshold, double * powder, int nout, const float * weights, const uint32_t * indices, const uint32_t * indptr, double route_threshold, uint8_t * workspace, size_t workspace_len, int64_t * cursors, int dtype, const uint16_t * stages);
 extern int bslz4_offsets_to_pointers(const char * base, size_t base_len, int64_t * offsets, const int32_t * lengths, int nframes);
 extern void bslz4_note_chunk(const char * chunk, size_t chunk_len, int index, int64_t * pointers, int32_t * lengths);
 extern int bslz4_impl_available(int stage, int id);
@@ -45,7 +45,7 @@ static const uint8_t _acqord_sparsify[] = { C2PY_PIN_NDARRAY, C2PY_PIN_PEP3118 }
 /* -------------------------------------------- */
 
 static PyObject*
-_sparsify_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, int c_threshold, int c_dtype, int c_pipeline)
+_sparsify_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, c2py_ptr_info *info_stages, int c_threshold, int c_dtype)
 {
     int _c2py_slow_axis_info_compressed_ptrs = -1;
     int _c2py_fast_axis_info_compressed_ptrs = -1;
@@ -111,6 +111,14 @@ _sparsify_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compress
     if (c2py_check_contiguity(info_cursors, &_c2py_slow_axis_info_cursors, &_c2py_fast_axis_info_cursors) < 0)
         return NULL;
 
+    int _c2py_slow_axis_info_stages = -1;
+    int _c2py_fast_axis_info_stages = -1;
+    (void)_c2py_slow_axis_info_stages;
+    (void)_c2py_fast_axis_info_stages;
+    /* contiguity check: stages */
+    if (c2py_check_contiguity(info_stages, &_c2py_slow_axis_info_stages, &_c2py_fast_axis_info_stages) < 0)
+        return NULL;
+
     /* check: (mask.format == 'B' or mask.format == 'b') */
     if (!(((!info_mask->format || info_mask->format[strlen(info_mask->format) - 1] == 'B')) || ((!info_mask->format || info_mask->format[strlen(info_mask->format) - 1] == 'b')))) {
         char _c2py_err[256];
@@ -171,6 +179,21 @@ _sparsify_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compress
         PyErr_SetString(PyExc_ValueError, _c2py_err);
         return NULL;
     }
+    /* check: stages.format == 'H' */
+    if (!((!info_stages->format || (info_stages->format[strlen(info_stages->format) - 1] == 'H' && c2py_format_is_native(info_stages->format))))) {
+        char _c2py_err[256];
+        const char *_fmt = info_stages->format ? info_stages->format : "(null)";
+        snprintf(_c2py_err, sizeof(_c2py_err), "sparsify: arg 'stages' check failed: stages.format == 'H' (got format='%s')", _fmt);
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
+    /* check: stages.n == 5 */
+    if (!((((info_stages->len == 0) ? 0 : (info_stages->len / info_stages->itemsize))) == (5))) {
+        char _c2py_err[256];
+        snprintf(_c2py_err, sizeof(_c2py_err), "sparsify: arg 'stages' check failed: stages.n == 5 (got %ld vs %ld)", (long)(((info_stages->len == 0) ? 0 : (info_stages->len / info_stages->itemsize))), (long)(5));
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
     /* overload 0 (always) */
     {
         if ((((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))) > (Py_ssize_t)INT_MAX) {
@@ -188,7 +211,7 @@ _sparsify_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compress
                 "buffer too large for int n (> INT_MAX elements)");
             return NULL;
         }
-        int _ret = bslz4_sparsify((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, c_threshold, (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, c_dtype, (uint64_t)(c_pipeline));
+        int _ret = bslz4_sparsify((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, c_threshold, (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, c_dtype, (const uint16_t *)info_stages->ptr);
         return PyLong_FromLong((long)_ret);
     }
 
@@ -213,9 +236,9 @@ _sparsify_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
     PyObject *py_npx_out = NULL;
     PyObject *py_workspace = NULL;
     PyObject *py_cursors = NULL;
+    PyObject *py_stages = NULL;
     int c_threshold = 0;
     int c_dtype = 0;
-    int c_pipeline = 0;
     c2py_buf_pin pin_compressed_ptrs;
     c2py_ptr_info info_compressed_ptrs;
     c2py_buf_pin pin_compressed_lengths;
@@ -232,6 +255,8 @@ _sparsify_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
     c2py_ptr_info info_workspace;
     c2py_buf_pin pin_cursors;
     c2py_ptr_info info_cursors;
+    c2py_buf_pin pin_stages;
+    c2py_ptr_info info_stages;
     PyObject *ret = NULL;
 
     if (nargs != 11) {
@@ -270,17 +295,7 @@ _sparsify_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
         }
         c_dtype = (int)_c2py_tmp;
     }
-    /* extract int: pipeline from args[10] */
-    {
-        long _c2py_tmp = PyLong_AsLong(args[10]);
-        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
-        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
-            PyErr_SetString(PyExc_ValueError,
-                "int parameter pipeline out of range (must fit in C int)");
-            return NULL;
-        }
-        c_pipeline = (int)_c2py_tmp;
-    }
+    py_stages = args[10];
 
     memset(&pin_compressed_ptrs.buf, 0, C2PY.pybuffer_size);
     memset(&pin_compressed_lengths.buf, 0, C2PY.pybuffer_size);
@@ -290,6 +305,7 @@ _sparsify_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
     memset(&pin_npx_out.buf, 0, C2PY.pybuffer_size);
     memset(&pin_workspace.buf, 0, C2PY.pybuffer_size);
     memset(&pin_cursors.buf, 0, C2PY.pybuffer_size);
+    memset(&pin_stages.buf, 0, C2PY.pybuffer_size);
 
     if (c2py_pin(py_compressed_ptrs, &pin_compressed_ptrs, &info_compressed_ptrs, C2PY_BUF_READ, _acqord_sparsify, 2) == -1)
         return NULL;
@@ -315,16 +331,20 @@ _sparsify_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
     if (c2py_pin(py_cursors, &pin_cursors, &info_cursors, C2PY_BUF_WRITE, _acqord_sparsify, 2) == -1)
         goto cleanup;
 
+    if (c2py_pin(py_stages, &pin_stages, &info_stages, C2PY_BUF_READ, _acqord_sparsify, 2) == -1)
+        goto cleanup;
+
     /* restrict check: writable buffers must not overlap */
     {
-        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_workspace, &info_compressed_lengths, &info_compressed_ptrs, &info_mask };
-        if (c2py_check_no_overlap(_c2py_ov, 5, 8) < 0)
+        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_workspace, &info_compressed_lengths, &info_compressed_ptrs, &info_mask, &info_stages };
+        if (c2py_check_no_overlap(_c2py_ov, 5, 9) < 0)
             goto cleanup;
     }
 
-    ret = _sparsify_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_workspace, &info_cursors, c_threshold, c_dtype, c_pipeline);
+    ret = _sparsify_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_workspace, &info_cursors, &info_stages, c_threshold, c_dtype);
 
 cleanup:
+    c2py_unpin_buffer(&pin_stages);
     c2py_unpin_buffer(&pin_cursors);
     c2py_unpin_buffer(&pin_workspace);
     c2py_unpin_buffer(&pin_npx_out);
@@ -362,7 +382,7 @@ static const uint8_t _acqord_sparsify_and_dot[] = { C2PY_PIN_NDARRAY, C2PY_PIN_P
 /* -------------------------------------------- */
 
 static PyObject*
-_sparsify_and_dot_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_powder, c2py_ptr_info *info_data, c2py_ptr_info *info_indices, c2py_ptr_info *info_indptr, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, int c_threshold, int c_nout, double c_route_threshold, int c_dtype, int c_pipeline)
+_sparsify_and_dot_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_powder, c2py_ptr_info *info_data, c2py_ptr_info *info_indices, c2py_ptr_info *info_indptr, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, c2py_ptr_info *info_stages, int c_threshold, int c_nout, double c_route_threshold, int c_dtype)
 {
     int _c2py_slow_axis_info_compressed_ptrs = -1;
     int _c2py_fast_axis_info_compressed_ptrs = -1;
@@ -458,6 +478,14 @@ _sparsify_and_dot_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_
     (void)_c2py_fast_axis_info_cursors;
     /* contiguity check: cursors */
     if (c2py_check_contiguity(info_cursors, &_c2py_slow_axis_info_cursors, &_c2py_fast_axis_info_cursors) < 0)
+        return NULL;
+
+    int _c2py_slow_axis_info_stages = -1;
+    int _c2py_fast_axis_info_stages = -1;
+    (void)_c2py_slow_axis_info_stages;
+    (void)_c2py_fast_axis_info_stages;
+    /* contiguity check: stages */
+    if (c2py_check_contiguity(info_stages, &_c2py_slow_axis_info_stages, &_c2py_fast_axis_info_stages) < 0)
         return NULL;
 
     /* check: (mask.format == 'B' or mask.format == 'b') */
@@ -564,6 +592,21 @@ _sparsify_and_dot_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_
         PyErr_SetString(PyExc_ValueError, "sparsify_and_dot: arg 'indptr' check failed: indptr.n == (mask.n + 1)");
         return NULL;
     }
+    /* check: stages.format == 'H' */
+    if (!((!info_stages->format || (info_stages->format[strlen(info_stages->format) - 1] == 'H' && c2py_format_is_native(info_stages->format))))) {
+        char _c2py_err[256];
+        const char *_fmt = info_stages->format ? info_stages->format : "(null)";
+        snprintf(_c2py_err, sizeof(_c2py_err), "sparsify_and_dot: arg 'stages' check failed: stages.format == 'H' (got format='%s')", _fmt);
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
+    /* check: stages.n == 5 */
+    if (!((((info_stages->len == 0) ? 0 : (info_stages->len / info_stages->itemsize))) == (5))) {
+        char _c2py_err[256];
+        snprintf(_c2py_err, sizeof(_c2py_err), "sparsify_and_dot: arg 'stages' check failed: stages.n == 5 (got %ld vs %ld)", (long)(((info_stages->len == 0) ? 0 : (info_stages->len / info_stages->itemsize))), (long)(5));
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
     /* overload 0 (always) */
     {
         if ((((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))) > (Py_ssize_t)INT_MAX) {
@@ -581,7 +624,7 @@ _sparsify_and_dot_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_
                 "buffer too large for int n (> INT_MAX elements)");
             return NULL;
         }
-        int _ret = bslz4_sparsify_and_dot((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, c_threshold, (double *)info_powder->ptr, c_nout, (const float *)info_data->ptr, (const uint32_t *)info_indices->ptr, (const uint32_t *)info_indptr->ptr, c_route_threshold, (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, c_dtype, (uint64_t)(c_pipeline));
+        int _ret = bslz4_sparsify_and_dot((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, c_threshold, (double *)info_powder->ptr, c_nout, (const float *)info_data->ptr, (const uint32_t *)info_indices->ptr, (const uint32_t *)info_indptr->ptr, c_route_threshold, (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, c_dtype, (const uint16_t *)info_stages->ptr);
         return PyLong_FromLong((long)_ret);
     }
 
@@ -610,11 +653,11 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
     PyObject *py_indptr = NULL;
     PyObject *py_workspace = NULL;
     PyObject *py_cursors = NULL;
+    PyObject *py_stages = NULL;
     int c_threshold = 0;
     int c_nout = 0;
     double c_route_threshold = 0.0;
     int c_dtype = 0;
-    int c_pipeline = 0;
     c2py_buf_pin pin_compressed_ptrs;
     c2py_ptr_info info_compressed_ptrs;
     c2py_buf_pin pin_compressed_lengths;
@@ -639,6 +682,8 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
     c2py_ptr_info info_workspace;
     c2py_buf_pin pin_cursors;
     c2py_ptr_info info_cursors;
+    c2py_buf_pin pin_stages;
+    c2py_ptr_info info_stages;
     PyObject *ret = NULL;
 
     if (nargs != 17) {
@@ -698,17 +743,7 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
         }
         c_dtype = (int)_c2py_tmp;
     }
-    /* extract int: pipeline from args[16] */
-    {
-        long _c2py_tmp = PyLong_AsLong(args[16]);
-        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
-        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
-            PyErr_SetString(PyExc_ValueError,
-                "int parameter pipeline out of range (must fit in C int)");
-            return NULL;
-        }
-        c_pipeline = (int)_c2py_tmp;
-    }
+    py_stages = args[16];
 
     memset(&pin_compressed_ptrs.buf, 0, C2PY.pybuffer_size);
     memset(&pin_compressed_lengths.buf, 0, C2PY.pybuffer_size);
@@ -722,6 +757,7 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
     memset(&pin_indptr.buf, 0, C2PY.pybuffer_size);
     memset(&pin_workspace.buf, 0, C2PY.pybuffer_size);
     memset(&pin_cursors.buf, 0, C2PY.pybuffer_size);
+    memset(&pin_stages.buf, 0, C2PY.pybuffer_size);
 
     if (c2py_pin(py_compressed_ptrs, &pin_compressed_ptrs, &info_compressed_ptrs, C2PY_BUF_READ, _acqord_sparsify_and_dot, 2) == -1)
         return NULL;
@@ -759,16 +795,20 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
     if (c2py_pin(py_cursors, &pin_cursors, &info_cursors, C2PY_BUF_WRITE, _acqord_sparsify_and_dot, 2) == -1)
         goto cleanup;
 
+    if (c2py_pin(py_stages, &pin_stages, &info_stages, C2PY_BUF_READ, _acqord_sparsify_and_dot, 2) == -1)
+        goto cleanup;
+
     /* restrict check: writable buffers must not overlap */
     {
-        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_powder, &info_workspace, &info_compressed_lengths, &info_compressed_ptrs, &info_data, &info_indices, &info_indptr, &info_mask };
-        if (c2py_check_no_overlap(_c2py_ov, 6, 12) < 0)
+        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_powder, &info_workspace, &info_compressed_lengths, &info_compressed_ptrs, &info_data, &info_indices, &info_indptr, &info_mask, &info_stages };
+        if (c2py_check_no_overlap(_c2py_ov, 6, 13) < 0)
             goto cleanup;
     }
 
-    ret = _sparsify_and_dot_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_powder, &info_data, &info_indices, &info_indptr, &info_workspace, &info_cursors, c_threshold, c_nout, c_route_threshold, c_dtype, c_pipeline);
+    ret = _sparsify_and_dot_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_powder, &info_data, &info_indices, &info_indptr, &info_workspace, &info_cursors, &info_stages, c_threshold, c_nout, c_route_threshold, c_dtype);
 
 cleanup:
+    c2py_unpin_buffer(&pin_stages);
     c2py_unpin_buffer(&pin_cursors);
     c2py_unpin_buffer(&pin_workspace);
     c2py_unpin_buffer(&pin_indptr);
@@ -2306,8 +2346,8 @@ _set_neon_collect_wrapper(PyObject *self, PyObject *args)
 /* Module definition                          */
 /* -------------------------------------------- */
 
-static const char _doc_sparsify[] = "sparsify(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, threshold, workspace, cursors, dtype, pipeline)\n--\n\nsparsify(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, dtype: int, pipeline: int) -> int\n\nDecode nframes bitshuffle-LZ4/zstd chunks from the same dataset into per-frame masked/thresholded sparse (outpx, output_adr, npx_out). dtype is the pixel dtype index (0..9); pipeline packs the stage ids (decompress/untranspose/collect/dot + options).\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\nthreshold : int\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ndtype : int\npipeline : int\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n\nOverloads\n---------\n  bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, uint64_t pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         dtype = dtype (int)\n         pipeline = pipeline (uint64_t)";
-static const char _doc_sparsify_and_dot[] = "sparsify_and_dot(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, threshold, powder, data, indices, indptr, workspace, cursors, nout, route_threshold, dtype, pipeline)\n--\n\nsparsify_and_dot(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, cursors: buffer, nout: int, route_threshold: float, dtype: int, pipeline: int) -> int\n\nDecode a batch of chunks into per-frame sparse (outpx, output_adr, npx_out) and per-frame CSC powder integrations (powder). dtype is the pixel dtype index; pipeline packs the stage ids.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\nthreshold : int\npowder : buffer\n    Type: float64 (format 'd')\n    Writable\ndata : buffer\n    Type: float32 (format 'f')\nindices : buffer\n    Size must equal data\nindptr : buffer\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\nnout : int\nroute_threshold : float\ndtype : int\npipeline : int\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  powder.format == 'd'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  data.format == 'f'  [ValueError]\n  (indices.format == 'I' or indices.format == 'i')  [ValueError]\n  (indptr.format == 'I' or indptr.format == 'i')  [ValueError]\n  indices.n == data.n  [ValueError]\n  indptr.n == (mask.n + 1)  [ValueError]\n\nOverloads\n---------\n  bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *powder, int nout, const float *weights, const uint32_t *indices, const uint32_t *indptr, double route_threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, uint64_t pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         powder = powder.ptr (double *)\n         nout = nout (int)\n         weights = data.ptr (const float *)\n         indices = indices.ptr (const uint32_t *)\n         indptr = indptr.ptr (const uint32_t *)\n         route_threshold = route_threshold (double)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         dtype = dtype (int)\n         pipeline = pipeline (uint64_t)";
+static const char _doc_sparsify[] = "sparsify(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, threshold, workspace, cursors, dtype, stages)\n--\n\nsparsify(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, dtype: int, stages: buffer) -> int\n\nDecode nframes bitshuffle-LZ4/zstd chunks from the same dataset into per-frame masked/thresholded sparse (outpx, output_adr, npx_out). dtype is the pixel dtype index (0..9); stages is a uint16 array of 5 entries: the decompress/untranspose/collect/dot ids then the options bitmask.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\nthreshold : int\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ndtype : int\nstages : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  stages.format == 'H'  [ValueError]\n  stages.n == 5  [ValueError]\n\nOverloads\n---------\n  bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, const uint16_t *stages) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         dtype = dtype (int)\n         stages = stages.ptr (const uint16_t *)";
+static const char _doc_sparsify_and_dot[] = "sparsify_and_dot(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, threshold, powder, data, indices, indptr, workspace, cursors, nout, route_threshold, dtype, stages)\n--\n\nsparsify_and_dot(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, cursors: buffer, nout: int, route_threshold: float, dtype: int, stages: buffer) -> int\n\nDecode a batch of chunks into per-frame sparse (outpx, output_adr, npx_out) and per-frame CSC powder integrations (powder). dtype is the pixel dtype index; stages is a uint16 array of 5 entries: the decompress/untranspose/collect/dot ids then the options bitmask.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\nthreshold : int\npowder : buffer\n    Type: float64 (format 'd')\n    Writable\ndata : buffer\n    Type: float32 (format 'f')\nindices : buffer\n    Size must equal data\nindptr : buffer\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\nnout : int\nroute_threshold : float\ndtype : int\nstages : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  powder.format == 'd'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  data.format == 'f'  [ValueError]\n  (indices.format == 'I' or indices.format == 'i')  [ValueError]\n  (indptr.format == 'I' or indptr.format == 'i')  [ValueError]\n  indices.n == data.n  [ValueError]\n  indptr.n == (mask.n + 1)  [ValueError]\n  stages.format == 'H'  [ValueError]\n  stages.n == 5  [ValueError]\n\nOverloads\n---------\n  bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *powder, int nout, const float *weights, const uint32_t *indices, const uint32_t *indptr, double route_threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, const uint16_t *stages) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         powder = powder.ptr (double *)\n         nout = nout (int)\n         weights = data.ptr (const float *)\n         indices = indices.ptr (const uint32_t *)\n         indptr = indptr.ptr (const uint32_t *)\n         route_threshold = route_threshold (double)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         dtype = dtype (int)\n         stages = stages.ptr (const uint16_t *)";
 static const char _doc_offsets_to_pointers[] = "offsets_to_pointers(base, offsets, lengths, nframes)\n--\n\noffsets_to_pointers(base: buffer, offsets: buffer, lengths: buffer, nframes: int) -> int\n\nConvert byte offsets (into base) to absolute pointers in place, after checking every (offset, length) lies inside base. Returns 0, or -108 leaving offsets untouched on a bad one.\n\nParameters\n----------\nbase : buffer\noffsets : buffer\n    Writable\nlengths : buffer\n    Size must equal offsets\nnframes : int\n\nChecks\n------\n  offsets.itemsize == 8  [ValueError]\n  lengths.itemsize == 4  [ValueError]\n  lengths.n == offsets.n  [ValueError]\n\nOverloads\n---------\n  bslz4_offsets_to_pointers(const char *base, size_t base_len, int64_t *offsets, const int32_t *lengths, int nframes) -> int\n    Map: base = base.ptr (const char *)\n         base_len = base.len (size_t)\n         offsets = offsets.ptr (int64_t *)\n         lengths = lengths.ptr (const int32_t *)\n         nframes = offsets.n (int)";
 static const char _doc_note_chunk[] = "note_chunk(chunk, index, pointers, lengths)\n--\n\nnote_chunk(chunk: buffer, index: int, pointers: buffer, lengths: buffer) -> void\n\nWrite chunk's raw address and byte length into pointers[index]/lengths[index].\n\nParameters\n----------\nchunk : buffer\nindex : int\npointers : buffer\n    Writable\nlengths : buffer\n    Writable\n\nOverloads\n---------\n  bslz4_note_chunk(const char *chunk, size_t chunk_len, int index, int64_t *pointers, int32_t *lengths) -> void\n    Map: chunk = chunk.ptr (const char *)\n         chunk_len = chunk.len (size_t)\n         index = index (int)\n         pointers = pointers.ptr (int64_t *)\n         lengths = lengths.ptr (int32_t *)";
 static const char _doc_impl_available[] = "impl_available(stage, id)\n--\n\nimpl_available(stage: int, id: int) -> int\n\n1 if a known implementation is available here, 0 if known but not usable on this CPU/build, -1 if the id is unknown.\n\nParameters\n----------\nstage : int\nid : int\n\nOverloads\n---------\n  bslz4_impl_available(int stage, int id) -> int\n    Map: stage = stage (int)\n         id = id (int)";

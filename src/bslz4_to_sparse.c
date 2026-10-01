@@ -22,11 +22,11 @@ int bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_len
                    const uint8_t *mask, int NIJ,
                    void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
                    uint8_t *workspace, size_t workspace_len, int64_t *cursors,
-                   int dtype, uint64_t pipeline) {
+                   int dtype, const uint16_t *stages) {
     bslz4_stage st;
-    int rc = bslz4_resolve(dtype, pipeline, &st);
+    int rc = bslz4_resolve(dtype, stages, &st);
     if (rc) return rc;
-    int codec = BSLZ4_PIPE_DECOMPRESS(pipeline);
+    int codec = stages[BSLZ4_STAGE_DECOMPRESS];
     rc = bslz4_driver_sparsify(compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
                                outpx, output_adr, npx_out, threshold,
                                workspace, workspace_len, cursors, &st);
@@ -40,11 +40,11 @@ int bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compre
                            const float *weights, const uint32_t *indices, const uint32_t *indptr,
                            double route_threshold,
                            uint8_t *workspace, size_t workspace_len, int64_t *cursors,
-                           int dtype, uint64_t pipeline) {
+                           int dtype, const uint16_t *stages) {
     bslz4_stage st;
-    int rc = bslz4_resolve(dtype, pipeline, &st);
+    int rc = bslz4_resolve(dtype, stages, &st);
     if (rc) return rc;
-    int codec = BSLZ4_PIPE_DECOMPRESS(pipeline);
+    int codec = stages[BSLZ4_STAGE_DECOMPRESS];
     rc = bslz4_driver_sparsify_and_dot(compressed_ptrs, compressed_lengths, nframes, codec, mask, NIJ,
                                        outpx, output_adr, npx_out, threshold,
                                        powder, nout, weights, indices, indptr, route_threshold,
@@ -83,8 +83,8 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
     "timing": False,
     "functions": [
         {
-            "py_sig": "sparsify(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, dtype: int, pipeline: int) -> int",
-            "doc": "Decode nframes bitshuffle-LZ4/zstd chunks from the same dataset into per-frame masked/thresholded sparse (outpx, output_adr, npx_out). dtype is the pixel dtype index (0..9); pipeline packs the stage ids (decompress/untranspose/collect/dot + options).",
+            "py_sig": "sparsify(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, dtype: int, stages: buffer) -> int",
+            "doc": "Decode nframes bitshuffle-LZ4/zstd chunks from the same dataset into per-frame masked/thresholded sparse (outpx, output_adr, npx_out). dtype is the pixel dtype index (0..9); stages is a uint16 array of 5 entries: the decompress/untranspose/collect/dot ids then the options bitmask.",
             "checks": [
                 "mask.format == 'B' or mask.format == 'b'",
                 "output_adr.format == 'I' or output_adr.format == 'L'",
@@ -94,14 +94,16 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
                 "compressed_lengths.itemsize == 4",
                 "compressed_lengths.n == compressed_ptrs.n",
                 "cursors.itemsize == 8",
+                "stages.format == 'H'",
+                "stages.n == 5",
             ],
             "c_overloads": [
-                {"sig": "bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, uint64_t pipeline) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "dtype": "dtype", "pipeline": "pipeline"}},
+                {"sig": "bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, const uint16_t *stages) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "dtype": "dtype", "stages": "stages.ptr"}},
             ],
         },
         {
-            "py_sig": "sparsify_and_dot(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, cursors: buffer, nout: int, route_threshold: float, dtype: int, pipeline: int) -> int",
-            "doc": "Decode a batch of chunks into per-frame sparse (outpx, output_adr, npx_out) and per-frame CSC powder integrations (powder). dtype is the pixel dtype index; pipeline packs the stage ids.",
+            "py_sig": "sparsify_and_dot(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, cursors: buffer, nout: int, route_threshold: float, dtype: int, stages: buffer) -> int",
+            "doc": "Decode a batch of chunks into per-frame sparse (outpx, output_adr, npx_out) and per-frame CSC powder integrations (powder). dtype is the pixel dtype index; stages is a uint16 array of 5 entries: the decompress/untranspose/collect/dot ids then the options bitmask.",
             "checks": [
                 "mask.format == 'B' or mask.format == 'b'",
                 "output_adr.format == 'I' or output_adr.format == 'L'",
@@ -117,9 +119,11 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
                 "indptr.format == 'I' or indptr.format == 'i'",
                 "indices.n == data.n",
                 "indptr.n == mask.n + 1",
+                "stages.format == 'H'",
+                "stages.n == 5",
             ],
             "c_overloads": [
-                {"sig": "bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *powder, int nout, const float *weights, const uint32_t *indices, const uint32_t *indptr, double route_threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, uint64_t pipeline) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "powder": "powder.ptr", "nout": "nout", "weights": "data.ptr", "indices": "indices.ptr", "indptr": "indptr.ptr", "route_threshold": "route_threshold", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "dtype": "dtype", "pipeline": "pipeline"}},
+                {"sig": "bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *powder, int nout, const float *weights, const uint32_t *indices, const uint32_t *indptr, double route_threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, const uint16_t *stages) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "powder": "powder.ptr", "nout": "nout", "weights": "data.ptr", "indices": "indices.ptr", "indptr": "indptr.ptr", "route_threshold": "route_threshold", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "dtype": "dtype", "stages": "stages.ptr"}},
             ],
         },
         {
