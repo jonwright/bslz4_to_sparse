@@ -38,6 +38,8 @@ def _sources():
         "src/bslz4_to_sparse_wrapper.c",
         os.path.join(C2PY_RUNTIME, "c2py_runtime.c"),
         "src/bslz4_to_sparse.cpp",
+        "src/bslz4_driver.c",
+        "src/kernels_generic.cpp",
         "kcb/src/bitshuffle.c",
         "bitshuffle/src/bitshuffle_core.c",
         "bitshuffle/src/iochain.c",
