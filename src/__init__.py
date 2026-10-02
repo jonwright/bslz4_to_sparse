@@ -205,11 +205,24 @@ def _collect_tier_for_suffix(suffix):
     return 0
 
 
+def _suffix_itemsize(suffix):
+    return int(suffix[1:]) // 8      # "u8"=1, "u16"=2, "f32"=4, "f64"=8, ...
+
+
+def _check_outpx_itemsize(out, suffix):
+    want = _suffix_itemsize(suffix)
+    got = out.itemsize
+    if got != want:
+        raise ValueError(
+            "outpx.itemsize %d does not match dtype %s itemsize %d" % (got, suffix, want))
+
+
 def _make_sparsify(suffix, pipeline=None):
     di = _SUFFIX_TO_DTYPE[suffix]
 
     def fn(pointers, lengths, mask, output, output_adr, npx_out, threshold,
            workspace, cursors, codec):
+        _check_outpx_itemsize(output, suffix)
         p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix))
         return _ext.sparsify(pointers, lengths, mask, output, output_adr, npx_out,
                              threshold, workspace, cursors, di, p)
@@ -221,6 +234,7 @@ def _make_csc(suffix, pipeline=None, dot=0):
 
     def fn(pointers, lengths, mask, outpx, output_adr, npx_out, threshold, powder, data,
            indices, indptr, workspace, cursors, nout, codec):
+        _check_outpx_itemsize(outpx, suffix)
         p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot)
         return _ext.sparsify_and_dot(pointers, lengths, mask, outpx, output_adr, npx_out,
                                      threshold, powder, data, indices, indptr,
@@ -234,7 +248,8 @@ def _make_csc_base(suffix, pipeline=None, dot=0):
 
     def fn(base, offsets, lengths, mask, outpx, output_adr, npx_out, threshold, powder, data,
            indices, indptr, workspace, cursors, nout, codec):
-        rc = _ext.offsets_to_pointers(base, offsets, lengths, len(lengths))
+        _check_outpx_itemsize(outpx, suffix)
+        rc = _ext.offsets_to_pointers(base, offsets, lengths)
         if rc < 0:
             return rc
         p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot)
@@ -394,7 +409,14 @@ def normalise_matrix(csc, npix=None):
 
     Returns a _NormalMatrix; raises ValueError on bad contents.
     """
-    if not hasattr(csc, "indptr") and hasattr(csc, "tocsc"):
+    # Duck-typed conversion to CSC.  A scipy CSR/BSR (or any sparse matrix with
+    # a row-wise indptr) has an indptr but it is over rows, so is actually
+    # converted; only a true CSC (or an already-CSC pyFAI engine, which has no
+    # .format) is left alone.
+    if hasattr(csc, "tocsc") and (
+        not hasattr(csc, "indptr")
+        or getattr(csc, "format", None) not in ("csc", None)
+    ):
         csc = csc.tocsc()
     indptr = np.asarray(csc.indptr)
     indices = np.asarray(csc.indices)

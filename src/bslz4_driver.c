@@ -16,7 +16,7 @@
 
 static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                                       const int32_t *BSLZ4_RESTRICT compressed_lengths,
-                                      int nframes, const bslz4_stage *BSLZ4_RESTRICT st,
+                                      int nframes,
                                       uint64_t *BSLZ4_RESTRICT out_total,
                                       size_t *BSLZ4_RESTRICT out_blocksize) {
     if (nframes <= 0) return BSLZ4_ERR_BAD_NFRAMES;
@@ -59,7 +59,7 @@ int bslz4_driver_sparsify(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 
     uint64_t total_output_length;
     size_t blocksize;
-    int rc = bslz4_driver_check_frames(compressed_ptrs, compressed_lengths, nframes, st,
+    int rc = bslz4_driver_check_frames(compressed_ptrs, compressed_lengths, nframes,
                                        &total_output_length, &blocksize);
     if (rc) return rc;
 
@@ -182,7 +182,7 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 
     uint64_t total_output_length;
     size_t blocksize;
-    int rc = bslz4_driver_check_frames(compressed_ptrs, compressed_lengths, nframes, st,
+    int rc = bslz4_driver_check_frames(compressed_ptrs, compressed_lengths, nframes,
                                        &total_output_length, &blocksize);
     if (rc) return rc;
 

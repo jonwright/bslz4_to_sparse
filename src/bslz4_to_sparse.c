@@ -127,7 +127,7 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
             ],
         },
         {
-            "py_sig": "offsets_to_pointers(base: buffer, offsets: buffer, lengths: buffer, nframes: int) -> int",
+            "py_sig": "offsets_to_pointers(base: buffer, offsets: buffer, lengths: buffer) -> int",
             "doc": "Convert byte offsets (into base) to absolute pointers in place, after checking every (offset, length) lies inside base. Returns 0, or -108 leaving offsets untouched on a bad one.",
             "checks": [
                 "offsets.itemsize == 8",

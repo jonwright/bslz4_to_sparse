@@ -178,6 +178,22 @@ def test_tail_remainder_pixels_are_sparsified():
 
 # ---- resolution / matrix errors ----------------------------------------------
 
+def test_normalise_matrix_accepts_scipy_csr_and_bsr():
+    sp = pytest.importorskip("scipy.sparse")
+    data = np.array([1, 2, 3, 4, 5], np.float32)
+    indices = np.array([0, 2, 1, 0, 2], np.int32)
+    indptr = np.array([0, 1, 2, 3, 4, 5], np.int32)
+    shape = (3, 5)  # (nbins, npix)
+    csc = sp.csc_matrix((data, indices, indptr), shape=shape)
+    csr = sp.csr_matrix(csc)
+    bsr = sp.bsr_matrix(csc)
+    ref = b.normalise_matrix(csc, npix=5)
+    for name, m in (("csr", csr), ("bsr", bsr)):
+        nm = b.normalise_matrix(m, npix=5)
+        np.testing.assert_array_equal(nm.indptr, ref.indptr)
+        np.testing.assert_array_equal(nm.indices, ref.indices)
+        np.testing.assert_array_equal(nm.data, ref.data)
+
 def test_resolution_errors():
     _ext = b._ext
     ptr = np.empty(1, np.int64)
