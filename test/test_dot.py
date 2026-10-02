@@ -335,6 +335,43 @@ def test_csc_multi_base_matches_multi():
             np.testing.assert_allclose(powder[i], powder_ref[i])
 
 
+def test_decode_offsets_matches_call():
+    # the public face of the base+offsets path, fed from an mmap of the file
+    import mmap
+    with open("sparsetest.h5", "rb") as fh, h5py.File("sparsetest.h5", "r") as h5f:
+        mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+        try:
+            for name in chunks:
+                dt, shp, chunklist = chunks[name]
+                frames = list(range(len(chunklist)))
+                offsets, lengths = pack_offsets_lengths(harvest_chunk_offsets(h5f[name]), frames)
+                saved = offsets.copy()
+                c2sm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine,
+                                            dtype=np.dtype(dt))
+                # copies: the next call reuses the same output arrays
+                npx, (val, adr), powder = c2sm.decode_offsets(mm, offsets, lengths, 1)
+                npx, val, adr, powder = npx.copy(), val.copy(), adr.copy(), powder.copy()
+                assert np.array_equal(offsets, saved), "caller's offsets were modified"
+                npx_ref, (val_ref, adr_ref), powder_ref = c2sm([c for (filt, c) in chunklist], 1)
+                assert np.array_equal(npx, npx_ref), name
+                for i in frames:
+                    n = npx[i]
+                    assert np.array_equal(adr[i, :n], adr_ref[i, :n]), (name, i)
+                    assert np.array_equal(val[i, :n], val_ref[i, :n]), (name, i)
+                assert np.array_equal(powder, powder_ref), name
+
+                bad = offsets.copy()
+                bad[-1] = len(mm) - lengths[-1] + 1        # runs one byte past the end
+                try:
+                    c2sm.decode_offsets(mm, bad, lengths, 1)
+                except Exception as e:
+                    assert "-108" in str(e), e
+                else:
+                    raise AssertionError("an out-of-bounds chunk was not refused")
+        finally:
+            mm.close()
+
+
 # ---------------------------------------------------------------------------
 # SIMD mask+threshold collect tiers (u16/u32 only). A tier this machine
 # cannot run is skipped, not passed. These run under pytest only, and are
@@ -436,6 +473,7 @@ test_csc_dense_and_sparse_routes_both_match_reference()
 test_plain_multi_matches_single()
 test_u64_i64_and_signed_negative_values()
 test_csc_multi_base_matches_multi()
+test_decode_offsets_matches_call()
 test_every_available_backend_matches()
 print("all multi-frame / dense-sparse-route / u64-i64 / multi_base tests passed")
 print("(SIMD collect tier tests only run under pytest -- see test_*_collect_matches_scalar)")

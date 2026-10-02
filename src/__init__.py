@@ -573,6 +573,8 @@ class chunk2sparseCSCmulti:
         self.codec = codec
         self.pipeline = pipeline
         self._fn = _make_csc(_suffix_for_dtype(dtype), pipeline=pipeline, dot=self.dot_id)
+        self._fn_base = _make_csc_base(_suffix_for_dtype(dtype), pipeline=pipeline,
+                                       dot=self.dot_id)
 
         self._nframes = 0
         self._outpx = None
@@ -599,10 +601,29 @@ class chunk2sparseCSCmulti:
         self._ensure_capacity(nframes, buffers[0])
 
         pointers, lengths = _gather_chunks(buffers)
+        return self._decode(self._fn, (pointers, lengths), cut)
 
-        ret = self._fn(
-            pointers,
-            lengths,
+    def decode_offsets(self, base, offsets, lengths, cut):
+        """
+        Decode the frames whose compressed chunks lie at offsets[i] (bytes)
+        with lengths[i] inside the one buffer base: an mmap of the whole
+        HDF5 file, or the file read into memory. offsets/lengths come from
+        harvest_chunk_offsets() and pack_offsets_lengths(), so no HDF5 call
+        and no per-chunk Python object is needed per batch. Every chunk is
+        checked to lie inside base before any is decoded. Returns the same
+        as __call__ on those chunks.
+        """
+        # a copy: the C side turns the offsets into pointers in place
+        offsets = np.array(offsets, dtype=np.int64)
+        lengths = np.ascontiguousarray(lengths, dtype=np.int32)
+        if len(offsets) == 0:
+            raise _decode_error(-105)
+        o = int(offsets[0])
+        self._ensure_capacity(len(offsets), bytes(memoryview(base)[o:o + 12]))
+        return self._decode(self._fn_base, (base, offsets, lengths), cut)
+
+    def _decode(self, fn, chunk_args, cut):
+        ret = fn(*(chunk_args + (
             self.mask,
             self._outpx.ravel(),
             self._output_adr.ravel(),
@@ -616,7 +637,7 @@ class chunk2sparseCSCmulti:
             self._cursors,
             self.nbins,
             self.codec,
-        )
+        )))
         if ret < 0:
             self._npx_out[:] = 0
             raise _decode_error(ret)
