@@ -71,7 +71,6 @@ enum {
     BSLZ4_ERR_FRAME_MISMATCH = -106,     /* frames don't share total size/block size */
     BSLZ4_ERR_CORRUPT_CHUNK = -107,      /* chunk too short, or a block/raw tail lies outside it */
     BSLZ4_ERR_BAD_CHUNK_BOUNDS = -108,   /* a chunk offset/size lies outside the buffer */
-    BSLZ4_ERR_BAD_MATRIX = -110,         /* CSC matrix arrays inconsistent (sizes/itemsize) */
     BSLZ4_ERR_BAD_PIPELINE = -111,       /* unknown stage id or unknown option bit */
     BSLZ4_ERR_UNAVAILABLE = -112,        /* a known implementation is unavailable here */
     BSLZ4_ERR_DTYPE = -113,              /* dtype index out of range or unsupported */

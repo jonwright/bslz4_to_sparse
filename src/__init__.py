@@ -1,36 +1,11 @@
 import os
 import struct
 import numpy as np
-import ctypes
 from .c2py_loader import load_native
 
 _ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse")
 
 version = "0.0.20a1"
-
-# We cast away the 'read-only' nature of python bytes.
-# Not needed for the latest numpy.
-if hasattr(ctypes.pythonapi, "PyMemoryView_FromMemory"):
-    buffer_from_memory = ctypes.pythonapi.PyMemoryView_FromMemory
-    buffer_from_memory.restype = ctypes.py_object
-    buffer_from_memory.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
-else:
-    def buffer_from_memory(buf, l, f):
-        if type(buf) == str and buf[:6] == 'array(':
-            import warnings
-            warnings.warn('Bad performance from python2.7 and old h5py')
-            from array import array
-            return eval(buf)
-        raise Exception('Unknown code path for buffer decoding ' + str(type(buf)))
-
-
-def npbuf(buf):
-    if isinstance(buf, np.ndarray):
-        return buf
-    elif isinstance(buf, memoryview):
-        return np.frombuffer(buf, np.uint8)
-    else:
-        return np.frombuffer(buffer_from_memory(buf, len(buf), 0x200), np.uint8)
 
 
 _TYPE_SUFFIXES = ("u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64")
@@ -110,48 +85,18 @@ def get_dense_sparse_threshold():
     return _dense_sparse_threshold
 
 
-# ---- Per-tier SIMD collect shims (u16/u32 only) ----
+# ---- Default SIMD collect tier (no per-tier flags) ----
 # The tier that actually runs is chosen by the collect id in the decode
-# stages.  These shims only report availability (via impl_available) and let
-# the caller override the default tier -- there is no C-side flags state
-# anymore.  Only the highest-priority available tier is on by default.
-
-_COLLECT_TIERS = (1, 2, 3, 4, 5)
-
-_collect_enabled = {mid: False for mid in _COLLECT_TIERS}
-for mid in _COLLECT_TIERS:
-    if _ext.impl_available(_STAGE_COLLECT, mid) == 1:
-        _collect_enabled[mid] = True
-        break
-
-
-def _collect_available(mid):
-    return _ext.impl_available(_STAGE_COLLECT, mid) == 1
-
-
-def _get_collect(mid):
-    return 1 if _collect_enabled[mid] else 0
-
-
-def _set_collect(mid, name, enabled):
-    if enabled and not _collect_available(mid):
-        raise RuntimeError(
-            "%s collect kernel requested but this build/CPU lacks it "
-            "(%s_collect_available() is False)" % (name, name))
-    _collect_enabled[mid] = bool(enabled)
-
+# stages (see pack_pipeline) -- that is the one way to select it.  The
+# default, when the caller does not pass a pipeline, is the highest-priority
+# SIMD tier this build/CPU supports, else scalar.  There are no per-tier
+# set_/get_ shims or C flags state anymore.
 
 def _active_collect_tier():
-    for mid in _COLLECT_TIERS:
-        if _collect_enabled[mid]:
+    for mid in (1, 2, 3, 4, 5):   # avx512, avx2, sse2, vsx, neon
+        if _ext.impl_available(_STAGE_COLLECT, mid) == 1:
             return mid
     return 0
-
-
-for mid, name in ((1, "avx512"), (2, "avx2"), (3, "sse2"), (4, "vsx"), (5, "neon")):
-    globals()["%s_collect_available" % name] = (lambda m=mid: _collect_available(m))
-    globals()["get_%s_collect" % name] = (lambda m=mid: _get_collect(m))
-    globals()["set_%s_collect" % name] = (lambda en, m=mid, n=name: _set_collect(m, n, en))
 
 
 # ---- Stage-array ("pipeline") helpers ----
@@ -314,7 +259,6 @@ _DECODE_ERRORS = {
     -107: "a chunk is corrupt or truncated (its header, a block length or its "
     "raw tail lies outside the chunk)",
     -108: "a chunk offset or size lies outside the buffer it refers to",
-    -110: "the CSC matrix arrays are inconsistent (sizes/itemsize)",
     -111: "an unknown stage id or unknown option bit was requested",
     -112: "a known implementation is unavailable on this build/CPU",
     -113: "the pixel dtype is out of range or unsupported",
@@ -455,18 +399,6 @@ def normalise_matrix(csc, npix=None):
     )
 
 
-# Selection hook: given the matrix and a block size (bytes), decide which
-# dot implementation to use.  Only csc exists today, so it always returns 0
-# (plain csc); the csc-fused variant (id 1) is selected explicitly via the
-# `dot=` constructor argument.
-def select_dot(matrix, blocksize=0):
-    """Select the dot implementation id for a matrix/block-size combo.
-    Only the csc layout exists, so this returns 0; a specific variant can
-    be chosen with the `dot=` argument to chunk2sparseCSC/multi."""
-    return 0
-
-
-
 class chunk2sparseMulti:
     """
     Batched plain sparse decode: decodes a series of frames from the same
@@ -598,7 +530,7 @@ class chunk2sparseCSCmulti:
         self.nbins = nm.nbins
         # dot implementation id: 0 = csc (dot then threshold), 1 = csc-fused
         # (the dense >cut sparsify interleaved into the CSC loop).
-        self.dot_id = select_dot(nm) if dot is None else int(dot)
+        self.dot_id = 0 if dot is None else int(dot)
 
         self.npix = mask.size
         self.dtype = dtype
