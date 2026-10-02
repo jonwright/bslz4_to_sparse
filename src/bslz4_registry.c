@@ -14,7 +14,51 @@
 
 #include <string.h>
 
+/* C-linkage capability probes for the padded SIMD tiers (defined in
+ * kernels_generic.cpp, using bslz4_padded.hpp). */
+extern int bslz4_available_avx2_padded(void);
+extern int bslz4_available_sse2_padded(void);
+extern int bslz4_available_avx512_padded(void);
+
 uint64_t bslz4_counters[BSLZ4_NSTAGES][BSLZ4_ID_SLOTS];
+
+/* Dot implementations as a table.  Each entry says which layout the dot id
+ * is, the dtype mask it accepts, the output element size (bytes) for the
+ * powder buffer, and an availability predicate.  A new scheme is just a new
+ * row here plus its kernel in kernels_generic.cpp; the work struct, driver
+ * and the other entries stay untouched. */
+typedef struct {
+    int layout;
+    uint32_t dtype_mask;
+    int out_size;
+    int (*available)(void);
+} bslz4_dot_desc;
+
+static int bslz4_dot_always(void) { return 1; }
+
+static const bslz4_dot_desc bslz4_dots[] = {
+    /* 0 csc          */ {BSLZ4_LAYOUT_CSC,    0x3FFu, 8, bslz4_dot_always},
+    /* 1 csc-fused    */ {BSLZ4_LAYOUT_CSC,    0x3FFu, 8, bslz4_dot_always},
+    /* 2 padded       */ {BSLZ4_LAYOUT_PADDED, 0x3FFu, 8, bslz4_dot_always},       /* scalar */
+    /* 3 padded-sse2  */ {BSLZ4_LAYOUT_PADDED, 0x3FFu, 8, bslz4_available_sse2_padded},
+    /* 4 padded-avx2  */ {BSLZ4_LAYOUT_PADDED, 0x3FFu, 8, bslz4_available_avx2_padded},
+    /* 5 padd-avx512  */ {BSLZ4_LAYOUT_PADDED, 0x3FFu, 8, bslz4_available_avx512_padded},
+    /* 6 bsb-csr      */ {BSLZ4_LAYOUT_BSBCSR, 0x3FFu, 8, bslz4_dot_always},
+};
+
+static int bslz4_dot_count(void) {
+    return (int) (sizeof(bslz4_dots) / sizeof(bslz4_dots[0]));
+}
+
+int bslz4_dot_layout(int id) {
+    if (id < 0 || id >= bslz4_dot_count()) return -1;
+    return bslz4_dots[id].layout;
+}
+
+int bslz4_dot_out_size(int id) {
+    if (id < 0 || id >= bslz4_dot_count()) return 0;
+    return bslz4_dots[id].out_size;
+}
 
 int bslz4_impl_available(int stage, int id) {
     switch (stage) {
@@ -39,7 +83,8 @@ int bslz4_impl_available(int stage, int id) {
         default: return -1;
         }
     case BSLZ4_STAGE_DOT:
-        return (id == 0 || id == 1) ? 1 : -1;  /* 0=csc, 1=csc-fused (dot+threshold interleaved) */
+        if (id < 0 || id >= bslz4_dot_count()) return -1;
+        return bslz4_dots[id].available() ? 1 : 0;
     default:
         return -1;
     }
@@ -54,14 +99,14 @@ static uint32_t collect_dtype_mask(int id) {
 }
 
 static uint32_t dot_dtype_mask(int id) {
-    (void) id;
-    return 0x3FFu;                                    /* csc: all 10 */
+    if (id < 0 || id >= bslz4_dot_count()) return 0;
+    return bslz4_dots[id].dtype_mask;
 }
 
 /* Known options bits.  Only the reserved DROP_NEGATIVES flag exists; it is
  * not yet implemented, so requesting it is currently rejected. */
 static int options_ok(uint16_t options) {
-    return (options & (uint16_t) ~BSLZ4_OPT_DROP_NEGATIVES) == 0;
+    return (options & (uint16_t) ~(BSLZ4_OPT_DROP_NEGATIVES | BSLZ4_OPT_NO_MASK)) == 0;
 }
 
 static bslz4_untranspose_fn untranspose_by_id(int id) {
@@ -90,7 +135,8 @@ static size_t bslz4_elem_size(int dtype) {
     }
 }
 
-int bslz4_resolve(int dtype, const uint16_t *stages, bslz4_stage *BSLZ4_RESTRICT st) {
+int bslz4_resolve(int dtype, const uint16_t *stages, int expected_layout,
+                  bslz4_stage *BSLZ4_RESTRICT st) {
     if (dtype < 0 || dtype > 9) return BSLZ4_ERR_DTYPE;
 
     int dec = stages[BSLZ4_STAGE_DECOMPRESS];
@@ -111,6 +157,8 @@ int bslz4_resolve(int dtype, const uint16_t *stages, bslz4_stage *BSLZ4_RESTRICT
     if (bslz4_impl_available(BSLZ4_STAGE_DOT, dot) <= 0)
         return bslz4_impl_available(BSLZ4_STAGE_DOT, dot) < 0 ? BSLZ4_ERR_BAD_PIPELINE
                                                                : BSLZ4_ERR_UNAVAILABLE;
+    if (expected_layout >= 0 && bslz4_dots[dot].layout != expected_layout)
+        return BSLZ4_ERR_BAD_LAYOUT;
     if (!((collect_dtype_mask(col) >> dtype) & 1u)) return BSLZ4_ERR_DTYPE;
     if (!((dot_dtype_mask(dot) >> dtype) & 1u)) return BSLZ4_ERR_DTYPE;
     if (!options_ok(options)) return BSLZ4_ERR_BAD_PIPELINE;
@@ -120,6 +168,7 @@ int bslz4_resolve(int dtype, const uint16_t *stages, bslz4_stage *BSLZ4_RESTRICT
     st->collect_id = col;
     st->dot_id = dot;
     st->untranspose_id = unt;
+    st->options = options;
     st->decompress = &bslz4_decompress;
     st->untranspose = untranspose_by_id(unt);
     return 0;

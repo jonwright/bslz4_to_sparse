@@ -21,9 +21,13 @@ Usage:
 """
 import argparse
 import glob
+import hashlib
+import json
 import os
+import re
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -46,9 +50,10 @@ def _sources():
         "bitshuffle/src/iochain.c",
         "lz4/lib/lz4.c",
     ]
-    s += sorted(glob.glob("zstd/lib/common/*.c"))
-    s += sorted(glob.glob("zstd/lib/decompress/*.c"))
-    return [os.path.join(REPO, x) for x in s]
+    s = [os.path.join(REPO, x) for x in s]
+    s += sorted(glob.glob(os.path.join(REPO, "zstd", "lib", "common", "*.c")))
+    s += sorted(glob.glob(os.path.join(REPO, "zstd", "lib", "decompress", "*.c")))
+    return s
 
 
 def _include_dirs():
@@ -59,6 +64,139 @@ def _include_dirs():
         os.path.join(REPO, "bitshuffle", "src"),
         os.path.join(REPO, "zstd", "lib"),
     ]
+
+
+def _rel(path):
+    return os.path.relpath(path, REPO).replace(os.sep, "/")
+
+
+def _digest_files():
+    """Every compiled source and every header next to one, sorted."""
+    files = set(_sources())
+    for d in [os.path.join(REPO, "src")] + _include_dirs():
+        for pat in ("*.h", "*.hpp"):
+            files.update(glob.glob(os.path.join(d, pat)))
+    return sorted(files, key=_rel)
+
+
+def source_digest():
+    """sha256 over _digest_files(), names and contents.
+
+    Identifies the code inside a .so independently of git (sdists have no
+    .git), so a build can be matched to a source tree byte for byte.
+    """
+    h = hashlib.sha256()
+    for f in _digest_files():
+        with open(f, "rb") as fh:
+            data = fh.read()
+        h.update(("%s %d\n" % (_rel(f), len(data))).encode())
+        h.update(data)
+    return h.hexdigest()
+
+
+def embedded_digest(sopath):
+    """The src_sha256 a built .so/.pyd carries, read from the file without
+    loading it; None for a build that predates the embedded build info."""
+    with open(sopath, "rb") as fh:
+        m = re.search(b'"src_sha256": "([0-9a-f]{64})"', fh.read())
+    return m.group(1).decode() if m else None
+
+
+def embedded_git(sopath):
+    """The "git" field a built .so/.pyd carries (None if it has none, or was
+    built outside a git checkout)."""
+    with open(sopath, "rb") as fh:
+        m = re.search(b'"git": "([^"]*)"', fh.read())
+    return m.group(1).decode() if m else None
+
+
+def _git(*args):
+    # Only ask git about REPO itself: in an unpacked sdist inside some other
+    # checkout, git would silently walk up and describe THAT repository.
+    try:
+        top = subprocess.check_output(["git", "-C", REPO, "rev-parse", "--show-toplevel"],
+                                      stderr=subprocess.DEVNULL).decode().strip()
+        if os.path.realpath(top) != os.path.realpath(REPO):
+            return None
+        return subprocess.check_output(["git", "-C", REPO] + list(args),
+                                       stderr=subprocess.DEVNULL).decode().strip()
+    except Exception:  # no git, not a checkout, or "dubious ownership" in a container
+        return None
+
+
+def _compiler_id(cmd):
+    try:
+        out = subprocess.check_output([cmd, "--version"], stderr=subprocess.STDOUT)
+        return out.decode("utf-8", "replace").splitlines()[0].strip()
+    except Exception:
+        return cmd
+
+
+def git_state():
+    """(describe, modified) of the compiled files: `git describe --tags
+    --always`, with -dirty when a compiled file differs from that commit or
+    is not yet tracked, and the list of those files.  (None, []) outside a
+    git checkout."""
+    # Only the files that go into the .so count: an edited notebook or test
+    # does not make a build "dirty". Files inside a submodule (lz4, zstd, ...)
+    # are covered by naming the submodule, which also catches a moved commit.
+    subs = (_git("config", "--file", ".gitmodules", "--get-regexp", r"\.path$") or "").split()[1::2]
+    paths = sorted(set(next((m for m in subs if r.startswith(m + "/")), r)
+                       for r in map(_rel, _digest_files())))
+    describe = _git("describe", "--tags", "--always")
+    # status, not diff: a new, still untracked source or header is a change
+    # too (diff HEAD does not list it).
+    status = _git("status", "--porcelain", "--untracked-files=all", "--", *paths)
+    # "XY path" (or "R  old -> new"); _git() strips the output, which eats the
+    # leading space of a first " M path", so split on whitespace rather than
+    # slicing a fixed column.
+    modified = sorted(set(line.split(None, 1)[1].split(" -> ")[-1]
+                          for line in status.splitlines() if line.strip())) \
+        if status else []
+    if describe and modified:
+        describe += "-dirty"
+    return describe, modified
+
+
+def build_info(compiler, plat):
+    """The build description embedded in the .so (see bslz4_to_sparse.build_info())."""
+    with open(os.path.join(REPO, "src", "__init__.py")) as f:
+        version = re.search(r'^version = "([^"]+)"', f.read(), re.M).group(1)
+    describe, modified = git_state()
+    return {
+        "version": version,
+        # a tag when built clean on a tagged commit, else tag-N-gHASH; with
+        # -dirty when a compiled file differs from that commit (listed)
+        "git": describe,
+        "modified": modified,
+        "src_sha256": source_digest(),
+        "compiler": compiler,
+        "platform": plat,
+        "built_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
+_BUILD_INFO_C = """\
+/* Generated by tools/build_extension.py for one build; not kept in the repo. */
+#include <string.h>
+
+static const char bslz4_build_info_json[] = "%s";
+
+int bslz4_build_info(char *out, int n) {
+    int len = (int)sizeof(bslz4_build_info_json) - 1;
+    if (n > 0)
+        memcpy(out, bslz4_build_info_json, (size_t)(len < n ? len : n));
+    return len;
+}
+"""
+
+
+def _write_build_info_c(builddir, info):
+    text = json.dumps(info, sort_keys=True, ensure_ascii=True)
+    path = os.path.join(builddir, "bslz4_build_info.c")
+    with open(path, "w") as f:
+        f.write(_BUILD_INFO_C % text.replace("\\", "\\\\").replace('"', '\\"'))
+    return path
 
 
 # The C++ is template expansion only: no libstdc++ types, no new/delete, no
@@ -136,11 +274,15 @@ def main():
 
     if is_windows and os.environ.get("MSVC_ENV", "").lower() not in ("1", "true", "yes"):
         # Default to the mixer/gcc cross toolchain if one is provided.
-        if os.environ.get("CC"):
-            _build_gcc(srcs, incs, outpath, plat, builddir)
-        else:
-            _build_msvc(srcs, incs, outpath, builddir)
-    elif sys.platform == "win32":
+        use_msvc = not os.environ.get("CC")
+    else:
+        use_msvc = sys.platform == "win32"
+    cc = os.environ.get("CC") or ("cl" if use_msvc else "gcc")
+    info = build_info(cc if use_msvc else _compiler_id(cc), plat)
+    srcs.append(_write_build_info_c(builddir, info))
+    print("build info: %s" % json.dumps(info, sort_keys=True))
+
+    if use_msvc:
         _build_msvc(srcs, incs, outpath, builddir)
     else:
         _build_gcc(srcs, incs, outpath, plat, builddir)

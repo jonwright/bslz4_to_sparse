@@ -11,7 +11,9 @@ resolves the CPython API at runtime via dlsym).
 How the native module gets built:
   * a developer `pip install .` (or `python -m build --wheel` on a native
     host) triggers build_py, which runs tools/build_extension.py for the
-    host platform if the .so isn't already present;
+    host platform unless src/ already holds a .so built from exactly these
+    sources at the same git state (checked against the src_sha256 and git
+    describe embedded in it);
   * CI cross-builds each platform's .so beforehand and sets
     BSLZ4_SKIP_NATIVE_BUILD=1 so the wheel just packages the prebuilt data
     (with BSLZ4_WHEEL_PLAT to force the wheel's platform tag).
@@ -59,7 +61,17 @@ class PlatlibDistribution(Distribution):
 def _ensure_native_so():
     import subprocess
     if os.path.exists(_SO_PATH):
-        return
+        # Keep an existing .so only if it was built from these exact sources
+        # AND at the same git state, so its build_info() never reports a
+        # stale commit (e.g. "-dirty" from before the changes were committed).
+        sys.path.insert(0, os.path.join(HERE, "tools"))
+        try:
+            from build_extension import embedded_digest, embedded_git, git_state, source_digest
+        finally:
+            sys.path.pop(0)
+        if (embedded_digest(_SO_PATH) == source_digest()
+                and embedded_git(_SO_PATH) == git_state()[0]):
+            return
     subprocess.check_call(
         [sys.executable, os.path.join(HERE, "tools", "build_extension.py")])
 

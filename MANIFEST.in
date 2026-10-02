@@ -24,6 +24,7 @@ include src/bslz4_codec.h
 include src/bslz4_untranspose.h
 include src/bslz4_collect_caps.h
 include src/bslz4_collect_simd.hpp
+include src/bslz4_padded.hpp
 include src/msvc_include/stdint.h
 
 # Vendored c2py23 runtime (dlsym-based, so one binary serves every Python) and

@@ -1,3 +1,4 @@
+import json
 import os
 import struct
 import numpy as np
@@ -49,6 +50,84 @@ _SUFFIX_TO_DTYPE = {"u8": 0, "u16": 1, "u32": 2, "u64": 3, "i8": 4, "i16": 5,
                     "i32": 6, "i64": 7, "f32": 8, "f64": 9}
 _BACKEND_TO_ID = {"kcb": 0, "sse": 1, "neon": 2, "scal": 3}
 _COLLECT_ID_TO_NAME = {0: "scalar", 1: "avx512", 2: "avx2", 3: "sse2", 4: "vsx", 5: "neon"}
+
+# Pipeline option bits (bslz4_common.h).  NO_MASK: every pixel is valid (e.g.
+# the data was zeroed at collection), so the kernels skip the mask entirely.
+_OPT_NO_MASK = 1 << 1
+
+# Dot implementations (mirrors bslz4_registry.c bslz4_dots[]): id -> (name,
+# layout).  Layout is a string: "csc", "padded" or "bsb-csr".  New schemes
+# append a row here and a matching dot id in the native registry.
+_DOT_TABLE = {
+    0: ("csc", "csc"),
+    1: ("csc-fused", "csc"),
+    2: ("padded", "padded"),
+    3: ("padded-sse2", "padded"),
+    4: ("padded-avx2", "padded"),
+    5: ("padded-avx512", "padded"),
+    6: ("bsb-csr", "bsb-csr"),
+}
+_DOT_IDS = {name: i for i, (name, _l) in _DOT_TABLE.items()}
+
+
+def _dot_supported_dtypes(id):
+    # All 10 for the current float layouts (mirrors dot dtype mask 0x3FF).
+    if id in _DOT_TABLE:
+        return _TYPE_SUFFIXES
+    return ()
+
+
+def available_dots():
+    """Names of the dot implementations usable on this machine (`dot=` accepts these)."""
+    return tuple(_DOT_TABLE[i][0] for i in sorted(_DOT_TABLE)
+                 if _ext.impl_available(_STAGE_DOT, i) == 1)
+
+
+def dot_info(name_or_id):
+    """Introspect a dot implementation by name or id.
+
+    Returns a dict with: id, name, layout (a string), dtypes (tuple of dtype
+    names it accepts) and available (1 usable here, 0 known-but-not, -1 unknown).
+    """
+    if isinstance(name_or_id, str):
+        i = _DOT_IDS.get(name_or_id)
+        if i is None:
+            raise ValueError("unknown dot %r (available: %s)"
+                             % (name_or_id, ", ".join(available_dots())))
+    else:
+        i = int(name_or_id)
+        if i not in _DOT_TABLE:
+            raise ValueError("unknown dot id %d" % i)
+    name, layout = _DOT_TABLE[i]
+    return {
+        "id": i,
+        "name": name,
+        "layout": layout,
+        "dtypes": tuple(_dot_supported_dtypes(i)),
+        "available": _ext.impl_available(_STAGE_DOT, i),
+    }
+
+
+def _resolve_dot(dot):
+    """Resolve a `dot=` argument (None / "auto" / a name or an int id) to a dot
+    id, raising NotImplementedError for a name not available on this build/CPU.
+    None and "auto" both select "csc" for now (decided; smarter auto rules come
+    later from race data)."""
+    if dot is None or dot == "auto":
+        return 0
+    if isinstance(dot, str):
+        i = _DOT_IDS.get(dot)
+        if i is None:
+            raise NotImplementedError("unknown dot %r" % (dot,))
+    else:
+        i = int(dot)
+    avail = _ext.impl_available(_STAGE_DOT, i)
+    if avail < 0:
+        raise NotImplementedError("unknown dot id %d" % i)
+    if avail == 0:
+        raise NotImplementedError(
+            "dot implementation %r is not available in this build/CPU" % (dot,))
+    return i
 
 DEFAULT_BLOCK_BYTES = 8192
 BSHUF_H5FILTER = 32008
@@ -143,7 +222,7 @@ def pack_pipeline(decompress=None, untranspose=None, collect=None, dot=None, opt
             raise NotImplementedError(
                 "%s implementation (id %d) is not available in this build/CPU" % (name, value)
             )
-    if options & ~(1 << 0):
+    if options & ~((1 << 0) | _OPT_NO_MASK):
         raise ValueError("unknown option bits: %r" % (options,))
     return _stages(decompress, untranspose, collect, dot, options)
 
@@ -159,12 +238,12 @@ def _stages(decompress, untranspose, collect, dot, options):
     return np.array([decompress, untranspose, collect, dot, options], dtype=np.uint16)
 
 
-def _pipeline_for(codec, collect_tier, dot=0):
+def _pipeline_for(codec, collect_tier, dot=0, options=0):
     """Stages array for the current module defaults, given an explicit codec,
     the collect tier for this dtype (0 for anything but u16/u32, which are
     the only types the SIMD collect tiers support) and the dot implementation
     id."""
-    return _stages(codec, _BACKEND_TO_ID[_default_backend], collect_tier, dot, 0)
+    return _stages(codec, _BACKEND_TO_ID[_default_backend], collect_tier, dot, options)
 
 
 def _collect_tier_for_suffix(suffix):
@@ -185,25 +264,25 @@ def _check_outpx_itemsize(out, suffix):
             "outpx.itemsize %d does not match dtype %s itemsize %d" % (got, suffix, want))
 
 
-def _make_sparsify(suffix, pipeline=None):
+def _make_sparsify(suffix, pipeline=None, options=0):
     di = _SUFFIX_TO_DTYPE[suffix]
 
     def fn(pointers, lengths, mask, output, output_adr, npx_out, threshold,
            workspace, cursors, codec):
         _check_outpx_itemsize(output, suffix)
-        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix))
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), options=options)
         return _ext.sparsify(pointers, lengths, mask, output, output_adr, npx_out,
                              threshold, workspace, cursors, di, p)
     return fn
 
 
-def _make_csc(suffix, pipeline=None, dot=0):
+def _make_csc(suffix, pipeline=None, dot=0, options=0):
     di = _SUFFIX_TO_DTYPE[suffix]
 
     def fn(pointers, lengths, mask, outpx, output_adr, npx_out, threshold, powder, data,
            indices, indptr, workspace, cursors, nout, codec):
         _check_outpx_itemsize(outpx, suffix)
-        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot)
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot, options)
         return _ext.sparsify_and_dot(pointers, lengths, mask, outpx, output_adr, npx_out,
                                      threshold, powder, data, indices, indptr,
                                      workspace, cursors, nout, _dense_sparse_threshold,
@@ -211,7 +290,7 @@ def _make_csc(suffix, pipeline=None, dot=0):
     return fn
 
 
-def _make_csc_base(suffix, pipeline=None, dot=0):
+def _make_csc_base(suffix, pipeline=None, dot=0, options=0):
     di = _SUFFIX_TO_DTYPE[suffix]
 
     def fn(base, offsets, lengths, mask, outpx, output_adr, npx_out, threshold, powder, data,
@@ -220,7 +299,7 @@ def _make_csc_base(suffix, pipeline=None, dot=0):
         rc = _ext.offsets_to_pointers(base, offsets, lengths)
         if rc < 0:
             return rc
-        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot)
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot, options)
         return _ext.sparsify_and_dot(offsets, lengths, mask, outpx, output_adr, npx_out,
                                      threshold, powder, data, indices, indptr,
                                      workspace, cursors, nout, _dense_sparse_threshold,
@@ -228,15 +307,97 @@ def _make_csc_base(suffix, pipeline=None, dot=0):
     return fn
 
 
+def _make_csc_padded(suffix, pipeline=None, dot=0, options=0):
+    di = _SUFFIX_TO_DTYPE[suffix]
+
+    def fn(pointers, lengths, mask, outpx, output_adr, npx_out, threshold, powder,
+           base, weights, pixels, rowmap, row_ptr, width, listed, block_elems,
+           workspace, cursors, nout, codec):
+        _check_outpx_itemsize(outpx, suffix)
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot, options)
+        return _ext.sparsify_and_dot_padded(pointers, lengths, mask, outpx, output_adr, npx_out,
+                                            threshold, powder, base, weights, pixels, rowmap,
+                                            row_ptr, workspace, cursors, width, listed, block_elems,
+                                            nout, _dense_sparse_threshold, di, p)
+    return fn
+
+
+def _make_csc_bsbcsr(suffix, pipeline=None, dot=0, options=0):
+    di = _SUFFIX_TO_DTYPE[suffix]
+
+    def fn(pointers, lengths, mask, outpx, output_adr, npx_out, threshold, powder,
+           blk_ptr, bins, bin_ptr, idx, data, csc_data, csc_indices, csc_indptr, block_elems,
+           workspace, cursors, nout, codec):
+        _check_outpx_itemsize(outpx, suffix)
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot, options)
+        return _ext.sparsify_and_dot_bsbcsr(pointers, lengths, mask, outpx, output_adr, npx_out,
+                                            threshold, powder, blk_ptr, bins, bin_ptr, idx, data,
+                                            csc_data, csc_indices, csc_indptr, workspace, cursors,
+                                            block_elems, nout, _dense_sparse_threshold, di, p)
+    return fn
+
+
+def _make_csc_padded_base(suffix, pipeline=None, dot=0, options=0):
+    inner = _make_csc_padded(suffix, pipeline=pipeline, dot=dot, options=options)
+
+    def fn(base, offsets, lengths, mask, outpx, output_adr, npx_out, threshold, powder,
+           mbase, weights, pixels, rowmap, row_ptr, width, listed, block_elems,
+           workspace, cursors, nout, codec):
+        rc = _ext.offsets_to_pointers(base, offsets, lengths)
+        if rc < 0:
+            return rc
+        return inner(offsets, lengths, mask, outpx, output_adr, npx_out, threshold, powder,
+                     mbase, weights, pixels, rowmap, row_ptr, width, listed, block_elems,
+                     workspace, cursors, nout, codec)
+    return fn
+
+
+def _make_csc_bsbcsr_base(suffix, pipeline=None, dot=0, options=0):
+    inner = _make_csc_bsbcsr(suffix, pipeline=pipeline, dot=dot, options=options)
+
+    def fn(base, offsets, lengths, mask, outpx, output_adr, npx_out, threshold, powder,
+           blk_ptr, bins, bin_ptr, idx, data, csc_data, csc_indices, csc_indptr, block_elems,
+           workspace, cursors, nout, codec):
+        rc = _ext.offsets_to_pointers(base, offsets, lengths)
+        if rc < 0:
+            return rc
+        return inner(offsets, lengths, mask, outpx, output_adr, npx_out, threshold, powder,
+                     blk_ptr, bins, bin_ptr, idx, data, csc_data, csc_indices, csc_indptr,
+                     block_elems, workspace, cursors, nout, codec)
+    return fn
+
+
 _BSLZ4_MULTI = {s: _make_sparsify(s) for s in _TYPE_SUFFIXES}
 _BSLZ4_CSC_MULTI = {s: _make_csc(s) for s in _TYPE_SUFFIXES}
 _BSLZ4_CSC_MULTI_BASE = {s: _make_csc_base(s) for s in _TYPE_SUFFIXES}
+_BSLZ4_CSC_MULTI_PADDED = {s: _make_csc_padded(s) for s in _TYPE_SUFFIXES}
+_BSLZ4_CSC_MULTI_PADDED_BASE = {s: _make_csc_padded_base(s) for s in _TYPE_SUFFIXES}
+_BSLZ4_CSC_MULTI_BSBCSR = {s: _make_csc_bsbcsr(s) for s in _TYPE_SUFFIXES}
+_BSLZ4_CSC_MULTI_BSBCSR_BASE = {s: _make_csc_bsbcsr_base(s) for s in _TYPE_SUFFIXES}
 
 note_chunk = _ext.note_chunk
 # Availability and test counters.
 impl_available = _ext.impl_available
 reset_counters = _ext.reset_counters
 read_counters = _ext.read_counters
+
+
+def build_info():
+    """
+    How the loaded native extension was built, as a dict: the package
+    "version", "git" (`git describe --tags --always --dirty` of the source
+    tree: a tag when built clean on a tagged commit, "-dirty" when it had
+    local changes, None outside a git checkout), "modified" (the changed
+    tracked files when dirty), "src_sha256" (of the compiled sources and
+    headers, also for builds without git), "compiler", "platform" and
+    "built_utc".
+    """
+    buf = np.zeros(1024, np.uint8)
+    n = _ext.build_info(buf)
+    if n > buf.size:
+        buf = np.zeros(n, np.uint8)
+        n = _ext.build_info(buf)
+    return json.loads(bytes(buf[:n]).decode("ascii"))
 
 
 def detect_codec(ds):
@@ -275,6 +436,10 @@ _DECODE_ERRORS = {
     -107: "a chunk is corrupt or truncated (its header, a block length or its "
     "raw tail lies outside the chunk)",
     -108: "a chunk offset or size lies outside the buffer it refers to",
+    -109: "the selected matrix layout does not match the decode entry point, or "
+          "the decoded block size differs from the layout's",
+    -110: "a chunk's decompressed size is smaller than the mask (frame and mask "
+          "shapes differ)",
     -111: "an unknown stage id or unknown option bit was requested",
     -112: "a known implementation is unavailable on this build/CPU",
     -113: "the pixel dtype is out of range or unsupported",
@@ -415,6 +580,158 @@ def normalise_matrix(csc, npix=None):
     )
 
 
+# ---- Phase 4: derived matrix layouts (padded CSC, blockwise CSR) ----
+
+_PADDED_MAX_WIDTH = 64
+
+
+def _fold_mask(nm, mask):
+    """Apply the integrator's 0/1 mask to a _NormalMatrix by dropping the
+    entries of masked pixels (mask == 0) so their columns become empty.  The
+    matvec kernels then need no mask test (a masked pixel contributes nothing),
+    and the `>cut` collect uses the raw mask separately.  Zero, never NaN."""
+    m = np.asarray(mask).reshape(-1) > 0
+    if m.size != nm.npix:
+        raise ValueError("mask has %d pixels, the matrix %d" % (m.size, nm.npix))
+    n = np.diff(nm.indptr.astype(np.int64))
+    keep = np.repeat(m, n)
+    data = nm.data[keep]
+    indices = nm.indices[keep]
+    new_n = np.where(m, n, 0)
+    indptr = np.concatenate(([0], np.cumsum(new_n))).astype(np.uint32)
+    return _NormalMatrix(data, indices, indptr, nm.nbins, nm.npix)
+
+
+class _PaddedLayout(object):
+    """A pixel -> bin matrix as one first bin plus a fixed number of weights
+    per row (the padding the name refers to).  row == pixel when listed==0,
+    else a row per pixel in `pixels`.  `row_ptr` splits the rows by decode
+    block (nblocks+1), replacing the pre-refactor per-block cursor."""
+
+    def __init__(self, base, weights, pixels, rowmap, row_ptr, width, listed,
+                 block_elems, nbins, npix):
+        self.base = base
+        self.weights = weights
+        self.pixels = pixels
+        self.rowmap = rowmap
+        self.row_ptr = row_ptr
+        self.width = width
+        self.listed = listed
+        self.block_elems = block_elems
+        self.nbins = nbins
+        self.npix = npix
+        self.nrows = base.shape[0]
+
+    @property
+    def _weights_flat(self):
+        return self.weights.reshape(-1)
+
+    @property
+    def _pixels_arg(self):
+        return self.pixels if self.listed else np.zeros(1, dtype=np.int32)
+
+    @property
+    def _rowmap_arg(self):
+        return self.rowmap if self.listed else np.zeros(1, dtype=np.int32)
+
+
+class _BsbCSR(object):
+    """A bit-shuffle-block-sized CSR: per decode block the active (non-empty)
+    bins, and per bin the (in-block pixel index, weight) entries."""
+
+    def __init__(self, blk_ptr, bins, bin_ptr, idx, data, block_elems):
+        self.blk_ptr = blk_ptr
+        self.bins = bins
+        self.bin_ptr = bin_ptr
+        self.idx = idx
+        self.data = data
+        self.block_elems = block_elems
+
+
+def _padded_from_csc(nm, block_elems):
+    """Build a _PaddedLayout from a _NormalMatrix, exactly (no weight is
+    changed, only re-laid-out).  The integrator passes the mask-folded matrix
+    (_fold_mask), so a masked pixel gets an all-zero row (implicit layout) or
+    no row (listed layout), and the kernels make no mask test.  Raises
+    ValueError naming how many pixels and why if the matrix cannot be padded
+    (a pixel reaches bins that are not one run of consecutive bins, or the
+    width exceeds the limit)."""
+    indptr = nm.indptr.astype(np.int64)
+    indices = nm.indices.astype(np.int64)
+    data = nm.data
+    npix = nm.npix
+    nbins = nm.nbins
+    n = np.diff(indptr)
+    used = int(n.max()) if npix else 0
+    width = max(used, 1)
+    if width > _PADDED_MAX_WIDTH:
+        raise ValueError("a padded width of %d is not supported (maximum %d); use dot='csc'"
+                         % (width, _PADDED_MAX_WIDTH))
+    pix = np.repeat(np.arange(npix, dtype=np.int64), n)
+    if pix.size > 1:
+        broken = (pix[1:] == pix[:-1]) & (np.diff(indices) != 1)
+        nb = np.unique(pix[1:][broken]).size
+        if nb:
+            raise ValueError("%d of %d pixels reach bins that are not one ascending run of "
+                             "consecutive bins, so dot='padded' cannot represent this matrix; "
+                             "use dot='csc'" % (nb, int((n > 1).sum())))
+    has = n > 0
+    first = indptr[:-1]
+    base = np.zeros(npix, dtype=np.int64)
+    if indices.size:
+        base[has] = indices[np.minimum(first[has], indices.size - 1)]
+    new_base = np.minimum(base, max(nbins - width, 0)).astype(np.int32)
+    shift = base - new_base.astype(np.int64)
+    w = np.zeros((npix, width), dtype=np.float32)
+    for k in range(used):
+        sel = n > k
+        w[sel, shift[sel] + k] = data[first[sel] + k]
+    listed = bool(has.mean() < 0.5) if npix else False
+    nblocks = (npix + block_elems - 1) // block_elems
+    cb = np.minimum(np.arange(nblocks + 1) * block_elems, npix).astype(np.int32)
+    if listed:
+        rows = np.flatnonzero(has).astype(np.int32)
+        rowmap = np.full(npix, -1, dtype=np.int32)
+        rowmap[rows] = np.arange(rows.shape[0], dtype=np.int32)
+        row_ptr = np.searchsorted(rows, cb).astype(np.int32)
+        return _PaddedLayout(new_base[rows], w[rows], rows, rowmap, row_ptr,
+                             width, 1, block_elems, nbins, npix)
+    return _PaddedLayout(new_base, w, None, None, cb, width, 0, block_elems, nbins, npix)
+
+
+def _bsb_csr_from_csc(nm, block_elems):
+    """Build a _BsbCSR from a _NormalMatrix: CSC entries sorted by
+    (pixel//block_elems, bin), grouped per (block, bin).  General (works for
+    any matrix, 2D/FAZIT included), unlike padded."""
+    indptr = nm.indptr.astype(np.int64)
+    indices = nm.indices.astype(np.uint32)
+    data = nm.data.astype(np.float32)
+    npix = nm.npix
+    nbins = nm.nbins
+    n = np.diff(indptr)
+    pix = np.repeat(np.arange(npix, dtype=np.int64), n)
+    nz = pix.size
+    nblocks = (npix + block_elems - 1) // block_elems
+    if nz == 0:
+        return _BsbCSR(np.zeros(nblocks + 1, np.uint32), np.zeros(0, np.uint32),
+                       np.zeros(1, np.uint32), np.zeros(0, np.uint16),
+                       np.zeros(0, np.float32), block_elems)
+    block = pix // block_elems
+    order = np.lexsort((pix, indices, block))
+    block_s = block[order]
+    bin_s = indices[order]
+    pix_s = pix[order]
+    data_s = data[order]
+    key = block_s.astype(np.int64) * (nbins + 1) + bin_s.astype(np.int64)
+    starts = np.concatenate(([0], np.flatnonzero(np.diff(key)) + 1))
+    block_of_group = block_s[starts]
+    bins_g = bin_s[starts]
+    bin_ptr = np.concatenate((starts, [nz])).astype(np.uint32)
+    idx = (pix_s % block_elems).astype(np.uint16)
+    blk_ptr = np.searchsorted(block_of_group, np.arange(nblocks + 1)).astype(np.uint32)
+    return _BsbCSR(blk_ptr, bins_g, bin_ptr, idx, data_s.copy(), block_elems)
+
+
 class chunk2sparseMulti:
     """
     Batched plain sparse decode: decodes a series of frames from the same
@@ -428,7 +745,8 @@ class chunk2sparseMulti:
         self.dtype = dtype
         self.codec = codec
         self.pipeline = pipeline
-        self._fn = _make_sparsify(_suffix_for_dtype(dtype), pipeline=pipeline)
+        no_mask = _OPT_NO_MASK if bool((self.mask == 1).all()) else 0
+        self._fn = _make_sparsify(_suffix_for_dtype(dtype), pipeline=pipeline, options=no_mask)
 
         self._nframes = 0
         self._output = None
@@ -534,26 +852,63 @@ class chunk2sparseCSCmulti:
     Batched CSC decode: decodes a series of frames from the same dataset in
     one call, per (frame, block) routing between a dense and a sparse CSC
     strategy based on that block's compression ratio.
+
+    The mask is folded into the matrix once, here: the entries of masked
+    pixels (mask == 0) are dropped, so they contribute nothing to the powder
+    on any route or layout.  The raw mask still selects the pixels of the
+    sparse (>cut) output.  Frames must have exactly mask.size pixels.
+
+    `dot` picks the matrix-dot layout: "auto"/None (= "csc" for now),
+    "csc", "csc-fused", "padded" (and its SIMD tiers), or "bsb-csr"; see
+    available_dots().
     """
 
     def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None, dot=None):
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
-        nm = normalise_matrix(csc, npix=len(self.mask))
-        self.cscdata = nm.data
-        self.cscindices = nm.indices
-        self.cscindptr = nm.indptr
-        self.nbins = nm.nbins
-        # dot implementation id: 0 = csc (dot then threshold), 1 = csc-fused
-        # (the dense >cut sparsify interleaved into the CSC loop).
-        self.dot_id = 0 if dot is None else int(dot)
+        self._nm = normalise_matrix(csc, npix=len(self.mask))
+        # Fold the mask into the matrix (drop masked pixels' entries) once, at
+        # build, so the matvec kernels need no per-pixel mask test.  The raw
+        # mask is kept for the shared `>cut` collect (sparse output).
+        self._nm = _fold_mask(self._nm, self.mask)
+        self.cscdata = self._nm.data
+        self.cscindices = self._nm.indices
+        self.cscindptr = self._nm.indptr
+        self.nbins = self._nm.nbins
+        # dot implementation: select by name or id; None/"auto" -> csc (id 0).
+        self.dot_id = _resolve_dot(dot)
+        self.dot = _DOT_TABLE[self.dot_id][0]
+        self.layout = _DOT_TABLE[self.dot_id][1]
 
         self.npix = mask.size
         self.dtype = dtype
         self.itemsize = np.dtype(dtype).itemsize
         self.codec = codec
         self.pipeline = pipeline
-        self._fn = _make_csc(_suffix_for_dtype(dtype), pipeline=pipeline, dot=self.dot_id)
+        suffix = _suffix_for_dtype(dtype)
+        be = DEFAULT_BLOCK_BYTES // self.itemsize
+        self._block_elems = be
+        self.padded = None
+        self.bsb_csr = None
+        if self.layout == "padded":
+            self.padded = _padded_from_csc(self._nm, be)
+        elif self.layout == "bsb-csr":
+            self.bsb_csr = _bsb_csr_from_csc(self._nm, be)
+        if self.layout == "csc":
+            self._fn = _make_csc(suffix, pipeline=pipeline, dot=self.dot_id,
+                                 options=_OPT_NO_MASK if bool((self.mask == 1).all()) else 0)
+            self._fn_base = _make_csc_base(suffix, pipeline=pipeline, dot=self.dot_id,
+                                           options=_OPT_NO_MASK if bool((self.mask == 1).all()) else 0)
+        elif self.layout == "padded":
+            self._fn = _make_csc_padded(suffix, pipeline=pipeline, dot=self.dot_id,
+                                        options=_OPT_NO_MASK if bool((self.mask == 1).all()) else 0)
+            self._fn_base = _make_csc_padded_base(suffix, pipeline=pipeline, dot=self.dot_id,
+                                                  options=_OPT_NO_MASK if bool((self.mask == 1).all()) else 0)
+        else:
+            self._fn = _make_csc_bsbcsr(suffix, pipeline=pipeline, dot=self.dot_id,
+                                        options=_OPT_NO_MASK if bool((self.mask == 1).all()) else 0)
+            self._fn_base = _make_csc_bsbcsr_base(suffix, pipeline=pipeline, dot=self.dot_id,
+                                                  options=_OPT_NO_MASK if bool((self.mask == 1).all()) else 0)
 
         self._nframes = 0
         self._outpx = None
@@ -571,33 +926,74 @@ class chunk2sparseCSCmulti:
             self._powder = np.empty((nframes, self.nbins), np.float64)
             self._cursors = np.empty(nframes, np.int64)
             self._nframes = nframes
+        be = (_blocksize_bytes(cmp) // self.itemsize) or self._block_elems
+        if be != self._block_elems:
+            self._rebuild_layout(be)
         need = _workspace_bytes_csc(cmp, self.itemsize)
         if self._workspace is None or self._workspace.size < need:
             self._workspace = np.empty(need, np.uint8)
+
+    def _rebuild_layout(self, block_elems):
+        """The decoded block size differs from the one the layout was built at:
+        rebuild the derived layout, never compute wrong results (C also rejects
+        a mismatch with -109)."""
+        self._block_elems = block_elems
+        if self.layout == "padded":
+            self.padded = _padded_from_csc(self._nm, block_elems)
+        elif self.layout == "bsb-csr":
+            self.bsb_csr = _bsb_csr_from_csc(self._nm, block_elems)
+
+    def _matrix_args(self):
+        if self.layout == "csc":
+            return (self.cscdata, self.cscindices, self.cscindptr)
+        if self.layout == "padded":
+            p = self.padded
+            return (p.base, p._weights_flat, p._pixels_arg, p._rowmap_arg, p.row_ptr,
+                    p.width, int(p.listed), p.block_elems)
+        q = self.bsb_csr
+        return (q.blk_ptr, q.bins, q.bin_ptr, q.idx, q.data,
+                self.cscdata, self.cscindices, self.cscindptr, q.block_elems)
 
     def __call__(self, buffers, cut):
         nframes = len(buffers)
         self._ensure_capacity(nframes, buffers[0])
 
         pointers, lengths = _gather_chunks(buffers)
+        return self._decode(self._fn, (pointers, lengths), cut)
 
-        ret = self._fn(
-            pointers,
-            lengths,
+    def decode_offsets(self, base, offsets, lengths, cut):
+        """
+        Decode the frames whose compressed chunks lie at offsets[i] (bytes)
+        with lengths[i] inside the one buffer base: an mmap of the whole
+        HDF5 file, or the file read into memory. offsets/lengths come from
+        harvest_chunk_offsets() and pack_offsets_lengths(), so no HDF5 call
+        and no per-chunk Python object is needed per batch. Every chunk is
+        checked to lie inside base before any is decoded. Returns the same
+        as __call__ on those chunks.
+        """
+        # a copy: the C side turns the offsets into pointers in place
+        offsets = np.array(offsets, dtype=np.int64)
+        lengths = np.ascontiguousarray(lengths, dtype=np.int32)
+        if len(offsets) == 0:
+            raise _decode_error(-105)
+        o = int(offsets[0])
+        self._ensure_capacity(len(offsets), bytes(memoryview(base)[o:o + 12]))
+        return self._decode(self._fn_base, (base, offsets, lengths), cut)
+
+    def _decode(self, fn, chunk_args, cut):
+        ret = fn(*(chunk_args + (
             self.mask,
             self._outpx.ravel(),
             self._output_adr.ravel(),
             self._npx_out,
             cut,
             self._powder.ravel(),
-            self.cscdata,
-            self.cscindices,
-            self.cscindptr,
+        ) + self._matrix_args() + (
             self._workspace,
             self._cursors,
             self.nbins,
             self.codec,
-        )
+        )))
         if ret < 0:
             self._npx_out[:] = 0
             raise _decode_error(ret)

@@ -16,6 +16,13 @@
  * calls.  A new route strategy is just another leaf kernel selected by
  * dot_id.
  *
+ * The mask is folded into the matrix once, in Python (_fold_mask drops the
+ * entries of masked pixels, so their columns are empty).  The dense matvec
+ * loops therefore need no mask test; the mask itself is still passed in and
+ * used by the sparse-output (>cut) collect and by the sparse-route
+ * compaction (bslz4_collect_nz).  Every route gives the same powder for a
+ * folded matrix; a caller of the C entries must pass one.
+ *
  * The SIMD collect tiers are the bslz4_collect_gt<T>/bslz4_collect_nz<T>
  * entry points (bslz4_collect_simd.hpp); the collect tier id chosen by the
  * pipeline is dispatched with a predicted if-chain.
@@ -31,10 +38,32 @@
 
 #include "bslz4_common.h"
 #include "bslz4_collect_simd.hpp"
+#include "bslz4_padded.hpp"
 #include "bslz4_registry.h"
 #include "bslz4_collect_caps.h"
 
+#include <limits>
+
 using namespace bslz4;
+
+/* A threshold above the dtype's maximum means no pixel can ever satisfy
+ * `> cut`, so the >cut sparse output is empty.  Skip the O(n) scan in that
+ * case (and avoid the wrapped `(T)threshold` cast that would otherwise emit
+ * garbage against a small wrapped cut); the matvec/powder is unaffected.
+ * The default treats T as an integral type whose maximum fits in int64;
+ * uint64_t and the floating dtypes have a maximum above any int64 threshold,
+ * so they never skip (an int64 threshold can never exceed them). */
+template<typename T> struct bslz4_cutmax {
+    static inline bool above(int64_t th) {
+        return th > (int64_t) std::numeric_limits<T>::max();
+    }
+};
+template<> struct bslz4_cutmax<uint64_t> { static inline bool above(int64_t) { return false; } };
+template<> struct bslz4_cutmax<float>    { static inline bool above(int64_t) { return false; } };
+template<> struct bslz4_cutmax<double>   { static inline bool above(int64_t) { return false; } };
+
+#define BSLZ4_CUT_ABOVE_MAX(w) \
+    (bslz4_cutmax<T>::above((int64_t)(w)->threshold))
 
 /* C-linkage availability for the SIMD collect tiers (bslz4_collect_caps.h);
  * used by bslz4_impl_available(COLLECT, id).  The pick itself is by collect id
@@ -44,6 +73,10 @@ extern "C" int bslz4_available_avx2_collect(void)   { return bslz4_avx2_collect_
 extern "C" int bslz4_available_sse2_collect(void)   { return bslz4_sse2_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_vsx_collect(void)    { return bslz4_vsx_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_neon_collect(void)   { return bslz4_neon_collect_capable() ? 1 : 0; }
+
+extern "C" int bslz4_available_avx2_padded(void)    { return bslz4_padded_avx2_capable() ? 1 : 0; }
+extern "C" int bslz4_available_sse2_padded(void)    { return bslz4_padded_sse2_capable() ? 1 : 0; }
+extern "C" int bslz4_available_avx512_padded(void)  { return bslz4_padded_avx512_capable() ? 1 : 0; }
 
 /* ---- per-dtype generic kernels (all take a single bslz4_work*) ----
  *
@@ -59,60 +92,67 @@ template<typename T>
 static inline
 int sparse_plain(const bslz4_work *BSLZ4_RESTRICT w) {
     const T cut = (T) w->threshold;
-    return bslz4_collect_gt<T>((const T *) w->block, w->mask, w->i0, w->n, cut,
-                               w->collect_id, (T *) w->out_vals, w->out_adr);
+    if (BSLZ4_CUT_ABOVE_MAX(w)) return 0;
+    return bslz4_collect_gt<T>((const T *) w->block, w->no_mask ? NULL : w->mask, w->i0,
+                               w->n, cut, w->collect_id, (T *) w->out_vals, w->out_adr);
 }
 
-/* dense CSC "dot then threshold": dot.dense over every masked pixel, then a
- * separate >cut collect.  No compaction: tidx/tval are not needed. */
+/* dense CSC "dot then threshold": dot.dense over every pixel, then a
+ * separate >cut collect.  The matrix is mask-folded at build time, so masked
+ * pixels have empty columns and contribute nothing -- no mask test is needed
+ * here (there is no per-pixel `if(mask)`); the >cut collect still uses the
+ * mask.  No compaction: tidx/tval are not needed. */
 template<typename T>
 static inline
 int dense_dot(const bslz4_work *BSLZ4_RESTRICT w) {
     const T cut = (T) w->threshold;
     const T *px = (const T *) w->block;
-    const uint8_t *BSLZ4_RESTRICT mask = w->mask;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
-    double *BSLZ4_RESTRICT out = w->powder;
-    const float *BSLZ4_RESTRICT data = w->data;
-    const uint32_t *BSLZ4_RESTRICT indices = w->indices;
-    const uint32_t *BSLZ4_RESTRICT indptr = w->indptr;
+    const bslz4_mat_csc *BSLZ4_RESTRICT m = (const bslz4_mat_csc *) w->mat;
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    const float *BSLZ4_RESTRICT data = (const float *) m->data;
+    const uint32_t *BSLZ4_RESTRICT indices = m->indices;
+    const uint32_t *BSLZ4_RESTRICT indptr = m->indptr;
     for (size_t j = 0; j < n; j++) {
-        if (mask[j + i0] > 0) {
-            uint32_t k0 = indptr[j + i0], k1 = indptr[j + i0 + 1];
-            T pv = px[j];
-            for (uint32_t k = k0; k < k1; k++)
-                out[indices[k]] += (double) data[k] * (double) pv;
-        }
+        uint32_t k0 = indptr[j + i0], k1 = indptr[j + i0 + 1];
+        T pv = px[j];
+        for (uint32_t k = k0; k < k1; k++)
+            out[indices[k]] += (double) data[k] * (double) pv;
     }
+    if (BSLZ4_CUT_ABOVE_MAX(w)) return 0;
     return bslz4_collect_gt<T>(px, mask, i0, n, cut, w->collect_id,
                                (T *) w->out_vals, w->out_adr);
 }
 
 /* dense CSC "fused": dot.dense and the >cut sparse-output collect run in one
- * pass over the block, so the block/mask are scanned once instead of twice.
- * Produces the same powder and the same sparse output (ascending raster
- * order) as dense_dot, without the second SIMD collect pass. */
+ * pass over the block.  The matrix is mask-folded (masked columns empty), so
+ * the matvec alone would need no mask test; the >cut emission must gate on
+ * the image mask, and since that test is made anyway it also skips the
+ * (empty) column walk of a masked pixel. */
 template<typename T>
 static inline
 int dense_dot_fused(const bslz4_work *BSLZ4_RESTRICT w) {
     const T cut = (T) w->threshold;
     const T *px = (const T *) w->block;
-    const uint8_t *BSLZ4_RESTRICT mask = w->mask;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
-    double *BSLZ4_RESTRICT out = w->powder;
-    const float *BSLZ4_RESTRICT data = w->data;
-    const uint32_t *BSLZ4_RESTRICT indices = w->indices;
-    const uint32_t *BSLZ4_RESTRICT indptr = w->indptr;
+    const bslz4_mat_csc *BSLZ4_RESTRICT m = (const bslz4_mat_csc *) w->mat;
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    const float *BSLZ4_RESTRICT data = (const float *) m->data;
+    const uint32_t *BSLZ4_RESTRICT indices = m->indices;
+    const uint32_t *BSLZ4_RESTRICT indptr = m->indptr;
     T *ov = (T *) w->out_vals;
     uint32_t *BSLZ4_RESTRICT oadr = w->out_adr;
     int npx = 0;
+    const int skip = BSLZ4_CUT_ABOVE_MAX(w);
     for (size_t j = 0; j < n; j++) {
-        if (mask[j + i0] > 0) {
+        if (bslz4_mask_ok(mask, j + i0)) {
             uint32_t k0 = indptr[j + i0], k1 = indptr[j + i0 + 1];
             T pv = px[j];
             for (uint32_t k = k0; k < k1; k++)
                 out[indices[k]] += (double) data[k] * (double) pv;
-            if (BSLZ4_UNLIKELY(pv > cut)) {
+            if (!skip && BSLZ4_UNLIKELY(pv > cut)) {
                 ov[npx] = pv;
                 oadr[npx] = (uint32_t) (j + i0);
                 npx++;
@@ -122,23 +162,25 @@ int dense_dot_fused(const bslz4_work *BSLZ4_RESTRICT w) {
     return npx;
 }
 
-/* sparse CSC route: compact non-zeros into (tval,tidx), dot.sparse over the
- * list, then the >cut collect over the same list. */
+/* sparse CSC route body over an explicit csc: compact non-zeros into
+ * (tval,tidx), dot.sparse over the list, then the >cut collect over the same
+ * list.  Shared by the CSC dots (which read the descriptor from w->mat) and
+ * bsb-csr (which reads the nested csc). */
 template<typename T>
 static inline
-int sparse_dot(const bslz4_work *BSLZ4_RESTRICT w) {
+int sparse_dot_core(const bslz4_work *BSLZ4_RESTRICT w, const bslz4_mat_csc *BSLZ4_RESTRICT m) {
     const T cut = (T) w->threshold;
     const T *px = (const T *) w->block;
-    const uint8_t *BSLZ4_RESTRICT mask = w->mask;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
     T *tv = (T *) w->tval;
     uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
     int npx = 0;
     int nz = bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
-    double *BSLZ4_RESTRICT out = w->powder;
-    const float *BSLZ4_RESTRICT data = w->data;
-    const uint32_t *BSLZ4_RESTRICT indices = w->indices;
-    const uint32_t *BSLZ4_RESTRICT indptr = w->indptr;
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    const float *BSLZ4_RESTRICT data = (const float *) m->data;
+    const uint32_t *BSLZ4_RESTRICT indices = m->indices;
+    const uint32_t *BSLZ4_RESTRICT indptr = m->indptr;
     for (int kk = 0; kk < nz; kk++) {
         uint32_t addr = tidx[kk];
         T val = tv[kk];
@@ -148,15 +190,154 @@ int sparse_dot(const bslz4_work *BSLZ4_RESTRICT w) {
     }
     T *ov = (T *) w->out_vals;
     uint32_t *BSLZ4_RESTRICT out_adr = w->out_adr;
+    const int skip = BSLZ4_CUT_ABOVE_MAX(w);
     for (int kk = 0; kk < nz; kk++) {
         T val = tv[kk];
-        if (BSLZ4_UNLIKELY(val > cut)) {
+        if (!skip && BSLZ4_UNLIKELY(val > cut)) {
             ov[npx] = val;
             out_adr[npx] = tidx[kk];
             npx++;
         }
     }
     return npx;
+}
+
+/* sparse CSC route over the CSC descriptor in w->mat. */
+template<typename T>
+static inline
+int sparse_dot(const bslz4_work *BSLZ4_RESTRICT w) {
+    return sparse_dot_core<T>(w, (const bslz4_mat_csc *) w->mat);
+}
+
+/* padded route tier for a padded dot id: 2 scalar (0), 3 sse2 (1), 4 avx2 (2),
+ * 5 avx512 (3) */
+static inline int padded_tier(int id) {
+    return id == 2 ? 0 : (id == 3 ? 1 : (id == 4 ? 2 : 3));
+}
+
+/* dense padded route: accumulate the powder over this block's rows (scalar or
+ * a SIMD tier), then the >cut sparse output in ascending pixel order.  Rows of
+ * masked pixels carry all-zero weights (the matrix is mask-folded), so no row
+ * tests the mask.  An empty tail (n == 0, when the frame is a whole number of
+ * blocks) has no row_ptr entry of its own and is skipped. */
+template<typename T>
+static inline
+int padded_dense(const bslz4_work *BSLZ4_RESTRICT w, int tier) {
+    const T cut = (T) w->threshold;
+    const T *px = (const T *) w->block;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
+    const size_t i0 = w->i0, n = w->n;
+    const bslz4_mat_padded *BSLZ4_RESTRICT m = (const bslz4_mat_padded *) w->mat;
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    if (n == 0) return 0;
+    bslz4_padded_dense_tier<T>(px, i0, n, m, mask, tier, out);
+    if (BSLZ4_CUT_ABOVE_MAX(w)) return 0;
+    return bslz4_collect_gt<T>(px, mask, i0, n, cut, w->collect_id,
+                               (T *) w->out_vals, w->out_adr);
+}
+
+/* padded sparse route: compact non-zeros, then accumulate each row with a
+ * scalar row walk.  Measured: on the sparse path a strided SIMD walk is
+ * *slower* than this -- the compacted non-zero pixels are already scattered
+ * (not adjacent-raster), so a stride hurts cache locality, and the SIMD row
+ * barely helps for the small widths here.  The padded layout's sparse-route
+ * edge over CSC is index-free accumulation, captured by the scalar walk. */
+template<typename T>
+static inline
+int padded_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
+    const T cut = (T) w->threshold;
+    const T *px = (const T *) w->block;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
+    const size_t i0 = w->i0, n = w->n;
+    const bslz4_mat_padded *BSLZ4_RESTRICT m = (const bslz4_mat_padded *) w->mat;
+    T *tv = (T *) w->tval;
+    uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
+    int npx = 0;
+    int nz = bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    const size_t W = (size_t) m->width;
+    const int32_t *BSLZ4_RESTRICT base = m->base;
+    const float *BSLZ4_RESTRICT weights = (const float *) m->weights;
+    for (int kk = 0; kk < nz; kk++) {
+        const uint32_t pixel = tidx[kk];
+        const int row = m->listed ? (int) m->rowmap[pixel] : (int) pixel;
+        if (row < 0) continue;
+        const double v = (double) tv[kk];
+        const float *wr = weights + (size_t) row * W;
+        double *o = out + base[row];
+        for (size_t k = 0; k < W; k++) o[k] += (double) wr[k] * v;
+    }
+    T *ov = (T *) w->out_vals;
+    uint32_t *BSLZ4_RESTRICT out_adr = w->out_adr;
+    const int skip = BSLZ4_CUT_ABOVE_MAX(w);
+    for (int kk = 0; kk < nz; kk++) {
+        T val = tv[kk];
+        if (!skip && BSLZ4_UNLIKELY(val > cut)) {
+            ov[npx] = val;
+            out_adr[npx] = tidx[kk];
+            npx++;
+        }
+    }
+    return npx;
+}
+
+/* dense bsb-csr route: for each active bin, register-accumulate and write
+ * once.  The matrix is mask-folded at build time (masked pixels' entries
+ * dropped), so the gather needs no mask test throughout.  Cost is O(nnz), the
+ * pixels the block's bins actually reference (the ring pixels); empty
+ * bins/blocks are skipped because blk_ptr only lists active bins.
+ *
+ * The FMA always writes a LOCAL register (a0..a3), never memory; out[bin] is
+ * written once at the end of each bin.  The four partial accumulators break
+ * the serial FMA dependency chain within a bin (the dominant cost: `idx` is
+ * data-dependent, so the loads are gathers the compiler cannot vectorize).
+ *
+ * out[bin] is data-dependent (bins[bi]); the bins of a block are distinct so
+ * there is no write-after-read hazard, but the compiler cannot prove it and
+ * treats the stores as non-aliasing-unknown.  The register accumulate above
+ * already avoids any per-entry RMW.
+ *
+ * An empty tail (n == 0, when the frame is a whole number of blocks) has no
+ * blk_ptr entry of its own and is skipped. */
+template<typename T>
+static inline
+int bsbcsr_dense(const bslz4_work *BSLZ4_RESTRICT w) {
+    const T cut = (T) w->threshold;
+    const T *px = (const T *) w->block;
+    const size_t i0 = w->i0, n = w->n;
+    const bslz4_mat_bsbcsr *BSLZ4_RESTRICT m = (const bslz4_mat_bsbcsr *) w->mat;
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    if (n == 0) return 0;
+    const size_t block_idx = i0 / m->block_elems;
+    const uint32_t b0 = m->blk_ptr[block_idx], b1 = m->blk_ptr[block_idx + 1];
+    const float *BSLZ4_RESTRICT data = (const float *) m->data;
+    const uint16_t *BSLZ4_RESTRICT idx = (const uint16_t *) m->idx;
+    for (uint32_t bi = b0; bi < b1; bi++) {
+        const uint32_t bin = m->bins[bi];
+        const uint32_t k0 = m->bin_ptr[bi], k1 = m->bin_ptr[bi + 1];
+        double a0 = 0.0, a1 = 0.0, a2 = 0.0, a3 = 0.0;
+        uint32_t k = k0;
+        for (; k + 4 <= k1; k += 4) {
+            a0 += (double) data[k]     * (double) px[idx[k]];
+            a1 += (double) data[k + 1] * (double) px[idx[k + 1]];
+            a2 += (double) data[k + 2] * (double) px[idx[k + 2]];
+            a3 += (double) data[k + 3] * (double) px[idx[k + 3]];
+        }
+        for (; k < k1; k++)
+            a0 += (double) data[k] * (double) px[idx[k]];
+        out[bin] += (a0 + a1) + (a2 + a3);
+    }
+    if (BSLZ4_CUT_ABOVE_MAX(w)) return 0;
+    return bslz4_collect_gt<T>(px, w->no_mask ? NULL : w->mask, i0, n, cut,
+                               w->collect_id, (T *) w->out_vals, w->out_adr);
+}
+
+/* bsb-csr sparse route: compaction over the nested csc (powder + >cut). */
+template<typename T>
+static inline
+int bsbcsr_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
+    const bslz4_mat_bsbcsr *BSLZ4_RESTRICT m = (const bslz4_mat_bsbcsr *) w->mat;
+    return sparse_dot_core<T>(w, &m->csc);
 }
 
 /* ---- per-dtype noinline kernels ------------------------------------ */
@@ -166,8 +347,19 @@ int sparse_dot(const bslz4_work *BSLZ4_RESTRICT w) {
         return sparse_plain<T>(w);                                        \
     }                                                                     \
     extern "C" BSLZ4_NOINLINE int bslz4_sparse_dot_##name(const bslz4_work *w) { \
-        if (w->route) return sparse_dot<T>(w);                            \
-        return w->dot_id == 1 ? dense_dot_fused<T>(w) : dense_dot<T>(w);  \
+        const int id = w->dot_id;                                         \
+        if (id <= 1) {                                                    \
+            if (w->route) return sparse_dot<T>(w);                        \
+            return id == 1 ? dense_dot_fused<T>(w) : dense_dot<T>(w);     \
+        } else if (id == 2 || id == 3 || id == 4 || id == 5) {            \
+            const int tier = padded_tier(id);                             \
+            if (w->route) return padded_sparse<T>(w);                     \
+            return padded_dense<T>(w, tier);                              \
+        } else if (id == 6) {                                             \
+            if (w->route) return bsbcsr_sparse<T>(w);                     \
+            return bsbcsr_dense<T>(w);                                    \
+        }                                                                 \
+        return BSLZ4_ERR_BAD_LAYOUT;                                      \
     }
 
 BSLZ4_DTYPE_KERNELS(uint8_t,  u8)

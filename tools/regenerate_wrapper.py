@@ -30,9 +30,12 @@ REPO_ROOT = os.path.dirname(HERE)
 
 def c2py23_commit():
     d = os.path.dirname(c2py23.__file__)
-    # Only trust a real c2py23 checkout: a wheel or archived source dir has
-    # no .git here, and `git -C d rev-parse HEAD` would silently walk up to
-    # an enclosing repository and record THAT commit instead.
+    # Only trust a real c2py23 checkout: the package dir (c2py23/c2py23) sits
+    # directly under the repository root, which holds .git.  A wheel or an
+    # archived source dir has no .git there, and `git -C d rev-parse HEAD`
+    # would silently walk up to an enclosing repository and record THAT
+    # commit instead.
+    d = os.path.dirname(d)
     if not os.path.exists(os.path.join(d, ".git")):
         return None
     try:
