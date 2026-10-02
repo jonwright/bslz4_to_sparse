@@ -20,7 +20,6 @@ include src/bslz4_registry.c
 include src/bslz4_registry.h
 include src/kernels_generic.cpp
 include src/bslz4_common.h
-include src/bslz4_common.hpp
 include src/bslz4_codec.h
 include src/bslz4_untranspose.h
 include src/bslz4_collect_caps.h

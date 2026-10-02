@@ -15,19 +15,14 @@
  * baseline, like SSE2 on x86-64). MSVC has none of these, and the
  * BSLZ4_HAVE_*_COLLECT guards below make this file inert there.
  *
- * Each tier has a runtime flag (bslz4_avx512_collect_enabled() /
- * _avx2_ / _sse2_ / _vsx_ / _neon_), enabled by default iff it is the
- * highest-priority tier compiled in and bslz4_<tier>_collect_capable()
- * says this CPU supports it -- checked once, at first use, via c2py23's
- * cpuid-equivalent globals (c2py_amd64_avx512f/bw/vl, c2py_amd64_avx2,
- * c2py_ppc64_vsx, c2py_arm64_asimd; SSE2 needs no check). capable() is
- * the single source of truth, shared with the Python-visible
- * <tier>_collect_available() query (kernels_generic.cpp).
- *
- * set_<tier>_collect(True/False) overrides at runtime. AVX-512 can
- * trigger frequency throttling on some chips that outweighs the wider
- * vector for this workload; set_avx512_collect(False) drops to the next
- * tier, which does not auto-promote, so call again to reach avx2/sse2.
+ * The tier actually used is chosen by the collect id in the decode stages
+ * (see bslz4_resolve / impl_available).  Availability is decided by
+ * bslz4_<tier>_collect_capable(), which reads c2py23's cpuid-equivalent
+ * globals (c2py_amd64_avx512f/bw/vl, c2py_amd64_avx2, c2py_ppc64_vsx,
+ * c2py_arm64_asimd; SSE2 needs no check); capable() is the single source of
+ * truth, shared with the Python-visible impl_available() query.  AVX-512 can
+ * trigger frequency throttling on some chips that outweighs the wider vector
+ * for this workload, so it is selectable but not always a win.
  *
  * bslz4_collect_gt<T>/bslz4_collect_nz<T> (bottom of this file) take the
  * collect tier id chosen by the decode stages (bslz4_resolve already
@@ -35,7 +30,7 @@
  * loop.
  */
 
-#include "bslz4_common.hpp"
+#include "bslz4_common.h"
 
 #include <string.h>
 
@@ -115,40 +110,8 @@ inline bool bslz4_neon_collect_capable() {
 #endif
 }
 
-/* Each defaults to true iff it's the highest-priority capable tier --
- * so exactly one of these (or none, on a build/CPU with nothing
- * available) starts enabled, matching the priority order
- * bslz4_collect_gt<T>/bslz4_collect_nz<T> dispatch in below. */
-
-inline bool &bslz4_avx512_collect_enabled() {
-    static bool x = bslz4_avx512_collect_capable();
-    return x;
-}
-
-inline bool &bslz4_avx2_collect_enabled() {
-    static bool x = !bslz4_avx512_collect_capable() && bslz4_avx2_collect_capable();
-    return x;
-}
-
-inline bool &bslz4_vsx_collect_enabled() {
-    /* Mutually exclusive with the x86 tiers by compilation (BSLZ4_HAVE_
-     * VSX_COLLECT and BSLZ4_HAVE_{AVX512,AVX2,SSE2}_COLLECT can't both
-     * be 1 in the same build), so no priority check against them needed. */
-    static bool x = bslz4_vsx_collect_capable();
-    return x;
-}
-
-inline bool &bslz4_neon_collect_enabled() {
-    /* Mutually exclusive with every other tier by compilation, same as VSX. */
-    static bool x = bslz4_neon_collect_capable();
-    return x;
-}
-
-inline bool &bslz4_sse2_collect_enabled() {
-    static bool x = !bslz4_avx512_collect_capable() && !bslz4_avx2_collect_capable()
-                     && bslz4_sse2_collect_capable();
-    return x;
-}
+/* The tiers are chosen at run time by the collect id in the decode stages,
+ * not by mutable flags here -- no enabled()-style state lives in this file. */
 
 #if BSLZ4_HAVE_AVX512_COLLECT
 

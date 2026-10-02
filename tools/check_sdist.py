@@ -46,7 +46,6 @@ _BUILD_FILES = (
     "src/__init__.py",
     "src/c2py_loader.py",
     "src/bslz4_common.h",
-    "src/bslz4_common.hpp",
     "src/bslz4_codec.h",
     "src/bslz4_untranspose.h",
     "src/bslz4_collect_caps.h",

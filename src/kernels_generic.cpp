@@ -29,52 +29,21 @@
  * only for this TU.
  */
 
-#include "bslz4_common.hpp"
+#include "bslz4_common.h"
 #include "bslz4_collect_simd.hpp"
 #include "bslz4_registry.h"
 #include "bslz4_collect_caps.h"
 
 using namespace bslz4;
 
-/* C-linkage access to the SIMD collect tiers (see bslz4_collect_caps.h). */
-
+/* C-linkage availability for the SIMD collect tiers (bslz4_collect_caps.h);
+ * used by bslz4_impl_available(COLLECT, id).  The pick itself is by collect id
+ * in the decode stages, so there is no set_/get_ state here anymore. */
 extern "C" int bslz4_available_avx512_collect(void) { return bslz4_avx512_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_avx2_collect(void)   { return bslz4_avx2_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_sse2_collect(void)   { return bslz4_sse2_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_vsx_collect(void)    { return bslz4_vsx_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_neon_collect(void)   { return bslz4_neon_collect_capable() ? 1 : 0; }
-
-extern "C" int bslz4_get_avx512_collect(void) { return bslz4_avx512_collect_enabled() ? 1 : 0; }
-extern "C" int bslz4_get_avx2_collect(void)   { return bslz4_avx2_collect_enabled() ? 1 : 0; }
-extern "C" int bslz4_get_sse2_collect(void)   { return bslz4_sse2_collect_enabled() ? 1 : 0; }
-extern "C" int bslz4_get_vsx_collect(void)    { return bslz4_vsx_collect_enabled() ? 1 : 0; }
-extern "C" int bslz4_get_neon_collect(void)   { return bslz4_neon_collect_enabled() ? 1 : 0; }
-
-extern "C" int bslz4_set_avx512_collect(int enabled) {
-    if (enabled && !bslz4_avx512_collect_capable()) return -1;
-    bslz4_avx512_collect_enabled() = (enabled != 0);
-    return 0;
-}
-extern "C" int bslz4_set_avx2_collect(int enabled) {
-    if (enabled && !bslz4_avx2_collect_capable()) return -1;
-    bslz4_avx2_collect_enabled() = (enabled != 0);
-    return 0;
-}
-extern "C" int bslz4_set_sse2_collect(int enabled) {
-    if (enabled && !bslz4_sse2_collect_capable()) return -1;
-    bslz4_sse2_collect_enabled() = (enabled != 0);
-    return 0;
-}
-extern "C" int bslz4_set_vsx_collect(int enabled) {
-    if (enabled && !bslz4_vsx_collect_capable()) return -1;
-    bslz4_vsx_collect_enabled() = (enabled != 0);
-    return 0;
-}
-extern "C" int bslz4_set_neon_collect(int enabled) {
-    if (enabled && !bslz4_neon_collect_capable()) return -1;
-    bslz4_neon_collect_enabled() = (enabled != 0);
-    return 0;
-}
 
 /* ---- per-dtype generic kernels (all take a single bslz4_work*) ----
  *

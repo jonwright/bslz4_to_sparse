@@ -111,40 +111,47 @@ def get_dense_sparse_threshold():
 
 
 # ---- Per-tier SIMD collect shims (u16/u32 only) ----
-avx512_collect_available = _ext.avx512_collect_available
-get_avx512_collect = _ext.get_avx512_collect
-avx2_collect_available = _ext.avx2_collect_available
-get_avx2_collect = _ext.get_avx2_collect
-sse2_collect_available = _ext.sse2_collect_available
-get_sse2_collect = _ext.get_sse2_collect
-vsx_collect_available = _ext.vsx_collect_available
-get_vsx_collect = _ext.get_vsx_collect
-neon_collect_available = _ext.neon_collect_available
-get_neon_collect = _ext.get_neon_collect
+# The tier that actually runs is chosen by the collect id in the decode
+# stages.  These shims only report availability (via impl_available) and let
+# the caller override the default tier -- there is no C-side flags state
+# anymore.  Only the highest-priority available tier is on by default.
+
+_COLLECT_TIERS = (1, 2, 3, 4, 5)
+
+_collect_enabled = {mid: False for mid in _COLLECT_TIERS}
+for mid in _COLLECT_TIERS:
+    if _ext.impl_available(_STAGE_COLLECT, mid) == 1:
+        _collect_enabled[mid] = True
+        break
 
 
-def _collect_setter(name, tiername):
-    def setter(enabled):
-        if getattr(_ext, "set_%s_collect" % name)(1 if enabled else 0) < 0:
-            raise RuntimeError(
-                "%s collect kernel requested but this build/CPU lacks it "
-                "(%s_collect_available() is False)" % (tiername, name)
-            )
-    return setter
+def _collect_available(mid):
+    return _ext.impl_available(_STAGE_COLLECT, mid) == 1
 
 
-set_avx512_collect = _collect_setter("avx512", "AVX-512")
-set_avx2_collect = _collect_setter("avx2", "AVX2")
-set_sse2_collect = _collect_setter("sse2", "SSE2")
-set_vsx_collect = _collect_setter("vsx", "VSX")
-set_neon_collect = _collect_setter("neon", "NEON")
+def _get_collect(mid):
+    return 1 if _collect_enabled[mid] else 0
+
+
+def _set_collect(mid, name, enabled):
+    if enabled and not _collect_available(mid):
+        raise RuntimeError(
+            "%s collect kernel requested but this build/CPU lacks it "
+            "(%s_collect_available() is False)" % (name, name))
+    _collect_enabled[mid] = bool(enabled)
 
 
 def _active_collect_tier():
-    for mid, name in [(1, "avx512"), (2, "avx2"), (3, "sse2"), (4, "vsx"), (5, "neon")]:
-        if getattr(_ext, "get_%s_collect" % name)():
+    for mid in _COLLECT_TIERS:
+        if _collect_enabled[mid]:
             return mid
     return 0
+
+
+for mid, name in ((1, "avx512"), (2, "avx2"), (3, "sse2"), (4, "vsx"), (5, "neon")):
+    globals()["%s_collect_available" % name] = (lambda m=mid: _collect_available(m))
+    globals()["get_%s_collect" % name] = (lambda m=mid: _get_collect(m))
+    globals()["set_%s_collect" % name] = (lambda en, m=mid, n=name: _set_collect(m, n, en))
 
 
 # ---- Stage-array ("pipeline") helpers ----

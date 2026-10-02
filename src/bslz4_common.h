@@ -5,7 +5,8 @@
  *
  * It holds the error codes, big-endian readers and the default block size --
  * the things the driver (bslz4_driver.c) needs that do not depend on C++
- * templates.  (bslz4_common.hpp mirrors these for the C++ TU.)
+ * templates.  It is also the shared source of the BSLZ4_* macros used by the
+ * C++ kernel TU (no separate bslz4_common.hpp is kept).
  */
 
 #include <stddef.h>
@@ -70,7 +71,6 @@ enum {
     BSLZ4_ERR_FRAME_MISMATCH = -106,     /* frames don't share total size/block size */
     BSLZ4_ERR_CORRUPT_CHUNK = -107,      /* chunk too short, or a block/raw tail lies outside it */
     BSLZ4_ERR_BAD_CHUNK_BOUNDS = -108,   /* a chunk offset/size lies outside the buffer */
-    BSLZ4_ERR_BAD_LAYOUT = -109,         /* a padded-CSC layout argument is inconsistent */
     BSLZ4_ERR_BAD_MATRIX = -110,         /* CSC matrix arrays inconsistent (sizes/itemsize) */
     BSLZ4_ERR_BAD_PIPELINE = -111,       /* unknown stage id or unknown option bit */
     BSLZ4_ERR_UNAVAILABLE = -112,        /* a known implementation is unavailable here */
