@@ -59,6 +59,12 @@ static inline uint64_t bslz4_read_be64(const uint8_t *BSLZ4_RESTRICT p) {
  * behaviour. */
 #define BSLZ4_OPT_DROP_NEGATIVES ((uint16_t) 1 << 0)
 
+/* Option bit: the image mask is fully active (every pixel is valid), so the
+ * kernels skip the per-pixel mask check entirely (mask is passed as NULL).
+ * Set by the Python bindings when `(mask == 1).all()` -- e.g. data that was
+ * zeroed at collection, where no detector mask is needed in processing. */
+#define BSLZ4_OPT_NO_MASK ((uint16_t) 1 << 1)
+
 /* Error codes.  The values are part of the C API: keep them stable. */
 enum {
     BSLZ4_ERR_TOO_MANY_PIXELS = -99,     /* decompressed size needs more room than NIJ */
@@ -71,6 +77,7 @@ enum {
     BSLZ4_ERR_FRAME_MISMATCH = -106,     /* frames don't share total size/block size */
     BSLZ4_ERR_CORRUPT_CHUNK = -107,      /* chunk too short, or a block/raw tail lies outside it */
     BSLZ4_ERR_BAD_CHUNK_BOUNDS = -108,   /* a chunk offset/size lies outside the buffer */
+    BSLZ4_ERR_BAD_LAYOUT = -109,         /* the dot id's layout does not match the entry point, or the decoded block_elems mismatches the descriptor */
     BSLZ4_ERR_BAD_PIPELINE = -111,       /* unknown stage id or unknown option bit */
     BSLZ4_ERR_UNAVAILABLE = -112,        /* a known implementation is unavailable here */
     BSLZ4_ERR_DTYPE = -113,              /* dtype index out of range or unsupported */

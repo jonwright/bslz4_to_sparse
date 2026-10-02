@@ -157,6 +157,36 @@ def test_csc_dense_and_sparse_routes_both_match_reference():
         set_dense_sparse_threshold(saved)
 
 
+def test_cut_above_dtype_max_produces_empty_sparse_output():
+    """A >cut threshold above the dtype's maximum is common when harvesting
+    (texture tomography): no pixel can exceed it, so the sparse output must be
+    empty and the powder identical.  This guards the wrapped `(T)threshold`
+    cast from emitting garbage against a small wrapped cut."""
+    saved = get_dense_sparse_threshold()
+    try:
+        set_dense_sparse_threshold(1e9)  # dense route: the >cut collect runs
+        for name in chunks:
+            dt, shp, chunklist = chunks[name]
+            if np.dtype(dt).kind not in ("u", "i"):
+                continue
+            # the >cut threshold is a C int, so only dtypes whose max it can
+            # exceed are meaningful for this skip
+            if int(np.iinfo(dt).max) >= (1 << 31) - 1:
+                continue
+            cut = int(np.iinfo(dt).max) + 1  # just above the dtype's max
+            bufs = [c for (filt, c) in chunklist]
+            for dot in ("csc", "bsb-csr"):
+                c2sm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine,
+                                            dtype=np.dtype(dt), dot=dot)
+                npx0, (v0, a0), p0 = c2sm(bufs, 0)      # any pixels
+                nxph, (vh, ah), ph = c2sm(bufs, cut)    # > dtype max
+                for i in range(len(bufs)):
+                    assert int(nxph[i]) == 0, (name, dot, i, "expected empty sparse output")
+                    assert np.array_equal(p0[i], ph[i]), (name, dot, i, "powder changed")
+    finally:
+        set_dense_sparse_threshold(saved)
+
+
 def test_plain_multi_matches_single():
     for name in chunks:
         dt, shp, chunklist = chunks[name]
@@ -370,6 +400,41 @@ def test_decode_offsets_matches_call():
                     raise AssertionError("an out-of-bounds chunk was not refused")
         finally:
             mm.close()
+
+
+# ---------------------------------------------------------------------------
+# Sparse-output ordering: the >cut list must be strictly increasing in raster
+# order with no repeats (np.diff(adr) > 0). The existing suite only checks
+# ordering indirectly (array_equal against an ascending reference); this pins
+# it directly, and it is the property the bsb-csr bin-major layout must
+# deliberately preserve with a second pixel-major pass.
+# ---------------------------------------------------------------------------
+
+def test_sparse_output_order_is_strictly_increasing():
+    for name in chunks:
+        dt, shp, chunklist = chunks[name]
+        bufs = [c for (filt, c) in chunklist]
+        c2sm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
+        p2sm = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt))
+        saved = get_dense_sparse_threshold()
+        try:
+            for threshold in (1e9, 0.0):  # dense, sparse CSC routes
+                set_dense_sparse_threshold(threshold)
+                npx, (outpx, adr), powder = c2sm(bufs, 1)
+                for f in range(len(bufs)):
+                    n = int(npx[f])
+                    if n > 1:
+                        assert np.all(np.diff(adr[f, :n].astype(np.int64)) > 0), \
+                            (name, "csc", threshold, f, "order/repeat")
+            # the plain sparse path (no dot) must be ascending too
+            npx, (outpx, adr) = p2sm(bufs, 1)
+            for f in range(len(bufs)):
+                n = int(npx[f])
+                if n > 1:
+                    assert np.all(np.diff(adr[f, :n].astype(np.int64)) > 0), \
+                        (name, "plain", f, "order/repeat")
+        finally:
+            set_dense_sparse_threshold(saved)
 
 
 # ---------------------------------------------------------------------------

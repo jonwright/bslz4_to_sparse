@@ -65,6 +65,12 @@
 
 namespace bslz4 {
 
+/* A NULL mask means BSLZ4_OPT_NO_MASK is set (every pixel is valid, e.g. the
+ * data was zeroed at collection), so the per-pixel mask check is skipped. */
+static inline bool bslz4_mask_ok(const uint8_t *mask, size_t idx) {
+    return mask == NULL || mask[idx] > 0;
+}
+
 /* Single source of truth for "is this tier actually usable" -- shared
  * by the default-enabled logic below and the Python-visible
  * <tier>_collect_available() query (kernels_generic.cpp delegates to
@@ -125,8 +131,10 @@ inline int bslz4_collect_avx512_u16(const uint16_t *BSLZ4_RESTRICT block,
     size_t j = 0;
     const __m512i vcut = _mm512_set1_epi16((short) cut);
     for (; j + 32 <= block_elems; j += 32) {
-        __mmask32 mnz = _mm256_cmpneq_epu8_mask(
-            _mm256_loadu_si256((const __m256i *) &mask[j + i0]), _mm256_setzero_si256());
+        __mmask32 mnz = mask
+            ? _mm256_cmpneq_epu8_mask(_mm256_loadu_si256((const __m256i *) &mask[j + i0]),
+                                      _mm256_setzero_si256())
+            : (__mmask32) ~(uint32_t) 0;
         __mmask32 mgt = _mm512_cmpgt_epu16_mask(
             _mm512_loadu_si512((const void *) &block[j]), vcut);
         uint32_t bits = (uint32_t) (mnz & mgt);
@@ -139,7 +147,7 @@ inline int bslz4_collect_avx512_u16(const uint16_t *BSLZ4_RESTRICT block,
         }
     }
     for (; j < block_elems; j++) {
-        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -158,8 +166,10 @@ inline int bslz4_collect_avx512_u32(const uint32_t *BSLZ4_RESTRICT block,
     size_t j = 0;
     const __m512i vcut = _mm512_set1_epi32((int) cut);
     for (; j + 16 <= block_elems; j += 16) {
-        __mmask16 mnz = _mm_cmpneq_epu8_mask(
-            _mm_loadu_si128((const __m128i *) &mask[j + i0]), _mm_setzero_si128());
+        __mmask16 mnz = mask
+            ? _mm_cmpneq_epu8_mask(_mm_loadu_si128((const __m128i *) &mask[j + i0]),
+                                   _mm_setzero_si128())
+            : (__mmask16) 0xFFFF;
         __mmask16 mgt = _mm512_cmpgt_epu32_mask(
             _mm512_loadu_si512((const void *) &block[j]), vcut);
         uint32_t bits = (uint32_t) (mnz & mgt);
@@ -172,7 +182,7 @@ inline int bslz4_collect_avx512_u32(const uint32_t *BSLZ4_RESTRICT block,
         }
     }
     for (; j < block_elems; j++) {
-        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -220,9 +230,9 @@ inline int bslz4_collect_avx2_u16(const uint16_t *BSLZ4_RESTRICT block,
     const __m256i sign_bias = _mm256_set1_epi16((short) 0x8000);
     const __m256i vcut_b = _mm256_xor_si256(_mm256_set1_epi16((short) cut), sign_bias);
     for (; j + 16 <= block_elems; j += 16) {
-        __m128i m = _mm_loadu_si128((const __m128i *) &mask[j + i0]);
-        __m128i mz = _mm_cmpeq_epi8(m, _mm_setzero_si128());
-        uint32_t mnz16 = (~(uint32_t) _mm_movemask_epi8(mz)) & 0xFFFFu;
+        uint32_t mnz16 = mask
+            ? (~(uint32_t) _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128((const __m128i *) &mask[j + i0]), _mm_setzero_si128()))) & 0xFFFFu
+            : 0xFFFFu;
 
         __m256i v = _mm256_loadu_si256((const __m256i *) &block[j]);
         __m256i vb = _mm256_xor_si256(v, sign_bias);
@@ -240,7 +250,7 @@ inline int bslz4_collect_avx2_u16(const uint16_t *BSLZ4_RESTRICT block,
         }
     }
     for (; j < block_elems; j++) {
-        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -260,9 +270,9 @@ inline int bslz4_collect_avx2_u32(const uint32_t *BSLZ4_RESTRICT block,
     const __m256i sign_bias = _mm256_set1_epi32((int) 0x80000000u);
     const __m256i vcut_b = _mm256_xor_si256(_mm256_set1_epi32((int) cut), sign_bias);
     for (; j + 8 <= block_elems; j += 8) {
-        __m128i m = _mm_loadl_epi64((const __m128i *) &mask[j + i0]);
-        __m128i mz = _mm_cmpeq_epi8(m, _mm_setzero_si128());
-        uint32_t mnz8 = (~(uint32_t) _mm_movemask_epi8(mz)) & 0xFFu;
+        uint32_t mnz8 = mask
+            ? (~(uint32_t) _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadl_epi64((const __m128i *) &mask[j + i0]), _mm_setzero_si128()))) & 0xFFu
+            : 0xFFu;
 
         __m256i v = _mm256_loadu_si256((const __m256i *) &block[j]);
         __m256i vb = _mm256_xor_si256(v, sign_bias);
@@ -279,7 +289,7 @@ inline int bslz4_collect_avx2_u32(const uint32_t *BSLZ4_RESTRICT block,
         }
     }
     for (; j < block_elems; j++) {
-        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -314,9 +324,9 @@ inline int bslz4_collect_sse2_u16(const uint16_t *BSLZ4_RESTRICT block,
     const __m128i sign_bias = _mm_set1_epi16((short) 0x8000);
     const __m128i vcut_b = _mm_xor_si128(_mm_set1_epi16((short) cut), sign_bias);
     for (; j + 8 <= block_elems; j += 8) {
-        __m128i m = _mm_loadl_epi64((const __m128i *) &mask[j + i0]);
-        __m128i mz = _mm_cmpeq_epi8(m, _mm_setzero_si128());
-        uint32_t mnz8 = (~(uint32_t) _mm_movemask_epi8(mz)) & 0xFFu;
+        uint32_t mnz8 = mask
+            ? (~(uint32_t) _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadl_epi64((const __m128i *) &mask[j + i0]), _mm_setzero_si128()))) & 0xFFu
+            : 0xFFu;
 
         __m128i v = _mm_loadu_si128((const __m128i *) &block[j]);
         __m128i vb = _mm_xor_si128(v, sign_bias);
@@ -333,7 +343,7 @@ inline int bslz4_collect_sse2_u16(const uint16_t *BSLZ4_RESTRICT block,
         }
     }
     for (; j < block_elems; j++) {
-        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -353,11 +363,12 @@ inline int bslz4_collect_sse2_u32(const uint32_t *BSLZ4_RESTRICT block,
     const __m128i sign_bias = _mm_set1_epi32((int) 0x80000000u);
     const __m128i vcut_b = _mm_xor_si128(_mm_set1_epi32((int) cut), sign_bias);
     for (; j + 4 <= block_elems; j += 4) {
-        uint32_t m4;
-        memcpy(&m4, &mask[j + i0], 4);
-        __m128i m = _mm_cvtsi32_si128((int) m4);
-        __m128i mz = _mm_cmpeq_epi8(m, _mm_setzero_si128());
-        uint32_t mnz4 = (~(uint32_t) _mm_movemask_epi8(mz)) & 0xFu;
+        uint32_t mnz4 = 0xFu;
+        if (mask) {
+            uint32_t m4;
+            memcpy(&m4, &mask[j + i0], 4);
+            mnz4 = (~(uint32_t) _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_cvtsi32_si128((int) m4), _mm_setzero_si128()))) & 0xFu;
+        }
 
         __m128i v = _mm_loadu_si128((const __m128i *) &block[j]);
         __m128i vb = _mm_xor_si128(v, sign_bias);
@@ -374,7 +385,7 @@ inline int bslz4_collect_sse2_u32(const uint32_t *BSLZ4_RESTRICT block,
         }
     }
     for (; j < block_elems; j++) {
-        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -423,7 +434,7 @@ inline int bslz4_collect_vsx_u16(const uint16_t *BSLZ4_RESTRICT block,
         if (!vec_any_gt(v, vcut)) continue;
         __vector __bool short gt = vec_cmpgt(v, vcut);
         for (int lane = 0; lane < 8; lane++) {
-            if (mask[j + i0 + lane] > 0 && vec_extract((__vector unsigned short) gt, lane)) {
+            if (bslz4_mask_ok(mask, j + i0 + lane) && vec_extract((__vector unsigned short) gt, lane)) {
                 out_vals[npx] = vec_extract(v, lane);
                 out_adr[npx] = (uint32_t) (j + i0 + lane);
                 npx++;
@@ -431,7 +442,7 @@ inline int bslz4_collect_vsx_u16(const uint16_t *BSLZ4_RESTRICT block,
         }
     }
     for (; j < n; j++) {
-        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -454,7 +465,7 @@ inline int bslz4_collect_vsx_u32(const uint32_t *BSLZ4_RESTRICT block,
         if (!vec_any_gt(v, vcut)) continue;
         __vector __bool int gt = vec_cmpgt(v, vcut);
         for (int lane = 0; lane < 4; lane++) {
-            if (mask[j + i0 + lane] > 0 && vec_extract((__vector unsigned int) gt, lane)) {
+            if (bslz4_mask_ok(mask, j + i0 + lane) && vec_extract((__vector unsigned int) gt, lane)) {
                 out_vals[npx] = vec_extract(v, lane);
                 out_adr[npx] = (uint32_t) (j + i0 + lane);
                 npx++;
@@ -462,7 +473,7 @@ inline int bslz4_collect_vsx_u32(const uint32_t *BSLZ4_RESTRICT block,
         }
     }
     for (; j < n; j++) {
-        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -509,7 +520,7 @@ inline int bslz4_collect_neon_u16(const uint16_t *BSLZ4_RESTRICT block,
         vst1q_u16(vbuf, v);
         vst1q_u16(gbuf, gt);
         for (int lane = 0; lane < 8; lane++) {
-            if (mask[j + i0 + lane] > 0 && gbuf[lane]) {
+            if (bslz4_mask_ok(mask, j + i0 + lane) && gbuf[lane]) {
                 out_vals[npx] = vbuf[lane];
                 out_adr[npx] = (uint32_t) (j + i0 + lane);
                 npx++;
@@ -517,7 +528,7 @@ inline int bslz4_collect_neon_u16(const uint16_t *BSLZ4_RESTRICT block,
         }
     }
     for (; j < n; j++) {
-        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -542,7 +553,7 @@ inline int bslz4_collect_neon_u32(const uint32_t *BSLZ4_RESTRICT block,
         vst1q_u32(vbuf, v);
         vst1q_u32(gbuf, gt);
         for (int lane = 0; lane < 4; lane++) {
-            if (mask[j + i0 + lane] > 0 && gbuf[lane]) {
+            if (bslz4_mask_ok(mask, j + i0 + lane) && gbuf[lane]) {
                 out_vals[npx] = vbuf[lane];
                 out_adr[npx] = (uint32_t) (j + i0 + lane);
                 npx++;
@@ -550,7 +561,7 @@ inline int bslz4_collect_neon_u32(const uint32_t *BSLZ4_RESTRICT block,
         }
     }
     for (; j < n; j++) {
-        if ((mask[j + i0] > 0) & (block[j] > cut)) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -576,7 +587,7 @@ inline int bslz4_collect_gt(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_
     (void) collect_id;  /* only the scalar tier is valid for non-SIMD dtypes */
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
-        if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (block[j] > cut))) {
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (block[j] > cut))) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -603,7 +614,7 @@ inline int bslz4_collect_nz(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
         T px = block[j];
-        if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (px != 0))) {
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (px != 0))) {
             out_vals[npx] = px;
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -635,7 +646,7 @@ inline int bslz4_collect_gt<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
-        if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (block[j] > cut))) {
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (block[j] > cut))) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -665,7 +676,7 @@ inline int bslz4_collect_gt<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
-        if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (block[j] > cut))) {
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (block[j] > cut))) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -697,7 +708,7 @@ inline int bslz4_collect_nz<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
         uint16_t px = block[j];
-        if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (px != 0))) {
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (px != 0))) {
             out_vals[npx] = px;
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -728,7 +739,7 @@ inline int bslz4_collect_nz<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
         uint32_t px = block[j];
-        if (BSLZ4_UNLIKELY((mask[j + i0] > 0) & (px != 0))) {
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (px != 0))) {
             out_vals[npx] = px;
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
