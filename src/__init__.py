@@ -1,3 +1,4 @@
+import json
 import os
 import struct
 import numpy as np
@@ -237,6 +238,24 @@ note_chunk = _ext.note_chunk
 impl_available = _ext.impl_available
 reset_counters = _ext.reset_counters
 read_counters = _ext.read_counters
+
+
+def build_info():
+    """
+    How the loaded native extension was built, as a dict: the package
+    "version", "git" (`git describe --tags --always --dirty` of the source
+    tree: a tag when built clean on a tagged commit, "-dirty" when it had
+    local changes, None outside a git checkout), "modified" (the changed
+    tracked files when dirty), "src_sha256" (of the compiled sources and
+    headers, also for builds without git), "compiler", "platform" and
+    "built_utc".
+    """
+    buf = np.zeros(1024, np.uint8)
+    n = _ext.build_info(buf)
+    if n > buf.size:
+        buf = np.zeros(n, np.uint8)
+        n = _ext.build_info(buf)
+    return json.loads(bytes(buf[:n]).decode("ascii"))
 
 
 def detect_codec(ds):

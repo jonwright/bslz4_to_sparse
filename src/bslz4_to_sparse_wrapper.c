@@ -22,6 +22,7 @@ extern void bslz4_note_chunk(const char * chunk, size_t chunk_len, int index, in
 extern int bslz4_impl_available(int stage, int id);
 extern void bslz4_reset_counters();
 extern int bslz4_read_counters(uint64_t * out, int n);
+extern int bslz4_build_info(char * out, int n);
 
 static const uint8_t _acqord_sparsify[] = { C2PY_PIN_NDARRAY, C2PY_PIN_PEP3118 };
 
@@ -1354,6 +1355,106 @@ _read_counters_wrapper(PyObject *self, PyObject *args)
     return _read_counters_fastcall(self, argv, nargs);
 }
 
+static const uint8_t _acqord_build_info[] = { C2PY_PIN_NDARRAY, C2PY_PIN_PEP3118 };
+
+/* -------------------------------------------- */
+/* Wrapper for: build_info */
+/* -------------------------------------------- */
+
+static PyObject*
+_build_info_impl(c2py_ptr_info *info_out)
+{
+    int _c2py_slow_axis_info_out = -1;
+    int _c2py_fast_axis_info_out = -1;
+    (void)_c2py_slow_axis_info_out;
+    (void)_c2py_fast_axis_info_out;
+    /* contiguity check: out */
+    if (c2py_check_contiguity(info_out, &_c2py_slow_axis_info_out, &_c2py_fast_axis_info_out) < 0)
+        return NULL;
+
+    /* check: out.format == 'B' */
+    if (!((!info_out->format || info_out->format[strlen(info_out->format) - 1] == 'B'))) {
+        char _c2py_err[256];
+        const char *_fmt = info_out->format ? info_out->format : "(null)";
+        snprintf(_c2py_err, sizeof(_c2py_err), "build_info: arg 'out' check failed: out.format == 'B' (got format='%s')", _fmt);
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
+    /* overload 0 (always) */
+    {
+        if ((info_out->len) > (Py_ssize_t)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "buffer too large for int n (> INT_MAX elements)");
+            return NULL;
+        }
+        int _ret = bslz4_build_info((char *)info_out->ptr, (int)(info_out->len));
+        return PyLong_FromLong((long)_ret);
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_build_info_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *py_out = NULL;
+    c2py_buf_pin pin_out;
+    c2py_ptr_info info_out;
+    PyObject *ret = NULL;
+
+    if (nargs != 1) {
+        PyErr_SetString(PyExc_TypeError,
+            "build_info expects 1 argument");
+        return NULL;
+    }
+
+    py_out = args[0];
+
+    memset(&pin_out.buf, 0, C2PY.pybuffer_size);
+
+    if (c2py_pin(py_out, &pin_out, &info_out, C2PY_BUF_WRITE, _acqord_build_info, 2) == -1)
+        return NULL;
+
+    /* restrict check: writable buffers must not overlap */
+    {
+        c2py_ptr_info *_c2py_ov[] = { &info_out };
+        if (c2py_check_no_overlap(_c2py_ov, 1, 1) < 0)
+            goto cleanup;
+    }
+
+    ret = _build_info_impl(&info_out);
+
+cleanup:
+    c2py_unpin_buffer(&pin_out);
+    return ret;
+}
+
+static PyObject*
+_build_info_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *argv[1];
+    Py_ssize_t nargs = PyTuple_Size(args);
+    Py_ssize_t _i;
+    if (nargs < 0) return NULL;
+    if (nargs > 1) {
+        PyErr_SetString(PyExc_TypeError,
+            "build_info expects 1 argument");
+        return NULL;
+    }
+    for (_i = 0; _i < nargs; _i++) {
+        argv[_i] = PyTuple_GetItem(args, _i);
+        if (argv[_i] == NULL) return NULL;
+    }
+    return _build_info_fastcall(self, argv, nargs);
+}
+
 
 /* -------------------------------------------- */
 /* Module definition                          */
@@ -1366,6 +1467,7 @@ static const char _doc_note_chunk[] = "note_chunk(chunk, index, pointers, length
 static const char _doc_impl_available[] = "impl_available(stage, id)\n--\n\nimpl_available(stage: int, id: int) -> int\n\n1 if a known implementation is available here, 0 if known but not usable on this CPU/build, -1 if the id is unknown.\n\nParameters\n----------\nstage : int\nid : int\n\nOverloads\n---------\n  bslz4_impl_available(int stage, int id) -> int\n    Map: stage = stage (int)\n         id = id (int)";
 static const char _doc_reset_counters[] = "reset_counters()\n--\n\nreset_counters() -> void\n\nZero all per-implementation block counters (test instrumentation).\n\nOverloads\n---------\n  bslz4_reset_counters() -> void";
 static const char _doc_read_counters[] = "read_counters(out)\n--\n\nread_counters(out: buffer) -> int\n\nFill out (uint64 array) with the flattened [stage][impl] counters; returns the number of entries written.\n\nParameters\n----------\nout : buffer\n    Writable\n\nOverloads\n---------\n  bslz4_read_counters(uint64_t *out, int n) -> int\n    Map: out = out.ptr (uint64_t *)\n         n = out.n (int)";
+static const char _doc_build_info[] = "build_info(out)\n--\n\nbuild_info(out: buffer) -> int\n\nCopy the JSON build description (version, git describe, source sha256, compiler, platform, time) into out (uint8 array); returns its full length in bytes, which may exceed out.len.\n\nParameters\n----------\nout : buffer\n    Type: uint8 (format 'B')\n    Writable\n\nChecks\n------\n  out.format == 'B'  [ValueError]\n\nOverloads\n---------\n  bslz4_build_info(char *out, int n) -> int\n    Map: out = out.ptr (char *)\n         n = out.len (int)";
 static const char _module_doc[] = "Module: _bslz4_to_sparse\nSource: ['bslz4_to_sparse.c']\nHeaders: ['c2py_amd64.h', 'c2py_arm64.h', 'c2py_ppc64.h']\nTiming: no\nFree-threading: no (GIL re-enabled on 3.14t)";
 
 static PyMethodDef _methods_varargs[] = {
@@ -1376,6 +1478,7 @@ static PyMethodDef _methods_varargs[] = {
     {"impl_available", (PyCFunction)_impl_available_wrapper, METH_VARARGS, _doc_impl_available},
     {"reset_counters", (PyCFunction)_reset_counters_wrapper, METH_VARARGS, _doc_reset_counters},
     {"read_counters", (PyCFunction)_read_counters_wrapper, METH_VARARGS, _doc_read_counters},
+    {"build_info", (PyCFunction)_build_info_wrapper, METH_VARARGS, _doc_build_info},
     {NULL, NULL, 0, NULL}
 };
 
@@ -1387,6 +1490,7 @@ static PyMethodDef _methods_fastcall[] = {
     {"impl_available", (PyCFunction)_impl_available_fastcall, METH_FASTCALL, _doc_impl_available},
     {"reset_counters", (PyCFunction)_reset_counters_fastcall, METH_FASTCALL, _doc_reset_counters},
     {"read_counters", (PyCFunction)_read_counters_fastcall, METH_FASTCALL, _doc_read_counters},
+    {"build_info", (PyCFunction)_build_info_fastcall, METH_FASTCALL, _doc_build_info},
     {NULL, NULL, 0, NULL}
 };
 

@@ -166,6 +166,16 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
                 {"sig": "bslz4_read_counters(uint64_t *out, int n) -> int", "map": {"out": "out.ptr", "n": "out.n"}},
             ],
         },
+        {
+            "py_sig": "build_info(out: buffer) -> int",
+            "doc": "Copy the JSON build description (version, git describe, source sha256, compiler, platform, time) into out (uint8 array); returns its full length in bytes, which may exceed out.len.",
+            "checks": [
+                "out.format == 'B'",
+            ],
+            "c_overloads": [
+                {"sig": "bslz4_build_info(char *out, int n) -> int", "map": {"out": "out.ptr", "n": "out.len"}},
+            ],
+        },
     ],
 }
 C2PY_END */
