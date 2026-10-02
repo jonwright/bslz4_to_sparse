@@ -5,7 +5,7 @@ from .c2py_loader import load_native
 
 _ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse")
 
-version = "0.0.20a1"
+version = "0.0.21a1"
 
 # The general/documented public API.  Expert tuning knobs (available_backends,
 # set_backend, set_dense_sparse_threshold, get_dense_sparse_threshold),
