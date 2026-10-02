@@ -1,71 +1,31 @@
 import os
 import struct
 import numpy as np
-import ctypes
 from .c2py_loader import load_native
 
-# Loaded by explicit platform-tagged filename
-# (_bslz4_to_sparse.c2py23-<os>_<arch>.so) rather than by a plain import:
-# c2py23 resolves the CPython API at runtime via dlsym, so the binary is
-# not tied to a Python version, and naming it this way lets builds for
-# several architectures sit in the same directory. setup.py's
-# get_ext_filename writes exactly this name, from this same loader's
-# _platform_key().
 _ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse")
 
-version = "0.0.20a1"
+version = "0.0.21a1"
 
-# c2py23's per-call timing instrumentation is compiled OUT entirely
-# ("timing": False in the .c2py spec, src/bslz4_to_sparse.cpp) -- it adds
-# per-call overhead (a branch plus, when enabled, two clock reads and a
-# counter update) to every single decode call regardless of whether
-# set_timing()/perf counters are actually in use, since the instrumented
-# code path has to exist in the compiled wrapper either way. Use an
-# external profiler (perf, py-spy, timeit around batches) instead.
-
-# We cast away the 'read-only' nature of python bytes.
-# Not needed for the latest numpy.
-if hasattr( ctypes.pythonapi, "PyMemoryView_FromMemory"):
-    buffer_from_memory = ctypes.pythonapi.PyMemoryView_FromMemory
-    buffer_from_memory.restype = ctypes.py_object
-    buffer_from_memory.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
-else:
-    def buffer_from_memory(buf, l, f):
-        if type(buf) == str and buf[:6] == 'array(':
-            # python 2.7 and a rather sad feature in h5py.
-            #   probably we should not support this.
-            import warnings
-            warnings.warn('Bad performance from python2.7 and old h5py')
-            from array import array
-            return eval(buf)
-        raise Exception('Unknown code path for buffer decoding ' + str(type(buf)))
+# The general/documented public API.  Expert tuning knobs (available_backends,
+# set_backend, set_dense_sparse_threshold, get_dense_sparse_threshold),
+# test/introspection helpers and the internal decode helpers are all still
+# importable directly, but are deliberately not part of `import *`.
+__all__ = [
+    "version",
+    "bslz4_to_sparse",
+    "chunk2sparse",
+    "chunk2sparseCSC",
+    "chunk2sparseMulti",
+    "chunk2sparseCSCmulti",
+    "pack_pipeline",
+    "CODEC_LZ4",
+    "CODEC_ZSTD",
+]
 
 
-def npbuf(buf):
-    if isinstance(buf, np.ndarray):
-        return buf
-    elif isinstance(buf, memoryview):
-        return np.frombuffer(buf, np.uint8)
-    else:
-        return np.frombuffer(buffer_from_memory(buf, len(buf), 0x200), np.uint8)
-
-
-# Pixel type suffixes c2py23's "expand" template mechanism generates one
-# Python function per (see the C2PY_BEGIN block in src/bslz4_to_sparse.cpp).
-# There are only two function families now, both multi-frame:
-# bslz4_multi_<suffix> (plain sparse) and bslz4_csc_multi_<suffix> (CSC).
-# There is no single-frame family at all -- a single frame is just
-# nframes==1, both at the C++ template level (bslz4_core.hpp) and here:
-# chunk2sparse/chunk2sparseCSC are thin wrappers around
-# chunk2sparseMulti/chunk2sparseCSCmulti with a 1-frame batch, not a
-# second, separately-maintained implementation.
 _TYPE_SUFFIXES = ("u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64")
 
-# (numpy dtype.kind, itemsize) -> suffix. kind+itemsize (not a numpy/struct
-# format character) is what's portable across platforms: e.g. np.int64's
-# buffer format character is 'l' on Linux (64-bit long) but 'q' on Windows
-# (64-bit long long, since Windows' long is 32-bit) -- kind='i',itemsize=8
-# is the same on both.
 _SUFFIX_FOR_KIND_ITEMSIZE = {
     ("u", 1): "u8", ("u", 2): "u16", ("u", 4): "u32", ("u", 8): "u64",
     ("i", 1): "i8", ("i", 2): "i16", ("i", 4): "i32", ("i", 8): "i64",
@@ -81,172 +41,209 @@ def _suffix_for_dtype(dtype):
         raise TypeError("unsupported pixel dtype %r" % (dtype,))
 
 
-# Per-suffix function lookups, built once from whatever c2py23's "expand"
-# generated (see bslz4_to_sparse.cpp) rather than importing 20 names by
-# hand. Each dict is {suffix: callable_or_rebind_fn}.
-_BSLZ4_MULTI = {s: getattr(_ext, "bslz4_multi_%s" % s) for s in _TYPE_SUFFIXES}
-_BSLZ4_CSC_MULTI = {s: getattr(_ext, "bslz4_csc_multi_%s" % s) for s in _TYPE_SUFFIXES}
-# bslz4_csc_multi_base_<suffix>: like _BSLZ4_CSC_MULTI, but for chunks
-# that all share one base buffer (e.g. an mmap'ed HDF5 file) addressed by
-# byte offset rather than one buffer object per frame -- see
-# harvest_chunk_offsets()/pack_offsets_lengths() below. Not currently
-# used by any class here (nothing in this module has opened/mmap'ed a
-# whole file yet); exposed as a building block for callers who have.
-_BSLZ4_CSC_MULTI_BASE = {s: getattr(_ext, "bslz4_csc_multi_base_%s" % s) for s in _TYPE_SUFFIXES}
-_REBIND = {
-    s: (
-        getattr(_ext, "_rebind_bslz4_multi_%s" % s),
-        getattr(_ext, "_rebind_bslz4_csc_multi_%s" % s),
-        getattr(_ext, "_rebind_bslz4_csc_multi_base_%s" % s),
-    )
-    for s in _TYPE_SUFFIXES
-}
-
-# The only place a compressed chunk's address is extracted -- via
-# c2py23's own buffer acquisition on note_chunk's "chunk" parameter, not
-# any Python-side ctypes/numpy trick. See _gather_chunks().
-note_chunk = _ext.note_chunk
-
-get_dense_sparse_threshold = _ext.get_dense_sparse_threshold
-set_dense_sparse_threshold = _ext.set_dense_sparse_threshold
-
-# SIMD mask+threshold collect tiers (u16/u32 only, see
-# bslz4_collect_simd.hpp): avx512, avx2, sse2, vsx, neon, tried in that
-# order. The best available tier is on by default, decided in
-# bslz4_collect_simd.hpp; these are just the runtime getters/setters.
-# AVX-512 can throttle clocks on some chips enough to net-lose for this
-# workload -- set_avx512_collect(False) then set_avx2_collect(True) if
-# so, since disabling one tier does not auto-promote the next. vsx
-# (POWER8+) measures 3.75-8.2x on sparse data; neon (AArch64) measures
-# 4.18x (u16) / 4.38x (u32) on a Cortex-A72.
-avx512_collect_available = _ext.avx512_collect_available
-get_avx512_collect = _ext.get_avx512_collect
-avx2_collect_available = _ext.avx2_collect_available
-get_avx2_collect = _ext.get_avx2_collect
-sse2_collect_available = _ext.sse2_collect_available
-get_sse2_collect = _ext.get_sse2_collect
-vsx_collect_available = _ext.vsx_collect_available
-get_vsx_collect = _ext.get_vsx_collect
-neon_collect_available = _ext.neon_collect_available
-get_neon_collect = _ext.get_neon_collect
-
-
-def set_avx512_collect(enabled):
-    """
-    Enable/disable the AVX-512 collect kernel for bslz4_multi_u16/u32 and
-    bslz4_csc_multi_u16/u32's sparse-route compaction. Applies immediately
-    to every call already made with those functions (it's a runtime
-    switch, not a per-call or per-dtype choice). On by default when
-    available (it's the highest-priority tier, tried first) -- it is not
-    always a win, see the module docstring in bslz4_collect_simd.hpp, so
-    disable it explicitly if it measures as a net loss on your machine.
-
-    Raises RuntimeError if enabled=True is requested on a CPU without the
-    required AVX-512F+BW+VL feature bits (see avx512_collect_available()).
-    """
-    if _ext.set_avx512_collect(1 if enabled else 0) < 0:
-        raise RuntimeError(
-            "AVX-512 collect kernel requested but this CPU lacks the required "
-            "AVX512F+AVX512BW+AVX512VL feature bits (avx512_collect_available() "
-            "is False)"
-        )
-
-
-def set_avx2_collect(enabled):
-    """
-    Enable/disable the AVX2 collect kernel for bslz4_multi_u16/u32 and
-    bslz4_csc_multi_u16/u32's sparse-route compaction -- see
-    set_avx512_collect(), same shape. Ignored when AVX-512 collect is
-    also enabled (avx512 is tried first). On by default when available
-    and avx512 isn't. AVX2 carries much less frequency-throttling risk
-    than AVX-512 on most chips, but measure before relying on that
-    rather than assuming it.
-
-    Raises RuntimeError if enabled=True is requested on a CPU without AVX2
-    (see avx2_collect_available()).
-    """
-    if _ext.set_avx2_collect(1 if enabled else 0) < 0:
-        raise RuntimeError(
-            "AVX2 collect kernel requested but this CPU lacks AVX2 "
-            "(avx2_collect_available() is False)"
-        )
-
-
-def set_sse2_collect(enabled):
-    """
-    Enable/disable the SSE2 collect kernel for bslz4_multi_u16/u32 and
-    bslz4_csc_multi_u16/u32's sparse-route compaction -- see
-    set_avx512_collect(), same shape. Ignored when AVX-512 or AVX2
-    collect is also enabled (tried last). On by default whenever neither
-    of those is -- unlike them, SSE2 is the x86-64 ABI baseline: always
-    available, no capability gap, no known throttling risk.
-
-    Raises RuntimeError if enabled=True is requested on a non-x86-64
-    build, or one whose compiler lacks GCC/Clang-style target attributes
-    (see sse2_collect_available()).
-    """
-    if _ext.set_sse2_collect(1 if enabled else 0) < 0:
-        raise RuntimeError(
-            "SSE2 collect kernel requested but this build doesn't support it "
-            "(sse2_collect_available() is False)"
-        )
-
-
-def set_vsx_collect(enabled):
-    """
-    Enable/disable the POWER VSX collect kernel for bslz4_multi_u16/u32
-    and bslz4_csc_multi_u16/u32's sparse-route compaction -- see
-    set_avx512_collect(), same shape. On by default when available.
-    Real-hardware-measured on a POWER9 box (see bslz4_collect_simd.hpp
-    and tools/bslz4_power9_collect_probe.c for the full story): 3.75-8.2x
-    faster than scalar on sparse data via a vec_any_gt fast-skip gate.
-
-    Raises RuntimeError if enabled=True is requested on a non-POWER
-    build, or POWER hardware/build without VSX (see
-    vsx_collect_available()).
-    """
-    if _ext.set_vsx_collect(1 if enabled else 0) < 0:
-        raise RuntimeError(
-            "VSX collect kernel requested but this build/CPU doesn't support it "
-            "(vsx_collect_available() is False)"
-        )
-
-
-def set_neon_collect(enabled):
-    """
-    Enable/disable the ARM NEON collect kernel for bslz4_multi_u16/u32
-    and bslz4_csc_multi_u16/u32's sparse-route compaction -- see
-    set_avx512_collect(), same shape. On by default when available.
-    Real-hardware-measured on a Cortex-A72 (Pinebook, see
-    bslz4_collect_simd.hpp and tools/bslz4_neon_collect_probe.c for the
-    full story): 4.18x (u16) / 4.38x (u32) faster than scalar via a
-    vmaxvq any-match fast-skip gate.
-
-    Raises RuntimeError if enabled=True is requested on a non-aarch64
-    build (see neon_collect_available()).
-    """
-    if _ext.set_neon_collect(1 if enabled else 0) < 0:
-        raise RuntimeError(
-            "NEON collect kernel requested but this build/CPU doesn't support it "
-            "(neon_collect_available() is False)"
-        )
-
+# ---- Stage / implementation tables (mirror bslz4_registry.h) ----
+# Stage ids.
+_STAGE_DECOMPRESS, _STAGE_UNTRANSPOSE, _STAGE_COLLECT, _STAGE_DOT = 0, 1, 2, 3
+# dtype index (plan.md section 5): u8,u16,u32,u64,i8,i16,i32,i64,f32,f64
+_SUFFIX_TO_DTYPE = {"u8": 0, "u16": 1, "u32": 2, "u64": 3, "i8": 4, "i16": 5,
+                    "i32": 6, "i64": 7, "f32": 8, "f64": 9}
+_BACKEND_TO_ID = {"kcb": 0, "sse": 1, "neon": 2, "scal": 3}
+_COLLECT_ID_TO_NAME = {0: "scalar", 1: "avx512", 2: "avx2", 3: "sse2", 4: "vsx", 5: "neon"}
 
 DEFAULT_BLOCK_BYTES = 8192
-
-# bitshuffle-hdf5 filter id and its cd_values[4] block-codec numbering
-# (bitshuffle/src/bshuf_h5filter.h: BSHUF_H5_COMPRESS_LZ4/_ZSTD).
 BSHUF_H5FILTER = 32008
 CODEC_LZ4 = 2
 CODEC_ZSTD = 3
+
+# ---- Module-level defaults (the shims edit these; no C globals) ----
+_BACKEND_NAMES = ("kcb", "sse", "neon", "scal")
+_default_backend = "kcb"
+_dense_sparse_threshold = 8.0
+
+
+def _backend_available(name):
+    return _ext.impl_available(_STAGE_UNTRANSPOSE, _BACKEND_TO_ID[name]) > 0
+
+
+def available_backends():
+    """Names of the untranspose backends usable on this machine."""
+    return tuple(sorted(name for name in _BACKEND_NAMES if _backend_available(name)))
+
+
+def set_backend(name):
+    """Select the untranspose backend (see available_backends()). None restores
+    the best available default."""
+    if name is not None and not _backend_available(name):
+        raise ValueError(
+            "backend %r is not usable in this build (available: %s)"
+            % (name, ", ".join(available_backends()))
+        )
+    global _default_backend
+    _default_backend = name if name is not None else _best_backend()
+
+
+def _best_backend():
+    for n in _BACKEND_NAMES:
+        if _backend_available(n):
+            return n
+    return _BACKEND_NAMES[0]
+
+
+def set_dense_sparse_threshold(x):
+    """Set the compression-factor threshold routing the CSC decode between
+    its dense and sparse per-(frame,block) paths."""
+    global _dense_sparse_threshold
+    _dense_sparse_threshold = float(x)
+
+
+def get_dense_sparse_threshold():
+    """Current dense/sparse routing threshold (see set_dense_sparse_threshold)."""
+    return _dense_sparse_threshold
+
+
+# ---- Default SIMD collect tier (no per-tier flags) ----
+# The tier that actually runs is chosen by the collect id in the decode
+# stages (see pack_pipeline) -- that is the one way to select it.  The
+# default, when the caller does not pass a pipeline, is the highest-priority
+# SIMD tier this build/CPU supports, else scalar.  There are no per-tier
+# set_/get_ shims or C flags state anymore.
+
+def _active_collect_tier():
+    for mid in (1, 2, 3, 4, 5):   # avx512, avx2, sse2, vsx, neon
+        if _ext.impl_available(_STAGE_COLLECT, mid) == 1:
+            return mid
+    return 0
+
+
+# ---- Stage-array ("pipeline") helpers ----
+def pack_pipeline(decompress=None, untranspose=None, collect=None, dot=None, options=0):
+    """
+    Build the stages array (a uint16 ndarray of BSLZ4_STAGES_N entries --
+    one per stage/option: decompress, untranspose, collect, dot, options)
+    from stage ids, defaulting each stage from the module-level defaults
+    (codec, untranspose backend, active collect tier, csc).  Unavailable
+    selections raise NotImplementedError naming the stage and implementation.
+    """
+    if decompress is None:
+        decompress = _default_codec()
+    if untranspose is None:
+        untranspose = _BACKEND_TO_ID[_default_backend]
+    if collect is None:
+        collect = _active_collect_tier()
+    if dot is None:
+        dot = 0
+    for stage, value, name in ((_STAGE_DECOMPRESS, decompress, "decompress"),
+                               (_STAGE_UNTRANSPOSE, untranspose, "untranspose"),
+                               (_STAGE_COLLECT, collect, "collect"),
+                               (_STAGE_DOT, dot, "dot")):
+        avail = _ext.impl_available(stage, value)
+        if avail < 0:
+            raise NotImplementedError("unknown %s implementation id %d" % (name, value))
+        if avail == 0:
+            raise NotImplementedError(
+                "%s implementation (id %d) is not available in this build/CPU" % (name, value)
+            )
+    if options & ~(1 << 0):
+        raise ValueError("unknown option bits: %r" % (options,))
+    return _stages(decompress, untranspose, collect, dot, options)
+
+
+def _default_codec():
+    return CODEC_LZ4
+
+
+def _stages(decompress, untranspose, collect, dot, options):
+    # Mirrors bslz4_common.h BSLZ4_STAGES_N: a uint16 ndarray with one entry
+    # per stage/option.  c2py23 accepts int/float/buffer scalar inputs, so the
+    # options travel as a buffer rather than a single integer.
+    return np.array([decompress, untranspose, collect, dot, options], dtype=np.uint16)
+
+
+def _pipeline_for(codec, collect_tier, dot=0):
+    """Stages array for the current module defaults, given an explicit codec,
+    the collect tier for this dtype (0 for anything but u16/u32, which are
+    the only types the SIMD collect tiers support) and the dot implementation
+    id."""
+    return _stages(codec, _BACKEND_TO_ID[_default_backend], collect_tier, dot, 0)
+
+
+def _collect_tier_for_suffix(suffix):
+    if suffix in ("u16", "u32"):
+        return _active_collect_tier()
+    return 0
+
+
+def _suffix_itemsize(suffix):
+    return int(suffix[1:]) // 8      # "u8"=1, "u16"=2, "f32"=4, "f64"=8, ...
+
+
+def _check_outpx_itemsize(out, suffix):
+    want = _suffix_itemsize(suffix)
+    got = out.itemsize
+    if got != want:
+        raise ValueError(
+            "outpx.itemsize %d does not match dtype %s itemsize %d" % (got, suffix, want))
+
+
+def _make_sparsify(suffix, pipeline=None):
+    di = _SUFFIX_TO_DTYPE[suffix]
+
+    def fn(pointers, lengths, mask, output, output_adr, npx_out, threshold,
+           workspace, cursors, codec):
+        _check_outpx_itemsize(output, suffix)
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix))
+        return _ext.sparsify(pointers, lengths, mask, output, output_adr, npx_out,
+                             threshold, workspace, cursors, di, p)
+    return fn
+
+
+def _make_csc(suffix, pipeline=None, dot=0):
+    di = _SUFFIX_TO_DTYPE[suffix]
+
+    def fn(pointers, lengths, mask, outpx, output_adr, npx_out, threshold, powder, data,
+           indices, indptr, workspace, cursors, nout, codec):
+        _check_outpx_itemsize(outpx, suffix)
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot)
+        return _ext.sparsify_and_dot(pointers, lengths, mask, outpx, output_adr, npx_out,
+                                     threshold, powder, data, indices, indptr,
+                                     workspace, cursors, nout, _dense_sparse_threshold,
+                                     di, p)
+    return fn
+
+
+def _make_csc_base(suffix, pipeline=None, dot=0):
+    di = _SUFFIX_TO_DTYPE[suffix]
+
+    def fn(base, offsets, lengths, mask, outpx, output_adr, npx_out, threshold, powder, data,
+           indices, indptr, workspace, cursors, nout, codec):
+        _check_outpx_itemsize(outpx, suffix)
+        rc = _ext.offsets_to_pointers(base, offsets, lengths)
+        if rc < 0:
+            return rc
+        p = pipeline if pipeline is not None else _pipeline_for(codec, _collect_tier_for_suffix(suffix), dot)
+        return _ext.sparsify_and_dot(offsets, lengths, mask, outpx, output_adr, npx_out,
+                                     threshold, powder, data, indices, indptr,
+                                     workspace, cursors, nout, _dense_sparse_threshold,
+                                     di, p)
+    return fn
+
+
+_BSLZ4_MULTI = {s: _make_sparsify(s) for s in _TYPE_SUFFIXES}
+_BSLZ4_CSC_MULTI = {s: _make_csc(s) for s in _TYPE_SUFFIXES}
+_BSLZ4_CSC_MULTI_BASE = {s: _make_csc_base(s) for s in _TYPE_SUFFIXES}
+
+note_chunk = _ext.note_chunk
+# Availability and test counters.
+impl_available = _ext.impl_available
+reset_counters = _ext.reset_counters
+read_counters = _ext.read_counters
 
 
 def detect_codec(ds):
     """
     Detect which block codec (CODEC_LZ4 or CODEC_ZSTD) a dataset's
     bitshuffle filter was configured with, from its HDF5 filter pipeline
-    (cd_values[4]). Falls back to CODEC_LZ4 if it can't be determined
-    (e.g. no bitshuffle filter present).
+    (cd_values[4]). Falls back to CODEC_LZ4 if it can't be determined.
     """
     try:
         plist = ds.id.get_create_plist()
@@ -260,21 +257,12 @@ def detect_codec(ds):
 
 
 def _blocksize_bytes(cmp):
-    """
-    The bitshuffle block size (bytes) encoded in this compressed chunk's
-    stream header (bytes 8:12, big endian; 0 means the 8192 byte default).
-
-    struct.unpack handles the big-endian uint32 directly on both Python 2.7
-    (where indexing a str returns a 1-char str) and Python 3 (bytes).
-    """
     if len(cmp) < 12:
         return DEFAULT_BLOCK_BYTES
     blocksize = struct.unpack(">I", cmp[8:12])[0]
     return blocksize if blocksize else DEFAULT_BLOCK_BYTES
 
 
-# Messages for the negative return codes of the decode functions (the values
-# are the ERR_* constants in bslz4_common.hpp and are part of the C API).
 _DECODE_ERRORS = {
     -2: "a chunk failed to decompress (its compressed data is corrupt)",
     -98: "a chunk's decompressed size does not fit in an int",
@@ -287,21 +275,14 @@ _DECODE_ERRORS = {
     -107: "a chunk is corrupt or truncated (its header, a block length or its "
     "raw tail lies outside the chunk)",
     -108: "a chunk offset or size lies outside the buffer it refers to",
+    -111: "an unknown stage id or unknown option bit was requested",
+    -112: "a known implementation is unavailable on this build/CPU",
+    -113: "the pixel dtype is out of range or unsupported",
 }
-# Codes that mean "the compressed bytes of some chunk are bad" rather than a
-# problem with how the call was made.
 _CORRUPT_CODES = (-2, -104, -107, -108)
 
 
 def _decode_error(ret, batch=True):
-    """
-    Exception for a negative decode return code.
-
-    A batched call stops at the first bad chunk and does not say which one:
-    the decode runs block by block across all frames, so every frame's output
-    is left partly filled and nothing from this call may be used. Decode the
-    chunks one at a time to find the bad one.
-    """
     what = _DECODE_ERRORS.get(ret, "unknown error")
     msg = "Error decoding %s: %d: %s." % ("batch" if batch else "chunk", ret, what)
     if batch and ret in _CORRUPT_CODES:
@@ -312,24 +293,6 @@ def _decode_error(ret, batch=True):
 
 
 def _gather_chunks(chunks):
-    """
-    Build the (pointers, lengths) pair bslz4_multi_*/bslz4_csc_multi_*
-    expect from a plain Python sequence of independent chunk buffers
-    (bytes, bytearray, memoryview, mmap slices, ... any buffer-protocol
-    object -- source type doesn't matter and isn't inspected).
-
-    No ctypes: note_chunk (a genuine c2py23-wrapped function, so it's
-    c2py23's own buffer acquisition doing the address extraction, not a
-    Python-side reimplementation of it via e.g. .ctypes.data) writes each
-    chunk's address+length into pointers/lengths directly. pointers/
-    lengths are still plain int64/int32 numpy arrays, not bytearrays --
-    bslz4_multi_*/bslz4_csc_multi_* infer nframes from
-    compressed_ptrs.itemsize (8 for int64), which a bytearray (itemsize
-    1) can't satisfy; numpy is already a hard dependency of this package
-    elsewhere (masks, outputs), so this isn't adding one. The `chunks`
-    sequence itself is consumed entirely here in Python -- c2py23 never
-    sees more than one buffer object per call.
-    """
     n = len(chunks)
     pointers = np.empty(n, dtype=np.int64)
     lengths = np.empty(n, dtype=np.int32)
@@ -339,24 +302,6 @@ def _gather_chunks(chunks):
 
 
 def harvest_chunk_offsets(ds):
-    """
-    Harvest {frame_index: (byte_offset, byte_size)} for every stored
-    chunk of a (1, ni, nj)-chunked bitshuffle dataset, via h5py's
-    chunk_iter (h5py >=3.8: one native B-tree traversal) or, if that's
-    not available, a get_num_chunks()/get_chunk_info() loop.
-
-    Raises ValueError if ds isn't chunked (1, ni, nj) -- 4-D (1,1,ni,nj)
-    chunking is not supported yet -- or if any chunk has the bitshuffle
-    filter (pipeline position 0) marked skipped in its filter_mask (that
-    chunk's bytes would be raw pixel data, not a bitshuffle stream; in
-    practice this doesn't happen for these datasets, so it's a hard
-    error here rather than a case decode needs to handle).
-
-    Pairs with pack_offsets_lengths() and bslz4_csc_multi_base_<suffix>
-    (see _BSLZ4_CSC_MULTI_BASE) for callers who have the whole HDF5 file
-    already open/mapped as one buffer and want to skip one
-    read_direct_chunk() call per frame.
-    """
     chunks = tuple(ds.chunks) if ds.chunks is not None else None
     if chunks is None or len(chunks) != 3 or chunks[0] != 1:
         raise ValueError(
@@ -378,8 +323,6 @@ def harvest_chunk_offsets(ds):
         def _cb(chunk_info):
             _store(chunk_info.chunk_offset[0], chunk_info.byte_offset,
                    chunk_info.size, chunk_info.filter_mask)
-            # must not return 0 (or any falsy-to-HDF5-iterator value that
-            # h5py maps to H5_ITER_STOP) -- returning None continues.
         ds.id.chunk_iter(_cb)
     else:
         for i in range(ds.id.get_num_chunks()):
@@ -390,15 +333,6 @@ def harvest_chunk_offsets(ds):
 
 
 def pack_offsets_lengths(frame_offsets, frames):
-    """
-    Build the (offsets, lengths) pair bslz4_csc_multi_base_<suffix>
-    expects (int64/int32 numpy arrays, see _gather_chunks for why not
-    bytearrays), from harvest_chunk_offsets()'s {frame_index:
-    (byte_offset, byte_size)} result and the ordered list of frame
-    indices to include. These are byte offsets, already plain Python
-    ints from HDF5 metadata, so no buffer-address extraction
-    (note_chunk) is needed here at all.
-    """
     n = len(frames)
     offsets = np.empty(n, dtype=np.int64)
     lengths = np.empty(n, dtype=np.int32)
@@ -408,107 +342,93 @@ def pack_offsets_lengths(frame_offsets, frames):
 
 
 def _workspace_bytes(cmp):
-    """
-    Bytes required for the plain sparse decode workspace (bslz4_multi_*,
-    any number of frames including 1) for this compressed chunk: 3 times
-    its block size (see _blocksize_bytes). Independent of frame count --
-    bslz4_multi_* reuses one shared raw/scratch/block region per frame in
-    turn, there is nothing to share across frames for plain sparse decode.
-    """
     return 3 * _blocksize_bytes(cmp)
 
 
 def _workspace_bytes_csc(cmp, itemsize):
-    """
-    Bytes required for the CSC decode workspace (bslz4_csc_multi_*, any
-    number of frames including 1) for this compressed chunk: the same
-    3*blocksize as plain decode, plus a compaction scratch pair sized to
-    one block's worth of pixels (tidx: uint32 per pixel, tval: itemsize
-    bytes per pixel) -- see bslz4_core.hpp's bslz4_csc_decode_multi.
-    Independent of frame count: routing and compaction are both
-    per-(frame, block) decisions with nothing to share across frames, so
-    this is NOT (nframes+2)*blocksize like the superseded design
-    (issue #12) was.
-    """
     blocksize = _blocksize_bytes(cmp)
     block_elems = blocksize // itemsize
     return 3 * blocksize + block_elems * (4 + itemsize)
 
 
-# Untranspose backend names, in spec order (the "variants" lists in the
-# C2PY_BEGIN block of src/bslz4_to_sparse.cpp).  Hardcoded here on purpose:
-# enumerating them via c2py23's generated _variants_* introspection ties this
-# Python API to generated C code (and segfaulted on Python 2.7 before the
-# c2py23 0.5.5 runtime fix).  Which ones are *usable* is still decided by the
-# backend_<name>_available() C functions below.
-_BACKEND_NAMES = ("kcb", "sse", "neon", "scal")
+# ---- Phase 3: matrix normaliser and selection hook ----
+class _NormalMatrix(object):
+    """A csc-like object with normalised f32 data and u32 indices/indptr."""
+
+    def __init__(self, data, indices, indptr, nbins, npix):
+        self.data = data
+        self.indices = indices
+        self.indptr = indptr
+        self.shape = (int(nbins), int(npix))
+        self.nbins = int(nbins)
+        self.npix = int(npix)
 
 
-def available_backends():
+def normalise_matrix(csc, npix=None):
     """
-    Names of the untranspose backends usable on this machine (e.g.
-    'kcb', 'sse', 'scal'). See set_backend().
+    Accept a pyFAI CSC engine, a scipy.sparse.csc_matrix, or any duck-typed
+    object with .indptr/.indices/.data plus .shape or .bins; other scipy
+    formats (whatever offers .tocsc()) are converted.  Converts to float32 /
+    uint32 once and validates the contents:
 
-    Names whose kernel is a stub in this build are filtered out: every
-    backend is compiled for every platform, but upstream bitshuffle
-    compiles a stub when the ISA is absent, so 'neon' is not usable on
-    x86-64 and 'sse' is not usable on ARM.
+      len(indptr) == npix + 1 (when npix is given), indptr[0] == 0,
+      indptr nondecreasing, indptr[-1] == len(indices), every indices[k] < nbins.
+
+    Returns a _NormalMatrix; raises ValueError on bad contents.
     """
-    return tuple(sorted(name for name in _BACKEND_NAMES if _backend_available(name)))
-
-
-def _backend_available(name):
-    fn = getattr(_ext, "backend_%s_available" % name, None)
-    return bool(fn is None or fn())
-
-
-def set_backend(name):
-    """
-    Select which untranspose (bit/byte de-shuffle) backend bslz4_to_sparse
-    uses. 'kcb' (https://github.com/kalcutter/bitshuffle) is the default
-    and does its own CPU dispatch, though only on x86. 'sse', 'neon' and
-    'scal' are upstream bitshuffle's kernels
-    (https://github.com/kiyo-masui/bitshuffle): 'sse' is its SSE2 kernel,
-    which also serves POWER via GCC's VSX-backed x86-intrinsic headers;
-    'neon' is aarch64; 'scal' is the portable scalar reference. See
-    available_backends() for the ones usable here.
-
-    Applies to every pixel type and to all three multi-frame decode
-    families (plain, CSC, and the base+offsets CSC variant -- there is no
-    separate single-frame family to also update, see the module
-    docstring), so the kernels can be measured against each other rather
-    than one being silently fixed at build time. Pass None to restore
-    auto-resolve.
-    """
-    if name is not None and not _backend_available(name):
-        raise ValueError(
-            "backend %r is not usable in this build (available: %s)"
-            % (name, ", ".join(available_backends()))
-        )
-    for suffix, (rbm, rbcm, rbcmb) in _REBIND.items():
-        rbm(None if name is None else "bslz4_multi_%s_%s" % (suffix, name))
-        rbcm(None if name is None else "bslz4_csc_multi_%s_%s" % (suffix, name))
-        rbcmb(None if name is None else "bslz4_csc_multi_base_%s_%s" % (suffix, name))
-
+    # Duck-typed conversion to CSC.  A scipy CSR/BSR (or any sparse matrix with
+    # a row-wise indptr) has an indptr but it is over rows, so is actually
+    # converted; only a true CSC (or an already-CSC pyFAI engine, which has no
+    # .format) is left alone.
+    if hasattr(csc, "tocsc") and (
+        not hasattr(csc, "indptr")
+        or getattr(csc, "format", None) not in ("csc", None)
+    ):
+        csc = csc.tocsc()
+    indptr = np.asarray(csc.indptr)
+    indices = np.asarray(csc.indices)
+    data = np.asarray(csc.data)
+    if hasattr(csc, "shape"):
+        nbins = int(np.prod(csc.shape[0]))
+    elif hasattr(csc, "bins"):
+        nbins = int(np.prod(csc.bins))
+    else:
+        raise ValueError("csc matrix has no shape or bins attribute")
+    if npix is not None and len(indptr) != npix + 1:
+        raise ValueError("csc indptr has %d entries, expected %d (npix + 1)"
+                         % (len(indptr), npix + 1))
+    if indptr.size and indptr[0] != 0:
+        raise ValueError("csc indptr[0] must be 0")
+    if np.any(np.diff(indptr.astype(np.int64)) < 0):
+        raise ValueError("csc indptr is not nondecreasing")
+    if indptr[-1] != len(indices):
+        raise ValueError("csc indptr[-1] (%d) != len(indices) (%d)"
+                         % (indptr[-1], len(indices)))
+    if indices.size and np.any(indices.astype(np.int64) >= nbins):
+        raise ValueError("a csc index is >= nbins (%d)" % nbins)
+    return _NormalMatrix(
+        data.astype(np.float32),
+        indices.astype(np.uint32),
+        indptr.astype(np.uint32),
+        nbins,
+        len(indptr) - 1,
+    )
 
 
 class chunk2sparseMulti:
     """
     Batched plain sparse decode: decodes a series of frames from the same
-    dataset in one call. Workspace is 3*blocksize, independent of frame
-    count -- see bslz4_core.hpp's bslz4_decode_multi.
-
-    All frames must come from the same dataset (same detector shape/
-    dtype/block size).
+    dataset in one call. Workspace is 3*blocksize, independent of frame count.
     """
 
-    def __init__(self, mask, dtype=np.uint16, codec=CODEC_LZ4):
+    def __init__(self, mask, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None):
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
         self.npix = mask.size
         self.dtype = dtype
         self.codec = codec
-        self._fn = _BSLZ4_MULTI[_suffix_for_dtype(dtype)]
+        self.pipeline = pipeline
+        self._fn = _make_sparsify(_suffix_for_dtype(dtype), pipeline=pipeline)
 
         self._nframes = 0
         self._output = None
@@ -529,20 +449,6 @@ class chunk2sparseMulti:
             self._workspace = np.empty(need, np.uint8)
 
     def __call__(self, buffers, cut):
-        """
-        buffers = a sequence of N raw compressed chunks (one per frame,
-                  e.g. from repeated ds.id.read_direct_chunk() calls),
-                  all from the same dataset.
-        cut = threshold, pixels below this value are ignored
-
-        returns (npx_out, (output, output_adr)):
-          npx_out     -- int32 array, length N, pixel count per frame
-          output      -- (N, npix) array, output[f, :npx_out[f]] valid
-          output_adr  -- (N, npix) uint32 array, same slicing
-
-        The returned arrays are owned by this object and reused (and
-        possibly reallocated) on the next call.
-        """
         nframes = len(buffers)
         self._ensure_capacity(nframes, buffers[0])
 
@@ -561,23 +467,16 @@ class chunk2sparseMulti:
             self.codec,
         )
         if ret < 0:
-            # Frames are decoded block by block, so a failure leaves every
-            # frame partly filled: zero the counts so nothing looks valid.
             self._npx_out[:] = 0
             raise _decode_error(ret)
         return self._npx_out, (self._output, self._output_adr)
 
 
 class chunk2sparse:
-    """
-    Single-frame plain sparse decode: chunk2sparseMulti with nframes
-    fixed at 1 -- composition, not a second implementation. See
-    bslz4_core.hpp's module docstring for why there is no separate
-    C-level single-frame entry point either.
-    """
+    """Single-frame plain sparse decode: chunk2sparseMulti with nframes fixed at 1."""
 
-    def __init__(self, mask, dtype=np.uint16, codec=CODEC_LZ4):
-        self._multi = chunk2sparseMulti(mask, dtype=dtype, codec=codec)
+    def __init__(self, mask, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None):
+        self._multi = chunk2sparseMulti(mask, dtype=dtype, codec=codec, pipeline=pipeline)
         self.nfast = self._multi.nfast
 
     def __call__(self, buffer, cut):
@@ -585,7 +484,6 @@ class chunk2sparse:
         return int(npx_out[0]), (output[0], output_adr[0])
 
     def coo(self, buffer, cut):
-        """Computes i,j indices and MAKES COPIES"""
         npixels, (values, indices) = self.__call__(buffer, cut)
         row = np.empty(npixels, np.uint16)
         col = np.empty(npixels, np.uint16)
@@ -595,9 +493,8 @@ class chunk2sparse:
 
 def bslz4_to_sparse(ds, num, cut, mask=None, pixelbuffer=None, workspace=None, codec=None):
     """
-    Reads a bitshuffle compressed hdf5 dataset and converts this
-    directly into a sparse format (indices, values) when decoding
-    the data.
+    Reads a bitshuffle compressed hdf5 dataset and converts this directly
+    into a sparse format (indices, values) when decoding the data.
 
     ds = hdf5 dataset containing [nframes, ni, nj] pixels
     num = frame number to read
@@ -605,18 +502,9 @@ def bslz4_to_sparse(ds, num, cut, mask=None, pixelbuffer=None, workspace=None, c
     mask = detector mask. Active pixels > 0.
     pixelbuffer = None or (values, indices) storage space
     workspace = None or a uint8 array to use as decode scratch space
-                (see _workspace_bytes / available_backends)
-    codec = None to auto-detect lz4 vs zstd from ds's filter pipeline
-            (see detect_codec), or an explicit CODEC_LZ4 / CODEC_ZSTD
+    codec = None to auto-detect lz4 vs zstd, or an explicit CODEC_LZ4 / CODEC_ZSTD
 
     returns (number_of_pixels, (values, indices))
-
-    Unlike chunk2sparse, this calls bslz4_multi_<suffix> directly (with a
-    1-element frame batch built inline) rather than through
-    chunk2sparseMulti, so that caller-supplied pixelbuffer/workspace
-    arrays are used as-is instead of being replaced by ones this function
-    owns -- callers reusing the same buffers across many frames (see
-    test/bench1.py) rely on that.
     """
     if mask is None:
         mask = np.ones((ds.shape[1], ds.shape[2]), np.uint8).ravel()
@@ -627,11 +515,7 @@ def bslz4_to_sparse(ds, num, cut, mask=None, pixelbuffer=None, workspace=None, c
         values, indices = pixelbuffer
     if codec is None:
         codec = detect_codec(ds)
-    # todo : h5py malloc free version coming? see https://github.com/h5py/h5py/pull/2232
     filtinfo, buffer = ds.id.read_direct_chunk((num, 0, 0))
-    # note_chunk's C parameter is read-only (const char *), so a plain
-    # h5py-returned bytes object goes straight through _gather_chunks --
-    # unlike numpy's .ctypes.data, no writability workaround is needed.
     if workspace is None:
         workspace = np.empty(_workspace_bytes(buffer), np.uint8)
     fn = _BSLZ4_MULTI[_suffix_for_dtype(values.dtype)]
@@ -647,45 +531,29 @@ def bslz4_to_sparse(ds, num, cut, mask=None, pixelbuffer=None, workspace=None, c
 
 class chunk2sparseCSCmulti:
     """
-    Batched CSC decode (issue #12, redesigned): decodes a series of
-    frames from the same dataset in one call. Per (frame, block), routes
-    between a dense and a sparse CSC strategy based on that block's own
-    compression ratio (see bslz4_core.hpp's bslz4_csc_decode_multi and
-    set_dense_sparse_threshold()) -- there is no cross-frame sharing of
-    the CSC indptr/indices/data lookup (an earlier design tried that and
-    measured it as a net loss against real CSC data).
-
-    All frames must come from the same dataset (same detector shape/
-    dtype/block size).
+    Batched CSC decode: decodes a series of frames from the same dataset in
+    one call, per (frame, block) routing between a dense and a sparse CSC
+    strategy based on that block's compression ratio.
     """
 
-    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4):
-        """
-        mask = detector mask
-        csc = Either scipy.sparse.csc_matrix (data, indices, indptr, shape)
-              Or  pyFAI CSCIntegrator object (data, indices, indptr, bins)
-        dtype = the dtype for the pixels in the dataset
-        codec = CODEC_LZ4 (default) or CODEC_ZSTD, matching the dataset's
-                bitshuffle filter (see detect_codec)
-        """
+    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None, dot=None):
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
-        self.cscdata = csc.data
-        self.cscindices = csc.indices
-        self.cscindptr = csc.indptr
-        assert len(csc.indptr) == len(self.mask) + 1, "csc shape must match mask"
-        if hasattr(csc, "shape"):
-            self.nbins = csc.shape[0]
-        elif hasattr(csc, "bins"):
-            self.nbins = csc.bins
-        else:
-            raise Exception("csc argument has no shape or bins attribute")
+        nm = normalise_matrix(csc, npix=len(self.mask))
+        self.cscdata = nm.data
+        self.cscindices = nm.indices
+        self.cscindptr = nm.indptr
+        self.nbins = nm.nbins
+        # dot implementation id: 0 = csc (dot then threshold), 1 = csc-fused
+        # (the dense >cut sparsify interleaved into the CSC loop).
+        self.dot_id = 0 if dot is None else int(dot)
 
         self.npix = mask.size
         self.dtype = dtype
         self.itemsize = np.dtype(dtype).itemsize
         self.codec = codec
-        self._fn = _BSLZ4_CSC_MULTI[_suffix_for_dtype(dtype)]
+        self.pipeline = pipeline
+        self._fn = _make_csc(_suffix_for_dtype(dtype), pipeline=pipeline, dot=self.dot_id)
 
         self._nframes = 0
         self._outpx = None
@@ -703,28 +571,11 @@ class chunk2sparseCSCmulti:
             self._powder = np.empty((nframes, self.nbins), np.float64)
             self._cursors = np.empty(nframes, np.int64)
             self._nframes = nframes
-        # Independent of nframes -- see _workspace_bytes_csc.
         need = _workspace_bytes_csc(cmp, self.itemsize)
         if self._workspace is None or self._workspace.size < need:
             self._workspace = np.empty(need, np.uint8)
 
     def __call__(self, buffers, cut):
-        """
-        buffers = a sequence of N raw compressed chunks (one per frame,
-                  e.g. from repeated ds.id.read_direct_chunk() calls),
-                  all from the same dataset.
-        cut = threshold, pixels below this value are ignored
-
-        returns (npx_out, (outpx, output_adr), powder):
-          npx_out      -- int32 array, length N, pixel count per frame
-          outpx         -- (N, npix) array, outpx[f, :npx_out[f]] valid
-          output_adr    -- (N, npix) uint32 array, same slicing
-          powder        -- (N, nbins) float64 array, one full CSC
-                            integration per frame
-
-        The returned arrays are owned by this object and reused (and
-        possibly reallocated) on the next call.
-        """
         nframes = len(buffers)
         self._ensure_capacity(nframes, buffers[0])
 
@@ -748,45 +599,24 @@ class chunk2sparseCSCmulti:
             self.codec,
         )
         if ret < 0:
-            # Frames are decoded block by block, so a failure leaves every
-            # frame partly filled: zero the counts so nothing looks valid.
             self._npx_out[:] = 0
             raise _decode_error(ret)
         return self._npx_out, (self._outpx, self._output_adr), self._powder
 
 
 class chunk2sparseCSC:
-    """
-    Single-frame CSC decode: chunk2sparseCSCmulti with nframes fixed at
-    1 -- composition, not a second implementation.
-    """
+    """Single-frame CSC decode: chunk2sparseCSCmulti with nframes fixed at 1."""
 
-    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4):
-        """
-        mask = detector mask
-        csc = Either scipy.sparse.csc_matrix (data, indices, indptr, shape)
-              Or  pyFAI CSCIntegrator object (data, indices, indptr, bins)
-        dtype = the dtype for the pixels in the dataset
-        codec = CODEC_LZ4 (default) or CODEC_ZSTD, matching the dataset's
-                bitshuffle filter (see detect_codec)
-        """
-        self._multi = chunk2sparseCSCmulti(mask, csc, dtype=dtype, codec=codec)
+    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None, dot=None):
+        self._multi = chunk2sparseCSCmulti(mask, csc, dtype=dtype, codec=codec,
+                                           pipeline=pipeline, dot=dot)
         self.nfast = self._multi.nfast
 
     def __call__(self, buffer, cut):
-        """
-        Decompress buffer and place pixels above cut into (vals, indices)
-        All pixels go into a powder integration (csc product)
-
-        returns npixels, (values[fullsize], indices[fullsize]), powder_sum
-
-        You will need to slice the result values[:npixels] yourself if you need that.
-        """
         npx_out, (outpx, output_adr), powder = self._multi([buffer], cut)
         return int(npx_out[0]), (outpx[0], output_adr[0]), powder[0]
 
     def coo(self, buffer, cut):
-        """Computes i,j indices and MAKES COPIES"""
         npixels, (values, indices), powder = self.__call__(buffer, cut)
         row = np.empty(npixels, np.uint16)
         col = np.empty(npixels, np.uint16)

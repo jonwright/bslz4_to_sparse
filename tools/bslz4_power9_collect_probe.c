@@ -64,8 +64,9 @@
 #include <string.h>
 #include <time.h>
 
-/* ---- scalar reference: identical logic to bslz4_core.hpp's inline
- * collect loop (the thing every tier, x86 or POWER, must match). ---- */
+/* ---- scalar reference: identical logic to the generic (scalar)
+ * bslz4_collect_gt<uint16_t> in bslz4_collect_simd.hpp (the thing every
+ * tier, x86 or POWER, must match). ---- */
 
 static int collect_scalar_u16(const uint16_t *block, const uint8_t *mask,
                                size_t n, uint16_t cut,

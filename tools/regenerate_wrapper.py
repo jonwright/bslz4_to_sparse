@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Regenerate src/bslz4_to_sparse_wrapper.c from the C2PY_BEGIN block in
-src/bslz4_to_sparse.cpp.
+src/bslz4_to_sparse.c.
 
 This is a developer-only tool, run by hand after editing that spec (new
 dtype, new function, changed signature, ...). The generated wrapper is
@@ -29,11 +29,15 @@ REPO_ROOT = os.path.dirname(HERE)
 
 
 def c2py23_commit():
+    d = os.path.dirname(c2py23.__file__)
+    # Only trust a real c2py23 checkout: a wheel or archived source dir has
+    # no .git here, and `git -C d rev-parse HEAD` would silently walk up to
+    # an enclosing repository and record THAT commit instead.
+    if not os.path.exists(os.path.join(d, ".git")):
+        return None
     try:
         return (
-            subprocess.check_output(
-                ["git", "-C", os.path.dirname(c2py23.__file__), "rev-parse", "HEAD"]
-            )
+            subprocess.check_output(["git", "-C", d, "rev-parse", "HEAD"])
             .decode()
             .strip()
         )
@@ -42,7 +46,7 @@ def c2py23_commit():
 
 
 def main():
-    source_path = os.path.join(REPO_ROOT, "src", "bslz4_to_sparse.cpp")
+    source_path = os.path.join(REPO_ROOT, "src", "bslz4_to_sparse.c")
     wrapper_path = os.path.join(REPO_ROOT, "src", "bslz4_to_sparse_wrapper.c")
 
     spec = extract_from_file(source_path)
@@ -61,7 +65,7 @@ def main():
         " * This file is committed to the repo so building bslz4_to_sparse does\n"
         " * not require c2py23 to be installed (see c2py_runtime/README.md).\n"
         " * Regenerate with tools/regenerate_wrapper.py after changing the\n"
-        " * C2PY_BEGIN spec in src/bslz4_to_sparse.cpp, and update the commit\n"
+        " * C2PY_BEGIN spec in src/bslz4_to_sparse.c, and update the commit\n"
         " * hash above to whichever c2py23 checkout produced the new output.\n"
         " */\n"
     )

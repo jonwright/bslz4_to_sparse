@@ -104,8 +104,8 @@ testfun()
 # ---------------------------------------------------------------------------
 # Multi-frame batching, dense/sparse routing, and u64/i64 dtype coverage.
 #
-# "single is multi with n==1" (bslz4_core.hpp): chunk2sparse/chunk2sparseCSC
-# are thin wrappers over the same templates with nframes==1, so these check
+# "single is multi with n==1": chunk2sparse/chunk2sparseCSC
+# are thin wrappers over the same decode path with nframes==1, so these check
 # that the batched and single-frame paths agree with each other and with the
 # pyFAI reference.
 # ---------------------------------------------------------------------------
@@ -343,30 +343,25 @@ def test_csc_multi_base_matches_multi():
 # ---------------------------------------------------------------------------
 
 from bslz4_to_sparse import (
-    avx512_collect_available, get_avx512_collect, set_avx512_collect,
-    avx2_collect_available, get_avx2_collect, set_avx2_collect,
-    sse2_collect_available, get_sse2_collect, set_sse2_collect,
-    vsx_collect_available, get_vsx_collect, set_vsx_collect,
-    neon_collect_available, get_neon_collect, set_neon_collect,
+    _STAGE_COLLECT, impl_available, pack_pipeline,
 )
 
 
-def _check_collect_tier_matches_scalar(tier, available, getter, setter):
-    """Shared body for test_{avx512,avx2,sse2,vsx}_collect_matches_scalar:
-    a SIMD collect tier must give byte-identical results to the scalar
-    path it replaces -- same values, same indices, same order (both
-    visit pixels in ascending index order): bslz4_multi_u16/u32's plain
-    threshold-collect, and bslz4_csc_multi_u16/u32's sparse-route
-    compaction (the dense route never calls the collect kernel at all,
-    so only checked here for its own pyFAI-vs-reference agreement)."""
-    if not available():
+def _check_collect_tier_matches_scalar(tier, tier_id):
+    """Shared body for test_{avx512,avx2,sse2,vsx,neon}_collect_matches_scalar:
+    a SIMD collect tier must give byte-identical results to the scalar path
+    (collect id 0) it replaces -- same values, same indices, same order (both
+    visit pixels in ascending index order): the plain threshold-collect, and
+    the CSC sparse-route compaction (the dense route never calls the collect
+    kernel at all, so only checked here for its own pyFAI-vs-reference
+    agreement).
+
+    The tier is selected the one way it can be now: via the pipeline's
+    collect id (pack_pipeline(collect=...))."""
+    if impl_available(_STAGE_COLLECT, tier_id) != 1:
         import pytest  # here, not at module top: a direct `python3
         # test_dot.py` run must not need pytest installed
-        pytest.skip(f"{tier} not available on this build/CPU")
-    # Best available tier is on by default now (decided in
-    # bslz4_collect_simd.hpp, not here) -- don't assume either state,
-    # just restore whatever it was when this test started.
-    original_state = getter()
+        pytest.skip("%s not available on this build/CPU" % tier)
 
     saved_threshold = get_dense_sparse_threshold()
     try:
@@ -374,8 +369,9 @@ def _check_collect_tier_matches_scalar(tier, available, getter, setter):
             dt, shp, chunklist = chunks[name]
             bufs = [c for (filt, c) in chunklist]
 
-            setter(False)
-            c2sm = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt))
+            # scalar reference (collect id 0)
+            c2sm = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt),
+                                     pipeline=pack_pipeline(collect=0))
             npx_s, (val_s, adr_s) = c2sm(bufs, 0)
             npx_s, val_s, adr_s = npx_s.copy(), val_s.copy(), adr_s.copy()
 
@@ -383,56 +379,56 @@ def _check_collect_tier_matches_scalar(tier, available, getter, setter):
             for threshold in (1e9, 0.0):  # dense route, sparse route (see the
                                            # comment in the dense/sparse test above)
                 set_dense_sparse_threshold(threshold)
-                c2scm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
+                c2scm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine,
+                                             dtype=np.dtype(dt), pipeline=pack_pipeline(collect=0))
                 npx_c, (outpx_c, outadr_c), powder_c = c2scm(bufs, 1)
                 references[threshold] = (npx_c.copy(), outpx_c.copy(), outadr_c.copy(), powder_c.copy())
 
-            setter(True)
-            try:
-                c2sm2 = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt))
-                npx_a, (val_a, adr_a) = c2sm2(bufs, 0)
-                for i in range(len(bufs)):
-                    n = npx_s[i]
-                    assert npx_a[i] == n, (tier, name, i, "plain npx differs")
-                    assert np.array_equal(val_a[i, :n], val_s[i, :n]), (tier, name, i, "plain values differ")
-                    assert np.array_equal(adr_a[i, :n], adr_s[i, :n]), (tier, name, i, "plain indices differ")
+            # the tier under test
+            c2sm2 = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt),
+                                      pipeline=pack_pipeline(collect=tier_id))
+            npx_a, (val_a, adr_a) = c2sm2(bufs, 0)
+            for i in range(len(bufs)):
+                n = npx_s[i]
+                assert npx_a[i] == n, (tier, name, i, "plain npx differs")
+                assert np.array_equal(val_a[i, :n], val_s[i, :n]), (tier, name, i, "plain values differ")
+                assert np.array_equal(adr_a[i, :n], adr_s[i, :n]), (tier, name, i, "plain indices differ")
 
-                for threshold, label in ((1e9, "dense"), (0.0, "sparse")):
-                    set_dense_sparse_threshold(threshold)
-                    c2scm2 = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
-                    npx_c2, (outpx_c2, outadr_c2), powder_c2 = c2scm2(bufs, 1)
-                    npx_ref, outpx_ref, outadr_ref, powder_ref = references[threshold]
-                    for i in range(len(bufs)):
-                        e = R(powder_c2[i], reference_results[i].sum_signal)
-                        assert e[0] < 1e-4, (tier, name, label, i, "powder vs pyFAI", e)
-                        n = npx_c2[i]
-                        assert n == npx_ref[i], (tier, name, label, i, "csc npx differs")
-                        assert np.array_equal(outpx_c2[i, :n], outpx_ref[i, :n]), (tier, name, label, i, "csc values differ")
-                        assert np.array_equal(outadr_c2[i, :n], outadr_ref[i, :n]), (tier, name, label, i, "csc indices differ")
-            finally:
-                setter(original_state)
+            for threshold, label in ((1e9, "dense"), (0.0, "sparse")):
+                set_dense_sparse_threshold(threshold)
+                c2scm2 = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine,
+                                              dtype=np.dtype(dt), pipeline=pack_pipeline(collect=tier_id))
+                npx_c2, (outpx_c2, outadr_c2), powder_c2 = c2scm2(bufs, 1)
+                npx_ref, outpx_ref, outadr_ref, powder_ref = references[threshold]
+                for i in range(len(bufs)):
+                    e = R(powder_c2[i], reference_results[i].sum_signal)
+                    assert e[0] < 1e-4, (tier, name, label, i, "powder vs pyFAI", e)
+                    n = npx_c2[i]
+                    assert n == npx_ref[i], (tier, name, label, i, "csc npx differs")
+                    assert np.array_equal(outpx_c2[i, :n], outpx_ref[i, :n]), (tier, name, label, i, "csc values differ")
+                    assert np.array_equal(outadr_c2[i, :n], outadr_ref[i, :n]), (tier, name, label, i, "csc indices differ")
     finally:
         set_dense_sparse_threshold(saved_threshold)
 
 
 def test_avx512_collect_matches_scalar():
-    _check_collect_tier_matches_scalar("avx512", avx512_collect_available, get_avx512_collect, set_avx512_collect)
+    _check_collect_tier_matches_scalar("avx512", 1)
 
 
 def test_avx2_collect_matches_scalar():
-    _check_collect_tier_matches_scalar("avx2", avx2_collect_available, get_avx2_collect, set_avx2_collect)
+    _check_collect_tier_matches_scalar("avx2", 2)
 
 
 def test_sse2_collect_matches_scalar():
-    _check_collect_tier_matches_scalar("sse2", sse2_collect_available, get_sse2_collect, set_sse2_collect)
+    _check_collect_tier_matches_scalar("sse2", 3)
 
 
 def test_vsx_collect_matches_scalar():
-    _check_collect_tier_matches_scalar("vsx", vsx_collect_available, get_vsx_collect, set_vsx_collect)
+    _check_collect_tier_matches_scalar("vsx", 4)
 
 
 def test_neon_collect_matches_scalar():
-    _check_collect_tier_matches_scalar("neon", neon_collect_available, get_neon_collect, set_neon_collect)
+    _check_collect_tier_matches_scalar("neon", 5)
 
 
 test_csc_multi_matches_single_and_reference()
