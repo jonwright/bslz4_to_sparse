@@ -102,6 +102,14 @@ def embedded_digest(sopath):
     return m.group(1).decode() if m else None
 
 
+def embedded_git(sopath):
+    """The "git" field a built .so/.pyd carries (None if it has none, or was
+    built outside a git checkout)."""
+    with open(sopath, "rb") as fh:
+        m = re.search(b'"git": "([^"]*)"', fh.read())
+    return m.group(1).decode() if m else None
+
+
 def _git(*args):
     # Only ask git about REPO itself: in an unpacked sdist inside some other
     # checkout, git would silently walk up and describe THAT repository.
@@ -124,10 +132,11 @@ def _compiler_id(cmd):
         return cmd
 
 
-def build_info(compiler, plat):
-    """The build description embedded in the .so (see bslz4_to_sparse.build_info())."""
-    with open(os.path.join(REPO, "src", "__init__.py")) as f:
-        version = re.search(r'^version = "([^"]+)"', f.read(), re.M).group(1)
+def git_state():
+    """(describe, modified) of the compiled files: `git describe --tags
+    --always`, with -dirty when a compiled file differs from that commit or
+    is not yet tracked, and the list of those files.  (None, []) outside a
+    git checkout."""
     # Only the files that go into the .so count: an edited notebook or test
     # does not make a build "dirty". Files inside a submodule (lz4, zstd, ...)
     # are covered by naming the submodule, which also catches a moved commit.
@@ -135,10 +144,25 @@ def build_info(compiler, plat):
     paths = sorted(set(next((m for m in subs if r.startswith(m + "/")), r)
                        for r in map(_rel, _digest_files())))
     describe = _git("describe", "--tags", "--always")
-    modified = _git("diff", "--name-only", "HEAD", "--", *paths)
-    modified = modified.splitlines() if modified else []
+    # status, not diff: a new, still untracked source or header is a change
+    # too (diff HEAD does not list it).
+    status = _git("status", "--porcelain", "--untracked-files=all", "--", *paths)
+    # "XY path" (or "R  old -> new"); _git() strips the output, which eats the
+    # leading space of a first " M path", so split on whitespace rather than
+    # slicing a fixed column.
+    modified = sorted(set(line.split(None, 1)[1].split(" -> ")[-1]
+                          for line in status.splitlines() if line.strip())) \
+        if status else []
     if describe and modified:
         describe += "-dirty"
+    return describe, modified
+
+
+def build_info(compiler, plat):
+    """The build description embedded in the .so (see bslz4_to_sparse.build_info())."""
+    with open(os.path.join(REPO, "src", "__init__.py")) as f:
+        version = re.search(r'^version = "([^"]+)"', f.read(), re.M).group(1)
+    describe, modified = git_state()
     return {
         "version": version,
         # a tag when built clean on a tagged commit, else tag-N-gHASH; with

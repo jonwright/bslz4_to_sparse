@@ -12,9 +12,11 @@
  * a run of consecutive bins (1D bbox/no-split integrations, and ring sums
  * with azimuth as the fast axis); _padded_from_csc (Python) checks that once.
  *
- * The mask is NOT folded into the weights: the kernels test mask[pixel] per
- * row, exactly as the CSC dense route does, so the powder is identical to the
- * CSC route and the weights stay untouched.
+ * The mask is folded into the matrix before the layout is built (Python
+ * _fold_mask drops the entries of masked pixels), so a masked pixel's row has
+ * all-zero weights (implicit layout) or no row at all (listed layout).  The
+ * row kernels therefore make no mask test; `mask` is threaded through only so
+ * a future variant can use it.  The powder equals the CSC route's.
  *
  * Tiers are chosen by the dot id (scalar / SSE2 / AVX2+FMA / AVX-512+FMA),
  * mirroring the no-flags design of the collect tiers.  Only widths <=
@@ -25,8 +27,8 @@
  * The dense route walks a block's rows in tiles, STRIDE rows apart per pass,
  * so consecutive rows' output windows (usually one bin apart) do not overlap
  * in still-in-flight registers -- overlapping FMA stores defeat store-to-load
- * forwarding.  The sparse route compacts non-zeros and applies the same
- * per-row tier to each non-zero pixel (via bslz4_padded_row_tier).
+ * forwarding.  The sparse route (padded_sparse in kernels_generic.cpp)
+ * compacts the non-zero pixels and walks each row with a scalar loop.
  *
  * The >cut sparse output is produced separately, pixel-major and ascending,
  * by bslz4_collect_gt (see kernels_generic.cpp), so the sparse output stays
@@ -220,7 +222,8 @@ inline void bslz4_padded_dense_sse2(const T *block, size_t i0, const bslz4_mat_p
  * per-W/tier dispatch happens once per block (not per row), which keeps the
  * hot dense loop free of switches.  Widths above PADDED_MAX_SIMD_WIDTH use
  * the scalar loop.  The last (tail) block is bounded by the matrix's own
- * npix, so no row references a pixel outside the frame. */
+ * npix, which the driver checks equals the frame's pixel count, so no row
+ * references a pixel outside the decoded data.  Called only with n > 0. */
 template<typename T>
 inline void bslz4_padded_dense_tier(const T *block, size_t i0, size_t n,
                                     const bslz4_mat_padded *m, const uint8_t *mask,
@@ -275,8 +278,6 @@ inline void bslz4_padded_dense_tier(const T *block, size_t i0, size_t n,
     for (size_t r = r0; r < r1; r++)
         bslz4_padded_row_scalar<T>(block, i0, m, mask, r, out);
 }
-
-/* ------------------------------------------------------- per-row dispatch */
 
 #undef BSLZ4_PADDED_PIXEL
 

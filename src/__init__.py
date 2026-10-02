@@ -222,7 +222,7 @@ def pack_pipeline(decompress=None, untranspose=None, collect=None, dot=None, opt
             raise NotImplementedError(
                 "%s implementation (id %d) is not available in this build/CPU" % (name, value)
             )
-    if options & ~(1 << 0):
+    if options & ~((1 << 0) | _OPT_NO_MASK):
         raise ValueError("unknown option bits: %r" % (options,))
     return _stages(decompress, untranspose, collect, dot, options)
 
@@ -438,6 +438,8 @@ _DECODE_ERRORS = {
     -108: "a chunk offset or size lies outside the buffer it refers to",
     -109: "the selected matrix layout does not match the decode entry point, or "
           "the decoded block size differs from the layout's",
+    -110: "a chunk's decompressed size is smaller than the mask (frame and mask "
+          "shapes differ)",
     -111: "an unknown stage id or unknown option bit was requested",
     -112: "a known implementation is unavailable on this build/CPU",
     -113: "the pixel dtype is out of range or unsupported",
@@ -648,7 +650,9 @@ class _BsbCSR(object):
 
 def _padded_from_csc(nm, block_elems):
     """Build a _PaddedLayout from a _NormalMatrix, exactly (no weight is
-    changed, only re-laid-out, and the mask is NOT folded in).  Raises
+    changed, only re-laid-out).  The integrator passes the mask-folded matrix
+    (_fold_mask), so a masked pixel gets an all-zero row (implicit layout) or
+    no row (listed layout), and the kernels make no mask test.  Raises
     ValueError naming how many pixels and why if the matrix cannot be padded
     (a pixel reaches bins that are not one run of consecutive bins, or the
     width exceeds the limit)."""
@@ -848,6 +852,15 @@ class chunk2sparseCSCmulti:
     Batched CSC decode: decodes a series of frames from the same dataset in
     one call, per (frame, block) routing between a dense and a sparse CSC
     strategy based on that block's compression ratio.
+
+    The mask is folded into the matrix once, here: the entries of masked
+    pixels (mask == 0) are dropped, so they contribute nothing to the powder
+    on any route or layout.  The raw mask still selects the pixels of the
+    sparse (>cut) output.  Frames must have exactly mask.size pixels.
+
+    `dot` picks the matrix-dot layout: "auto"/None (= "csc" for now),
+    "csc", "csc-fused", "padded" (and its SIMD tiers), or "bsb-csr"; see
+    available_dots().
     """
 
     def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None, dot=None):

@@ -16,6 +16,13 @@
  * calls.  A new route strategy is just another leaf kernel selected by
  * dot_id.
  *
+ * The mask is folded into the matrix once, in Python (_fold_mask drops the
+ * entries of masked pixels, so their columns are empty).  The dense matvec
+ * loops therefore need no mask test; the mask itself is still passed in and
+ * used by the sparse-output (>cut) collect and by the sparse-route
+ * compaction (bslz4_collect_nz).  Every route gives the same powder for a
+ * folded matrix; a caller of the C entries must pass one.
+ *
  * The SIMD collect tiers are the bslz4_collect_gt<T>/bslz4_collect_nz<T>
  * entry points (bslz4_collect_simd.hpp); the collect tier id chosen by the
  * pipeline is dispatched with a predicted if-chain.
@@ -119,10 +126,10 @@ int dense_dot(const bslz4_work *BSLZ4_RESTRICT w) {
 }
 
 /* dense CSC "fused": dot.dense and the >cut sparse-output collect run in one
- * pass over the block.  Matrix is mask-folded (masked columns empty), so the
- * matvec needs no mask test; the >cut emission gates on the image mask.  On a
- * mostly-active image mask the `if(mask)` is predictable and cheaper than a
- * per-pixel 0/1 multiply+convert, and it skips masked pixels entirely. */
+ * pass over the block.  The matrix is mask-folded (masked columns empty), so
+ * the matvec alone would need no mask test; the >cut emission must gate on
+ * the image mask, and since that test is made anyway it also skips the
+ * (empty) column walk of a masked pixel. */
 template<typename T>
 static inline
 int dense_dot_fused(const bslz4_work *BSLZ4_RESTRICT w) {
@@ -202,13 +209,17 @@ int sparse_dot(const bslz4_work *BSLZ4_RESTRICT w) {
     return sparse_dot_core<T>(w, (const bslz4_mat_csc *) w->mat);
 }
 
-/* padded route tier id for a padded dot id: 2 scalar, 3 sse2, 4 avx2, 6 avx512 */
+/* padded route tier for a padded dot id: 2 scalar (0), 3 sse2 (1), 4 avx2 (2),
+ * 5 avx512 (3) */
 static inline int padded_tier(int id) {
     return id == 2 ? 0 : (id == 3 ? 1 : (id == 4 ? 2 : 3));
 }
 
 /* dense padded route: accumulate the powder over this block's rows (scalar or
- * a SIMD tier), then the >cut sparse output in ascending pixel order. */
+ * a SIMD tier), then the >cut sparse output in ascending pixel order.  Rows of
+ * masked pixels carry all-zero weights (the matrix is mask-folded), so no row
+ * tests the mask.  An empty tail (n == 0, when the frame is a whole number of
+ * blocks) has no row_ptr entry of its own and is skipped. */
 template<typename T>
 static inline
 int padded_dense(const bslz4_work *BSLZ4_RESTRICT w, int tier) {
@@ -218,6 +229,7 @@ int padded_dense(const bslz4_work *BSLZ4_RESTRICT w, int tier) {
     const size_t i0 = w->i0, n = w->n;
     const bslz4_mat_padded *BSLZ4_RESTRICT m = (const bslz4_mat_padded *) w->mat;
     double *BSLZ4_RESTRICT out = (double *) w->powder;
+    if (n == 0) return 0;
     bslz4_padded_dense_tier<T>(px, i0, n, m, mask, tier, out);
     if (BSLZ4_CUT_ABOVE_MAX(w)) return 0;
     return bslz4_collect_gt<T>(px, mask, i0, n, cut, w->collect_id,
@@ -283,7 +295,10 @@ int padded_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
  * out[bin] is data-dependent (bins[bi]); the bins of a block are distinct so
  * there is no write-after-read hazard, but the compiler cannot prove it and
  * treats the stores as non-aliasing-unknown.  The register accumulate above
- * already avoids any per-entry RMW. */
+ * already avoids any per-entry RMW.
+ *
+ * An empty tail (n == 0, when the frame is a whole number of blocks) has no
+ * blk_ptr entry of its own and is skipped. */
 template<typename T>
 static inline
 int bsbcsr_dense(const bslz4_work *BSLZ4_RESTRICT w) {
@@ -292,6 +307,7 @@ int bsbcsr_dense(const bslz4_work *BSLZ4_RESTRICT w) {
     const size_t i0 = w->i0, n = w->n;
     const bslz4_mat_bsbcsr *BSLZ4_RESTRICT m = (const bslz4_mat_bsbcsr *) w->mat;
     double *BSLZ4_RESTRICT out = (double *) w->powder;
+    if (n == 0) return 0;
     const size_t block_idx = i0 / m->block_elems;
     const uint32_t b0 = m->blk_ptr[block_idx], b1 = m->blk_ptr[block_idx + 1];
     const float *BSLZ4_RESTRICT data = (const float *) m->data;

@@ -6,6 +6,9 @@ Record and compare decode timings across machines, builds and pipelines.
                      cases={...}, data={...})
     readbench.report('timings.jsonl')
 
+    with readbench.pinned() as cpu:   # like `taskset -c cpu` for the timed block
+        ...
+
 record() appends one JSON line per (reader, case) for the current machine
 and build, replacing any earlier line with the same machine, sources,
 pipeline, data, case and reader (so rerunning a notebook does not pile up
@@ -16,6 +19,7 @@ the link only if it decodes faster than frames arrive.
 """
 from __future__ import print_function
 
+import contextlib
 import json
 import os
 import platform
@@ -28,7 +32,27 @@ import bslz4_to_sparse as b
 
 _DECOMPRESS = {b.CODEC_LZ4: "lz4", b.CODEC_ZSTD: "zstd"}
 _UNTRANSPOSE = dict((v, k) for k, v in b._BACKEND_TO_ID.items())
-_DOT = {0: "csc", 1: "csc-fused"}
+_DOT = dict((i, name) for i, (name, _layout) in b._DOT_TABLE.items())
+
+
+@contextlib.contextmanager
+def pinned(cpu=None):
+    """Run the block on one CPU, like `taskset -c cpu`: the decode is single
+    threaded, and pinning stops the scheduler migrating it between cores (and
+    caches) in the middle of a timing.  cpu=None takes the highest-numbered
+    CPU this process may use (core 0 tends to service more interrupts).
+    Restores the previous affinity afterwards.  Yields the CPU, or None where
+    the affinity cannot be set (not Linux)."""
+    if not hasattr(os, "sched_setaffinity"):
+        yield None
+        return
+    old = os.sched_getaffinity(0)
+    cpu = max(old) if cpu is None else int(cpu)
+    os.sched_setaffinity(0, {cpu})
+    try:
+        yield cpu
+    finally:
+        os.sched_setaffinity(0, old)
 
 
 def time_interleaved(runs, repeats=5):
@@ -100,11 +124,12 @@ def load(path):
 
 
 def record(path, times, nframes, bytes_per_frame, cases, data, batch=25,
-           dtype=np.uint16, codec=b.CODEC_LZ4):
+           dtype=np.uint16, codec=b.CODEC_LZ4, dot=0):
     """Append the timings {(reader, case): best seconds for nframes} of this
     machine to path. cases = {case: description}; data = {"name": ...,
-    anything else describing the frames}. Returns the new records."""
-    m, p = machine(), pipeline(dtype, codec)
+    anything else describing the frames}; dot = the matrix-dot id (or name)
+    that was timed, recorded in the pipeline. Returns the new records."""
+    m, p = machine(), pipeline(dtype, codec, b._resolve_dot(dot))
     when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     new = [{"date_utc": when, "machine": m, "pipeline": p, "data": data,
             "bytes_per_frame": float(bytes_per_frame), "nframes": int(nframes),

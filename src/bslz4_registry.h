@@ -44,13 +44,15 @@ typedef struct {
  * (nblocks+1) gives the rows of each block (replaces the pre-refactor rcur
  * cursor): rows of block b are row_ptr[b]..row_ptr[b+1], i.e. the rows whose
  * pixel lies in [b*block_elems, (b+1)*block_elems).  rowmap (listed only)
- * maps a pixel to its row, or -1 for a pixel with no row. */
+ * maps a pixel to its row, or -1 for a pixel with no row.  Built from the
+ * mask-folded matrix, so masked pixels have zero weights or no row. */
 typedef struct {
     const int32_t *base;
-    const float *weights;             /* nrows x width, row-major */
+    const float *weights;             /* nrows x width, row-major, zero padded */
     const int32_t *pixels;            /* listed only, else NULL */
     const int32_t *rowmap;            /* listed only, else NULL */
     const int32_t *row_ptr;           /* nblocks+1 */
+    size_t row_ptr_n;                 /* entries in row_ptr (checked >= nblocks+1) */
     int width;
     int listed;
     size_t block_elems;
@@ -59,13 +61,15 @@ typedef struct {
 /* Bit-shuffle-block-sized CSR: for each decode block, the active (non-empty)
  * bins and, per bin, the (in-block pixel index, weight) entries.  bin_ptr
  * has nactive+1 entries, nactive = total active (bin,block) pairs.  The CSC
- * is kept for the sparse route. */
+ * is kept for the sparse route.  Both are built from the mask-folded matrix
+ * (masked pixels have no entries). */
 typedef struct {
     const uint32_t *blk_ptr;          /* nblocks+1 -> into bins/bin_ptr */
+    size_t blk_ptr_n;                 /* entries in blk_ptr (checked >= nblocks+1) */
     const uint32_t *bins;             /* active bin id per (block) entry */
     const uint32_t *bin_ptr;          /* nactive+1 -> into idx/data */
     const uint16_t *idx;              /* in-block pixel index (block_elems <= 8192) */
-    const float *data;                /* weights, as in the CSC; mask NOT folded */
+    const float *data;                /* weights, as in the (mask-folded) CSC */
     bslz4_mat_csc csc;                /* for the sparse route */
     size_t block_elems;
 } bslz4_mat_bsbcsr;
@@ -81,7 +85,7 @@ typedef struct bslz4_work {
     int    dtype;                    /* pixel dtype index 0..9 */
     int    route;                    /* 0=dense, 1=sparse */
     int    collect_id;               /* resolved collect tier 0..5 */
-    int    dot_id;                   /* resolved dot impl: 0=csc, 1=csc-fused */
+    int    dot_id;                   /* resolved dot impl (bslz4_dots[] in bslz4_registry.c) */
     int    no_mask;                  /* BSLZ4_OPT_NO_MASK: skip all mask checks */
     size_t n;                        /* pixels in this block/tail */
     size_t i0;                       /* global pixel offset of block start */
@@ -161,7 +165,7 @@ int bslz4_driver_sparsify_and_dot_padded(const int64_t *BSLZ4_RESTRICT compresse
                                          const float *BSLZ4_RESTRICT weights,
                                          const int32_t *BSLZ4_RESTRICT pixels,
                                          const int32_t *BSLZ4_RESTRICT rowmap,
-                                         const int32_t *BSLZ4_RESTRICT row_ptr,
+                                         const int32_t *BSLZ4_RESTRICT row_ptr, int nrow_ptr,
                                          int width, int listed, size_t block_elems,
                                          double dense_sparse_x,
                                          uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len,
@@ -175,7 +179,7 @@ int bslz4_driver_sparsify_and_dot_bsbcsr(const int64_t *BSLZ4_RESTRICT compresse
                                          void *BSLZ4_RESTRICT outpx, uint32_t *BSLZ4_RESTRICT output_adr,
                                          int32_t *BSLZ4_RESTRICT npx_out, int threshold,
                                          double *BSLZ4_RESTRICT powder, int nout,
-                                         const uint32_t *BSLZ4_RESTRICT blk_ptr,
+                                         const uint32_t *BSLZ4_RESTRICT blk_ptr, int nblk_ptr,
                                          const uint32_t *BSLZ4_RESTRICT bins,
                                          const uint32_t *BSLZ4_RESTRICT bin_ptr,
                                          const uint16_t *BSLZ4_RESTRICT idx,
@@ -219,8 +223,8 @@ int bslz4_resolve(int dtype, const uint16_t *stages, int expected_layout,
 int bslz4_impl_available(int stage, int id);
 
 /* dot-id introspection: layout id (one of BSLZ4_LAYOUT_*), or -1 unknown;
- * and the output element size in bytes for the powder buffer (8, or 8 for
- * fixed-point int64), 0 if unknown. */
+ * and the output element size in bytes of the powder buffer (8: a double,
+ * or an int64 for a future fixed-point dot), 0 if unknown. */
 int bslz4_dot_layout(int id);
 int bslz4_dot_out_size(int id);
 
@@ -266,7 +270,7 @@ int bslz4_sparsify_and_dot_padded(const int64_t *compressed_ptrs, const int32_t 
                                   double *powder, int nout,
                                   const int32_t *base, const float *weights,
                                   const int32_t *pixels, const int32_t *rowmap,
-                                  const int32_t *row_ptr, int width, int listed,
+                                  const int32_t *row_ptr, int nrow_ptr, int width, int listed,
                                   size_t block_elems, double route_threshold,
                                   uint8_t *workspace, size_t workspace_len, int64_t *cursors,
                                   int dtype, const uint16_t *stages);
@@ -275,7 +279,7 @@ int bslz4_sparsify_and_dot_bsbcsr(const int64_t *compressed_ptrs, const int32_t 
                                   int nframes, const uint8_t *mask, int NIJ,
                                   void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
                                   double *powder, int nout,
-                                  const uint32_t *blk_ptr, const uint32_t *bins,
+                                  const uint32_t *blk_ptr, int nblk_ptr, const uint32_t *bins,
                                   const uint32_t *bin_ptr, const uint16_t *idx,
                                   const float *data,
                                   const float *csc_data, const uint32_t *csc_indices,

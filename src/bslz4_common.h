@@ -78,6 +78,7 @@ enum {
     BSLZ4_ERR_CORRUPT_CHUNK = -107,      /* chunk too short, or a block/raw tail lies outside it */
     BSLZ4_ERR_BAD_CHUNK_BOUNDS = -108,   /* a chunk offset/size lies outside the buffer */
     BSLZ4_ERR_BAD_LAYOUT = -109,         /* the dot id's layout does not match the entry point, or the decoded block_elems mismatches the descriptor */
+    BSLZ4_ERR_TOO_FEW_PIXELS = -110,     /* decompressed size is smaller than NIJ (frame and mask shapes differ) */
     BSLZ4_ERR_BAD_PIPELINE = -111,       /* unknown stage id or unknown option bit */
     BSLZ4_ERR_UNAVAILABLE = -112,        /* a known implementation is unavailable here */
     BSLZ4_ERR_DTYPE = -113,              /* dtype index out of range or unsupported */

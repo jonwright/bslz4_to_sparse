@@ -78,17 +78,27 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                                        &total_output_length, &blocksize);
     if (rc) return rc;
 
+    /* A frame must hold exactly NIJ pixels (frame shape == mask shape): the
+     * derived layouts (padded rows, bsb-csr entries) cover every mask pixel
+     * and would read past a shorter decoded tail. */
     if (total_output_length / NB > (uint64_t) NIJ) return BSLZ4_ERR_TOO_MANY_PIXELS;
+    if (total_output_length != (uint64_t) NIJ * NB) return BSLZ4_ERR_TOO_FEW_PIXELS;
     if (total_output_length > (uint64_t) INT32_MAX) return BSLZ4_ERR_TOO_LARGE;
 
     const size_t block_elems = blocksize / NB;
     if (is_dot) {
+        /* The derived layouts index a per-block pointer array by
+         * i0 / block_elems, so they must be built at this block size and
+         * cover every block of the frame (nblocks + 1 entries). */
         const int layout = bslz4_dot_layout(st->dot_id);
+        const size_t nblocks = block_elems ? ((size_t) NIJ + block_elems - 1) / block_elems : 0;
         if (layout == BSLZ4_LAYOUT_PADDED) {
-            if (((const bslz4_mat_padded *) mat)->block_elems != block_elems)
+            const bslz4_mat_padded *m = (const bslz4_mat_padded *) mat;
+            if (block_elems == 0 || m->block_elems != block_elems || m->row_ptr_n < nblocks + 1)
                 return BSLZ4_ERR_BAD_LAYOUT;
         } else if (layout == BSLZ4_LAYOUT_BSBCSR) {
-            if (((const bslz4_mat_bsbcsr *) mat)->block_elems != block_elems)
+            const bslz4_mat_bsbcsr *m = (const bslz4_mat_bsbcsr *) mat;
+            if (block_elems == 0 || m->block_elems != block_elems || m->blk_ptr_n < nblocks + 1)
                 return BSLZ4_ERR_BAD_LAYOUT;
         }
     }
@@ -271,7 +281,7 @@ int bslz4_driver_sparsify_and_dot_padded(const int64_t *BSLZ4_RESTRICT compresse
                                          const float *BSLZ4_RESTRICT weights,
                                          const int32_t *BSLZ4_RESTRICT pixels,
                                          const int32_t *BSLZ4_RESTRICT rowmap,
-                                         const int32_t *BSLZ4_RESTRICT row_ptr,
+                                         const int32_t *BSLZ4_RESTRICT row_ptr, int nrow_ptr,
                                          int width, int listed, size_t block_elems,
                                          double dense_sparse_x,
                                          uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len,
@@ -283,6 +293,7 @@ int bslz4_driver_sparsify_and_dot_padded(const int64_t *BSLZ4_RESTRICT compresse
     m.pixels = pixels;
     m.rowmap = rowmap;
     m.row_ptr = row_ptr;
+    m.row_ptr_n = nrow_ptr > 0 ? (size_t) nrow_ptr : 0;
     m.width = width;
     m.listed = listed;
     m.block_elems = block_elems;
@@ -299,7 +310,7 @@ int bslz4_driver_sparsify_and_dot_bsbcsr(const int64_t *BSLZ4_RESTRICT compresse
                                          void *BSLZ4_RESTRICT outpx, uint32_t *BSLZ4_RESTRICT output_adr,
                                          int32_t *BSLZ4_RESTRICT npx_out, int threshold,
                                          double *BSLZ4_RESTRICT powder, int nout,
-                                         const uint32_t *BSLZ4_RESTRICT blk_ptr,
+                                         const uint32_t *BSLZ4_RESTRICT blk_ptr, int nblk_ptr,
                                          const uint32_t *BSLZ4_RESTRICT bins,
                                          const uint32_t *BSLZ4_RESTRICT bin_ptr,
                                          const uint16_t *BSLZ4_RESTRICT idx,
@@ -314,6 +325,7 @@ int bslz4_driver_sparsify_and_dot_bsbcsr(const int64_t *BSLZ4_RESTRICT compresse
                                          const bslz4_stage *BSLZ4_RESTRICT st) {
     bslz4_mat_bsbcsr m;
     m.blk_ptr = blk_ptr;
+    m.blk_ptr_n = nblk_ptr > 0 ? (size_t) nblk_ptr : 0;
     m.bins = bins;
     m.bin_ptr = bin_ptr;
     m.idx = idx;
