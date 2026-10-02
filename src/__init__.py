@@ -7,6 +7,22 @@ _ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse
 
 version = "0.0.20a1"
 
+# The general/documented public API.  Expert tuning knobs (available_backends,
+# set_backend, set_dense_sparse_threshold, get_dense_sparse_threshold),
+# test/introspection helpers and the internal decode helpers are all still
+# importable directly, but are deliberately not part of `import *`.
+__all__ = [
+    "version",
+    "bslz4_to_sparse",
+    "chunk2sparse",
+    "chunk2sparseCSC",
+    "chunk2sparseMulti",
+    "chunk2sparseCSCmulti",
+    "pack_pipeline",
+    "CODEC_LZ4",
+    "CODEC_ZSTD",
+]
+
 
 _TYPE_SUFFIXES = ("u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64")
 
