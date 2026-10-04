@@ -510,6 +510,25 @@ one core.  Top layouts vs csc:
 The int/int16 weights (fixed point) buy only 1-2 % over csc-run.  Floor
 for comparison: sparsify alone on these frames 1.8 ms (4M).
 
+## Compilers and PGO (2026-10-04, tools/compiler_suite.py)
+
+Six builds of 1b4d4ed: gcc 13.3, clang 18.1, zig 0.16 (clang 21, baseline
+CPU + evex512), each with and without PGO (trained on the benchmark itself,
+so a best case).  All pass the tests.  5 datasets x 7 cases, 3 interleaved
+rounds, one core (EPYC 9454).  Results in
+/tmp_14_days/wright/bslz4_compiler_suite/<host>/summary.txt.
+
+- Geometric mean vs gcc: gcc-pgo 0.991, clang 0.987, clang-pgo 1.025, zig
+  0.995, zig-pgo 0.985.  No compiler or PGO is worth more than ~1.5 % overall.
+- Median noise between rounds 1.3 %; median spread between builds 6 %:
+  per-case differences are real but small.
+- Outliers: dense 1D csc-run gcc 8.90 vs gcc-pgo 10.58 (+19 %; PGO made it
+  worse); clang-pgo is slowest on most decode-heavy cases (WAu0008 sparsify
+  +14-17 %) yet fastest on WAu0012; zig-pgo/gcc-pgo best on WAu sparsify.
+- Reading: the timings are mostly a property of the code; the remaining
+  build-to-build differences are of the same kind as the lz4 alignment
+  effect (where the hot loops land), not missed optimisation.
+
 ## To do (2026-10-04)
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype

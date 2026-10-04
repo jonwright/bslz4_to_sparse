@@ -18,6 +18,10 @@ Usage:
 
   # output somewhere other than src/ (e.g. a staging dir for a wheel)
   python3 tools/build_extension.py --out /tmp/pkg/bslz4_to_sparse
+
+  # extra flags for every compile / the link (gcc-style drivers), e.g. PGO
+  BSLZ4_EXTRA_CFLAGS="-fprofile-generate" BSLZ4_EXTRA_LDFLAGS="-fprofile-generate" \
+    python3 tools/build_extension.py --out ...
 """
 import argparse
 import glob
@@ -219,6 +223,7 @@ def _build_gcc(srcs, incs, outpath, plat, builddir):
         cmd += ["-I%s" % i for i in incs]
         cmd += _CXX_FLAGS if s.endswith(".cpp") else []
         cmd += ppc_flags
+        cmd += os.environ.get("BSLZ4_EXTRA_CFLAGS", "").split()     # e.g. PGO
         if os.path.basename(s) == "lz4.c" and not plat.startswith("darwin"):
             # Pin the decoder's code alignment.  Unaligned, its speed moved
             # with whatever was linked before it: one constant changed in the
@@ -230,6 +235,7 @@ def _build_gcc(srcs, incs, outpath, plat, builddir):
         subprocess.check_call(cmd)
         objs.append(obj)
     link = [cc, "-shared", "-o", outpath] + objs + ["-lm"]
+    link += os.environ.get("BSLZ4_EXTRA_LDFLAGS", "").split()
     if not plat.startswith("darwin"):
         link.append("-static-libgcc")
     subprocess.check_call(link)
