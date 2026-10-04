@@ -34,6 +34,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#if defined(__SSE2__) || defined(_M_X64)
+#include <emmintrin.h>
+#define BSLZ4_LZ4ZERO_SSE2 1
+#else
+#define BSLZ4_LZ4ZERO_SSE2 0
+#endif
 
 /* Copy an overlapping match [op - off, ...) of length m (off < m) by
  * doubling: [src, op) repeats with period off, so copying it onto op doubles
@@ -125,6 +131,26 @@ static int bslz4_lz4_decode_zero(const uint8_t *src, size_t srcsize, uint8_t *ds
             continue;
         }
         if (written < op) bslz4_zero_fill(written, (size_t) (op - written), olim);
+        /* the copy's trailing zeros (q): a later match (often offset 2, length
+         * thousands) repeating them is then skipped instead of copied */
+        const uint8_t *q = op + mlen;
+#if BSLZ4_LZ4ZERO_SSE2
+        if (off >= mlen && mlen <= 64 && (size_t) (olim - op) >= 64) {
+            /* 16-byte chunks, as many as mlen needs (a 64-byte load of a source
+             * just written by smaller stores stalls on store forwarding), the
+             * non-zero bytes gathered as a mask on the way: the trailing zeros
+             * without a byte loop (that loop was 26 % of the decoder on WAu
+             * blocks).  Bytes of a chunk at or past mlen are don't-care. */
+            uint64_t nz = 0;
+            for (size_t c = 0; c < mlen; c += 16) {
+                const __m128i v = _mm_loadu_si128((const __m128i *) (const void *) (match + c));
+                _mm_storeu_si128((__m128i *) (void *) (op + c), v);
+                nz |= (uint64_t) (~(uint32_t) _mm_movemask_epi8(_mm_cmpeq_epi8(v, _mm_setzero_si128())) & 0xFFFFu) << c;
+            }
+            if (mlen < 64) nz &= ((uint64_t) 1 << mlen) - 1;
+            q = nz ? op + (64 - __builtin_clzll(nz)) : op;
+        } else
+#endif
         if (off >= mlen) {
             if (mlen <= 64 && (size_t) (olim - op) >= 64) {
                 /* one fixed 64-byte load, then store: the first mlen bytes come
@@ -135,13 +161,15 @@ static int bslz4_lz4_decode_zero(const uint8_t *src, size_t srcsize, uint8_t *ds
             } else {
                 memcpy(op, match, mlen);
             }
+            while (q > op && q[-1] == 0) q--;
         } else {
+            /* periodic with period off: if its last off bytes are zero, so is
+             * the whole copy */
             bslz4_copy_overlap(op, match, op + mlen);
+            const uint8_t *const stop = q - off;
+            while (q > stop && q[-1] == 0) q--;
+            if (q == stop) q = op;
         }
-        /* the copy's trailing zeros: a later match (often offset 2, length
-         * thousands) repeating them is then skipped instead of copied */
-        const uint8_t *q = op + mlen;
-        while (q > op && q[-1] == 0) q--;
         op += mlen;
         written = op;
         zero_from = (uint8_t *) q;
