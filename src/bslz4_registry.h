@@ -90,7 +90,7 @@ typedef struct {
 typedef struct bslz4_work {
     int    dtype;                    /* pixel dtype index 0..9 */
     int    route;                    /* 0=dense, 1=sparse */
-    int    collect_id;               /* resolved collect tier 0..5 */
+    int    collect_id;               /* resolved collect tier 0..7 */
     int    dot_id;                   /* resolved dot impl (bslz4_dots[] in bslz4_registry.c) */
     int    no_mask;                  /* BSLZ4_OPT_NO_MASK: skip all mask checks */
     size_t n;                        /* pixels in this block/tail */
@@ -121,7 +121,7 @@ typedef struct bslz4_work {
 typedef struct bslz4_stage {
     size_t elem_size;            /* sizeof(pixel dtype) */
     int dtype;                   /* pixel dtype index 0..9 */
-    int collect_id;              /* resolved collect tier 0..5 */
+    int collect_id;              /* resolved collect tier 0..7 */
     int dot_id;                  /* resolved dot impl 0.. */
     int untranspose_id;          /* resolved untranspose backend 0..3 */
     uint16_t options;            /* BSLZ4_OPT_* bitmask */
@@ -215,7 +215,7 @@ int bslz4_driver_sparsify_and_dot_bsbcsr(const int64_t *BSLZ4_RESTRICT compresse
 
 /* Counter layout (flat read via bslz4_read_counters). */
 #define BSLZ4_NSTAGES  4
-#define BSLZ4_ID_SLOTS 16
+#define BSLZ4_ID_SLOTS 32   /* >= every stage's id count (dots: checked in bslz4_registry.c) */
 
 /* Resolve dtype + stages (a uint16 array, one entry per stage/option, see
  * BSLZ4_STAGES_N in bslz4_common.h) into a stage table.  Validates, in

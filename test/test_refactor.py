@@ -116,20 +116,20 @@ def test_pipeline_forces_collect_tier():
         c = b.chunk2sparseMulti(np.ones((1, NPIX), np.uint8), dtype=np.uint16, pipeline=pipe)
         b.reset_counters()
         c([_chunk()], 0)
-        out = np.empty(64, np.uint64)
+        out = np.empty(4 * b._COUNTER_SLOTS, np.uint64)
         b.read_counters(out)
         return out
 
     # scalar tier, always available
     col0 = _run(b.pack_pipeline(collect=0))
-    assert col0[b._STAGE_COLLECT * 16 + 0] > 0
-    assert col0[b._STAGE_COLLECT * 16 + simd] == 0 if simd is not None else True
+    assert col0[b._STAGE_COLLECT * b._COUNTER_SLOTS + 0] > 0
+    assert col0[b._STAGE_COLLECT * b._COUNTER_SLOTS + simd] == 0 if simd is not None else True
 
     if simd is not None:
         cols = _run(b.pack_pipeline(collect=simd))
         # the SIMD tier ran, and scalar did not
-        assert cols[b._STAGE_COLLECT * 16 + simd] > 0
-        assert cols[b._STAGE_COLLECT * 16 + 0] == 0
+        assert cols[b._STAGE_COLLECT * b._COUNTER_SLOTS + simd] > 0
+        assert cols[b._STAGE_COLLECT * b._COUNTER_SLOTS + 0] == 0
         # and it picked the non-scalar collect tier for a u16 dtype
 
 
@@ -147,16 +147,16 @@ def test_counters_every_route_and_tail():
             c = b.chunk2sparseCSCmulti(np.ones((1, NPIX), np.uint8), _csc(), dtype=np.uint16)
             b.reset_counters()
             npx, (outpx, outadr), powder = c([_chunk()], 1)
-            out = np.empty(64, np.uint64)
+            out = np.empty(4 * b._COUNTER_SLOTS, np.uint64)
             b.read_counters(out)
-            C = b._STAGE_COLLECT * 16
-            D = b._STAGE_DOT * 16
+            C = b._STAGE_COLLECT * b._COUNTER_SLOTS
+            D = b._STAGE_DOT * b._COUNTER_SLOTS
             # the selected impl ran in the full block AND the tail (the single
             # frame decodes 1 full block + 1 tail block), the dot impl ran once
             # per block, and scalar collect was not used for a SIMD dtype.
             assert out[D + 0] > 0, label
-            assert out[0:16].sum() == 2, (label, "1 full block + 1 tail block decompressed")
-            assert out[16:32].sum() == 2, (label, "untranspose ran once per block")
+            assert out[0:b._COUNTER_SLOTS].sum() == 2, (label, "1 full block + 1 tail block decompressed")
+            assert out[b._COUNTER_SLOTS:2 * b._COUNTER_SLOTS].sum() == 2, (label, "untranspose ran once per block")
             assert out[C + simd] > 0, (label, "SIMD collect did not run")
             assert out[C + 0] == 0, (label, "scalar collect should not run")
     finally:
@@ -271,9 +271,9 @@ def test_dot_variants_fused_and_plain_agree():
         c = b.chunk2sparseCSCmulti(mask, csc, dtype=np.uint16, dot=dot)
         b.reset_counters()
         npx, (vals, adr), powder = c(chunks, 1)
-        out = np.empty(64, np.uint64)
+        out = np.empty(4 * b._COUNTER_SLOTS, np.uint64)
         b.read_counters(out)
-        D = b._STAGE_DOT * 16
+        D = b._STAGE_DOT * b._COUNTER_SLOTS
         assert out[D + dot] > 0, (dot, "selected dot impl did not run")
         assert out[D + 1 - dot] == 0, (dot, "the other dot impl should not run")
         return npx, vals[0:], adr[0:], powder

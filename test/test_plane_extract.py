@@ -104,16 +104,16 @@ def test_extraction_path_is_taken(tmp_path):
         frames[f].ravel()[idx] = rng.integers(1, 30, idx.size)
     chunks, codec = chunks_of(frames, tmp_path / "c.h5")
     mask = np.ones(SHAPE, np.uint8)
-    U, D = b._STAGE_UNTRANSPOSE * 16, b._STAGE_DECOMPRESS * 16
+    U, D = b._STAGE_UNTRANSPOSE * b._COUNTER_SLOTS, b._STAGE_DECOMPRESS * b._COUNTER_SLOTS
     seen = {}
     for on in (True, False):
         b.set_plane_extract(on)
         integ = b.chunk2sparseMulti(mask, dtype=np.uint16, codec=codec)
         b.reset_counters()
         integ(chunks, 0)
-        out = np.empty(64, np.uint64)
+        out = np.empty(4 * b._COUNTER_SLOTS, np.uint64)
         b.read_counters(out)
-        seen[on] = (int(out[D:D + 16].sum()), int(out[U:U + 16].sum()))
+        seen[on] = (int(out[D:D + b._COUNTER_SLOTS].sum()), int(out[U:U + b._COUNTER_SLOTS].sum()))
     blocks_on, untr_on = seen[True]
     blocks_off, untr_off = seen[False]
     assert blocks_on == blocks_off

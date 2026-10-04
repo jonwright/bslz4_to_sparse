@@ -53,7 +53,7 @@ _SUFFIX_TO_DTYPE = {"u8": 0, "u16": 1, "u32": 2, "u64": 3, "i8": 4, "i16": 5,
                     "i32": 6, "i64": 7, "f32": 8, "f64": 9}
 _BACKEND_TO_ID = {"kcb": 0, "sse": 1, "neon": 2, "scal": 3}
 _COLLECT_ID_TO_NAME = {0: "scalar", 1: "avx512", 2: "avx2", 3: "sse2", 4: "vsx", 5: "neon",
-                       6: "avx512cs"}
+                       6: "avx512cs", 7: "avx2cs"}
 
 # Pipeline option bits (bslz4_common.h).  NO_MASK: every pixel is valid (e.g.
 # the data was zeroed at collection), so the kernels skip the mask entirely.
@@ -294,8 +294,9 @@ def get_dense_sparse_threshold():
 def _active_collect_tier():
     # avx512cs (compress-store: branch-free extraction) first: 23-57 % faster
     # than avx512 when many pixels are selected, the same when few are
-    # (2026-10-03, EPYC 9454); then avx512, avx2, sse2, vsx, neon
-    for mid in (6, 1, 2, 3, 4, 5):
+    # (2026-10-03, EPYC 9454); then avx2cs (the same idea on AVX2, for CPUs
+    # without AVX-512 VBMI2), avx512, avx2, sse2, vsx, neon
+    for mid in (6, 7, 1, 2, 3, 4, 5):
         if _ext.impl_available(_STAGE_COLLECT, mid) == 1:
             return mid
     return 0
@@ -496,6 +497,9 @@ note_chunk = _ext.note_chunk
 impl_available = _ext.impl_available
 reset_counters = _ext.reset_counters
 read_counters = _ext.read_counters
+# read_counters fills [stage][impl] flattened: this many impl slots per stage
+# (BSLZ4_ID_SLOTS in bslz4_registry.h)
+_COUNTER_SLOTS = 32
 
 
 def build_info():

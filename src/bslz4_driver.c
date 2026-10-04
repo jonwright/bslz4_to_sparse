@@ -17,6 +17,7 @@
 #include "bslz4_registry.h"
 #include "bslz4_codec.h"
 #include "bslz4_lz4zero.h"
+#include "bslz4_untranspose.h"      /* bitshuf_decode_block (kcb) */
 
 #include <string.h>
 
@@ -103,6 +104,12 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
  * slower; at 24x they are untouched and very sparse frames gain as much
  * (2026-10-03, EPYC 9454) */
 #define BSLZ4_EXTRACT_RATIO 24
+#endif
+
+#ifndef BSLZ4_BYTESKIP_GENERIC
+/* 1: the byte skip also on CPUs without AVX-512 VBMI + GFNI (low planes
+ * through kcb as one-byte elements, then widened) */
+#define BSLZ4_BYTESKIP_GENERIC 1
 #endif
 
 #ifndef BSLZ4_FUSED_TWOPASS
@@ -500,6 +507,48 @@ static int bslz4_high_planes_zero(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t
 }
 #endif
 
+#if BSLZ4_HAVE_AVX2_OR
+/* The byte skip without VBMI + GFNI (AVX2, or AVX-512BW without VBMI): the 8
+ * low bit-planes are untransposed as one-byte elements -- kcb picks its
+ * AVX-512BW / AVX2 / SSE2 kernel -- into scratch, then widened to u16.  Half
+ * the bit transpose of the full path and no byte transpose (EPYC 7543: the
+ * bit transpose was 20-48 % of sparsify). */
+__attribute__((target("avx2")))
+static void bslz4_widen_u8_u16_avx2(uint16_t *BSLZ4_RESTRICT out, const uint8_t *BSLZ4_RESTRICT in,
+                                    size_t n) {
+    for (size_t i = 0; i < n; i += 32) {
+        const __m256i v = _mm256_loadu_si256((const __m256i *) (const void *) (in + i));
+        _mm256_storeu_si256((__m256i *) (void *) (out + i), _mm256_cvtepu8_epi16(_mm256_castsi256_si128(v)));
+        _mm256_storeu_si256((__m256i *) (void *) (out + i + 16),
+                            _mm256_cvtepu8_epi16(_mm256_extracti128_si256(v, 1)));
+    }
+}
+
+static void bslz4_widen_u8_u16_sse2(uint16_t *BSLZ4_RESTRICT out, const uint8_t *BSLZ4_RESTRICT in,
+                                    size_t n) {
+    const __m128i z = _mm_setzero_si128();
+    for (size_t i = 0; i < n; i += 16) {
+        const __m128i v = _mm_loadu_si128((const __m128i *) (const void *) (in + i));
+        _mm_storeu_si128((__m128i *) (void *) (out + i), _mm_unpacklo_epi8(v, z));
+        _mm_storeu_si128((__m128i *) (void *) (out + i + 8), _mm_unpackhi_epi8(v, z));
+    }
+}
+
+/* 1 if p[0..n) are all zero; n a multiple of 64.  Plain C, 512-byte steps. */
+static int bslz4_all_zero_c(const uint8_t *BSLZ4_RESTRICT p, size_t n) {
+    for (size_t i = 0; i < n; i += 512) {
+        uint64_t acc = 0;
+        for (size_t k = i; k < i + 512 && k < n; k += 8) {
+            uint64_t x;
+            memcpy(&x, p + k, 8);
+            acc |= x;
+        }
+        if (acc) return 0;
+    }
+    return 1;
+}
+#endif
+
 /* Untranspose one full block; with the byte skip allowed, a u16 block whose
  * high byte-planes are all zero takes the low-planes path. */
 static int64_t bslz4_untranspose_block(const bslz4_stage *BSLZ4_RESTRICT st,
@@ -521,6 +570,23 @@ static int64_t bslz4_untranspose_block(const bslz4_stage *BSLZ4_RESTRICT st,
         }
         return st->untranspose(block, raw, scratch, ne, NB);
     }
+#if BSLZ4_BYTESKIP_GENERIC
+    if (allow && NB == 2 && ne % 64 == 0) {
+        int high_zero;
+        if (nz_end <= ne) {                                 /* the decoder says: planes 8..15 empty */
+            memset(raw + nz_end, 0, ne - nz_end);
+            high_zero = 1;
+        } else {
+            if (nz_end < ne * NB) memset(raw + nz_end, 0, ne * NB - nz_end);
+            high_zero = bslz4_all_zero_c(raw + ne, ne);
+        }
+        if (!high_zero) return st->untranspose(block, raw, scratch, ne, NB);
+        if (bitshuf_decode_block((char *) scratch, (const char *) raw, NULL, ne, 1) < 0) return -1;
+        if (c2py_amd64_avx2) bslz4_widen_u8_u16_avx2((uint16_t *) (void *) block, scratch, ne);
+        else bslz4_widen_u8_u16_sse2((uint16_t *) (void *) block, scratch, ne);
+        return (int64_t) (ne * NB);
+    }
+#endif
 #endif
     if (nz_end < ne * NB) memset(raw + nz_end, 0, ne * NB - nz_end);
     return st->untranspose(block, raw, scratch, ne, NB);

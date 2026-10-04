@@ -67,6 +67,12 @@ static const bslz4_dot_desc bslz4_dots[] = {
     /* 24 csc-permute-runs         */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 0, bslz4_dot_always},
 };
 
+/* The per-implementation counters (bslz4_counters_bump: no bounds check)
+ * need a slot for every dot id.  With 16 slots, dots 16-24 counted past the
+ * end of the array and corrupted the static data after it. */
+_Static_assert(sizeof(bslz4_dots) / sizeof(bslz4_dots[0]) <= BSLZ4_ID_SLOTS,
+               "BSLZ4_ID_SLOTS too small for the dot table");
+
 static int bslz4_dot_count(void) {
     return (int) (sizeof(bslz4_dots) / sizeof(bslz4_dots[0]));
 }
@@ -107,6 +113,7 @@ int bslz4_impl_available(int stage, int id) {
         case 4: return bslz4_available_vsx_collect() ? 1 : 0;
         case 5: return bslz4_available_neon_collect() ? 1 : 0;
         case 6: return bslz4_available_avx512cs_collect() ? 1 : 0;   /* compress-store */
+        case 7: return bslz4_available_avx2cs_collect() ? 1 : 0;     /* avx2 compress */
         default: return -1;
         }
     case BSLZ4_STAGE_DOT:

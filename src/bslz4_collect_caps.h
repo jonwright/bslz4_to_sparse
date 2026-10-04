@@ -17,6 +17,7 @@ extern "C" {
 
 int bslz4_available_avx512_collect(void);
 int bslz4_available_avx512cs_collect(void);
+int bslz4_available_avx2cs_collect(void);
 int bslz4_available_avx2_collect(void);
 int bslz4_available_sse2_collect(void);
 int bslz4_available_vsx_collect(void);

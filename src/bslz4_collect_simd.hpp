@@ -104,6 +104,14 @@ inline bool bslz4_avx2_collect_capable() {
 #endif
 }
 
+inline bool bslz4_avx2cs_collect_capable() {
+#if BSLZ4_HAVE_AVX2_COLLECT
+    return c2py_amd64_avx2 != 0 && __builtin_cpu_supports("popcnt");
+#else
+    return false;
+#endif
+}
+
 inline bool bslz4_sse2_collect_capable() {
 #if BSLZ4_HAVE_SSE2_COLLECT
     return true; /* x86-64 ABI baseline -- always present, no cpuid check needed */
@@ -344,6 +352,95 @@ inline int bslz4_collect_avx2_u16(const uint16_t *BSLZ4_RESTRICT block,
             out_adr[npx] = (uint32_t) (j + i0 + b);
             npx++;
             bits &= bits - 1;
+        }
+    }
+    for (; j < block_elems; j++) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
+            out_vals[npx] = block[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+
+/* Collect id 7, "avx2cs": the avx2 selection, extracted without a loop per
+ * pixel (the avx512cs scheme on AVX2).  For each 8 pixels the selection byte
+ * m indexes a table of 8 lane numbers (the set bits of m, packed): vpermd
+ * packs the 8 pixel indices with it, and pshufb the 8 u16 values (lane k ->
+ * bytes 2k, 2k+1).  Both are stored full width and the output advances by
+ * popcount(m).  The full-width stores reach 8 entries past the count: as
+ * for avx512cs, before group j at most j of this block's pixels were
+ * selected, so a store ends before i0 + j + 16 <= i0 + block_elems.  On
+ * EPYC 7543 (no AVX-512) the bit loop of the avx2 tier was 27-70 % of
+ * sparsify. */
+#ifndef BSLZ4_AVX2CS_SCALAR_MAX
+#define BSLZ4_AVX2CS_SCALAR_MAX 1
+#endif
+
+struct bslz4_avx2cs_lut {
+    uint64_t lane[256];
+    bslz4_avx2cs_lut() {
+        for (int m = 0; m < 256; m++) {
+            uint64_t v = 0;
+            int k = 0;
+            for (int b = 0; b < 8; b++)
+                if (m >> b & 1) v |= (uint64_t) b << (8 * k++);
+            lane[m] = v;
+        }
+    }
+};
+
+inline const uint64_t *bslz4_avx2cs_table() {
+    static const bslz4_avx2cs_lut t;      /* -fno-threadsafe-statics: no guard */
+    return t.lane;
+}
+
+__attribute__((target("avx2,popcnt")))
+inline int bslz4_collect_avx2cs_u16(const uint16_t *BSLZ4_RESTRICT block,
+                                     const uint8_t *BSLZ4_RESTRICT mask,
+                                     size_t i0, size_t block_elems, uint16_t cut,
+                                     uint16_t *BSLZ4_RESTRICT out_vals,
+                                     uint32_t *BSLZ4_RESTRICT out_adr) {
+    const uint64_t *lut = bslz4_avx2cs_table();
+    int npx = 0;
+    size_t j = 0;
+    const __m256i sign_bias = _mm256_set1_epi16((short) 0x8000);
+    const __m256i vcut_b = _mm256_xor_si256(_mm256_set1_epi16((short) cut), sign_bias);
+    const __m256i iota8 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+    const __m128i one = _mm_set1_epi8(1);
+    for (; j + 16 <= block_elems; j += 16) {
+        uint32_t mnz16 = mask
+            ? (~(uint32_t) _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128((const __m128i *) &mask[j + i0]), _mm_setzero_si128()))) & 0xFFFFu
+            : 0xFFFFu;
+        __m256i v = _mm256_loadu_si256((const __m256i *) &block[j]);
+        __m256i gt = _mm256_cmpgt_epi16(_mm256_xor_si256(v, sign_bias), vcut_b);
+        uint32_t packed = (uint32_t) _mm256_movemask_epi8(_mm256_packs_epi16(gt, gt));
+        uint32_t bits = mnz16 & ((packed & 0xFFu) | ((packed >> 8) & 0xFF00u));
+        if (!bits) continue;                  /* the common case for sparse data */
+        if (__builtin_popcount(bits) <= BSLZ4_AVX2CS_SCALAR_MAX) {
+            /* one pixel (photon noise): the bit loop is cheaper than
+             * packing both halves; the test is predictable per dataset */
+            do {
+                const int b = __builtin_ctz(bits);
+                out_vals[npx] = block[j + b];
+                out_adr[npx] = (uint32_t) (j + i0 + b);
+                npx++;
+                bits &= bits - 1;
+            } while (bits);
+            continue;
+        }
+        for (int h = 0; h < 2; h++) {
+            const uint32_t m = (bits >> (8 * h)) & 0xFFu;
+            const __m128i sel = _mm_loadl_epi64((const __m128i *) (const void *) &lut[m]);
+            const __m256i idx = _mm256_add_epi32(_mm256_set1_epi32((int) (j + i0 + 8 * h)), iota8);
+            _mm256_storeu_si256((__m256i *) (void *) &out_adr[npx],
+                                _mm256_permutevar8x32_epi32(idx, _mm256_cvtepu8_epi32(sel)));
+            const __m128i s2 = _mm_add_epi8(sel, sel);
+            const __m128i shuf = _mm_unpacklo_epi8(s2, _mm_add_epi8(s2, one));
+            const __m128i v8 = _mm_loadu_si128((const __m128i *) (const void *) &block[j + 8 * h]);
+            _mm_storeu_si128((__m128i *) (void *) &out_vals[npx], _mm_shuffle_epi8(v8, shuf));
+            npx += __builtin_popcount(m);
         }
     }
     for (; j < block_elems; j++) {
@@ -731,6 +828,7 @@ inline int bslz4_collect_gt<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
     if (collect_id == 1) return bslz4_collect_avx512_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
+    if (collect_id == 7) return bslz4_collect_avx2cs_u16(block, mask, i0, n, cut, out_vals, out_adr);
     if (collect_id == 2) return bslz4_collect_avx2_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
@@ -762,7 +860,7 @@ inline int bslz4_collect_gt<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
     if (collect_id == 1) return bslz4_collect_avx512_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (collect_id == 2) return bslz4_collect_avx2_u32(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect_id == 2 || collect_id == 7) return bslz4_collect_avx2_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
     if (collect_id == 3) return bslz4_collect_sse2_u32(block, mask, i0, n, cut, out_vals, out_adr);
@@ -794,6 +892,7 @@ inline int bslz4_collect_nz<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
     if (collect_id == 1) return bslz4_collect_avx512_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
+    if (collect_id == 7) return bslz4_collect_avx2cs_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
     if (collect_id == 2) return bslz4_collect_avx2_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
@@ -826,7 +925,7 @@ inline int bslz4_collect_nz<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
     if (collect_id == 1) return bslz4_collect_avx512_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (collect_id == 2) return bslz4_collect_avx2_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+    if (collect_id == 2 || collect_id == 7) return bslz4_collect_avx2_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
     if (collect_id == 3) return bslz4_collect_sse2_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
