@@ -108,9 +108,11 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
 #endif
 
 #ifndef BSLZ4_FUSED_U8
-/* 1: with the generic byte skip, plain sparsify and the sparse dot route
- * collect straight from the untransposed low bytes (no u16 block) */
-#define BSLZ4_FUSED_U8 1
+/* With the generic byte skip, plain sparsify and the sparse dot route
+ * collect without a u16 block: 1 = kcb's low planes as bytes into scratch,
+ * then bslz4_collect_u8_avx2cs; 2 = bslz4_lowplanes_collect_avx2 (transpose
+ * and collect fused, two passes, empty planes not zero filled); 0 = off */
+#define BSLZ4_FUSED_U8 2
 #endif
 
 #ifndef BSLZ4_BYTESKIP_GENERIC
@@ -569,6 +571,16 @@ static int bslz4_high_planes_zero_c(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size
 }
 #endif
 
+#if BSLZ4_HAVE_AVX2_OR
+/* As bslz4_high_planes_zero_c, leaving raw[nz_end..ne) alone (the fused
+ * AVX2 collect handles the low half itself). */
+static int bslz4_high_planes_zero_c_nofill(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end) {
+    if (nz_end <= ne) return 1;
+    if (nz_end < 2 * ne) memset(raw + nz_end, 0, 2 * ne - nz_end);
+    return bslz4_all_zero_c(raw + ne, ne);
+}
+#endif
+
 /* Untranspose one full block; with the byte skip allowed, a u16 block whose
  * high byte-planes are all zero takes the low-planes path. */
 static int64_t bslz4_untranspose_block(const bslz4_stage *BSLZ4_RESTRICT st,
@@ -671,7 +683,7 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         if (block_elems / 8 <= sizeof(bslz4_zero_plane) && bslz4_lowplanes_collect_capable())
             fused = 1;
 #if BSLZ4_BYTESKIP_GENERIC && BSLZ4_FUSED_U8
-        else if (c2py_amd64_avx2 && bslz4_available_avx2cs_collect())
+        else if (c2py_amd64_avx2 && bslz4_available_avx2cs_collect() && block_elems <= 8192)
             fused = 2;
 #endif
     }
@@ -780,8 +792,9 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 #if BSLZ4_HAVE_AVX2_OR
             if (fused && (!is_dot || (double) blocksize > dense_sparse_x * (double) nbytes) &&
                 (fused == 1 ? bslz4_high_planes_zero(raw, block_elems, nz_end)
-                            : bslz4_high_planes_zero_c(raw, block_elems, nz_end))) {
-                if (fused == 2 &&      /* the low bytes, untransposed, into scratch */
+                 : BSLZ4_FUSED_U8 == 2 ? bslz4_high_planes_zero_c_nofill(raw, block_elems, nz_end)
+                                       : bslz4_high_planes_zero_c(raw, block_elems, nz_end))) {
+                if (fused == 2 && BSLZ4_FUSED_U8 == 1 &&   /* the low bytes into scratch */
                     bitshuf_decode_block((char *) scratch, (const char *) raw, NULL, block_elems, 1) < 0)
                     return BSLZ4_ERR_UNTRANSPOSE;
                 bslz4_counters_bump(BSLZ4_STAGE_DECOMPRESS, codec);
@@ -794,6 +807,11 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                             ? bslz4_lowplanes_collect_u16(
                                   raw, block_elems, nz_end, bslz4_zero_plane, bmask, (size_t) i0,
                                   (unsigned) threshold,
+                                  (uint16_t *) (void *) outpx + (size_t) f * NIJ + (size_t) npx0,
+                                  output_adr + (size_t) f * NIJ + npx0)
+                            : BSLZ4_FUSED_U8 == 2
+                            ? bslz4_lowplanes_collect_avx2(
+                                  raw, block_elems, nz_end, bmask, (size_t) i0, (unsigned) threshold,
                                   (uint16_t *) (void *) outpx + (size_t) f * NIJ + (size_t) npx0,
                                   output_adr + (size_t) f * NIJ + npx0)
                             : bslz4_collect_u8_avx2cs(
@@ -815,6 +833,9 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                 w.pre_nz = fused == 1
                     ? bslz4_lowplanes_collect_u16(raw, block_elems, nz_end, bslz4_zero_plane,
                                                   bmask, (size_t) i0, 0u, (uint16_t *) tval, tidx)
+                    : BSLZ4_FUSED_U8 == 2
+                    ? bslz4_lowplanes_collect_avx2(raw, block_elems, nz_end, bmask, (size_t) i0, 0u,
+                                                   (uint16_t *) tval, tidx)
                     : bslz4_collect_u8_avx2cs(scratch, bmask, (size_t) i0, block_elems, 0u,
                                               (uint16_t *) tval, tidx);
                 bslz4_counters_bump(BSLZ4_STAGE_DOT, st->dot_id);

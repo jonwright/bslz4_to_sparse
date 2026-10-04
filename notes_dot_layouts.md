@@ -563,6 +563,36 @@ Fastest build, ms/frame:
   paths there depend on the compiler vectorising them.  Even 0.1 % frames
   take 8 ms, so a fixed per-block cost dominates -- needs a profile on p9.
 
+## hpc6 (EPYC 7543, Zen 3, no AVX-512): AVX2 paths (2026-10-05)
+
+perf is locked on hpc6 (perf_event_paranoid 4): profiles from py-spy
+--native as the parent of the benchmark (ptrace of a child is allowed).
+Before: kcb's AVX2 16-plane bit transpose 20-48 % of sparsify, the avx2
+collect (per-pixel bit loop) 27-70 %, no byte skip (it needed VBMI+GFNI).
+
+1. Collect tier 7 "avx2cs" (default after avx512cs): per 8 pixels a
+   256-entry lane table packs indices (vpermd) and u16 values (pshufb),
+   full-width stores, popcount advance; a 16-group with one pixel keeps the
+   bit loop (threshold 1 of 1/2/4 best: no loss on WAu, keeps the dense gain).
+2. Found doing this: bslz4_counters had 16 slots per stage but dots reach
+   24 -- dots 16-24 counted past the array, into the new lane table (the
+   integer dots then gave wrong powders).  32 slots + _Static_assert.
+3. Byte skip without VBMI+GFNI: kcb's low planes as bytes, widened.
+4. Fused (BSLZ4_FUSED_U8 2): bslz4_lowplanes_collect_avx2 -- kcb's AVX2 bit
+   transpose for the 8 low planes, empty planes read from a zero buffer (no
+   memset), two passes (record 64-px groups + selections; emit only groups
+   with pixels).  Beat kcb + a u8 collect (mode 1) almost everywhere.
+
+hpc6, ms/frame, ce9504c -> b0dd89b+fused:
+
+| data | sparsify c0 | 1D bbox csc | 2D bbox | rings bsb-csr |
+|---|---|---|---|---|
+| dense 94 % | 6.65 -> 2.41 | 16.9 -> 13.3 | 21.9 -> 18.0 | 6.98 -> 3.22 |
+| mid 9 % | 4.37 -> 2.54 | 6.96 -> 5.25 | 8.70 -> 7.00 | 5.90 -> 4.11 |
+| sparse 0.1 % | 1.67 -> 0.95 | 1.88 -> 1.16 | 2.14 -> 1.42 | 1.74 -> 1.01 |
+| WAu0008 | 2.57 -> 1.53 | 3.45 -> 2.46 | 4.09 -> 3.11 | 2.82 -> 1.78 |
+| WAu0012 | 2.07 -> 1.06 | 2.64 -> 1.62 | 3.06 -> 2.03 | 2.26 -> 1.22 |
+
 ## To do (2026-10-04)
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype
