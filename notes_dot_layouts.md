@@ -618,7 +618,22 @@ both against that: vpcompressd packing instead of the lane table (256-bit
 transpose in the fused pass A (256-bit +4..+13 %, 512-bit +-3 % with dense
 dots +5..+8 %).  The AVX2 path stays the one for Cascade Lake.
 
+Zero decoder on hpc5 (d3ce41e, 6f9d43d): in the 32-48x band it was 2.2x
+faster than stock on WAu blocks but 1.7x slower on synthetic sparse ones
+-- ~15 non-overlapping match copies of ~184 B per block took memcpy + a
+byte scan for their trailing zeros.  Chunked copies with a last-non-zero
+chunk fixed it (4924 -> 2091 cycles/block; stock 2941).  Per-band timing
+then showed it beats stock on almost every block, dense ones included (it
+never writes the empty high planes: dense 2-8x 2894 -> 1406), so it now
+decodes every compressed block (cutoff 48x -> 1).  hpc5 end to end vs 48x:
+WAu0008 -17..-36 %, 0.1 % frames -6..-13 %, dense sparsify -15 %, dense
+rings -17 %.  Its line profile is flat on Intel (~50 cycles/sequence of
+branchy work, no line > 7 %).  Needs confirming on Zen 3/4/5.
+
 ## To do (2026-10-04)
+
+- Confirm the cutoff-1 zero decoder and the AVX2 paths on hpc6/7/8 (the
+  compiler-suite one-liner), and that Zen 4/5 did not regress.
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype
   maximum, enable mask planes for that dataset.
