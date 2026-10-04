@@ -608,6 +608,16 @@ hpc6 now (a2965f9), ms/frame vs ce9504c: WAu0012 sparsify 2.07 -> 0.61,
 WAu0008 2.57 -> 1.23, mid 4.37 -> 2.45, sparse 1.67 -> 0.58, dense
 6.65 -> 2.40; WAu0012 CSC 1D 2.64 -> 1.19, rings 2.25 -> 0.76.
 
+## hpc5 (Xeon Gold 6248, Cascade Lake: AVX-512 F/BW/DQ/VL, no VBMI/GFNI)
+
+The hpc6 AVX2 work runs there unchanged (fused mode 2, collect tier 7):
+vs ce9504c, WAu0012 -34..-52 %, WAu0008 -22..-27 %, 0.1 % frames
+-29..-41 %, dense -10..-37 %, 9 % frames -8..-19 %.  Tried and dropped,
+both against that: vpcompressd packing instead of the lane table (256-bit
++6..+16 %, 512-bit +4..+8 % on WAu/mid); kcb's AVX-512BW mask-add bit
+transpose in the fused pass A (256-bit +4..+13 %, 512-bit +-3 % with dense
+dots +5..+8 %).  The AVX2 path stays the one for Cascade Lake.
+
 ## To do (2026-10-04)
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype
