@@ -72,6 +72,74 @@ extern "C" int bslz4_available_avx512_collect(void) { return bslz4_avx512_collec
 extern "C" int bslz4_available_avx512cs_collect(void) { return bslz4_avx512cs_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_avx2_collect(void)   { return bslz4_avx2_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_avx2cs_collect(void) { return bslz4_avx2cs_collect_capable() ? 1 : 0; }
+
+/* The fused byte-skip collect for CPUs without VBMI + GFNI (driver): the
+ * pixels > cut (and unmasked) of a block whose values are all < 256, read
+ * from its untransposed low bytes v8[0..n), out as u16 values and u32 pixel
+ * indices.  Per 32 pixels one compare; each 8 are packed with the avx2cs
+ * lane table (vpermd: indices; pshufb on the bytes then zero-extend:
+ * values), stored full width.  A group with one pixel keeps the bit loop.
+ * Stores reach at most 8 entries past the count: before group j at most j
+ * pixels were selected, so a store ends before i0 + j + 32 <= i0 + n. */
+#if BSLZ4_HAVE_AVX2_COLLECT
+__attribute__((target("avx2,popcnt")))
+static int bslz4_collect_u8_avx2cs_impl(const uint8_t *BSLZ4_RESTRICT v8, const uint8_t *BSLZ4_RESTRICT mask,
+                                        size_t i0, size_t n, unsigned cut,
+                                        uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
+    const uint64_t *lut = bslz4::bslz4_avx2cs_table();
+    const __m256i bias = _mm256_set1_epi8((char) 0x80);
+    const __m256i vcut = _mm256_xor_si256(_mm256_set1_epi8((char) cut), bias);
+    const __m256i iota8 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+    const __m128i eight = _mm_set1_epi8(8);
+    int npx = 0;
+    size_t j = 0;
+    for (; j + 32 <= n; j += 32) {
+        const __m256i v = _mm256_loadu_si256((const __m256i *) (const void *) (v8 + j));
+        uint32_t bits = (uint32_t) _mm256_movemask_epi8(_mm256_cmpgt_epi8(_mm256_xor_si256(v, bias), vcut));
+        if (mask)
+            bits &= ~(uint32_t) _mm256_movemask_epi8(_mm256_cmpeq_epi8(
+                _mm256_loadu_si256((const __m256i *) (const void *) (mask + i0 + j)), _mm256_setzero_si256()));
+        if (!bits) continue;
+        if (__builtin_popcount(bits) <= BSLZ4_AVX2CS_SCALAR_MAX) {
+            const int b = __builtin_ctz(bits);
+            out_vals[npx] = v8[j + b];
+            out_adr[npx] = (uint32_t) (j + i0 + b);
+            npx++;
+            continue;
+        }
+        const __m128i lo = _mm256_castsi256_si128(v), hi = _mm256_extracti128_si256(v, 1);
+        for (int q = 0; q < 4; q++) {
+            const uint32_t m = (bits >> (8 * q)) & 0xFFu;
+            const __m128i sel = _mm_loadl_epi64((const __m128i *) (const void *) &lut[m]);
+            const __m256i idx = _mm256_add_epi32(_mm256_set1_epi32((int) (j + i0 + 8 * q)), iota8);
+            _mm256_storeu_si256((__m256i *) (void *) &out_adr[npx],
+                                _mm256_permutevar8x32_epi32(idx, _mm256_cvtepu8_epi32(sel)));
+            const __m128i src = q < 2 ? lo : hi;
+            const __m128i bsel = (q & 1) ? _mm_add_epi8(sel, eight) : sel;
+            _mm_storeu_si128((__m128i *) (void *) &out_vals[npx], _mm_cvtepu8_epi16(_mm_shuffle_epi8(src, bsel)));
+            npx += __builtin_popcount(m);
+        }
+    }
+    for (; j < n; j++) {
+        if ((!mask || mask[j + i0]) && v8[j] > cut) {
+            out_vals[npx] = v8[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+#endif
+
+extern "C" int bslz4_collect_u8_avx2cs(const uint8_t *v8, const uint8_t *mask, size_t i0, size_t n,
+                                       unsigned cut, uint16_t *out_vals, uint32_t *out_adr) {
+#if BSLZ4_HAVE_AVX2_COLLECT
+    return bslz4_collect_u8_avx2cs_impl(v8, mask, i0, n, cut, out_vals, out_adr);
+#else
+    (void) v8; (void) mask; (void) i0; (void) n; (void) cut; (void) out_vals; (void) out_adr;
+    return -1;
+#endif
+}
 extern "C" int bslz4_available_sse2_collect(void)   { return bslz4_sse2_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_vsx_collect(void)    { return bslz4_vsx_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_neon_collect(void)   { return bslz4_neon_collect_capable() ? 1 : 0; }

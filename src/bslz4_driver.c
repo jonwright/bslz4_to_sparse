@@ -18,6 +18,7 @@
 #include "bslz4_codec.h"
 #include "bslz4_lz4zero.h"
 #include "bslz4_untranspose.h"      /* bitshuf_decode_block (kcb) */
+#include "bslz4_collect_caps.h"     /* bslz4_collect_u8_avx2cs */
 
 #include <string.h>
 
@@ -104,6 +105,12 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
  * slower; at 24x they are untouched and very sparse frames gain as much
  * (2026-10-03, EPYC 9454) */
 #define BSLZ4_EXTRACT_RATIO 24
+#endif
+
+#ifndef BSLZ4_FUSED_U8
+/* 1: with the generic byte skip, plain sparsify and the sparse dot route
+ * collect straight from the untransposed low bytes (no u16 block) */
+#define BSLZ4_FUSED_U8 1
 #endif
 
 #ifndef BSLZ4_BYTESKIP_GENERIC
@@ -549,6 +556,19 @@ static int bslz4_all_zero_c(const uint8_t *BSLZ4_RESTRICT p, size_t n) {
 }
 #endif
 
+#if BSLZ4_HAVE_AVX2_OR
+/* As bslz4_high_planes_zero, without AVX-512; also zero fills raw[nz_end..ne)
+ * for kcb, which reads the whole low half. */
+static int bslz4_high_planes_zero_c(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end) {
+    if (nz_end <= ne) {
+        memset(raw + nz_end, 0, ne - nz_end);
+        return 1;
+    }
+    if (nz_end < 2 * ne) memset(raw + nz_end, 0, 2 * ne - nz_end);
+    return bslz4_all_zero_c(raw + ne, ne);
+}
+#endif
+
 /* Untranspose one full block; with the byte skip allowed, a u16 block whose
  * high byte-planes are all zero takes the low-planes path. */
 static int64_t bslz4_untranspose_block(const bslz4_stage *BSLZ4_RESTRICT st,
@@ -642,11 +662,19 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     uint64_t maskbits[BSLZ4_MASKPLANE_MAX_ELEMS / 64];
     /* the byte skip's fused transpose + collect (u16; not csc-permute-runs,
      * whose sparse route reads the block) */
+    /* 1: AVX-512 VBMI + GFNI low-planes collect; 2: without them, kcb's low
+     * planes as bytes into scratch, then the AVX2 u8 collect */
     int fused = 0;
 #if BSLZ4_HAVE_AVX2_OR && BSLZ4_LOWPLANES_FUSED
-    fused = byteskip && NB == 2 && st->dtype == 1 && block_elems % 64 == 0 &&
-            block_elems / 8 <= sizeof(bslz4_zero_plane) && (!is_dot || st->dot_id != 24) &&
-            bslz4_lowplanes_collect_capable();
+    if (byteskip && NB == 2 && st->dtype == 1 && block_elems % 64 == 0 &&
+        (!is_dot || st->dot_id != 24)) {
+        if (block_elems / 8 <= sizeof(bslz4_zero_plane) && bslz4_lowplanes_collect_capable())
+            fused = 1;
+#if BSLZ4_BYTESKIP_GENERIC && BSLZ4_FUSED_U8
+        else if (c2py_amd64_avx2 && bslz4_available_avx2cs_collect())
+            fused = 2;
+#endif
+    }
 #endif
     if (is_dot) {
         /* The derived layouts index a per-block pointer array by
@@ -751,18 +779,27 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             }
 #if BSLZ4_HAVE_AVX2_OR
             if (fused && (!is_dot || (double) blocksize > dense_sparse_x * (double) nbytes) &&
-                bslz4_high_planes_zero(raw, block_elems, nz_end)) {
+                (fused == 1 ? bslz4_high_planes_zero(raw, block_elems, nz_end)
+                            : bslz4_high_planes_zero_c(raw, block_elems, nz_end))) {
+                if (fused == 2 &&      /* the low bytes, untransposed, into scratch */
+                    bitshuf_decode_block((char *) scratch, (const char *) raw, NULL, block_elems, 1) < 0)
+                    return BSLZ4_ERR_UNTRANSPOSE;
                 bslz4_counters_bump(BSLZ4_STAGE_DECOMPRESS, codec);
                 bslz4_counters_bump(BSLZ4_STAGE_UNTRANSPOSE, st->untranspose_id);
                 bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
                 const int32_t npx0 = npx_out[f];
                 if (!is_dot) {                  /* the >cut pixels straight to the output */
                     if (threshold < 255)
-                        npx_out[f] = npx0 + bslz4_lowplanes_collect_u16(
-                            raw, block_elems, nz_end, bslz4_zero_plane, bmask, (size_t) i0,
-                            (unsigned) threshold,
-                            (uint16_t *) (void *) outpx + (size_t) f * NIJ + (size_t) npx0,
-                            output_adr + (size_t) f * NIJ + npx0);
+                        npx_out[f] = npx0 + (fused == 1
+                            ? bslz4_lowplanes_collect_u16(
+                                  raw, block_elems, nz_end, bslz4_zero_plane, bmask, (size_t) i0,
+                                  (unsigned) threshold,
+                                  (uint16_t *) (void *) outpx + (size_t) f * NIJ + (size_t) npx0,
+                                  output_adr + (size_t) f * NIJ + npx0)
+                            : bslz4_collect_u8_avx2cs(
+                                  scratch, bmask, (size_t) i0, block_elems, (unsigned) threshold,
+                                  (uint16_t *) (void *) outpx + (size_t) f * NIJ + (size_t) npx0,
+                                  output_adr + (size_t) f * NIJ + npx0));
                     continue;
                 }
                 /* dot: the non-zero pixels into the sparse route's list */
@@ -775,9 +812,11 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                 w.route = 1;
                 w.powder = (uint8_t *) powder + (size_t) f * nout * (size_t) out_size;
                 w.precompacted = 1;
-                w.pre_nz = bslz4_lowplanes_collect_u16(raw, block_elems, nz_end, bslz4_zero_plane,
-                                                      bmask, (size_t) i0, 0u,
-                                                      (uint16_t *) tval, tidx);
+                w.pre_nz = fused == 1
+                    ? bslz4_lowplanes_collect_u16(raw, block_elems, nz_end, bslz4_zero_plane,
+                                                  bmask, (size_t) i0, 0u, (uint16_t *) tval, tidx)
+                    : bslz4_collect_u8_avx2cs(scratch, bmask, (size_t) i0, block_elems, 0u,
+                                              (uint16_t *) tval, tidx);
                 bslz4_counters_bump(BSLZ4_STAGE_DOT, st->dot_id);
                 npx_out[f] = npx0 + bslz4_sparse_dot_dispatch(&w);
                 continue;
