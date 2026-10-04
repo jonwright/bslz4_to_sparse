@@ -149,6 +149,21 @@ static int bslz4_lz4_decode_zero(const uint8_t *src, size_t srcsize, uint8_t *ds
             }
             if (mlen < 64) nz &= ((uint64_t) 1 << mlen) - 1;
             q = nz ? op + (64 - __builtin_clzll(nz)) : op;
+        } else if (off >= mlen && (size_t) (olim - op) >= mlen + 16) {
+            /* longer: the same chunks, keeping the last one holding a non-zero
+             * byte (a byte scan back over long, mostly zero copies made the
+             * decoder 1.7x slower than stock on synthetic sparse blocks) */
+            size_t lastc = 0;
+            uint32_t lastm = 0;
+            for (size_t c = 0; c < mlen; c += 16) {
+                const __m128i v = _mm_loadu_si128((const __m128i *) (const void *) (match + c));
+                _mm_storeu_si128((__m128i *) (void *) (op + c), v);
+                uint32_t m = ~(uint32_t) _mm_movemask_epi8(_mm_cmpeq_epi8(v, _mm_setzero_si128())) & 0xFFFFu;
+                if (mlen - c < 16) m &= (1u << (mlen - c)) - 1u;
+                lastc = m ? c : lastc;
+                lastm = m ? m : lastm;
+            }
+            q = lastm ? op + lastc + (32 - __builtin_clz(lastm)) : op;
         } else
 #endif
         if (off >= mlen) {
