@@ -461,6 +461,34 @@ Committed build (3f7a549) vs this, ms/frame, 4M, one core (selected):
 (The 'mid' and 'dense' columns chain two runs: 3f7a549 -> lz4/twopass/
 prefetch, then -> staging.)
 
+## Tried and dropped (2026-10-04)
+
+Measured against the build before each, real and synthetic frames:
+
+- Two-pass collect chosen per block from the previous hit count (1/8,
+  1/16, 1/32 of groups): never better than always two-pass; even its
+  one-pass mode stayed 2-4 % behind a one-pass build on 0.1 % frames.
+  Always two-pass costs 3-8 % on 0.1 %-occupied 16M frames and 4-6 % at
+  cut 2 on WAu (0.03-0.1 ms); it saves 0.3-0.5 ms at cut 0 on noisy data.
+- Dense CSC route, expanding each pixel's value over its (contiguous)
+  entries then one flat loop: 2-3x slower -- 64 B of stores per pixel,
+  most pixels having 0-3 entries.  The dense dot runs at IPC ~2.6 (not
+  mispredict-bound); its cost is the out[] read-modify-write per entry.
+  Only a smaller layout (csc-run, integer weights, ...) cuts it.
+- lz4.c at -O3, -mavx2 -mbmi2, or both: within +-2 %.
+- A branch-light lz4 decoder (16-byte literal copy, 32-byte match copy
+  with a per-offset byte shuffle chosen by mask, careful path for the
+  rest): 3x fewer mispredicts, but +6 % (9 % frames) to +20 % (WAu0008):
+  16-byte loads of just-written match sources span several earlier stores
+  and miss store forwarding.  Stock lz4 on 9 % frames: ~120 sequences per
+  8 kB block, literals median 1 B, matches median 6 B, 46 % of offsets
+  < 16; IPC ~2.0, a quarter of its time in mispredicts.  Kept in the
+  session scratch only.
+
+16M (Eiger2 16M, 50 frames), 3f7a549 -> 437a20b, ms/frame: dense rings
+23.0 -> 18.9; 9 % sparsify 6.29 -> 5.53, 1D bbox x1 13.9 -> 12.4, 1D bbox x5
+20.5 -> 18.6; 0.1 % frames +2..+10 % (two-pass), all within 0.1 ms.
+
 ## To do (2026-10-04)
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype
