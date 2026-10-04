@@ -219,6 +219,13 @@ def _build_gcc(srcs, incs, outpath, plat, builddir):
         cmd += ["-I%s" % i for i in incs]
         cmd += _CXX_FLAGS if s.endswith(".cpp") else []
         cmd += ppc_flags
+        if os.path.basename(s) == "lz4.c" and not plat.startswith("darwin"):
+            # Pin the decoder's code alignment.  Unaligned, its speed moved
+            # with whatever was linked before it: one constant changed in the
+            # driver made LZ4_decompress_safe ~25 % slower on real Eiger blocks
+            # (start at 0x30 vs 0x10 mod 64; EPYC 9454, 2026-10-04).
+            cmd += os.environ.get("BSLZ4_LZ4_CFLAGS",
+                                  "-falign-functions=64 -falign-loops=64").split()
         cmd += ["-c", s, "-o", obj]
         subprocess.check_call(cmd)
         objs.append(obj)

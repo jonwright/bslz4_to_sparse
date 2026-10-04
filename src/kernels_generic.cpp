@@ -163,6 +163,16 @@ int dense_dot_fused(const bslz4_work *BSLZ4_RESTRICT w) {
     return npx;
 }
 
+#ifndef BSLZ4_DOT_PREFETCH
+/* sparse CSC route: software prefetch distance in pixels (0 = off) */
+#define BSLZ4_DOT_PREFETCH 8
+#endif
+
+#ifndef BSLZ4_DOT_STAGE
+/* sparse CSC route: pixels per staging chunk (0 = walk each pixel's entries) */
+#define BSLZ4_DOT_STAGE 128
+#endif
+
 /* The sparse-route compaction (non-zero, unmasked pixels into tv/tidx), or
  * the list the driver already built for this block (w->precompacted). */
 template<typename T>
@@ -193,7 +203,64 @@ int sparse_dot_core(const bslz4_work *BSLZ4_RESTRICT w, const bslz4_mat_csc *BSL
     const float *BSLZ4_RESTRICT data = (const float *) m->data;
     const uint32_t *BSLZ4_RESTRICT indices = m->indices;
     const uint32_t *BSLZ4_RESTRICT indptr = m->indptr;
+#if BSLZ4_DOT_STAGE
+    /* Staged: for a chunk of pixels, each writes 8 (entry, value) slots with
+     * fixed stores and advances by its entry count; then one branch-free
+     * loop applies all staged entries.  The per-pixel loop over 2 or 3
+     * entries (pyFAI bbox, at random) mispredicted about once per pixel.
+     * Only for blocks averaging 1.5-4 entries per pixel: at 1 (no split) the
+     * staging is pure overhead, at ~7 (5 bins per pixel) it lost too
+     * (real WAu and synthetic frames, 2026-10-04). */
+    const size_t eblk = (size_t) (indptr[i0 + n] - indptr[i0]);
+    const int stage = 2 * eblk > 3 * n && eblk < 4 * n;
+    uint32_t sk[BSLZ4_DOT_STAGE * 8 + 8];
+    float sv[BSLZ4_DOT_STAGE * 8 + 8];
+    for (int base = 0; stage && base < nz; base += BSLZ4_DOT_STAGE) {
+        const int end = nz - base < BSLZ4_DOT_STAGE ? nz : base + BSLZ4_DOT_STAGE;
+        int pos = 0;
+        for (int kk = base; kk < end; kk++) {
+#if BSLZ4_DOT_PREFETCH
+            if (kk + 2 * BSLZ4_DOT_PREFETCH < nz)
+                __builtin_prefetch(&indptr[tidx[kk + 2 * BSLZ4_DOT_PREFETCH]]);
+            if (kk + BSLZ4_DOT_PREFETCH < nz) {
+                const uint32_t kp = indptr[tidx[kk + BSLZ4_DOT_PREFETCH]];
+                __builtin_prefetch(&indices[kp]);
+                __builtin_prefetch(&data[kp]);
+            }
+#endif
+            const uint32_t addr = tidx[kk];
+            const uint32_t k0 = indptr[addr], len = indptr[addr + 1] - k0;
+            const float v = (float) tv[kk];
+            if (!BSLZ4_UNLIKELY(len > 8)) {
+                for (int j = 0; j < 8; j++) { sk[pos + j] = k0 + (uint32_t) j; sv[pos + j] = v; }
+                pos += (int) len;
+            } else {                    /* rare: flush, then this pixel directly */
+                for (int e = 0; e < pos; e++)
+                    out[indices[sk[e]]] += (double) data[sk[e]] * (double) sv[e];
+                pos = 0;
+                for (uint32_t k = k0; k < k0 + len; k++)
+                    out[indices[k]] += (double) data[k] * (double) tv[kk];
+            }
+        }
+        for (int e = 0; e < pos; e++)
+            out[indices[sk[e]]] += (double) data[sk[e]] * (double) sv[e];
+    }
+    for (int kk = 0; !stage && kk < nz; kk++) {
+#else
     for (int kk = 0; kk < nz; kk++) {
+#endif
+#if BSLZ4_DOT_PREFETCH
+        /* the pixel list is known: fetch indptr two strides ahead, then the
+         * entries one stride ahead (each active pixel lands at a random
+         * place in the multi-MB matrix; latency, not arithmetic) */
+        if (kk + 2 * BSLZ4_DOT_PREFETCH < nz)
+            __builtin_prefetch(&indptr[tidx[kk + 2 * BSLZ4_DOT_PREFETCH]]);
+        if (kk + BSLZ4_DOT_PREFETCH < nz) {
+            const uint32_t kp = indptr[tidx[kk + BSLZ4_DOT_PREFETCH]];
+            __builtin_prefetch(&indices[kp]);
+            __builtin_prefetch(&data[kp]);
+        }
+#endif
         uint32_t addr = tidx[kk];
         T val = tv[kk];
         uint32_t k0 = indptr[addr], k1 = indptr[addr + 1];

@@ -425,6 +425,42 @@ cut 2, -2..+1 % at cut 0.)  The CSC (cut 0 compaction) gains little: at
 cut 0 nearly every 64-px group holds a noise pixel, and the dot itself
 dominates.
 
+## CSC cut 0 and the wider check (2026-10-04, later)
+
+perf of the CSC at cut 0 (WAu mask=0): collect ~30 %, dot 30-44 %, decode
+~25-30 %.  Changes, each A/B'd on real data:
+
+- Fused collect, two passes (BSLZ4_FUSED_TWOPASS): pass 1 transposes all
+  64-px groups and records bytes + selection, pass 2 emits only groups with
+  pixels by bit scan.  The one-pass `if (!k)` mispredicted on noise (19-44 %
+  of groups hold a pixel at cut 0).  Cut 0: -28..-34 % sparsify, -15..-21 %
+  CSC; cut 2 on very sparse frames +4-6 %.  Choosing the mode per block from
+  the previous block's hit rate recovered neither.
+- Dot prefetch (BSLZ4_DOT_PREFETCH 8): indptr 16 pixels ahead, entries 8
+  ahead; the indices[k] load was 43 % of the dot.  -4..-5 %; 16 no gain.
+- Staged entries (BSLZ4_DOT_STAGE 128) for blocks averaging 1.5-4 entries
+  per pixel: each pixel writes 8 (entry, value) slots and advances by its
+  count, then one loop applies them.  9 % frames: 1D bbox x1 -12 %, 2D bbox
+  -9 %; other cases flat.  A 4-wide masked walk instead (extra weight-0
+  updates) was +8..+15 %; staging for 1 or ~7 entries per pixel lost.
+- lz4.c built with -falign-functions=64 -falign-loops=64: unaligned, its
+  speed moved ~25 % with the size of code linked before it (one #define in
+  the driver did it).  That explained a non-monotonic BSLZ4_LZ4ZERO_RATIO
+  sweep; re-swept aligned, 48 stays best (lower: 0008 +3..+10 %).
+
+Committed build (3f7a549) vs this, ms/frame, 4M, one core (selected):
+
+| data | sparsify c0 | 1D bbox x1 | 2D bbox | rings |
+|---|---|---|---|---|
+| dense 94 % | 1.75 -> 1.79 | 10.0 -> 10.1 | 13.9 -> 14.0 | 5.78 -> 4.76 |
+| mid 9 % | 1.86 -> 1.64 | 4.62 -> 3.92 | 5.76 -> 5.13 | 3.06 -> 3.03 |
+| sparse 0.1 % | 0.44 -> 0.44 | 0.67 -> 0.64 | 0.88 -> 0.87 | 0.53 -> 0.53 |
+| WAu0008 | 1.51 -> 1.01 | 2.35 -> 1.72 | 2.98 -> 2.36 | 1.73 -> 1.22 |
+| WAu0012 | 0.95 -> 0.69 | 1.48 -> 1.14 | 1.86 -> 1.50 | 1.11 -> 0.83 |
+
+(The 'mid' and 'dense' columns chain two runs: 3f7a549 -> lz4/twopass/
+prefetch, then -> staging.)
+
 ## To do (2026-10-04)
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype

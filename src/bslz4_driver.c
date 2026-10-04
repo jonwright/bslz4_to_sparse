@@ -105,8 +105,10 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
 #define BSLZ4_EXTRACT_RATIO 24
 #endif
 
-#ifndef BSLZ4_FUSED_KSKIP
-#define BSLZ4_FUSED_KSKIP 1
+#ifndef BSLZ4_FUSED_TWOPASS
+/* 1: the fused collect takes two passes (record all groups, then emit those
+ * with pixels by bit scan); 0: one pass, skipping groups with no pixel */
+#define BSLZ4_FUSED_TWOPASS 1
 #endif
 
 #ifndef BSLZ4_LOWPLANES_FUSED
@@ -376,12 +378,37 @@ static int bslz4_lowplanes_u16_capable(void) {
  * cut < 255 (nothing in these blocks exceeds 255).  Full-width stores reach
  * at most 64 entries past this block's count, so they stay below
  * i0 + j + 64 <= i0 + ne (see bslz4_collect_avx512cs_u16). */
-__attribute__((target("avx512f,avx512bw,avx512vl,avx512vbmi,avx512vbmi2,gfni,popcnt")))
-static int bslz4_lowplanes_collect_u16(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
+/* Emit one 64-pixel group: the k-selected bytes of u (widened to u16) and
+ * their pixel indices (base + lane), full-width stores, branch-free.
+ * Returns the new count. */
+__attribute__((target("avx512f,avx512bw,avx512vl,avx512vbmi2,popcnt")))
+static inline int bslz4_lowplanes_emit(__m512i u, __mmask64 k, size_t base_px, int npx,
+                                       uint16_t *BSLZ4_RESTRICT out_vals,
+                                       uint32_t *BSLZ4_RESTRICT out_adr) {
+    const __m512i iota = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    const __m512i c = _mm512_maskz_compress_epi8(k, u);
+    _mm512_storeu_si512((void *) (out_vals + npx), _mm512_cvtepu8_epi16(_mm512_castsi512_si256(c)));
+    _mm512_storeu_si512((void *) (out_vals + npx + 32),
+                        _mm512_cvtepu8_epi16(_mm512_extracti64x4_epi64(c, 1)));
+    const __m512i sixteen = _mm512_set1_epi32(16);
+    __m512i ix = _mm512_add_epi32(_mm512_set1_epi32((int) base_px), iota);
+    int at = npx;
+    for (int q = 0; q < 4; q++) {
+        const __mmask16 mq = (__mmask16) (k >> (16 * q));
+        _mm512_storeu_si512((void *) (out_adr + at), _mm512_maskz_compress_epi32(mq, ix));
+        at += __builtin_popcount((unsigned) mq);
+        ix = _mm512_add_epi32(ix, sixteen);
+    }
+    return at;
+}
+
+__attribute__((target("avx512f,avx512bw,avx512vl,avx512vbmi,avx512vbmi2,gfni,popcnt"), always_inline))
+static inline int bslz4_lowplanes_collect_body(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
                                        const uint8_t *BSLZ4_RESTRICT zeros,
                                        const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
                                        uint16_t *BSLZ4_RESTRICT out_vals,
-                                       uint32_t *BSLZ4_RESTRICT out_adr) {
+                                       uint32_t *BSLZ4_RESTRICT out_adr,
+                                       const int twopass) {
     const size_t size = ne / 8;                 /* bytes per plane; a multiple of 8 */
     if (nz_end > ne) nz_end = ne;               /* planes 8..15 are zero (checked by the caller) */
     const size_t np = (nz_end + size - 1) / size;
@@ -393,8 +420,17 @@ static int bslz4_lowplanes_collect_u16(uint8_t *BSLZ4_RESTRICT raw, size_t ne, s
                                        0x0109111941495159, 0x0008101840485058);
     const __m512i I8 = _mm512_set1_epi64(0x8040201008040201);
     const __m512i vcut = _mm512_set1_epi8((char) cut);
-    const __m512i iota = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
     int npx = 0;
+    /* Two passes: at cut 0 on photon noise the groups holding a pixel are
+     * many and scattered, so a branch per group mispredicts.  Pass 1 records
+     * every group's bytes and selection, pass 2 emits only the groups with
+     * pixels, found by bit scan (one mispredict per block).  One pass,
+     * skipping empty groups, is ~4 % faster at cut 2 but ~30 % slower at
+     * cut 0; choosing per block from the previous block's hit rate kept
+     * neither (WAu, 2026-10-04). */
+    _Alignas(64) uint8_t ubuf[8192];
+    __mmask64 kv[128];
+    uint64_t gm[2] = {0, 0};
     for (size_t i = 0; i < size; i += 8) {
         int64_t a1, a3, a5, a7;
         memcpy(&a1, pl[1] + i, 8);
@@ -414,28 +450,35 @@ static int bslz4_lowplanes_collect_u16(uint8_t *BSLZ4_RESTRICT raw, size_t ne, s
             const __m512i m = _mm512_loadu_si512((const void *) (mask + i0 + 8 * i));
             k &= _mm512_test_epi8_mask(m, m);
         }
-#if BSLZ4_FUSED_KSKIP
-        if (!k) continue;
-#endif
-        /* branch-free below: at cut 0 on noise frames which groups and
-         * which 16-lane quarters hold pixels is unpredictable */
-        const __m512i c = _mm512_maskz_compress_epi8(k, u);
-        _mm512_storeu_si512((void *) (out_vals + npx), _mm512_cvtepu8_epi16(_mm512_castsi512_si256(c)));
-        _mm512_storeu_si512((void *) (out_vals + npx + 32),
-                            _mm512_cvtepu8_epi16(_mm512_extracti64x4_epi64(c, 1)));
-        const __m512i base = _mm512_add_epi32(_mm512_set1_epi32((int) (i0 + 8 * i)), iota);
-        const __m512i sixteen = _mm512_set1_epi32(16);
-        int at = npx;
-        __m512i ix = base;
-        for (int q = 0; q < 4; q++) {
-            const __mmask16 mq = (__mmask16) (k >> (16 * q));
-            _mm512_storeu_si512((void *) (out_adr + at), _mm512_maskz_compress_epi32(mq, ix));
-            at += __builtin_popcount((unsigned) mq);
-            ix = _mm512_add_epi32(ix, sixteen);
+        if (twopass) {                  /* record only: no data-dependent branch */
+            _mm512_store_si512((void *) (ubuf + 8 * i), u);
+            kv[i / 8] = k;
+            gm[i / 512] |= (uint64_t) (k != 0) << ((i / 8) & 63);
+            continue;
         }
-        npx = at;
+        if (!k) continue;
+        npx = bslz4_lowplanes_emit(u, k, i0 + 8 * i, npx, out_vals, out_adr);
+    }
+    for (int w = 0; w < 2 && twopass; w++) {
+        uint64_t bits = gm[w];
+        while (bits) {
+            const size_t g = (size_t) (64 * w + bslz4_ctz64(bits));
+            bits &= bits - 1;
+            npx = bslz4_lowplanes_emit(_mm512_load_si512((const void *) (ubuf + 64 * g)), kv[g],
+                                       i0 + 64 * g, npx, out_vals, out_adr);
+        }
     }
     return npx;
+}
+
+__attribute__((target("avx512f,avx512bw,avx512vl,avx512vbmi,avx512vbmi2,gfni,popcnt")))
+static int bslz4_lowplanes_collect_u16(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
+                                       const uint8_t *BSLZ4_RESTRICT zeros,
+                                       const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
+                                       uint16_t *BSLZ4_RESTRICT out_vals,
+                                       uint32_t *BSLZ4_RESTRICT out_adr) {
+    return bslz4_lowplanes_collect_body(raw, ne, nz_end, zeros, mask, i0, cut, out_vals, out_adr,
+                                        BSLZ4_FUSED_TWOPASS);
 }
 
 static const uint8_t bslz4_zero_plane[1024];      /* planes of up to 8192 pixels */
