@@ -368,6 +368,9 @@ def main():
                     help="comma list, or 'all' for every available dot")
     ap.add_argument("--frames", type=int, default=100, help="frames timed (default 100)")
     ap.add_argument("--batch", type=int, default=BATCH, help="frames per decode call (default 25)")
+    ap.add_argument("--frames-suffix", default="",
+                    help="read frames_<det>_<centre><suffix>.h5 from the cache instead of the "
+                         "generated LaB6 frames (e.g. _dense, _sparse)")
     ap.add_argument("--cpu", type=int, default=7)
     ap.add_argument("--out", default=os.path.join(REPO, "examples", "dot_suite.jsonl"))
     a = ap.parse_args()
@@ -387,7 +390,10 @@ def main():
         for centre in a.centre.split(","):
             ai = make_ai(det, centre)
             valid = np.ascontiguousarray((1 - ai.detector.mask).astype(np.uint8))
-            fname = frames_file(det, centre, ai)
+            if a.frames_suffix:
+                fname = os.path.join(CACHE, "frames_%s_%s%s.h5" % (det, centre, a.frames_suffix))
+            else:
+                fname = frames_file(det, centre, ai)
             chunks, f0 = load_chunks(fname)
             chunks = chunks[:a.frames]
             comp = sum(len(c) for c in chunks) / len(chunks)
@@ -453,7 +459,7 @@ def main():
                         fh.write(json.dumps({
                             "date_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                             "machine": mach, "pinned_cpu": a.cpu, "detector": det, "centre": centre,
-                            "case": name, "route": route, "nframes": len(chunks), "batch": BATCH,
+                            "case": name, "frames": os.path.basename(fname), "route": route, "nframes": len(chunks), "batch": BATCH,
                             "kb_per_frame": comp / 1e3, "nonzero_frac": nzf,
                             "structure": stats[name], "ms_per_frame": tr}) + "\n")
                 for note in notes:

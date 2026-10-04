@@ -489,6 +489,27 @@ Measured against the build before each, real and synthetic frames:
 23.0 -> 18.9; 9 % sparsify 6.29 -> 5.53, 1D bbox x1 13.9 -> 12.4, 1D bbox x5
 20.5 -> 18.6; 0.1 % frames +2..+10 % (two-pass), all within 0.1 ms.
 
+## Dense frames (94 % non-zero): layout ranking (2026-10-04, d20b557)
+
+tools/bench_suite.py --frames-suffix _dense, beam mid, all core dots, best
+of the forced-dense and default routes (they differ by a few %), ms/frame,
+one core.  Top layouts vs csc:
+
+| case | 4M csc | 4M best | 16M csc | 16M best |
+|---|---|---|---|---|
+| 1D no x1 | 7.12 | bsb-csr-nosplit 4.67, csc-nosplit 4.81 | 28.0 | csc-nosplit 18.7 |
+| 1D bbox x1 | 10.0 | csc-run 8.89 (int16 8.74) | 39.6 | csc-run 35.1 (int16 34.5) |
+| 1D bbox x5 | 20.4 | csc-run 16.9 (int16 16.5) | 81.1 | csc-run 67.1 (int16 65.8) |
+| 2D no | 10.4 | csc-nosplit-dump 7.20, csc-nosplit 7.35 | 39.4 | csc-nosplit 26.7 |
+| 2D bbox | 14.5 | csc (nothing faster) | 56.9 | csc |
+| fazit | 27.7 | csc-permute 8.19 | 112 | csc-permute 32.8 |
+| rings | 4.79 | bsb-csr 2.19, padded-sse2 2.66 | 18.9 | bsb-csr 8.01 |
+| rings no | 4.67 | bsb-csr-nosplit 2.10 | 18.8 | bsb-csr-nosplit 7.71 |
+| rings+mom inter | 4.88 | bsb-csr 2.51, padded-sse2 2.56 | 19.3 | bsb-csr 9.11 |
+
+The int/int16 weights (fixed point) buy only 1-2 % over csc-run.  Floor
+for comparison: sparsify alone on these frames 1.8 ms (4M).
+
 ## To do (2026-10-04)
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype
