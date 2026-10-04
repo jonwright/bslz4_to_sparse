@@ -529,6 +529,40 @@ rounds, one core (EPYC 9454).  Results in
   build-to-build differences are of the same kind as the lz4 alignment
   effect (where the hot loops land), not missed optimisation.
 
+## Compilers across machines (2026-10-04, tools/compiler_suite.py compare)
+
+Same six builds on each host (p9: gcc 11.4, clang 10, zig; no zig-pgo);
+all pass the tests.  Geometric mean vs gcc on that host:
+
+| host | CPU | gcc-pgo | clang | clang-pgo | zig | zig-pgo | spread |
+|---|---|---|---|---|---|---|---|
+| hpc5-0303 | Xeon Gold 6248 (CLX: AVX-512, no VBMI/GFNI) | 1.060 | 1.008 | 0.977 | 0.996 | 0.972 | 6.8 % |
+| hpc6-05 | EPYC 7543 (Zen 3, no AVX-512) | 1.038 | 0.989 | 0.986 | 0.996 | 0.973 | 4.6 % |
+| hpc7-01 | EPYC 9454 (Zen 4) | 1.001 | 0.997 | 1.023 | 0.996 | 0.985 | 6.9 % |
+| hpc8-61 | EPYC 9655 (Zen 5) | 0.972 | 0.997 | 0.970 | 0.986 | 0.974 | 8.7 % |
+| p9-02 | POWER9 | 0.736 | 0.821 | 0.812 | 0.880 | - | 30.1 % |
+
+Fastest build, ms/frame:
+
+| case | hpc5 | hpc6 | hpc7 | hpc8 | p9 |
+|---|---|---|---|---|---|
+| WAu0012 sparsify cut 0 | 1.99 | 2.03 | 0.64 | 0.48 | 8.74 |
+| WAu0012 1D bbox csc | 2.62 | 2.53 | 1.12 | 0.93 | 9.20 |
+| WAu0008 2D bbox csc | 5.82 | 4.10 | 2.36 | 1.71 | 13.3 |
+| mid 9 % sparsify cut 0 | 5.84 | 4.37 | 1.62 | 1.31 | 18.4 |
+| dense sparsify cut 0 | 7.61 | 5.97 | 1.84 | 1.45 | 16.2 |
+| dense 1D bbox csc-run | 21.5 | 15.1 | 8.91 | 6.43 | 37.5 |
+| sparse 0.1 % sparsify | 1.45 | 1.65 | 0.44 | 0.32 | 8.37 |
+
+- On x86 the compiler is worth <= 3 % overall: the code, not the compiler.
+- The CPU features are worth 2.5-4x: hpc5/hpc6 lack AVX-512 VBMI + GFNI,
+  so the fused low-planes collect, the GFNI transpose and the avx512cs
+  collect all fall back; those fallback paths are also the most compiler
+  sensitive (zig-pgo/clang-pgo up to 10-16 % faster than gcc there).
+- POWER9: 4-20x slower than Zen 4, and 30 % between builds: the generic C
+  paths there depend on the compiler vectorising them.  Even 0.1 % frames
+  take 8 ms, so a fixed per-block cost dominates -- needs a profile on p9.
+
 ## To do (2026-10-04)
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype

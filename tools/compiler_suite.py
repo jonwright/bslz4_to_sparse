@@ -158,7 +158,7 @@ def variant_plan(variant, tc):
         return fam, pgo, t["why_not"]
     if pgo and fam in ("clang", "zig") and not t.get("profdata"):
         return fam, pgo, "no llvm-profdata matching %s" % _version(t["cc"])
-    if pgo and fam == "zig" and not t.get("prof_rt"):
+    if pgo and fam == "zig" and (not t.get("prof_rt") or platform.machine() != "x86_64"):
         return fam, pgo, "no LLVM profile runtime for zig (x86_64 only, see TOOLS)"
     return fam, pgo, None
 
