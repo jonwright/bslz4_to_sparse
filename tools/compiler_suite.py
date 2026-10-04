@@ -20,14 +20,16 @@ same disk each keep their own results:
   test_<variant>.log                pytest output per build
   bench.jsonl, summary.txt          timings (one JSON line per case/build/round)
 
-Usage (one line, from any machine that sees this repo and the data):
+Usage (one line, from any machine that sees this repo and the data; the
+launcher picks the jupyter-slurm python of the machine's architecture from
+cvmfs -- x86_64 2025.04.6, ppc64le 2023.10.11 -- no module load needed):
 
-  module load jupyter-slurm && python3 tools/compiler_suite.py all
+  sh /home/esrf/wright/git/bslz4_to_sparse_llm/tools/compiler_suite.sh all
 
-  python3 tools/compiler_suite.py build   [--variants gcc,clang-pgo,...]
-  python3 tools/compiler_suite.py test
-  python3 tools/compiler_suite.py bench   [--rounds 3] [--secs 1.0] [--cpu N]
-  python3 tools/compiler_suite.py summary
+  sh tools/compiler_suite.sh build   [--variants gcc,clang-pgo,...]
+  sh tools/compiler_suite.sh test
+  sh tools/compiler_suite.sh bench   [--rounds 3] [--secs 1.0] [--cpu N]
+  sh tools/compiler_suite.sh summary
 
 Data: $BSLZ4_SUITE_DATA (default /tmp_14_days/wright/bslz4_bench_shared, see
 its README.txt).  Tools: $BSLZ4_SUITE_TOOLS (default /tmp_14_days/wright/
