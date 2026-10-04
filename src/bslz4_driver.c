@@ -683,7 +683,8 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         if (block_elems / 8 <= sizeof(bslz4_zero_plane) && bslz4_lowplanes_collect_capable())
             fused = 1;
 #if BSLZ4_BYTESKIP_GENERIC && BSLZ4_FUSED_U8
-        else if (c2py_amd64_avx2 && bslz4_available_avx2cs_collect() && block_elems <= 8192)
+        else if (c2py_amd64_avx2 && bslz4_available_avx2cs_collect() && block_elems <= 8192 &&
+                 (BSLZ4_FUSED_U8 != 2 || block_elems % 256 == 0))
             fused = 2;
 #endif
     }
