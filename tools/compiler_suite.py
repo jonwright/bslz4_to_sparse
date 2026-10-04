@@ -402,6 +402,64 @@ def summary():
     print(text)
 
 
+def compare(hosts=None):
+    """All hosts under SUITE side by side: per host the CPU, the geometric
+    mean of each build vs gcc, noise and spread; per case the gcc time on
+    each host and which build was fastest there."""
+    dirs = sorted(d for d in glob.glob(os.path.join(SUITE, "*"))
+                  if os.path.exists(os.path.join(d, "bench.jsonl")))
+    if hosts:
+        dirs = [d for d in dirs if any(h in os.path.basename(d) for h in hosts)]
+    data, cpu, complete = {}, {}, {}
+    for d in dirs:
+        h = os.path.basename(d)
+        rows = [json.loads(l) for l in open(os.path.join(d, "bench.jsonl"))]
+        try:
+            m = json.load(open(os.path.join(d, "machine.json")))
+            cpu[h] = m.get("cpu_model_name") or m.get("cpu_cpu") or "?"
+        except Exception:
+            cpu[h] = "?"
+        nv = len(set(r["variant"] for r in rows))
+        complete[h] = "%d builds, %d/%d rows" % (nv, len(rows), nv * 3 * len(DATASETS) * len(CASES))
+        best = {}
+        for r in rows:
+            k = (r["dataset"], r["case"], r["variant"])
+            best[k] = min(best.get(k, 1e99), r["ms"])
+        data[h] = best
+    lines = ["hosts (ms/frame = min over rounds; ratios < 1 are faster than gcc on that host)", ""]
+    for h in data:
+        b = data[h]
+        keys = set((k[0], k[1]) for k in b)
+        g = []
+        for v in ALL_VARIANTS[1:]:
+            r = [b[k + (v,)] / b[k + ("gcc",)] for k in keys if k + (v,) in b and k + ("gcc",) in b]
+            g.append("%s %.3f" % (v, _gmean(r)) if r else "%s -" % v)
+        lines.append("%-24s %-45s %s" % (h, cpu[h][:45], complete[h]))
+        lines.append("%24s geomean vs gcc: %s" % ("", "  ".join(g)))
+    lines.append("")
+    hs = list(data)
+    lines.append("%-8s %-20s" % ("data", "case") + "".join("%22s" % h[:21] for h in hs))
+    lines.append("%-29s" % "" + "".join("%22s" % "gcc ms  best build" for h in hs))
+    for ds in DATASETS:
+        for c in CASES:
+            k = (ds, c[0])
+            cells = []
+            for h in hs:
+                b = data[h]
+                vals = {v: b[k + (v,)] for v in ALL_VARIANTS if k + (v,) in b}
+                if not vals:
+                    cells.append("%22s" % "-")
+                    continue
+                bv = min(vals, key=vals.get)
+                g = vals.get("gcc")
+                cells.append("%22s" % ("%s %s %+.0f%%" % ("%.3f" % g if g else "-", bv,
+                                                           100 * (vals[bv] / g - 1) if g else 0)))
+            lines.append("%-8s %-20s" % k + "".join(cells))
+    text = "\n".join(lines)
+    open(os.path.join(SUITE, "compare.txt"), "w").write(text + "\n")
+    print(text)
+
+
 def _gmean(x):
     import math
     return math.exp(sum(math.log(a) for a in x) / len(x)) if x else float("nan")
@@ -442,7 +500,7 @@ def write_machine():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("cmd", choices=["all", "build", "test", "bench", "summary", "_child"])
+    ap.add_argument("cmd", choices=["all", "build", "test", "bench", "summary", "compare", "_child"])
     ap.add_argument("lib", nargs="?", help=argparse.SUPPRESS)
     ap.add_argument("--variants", default=",".join(ALL_VARIANTS))
     ap.add_argument("--rounds", type=int, default=3)
@@ -455,6 +513,9 @@ def main():
     cpu = a.cpu if a.cpu is not None else max(os.sched_getaffinity(0))
     if a.cmd == "_child":
         child(a.lib, a.secs, cpu, a.round, a.variant, a.out)
+        return
+    if a.cmd == "compare":
+        compare([h for h in a.variants.split(",") if h] if a.variants != ",".join(ALL_VARIANTS) else None)
         return
     print("bslz4_to_sparse compiler suite: %s -> %s (data %s)" % (HOST, OUT, DATA))
     try:
