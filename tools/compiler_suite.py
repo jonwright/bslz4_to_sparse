@@ -414,6 +414,32 @@ def _median(x):
 
 # ------------------------------------------------------------------ main
 
+def write_machine():
+    """OUT/machine.json: what the host name does not say (CPU model etc.)."""
+    m = {"host": HOST, "node": platform.node(), "machine": platform.machine(),
+         "kernel": platform.release(), "python": platform.python_version(),
+         "ncpu": os.cpu_count(), "date_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    try:
+        info = open("/proc/cpuinfo").read().splitlines()
+        for key in ("model name", "cpu", "machine", "flags"):
+            for line in info:
+                if line.split(":")[0].strip() == key:
+                    v = line.split(":", 1)[1].strip()
+                    m["cpu_" + key.replace(" ", "_")] = v if key != "flags" else \
+                        " ".join(f for f in v.split() if f.startswith(("avx", "gfni", "vbmi", "sse4")))
+                    break
+    except OSError:
+        pass
+    try:
+        m["lscpu"] = subprocess.check_output(["lscpu"], stderr=subprocess.DEVNULL).decode()
+    except Exception:
+        pass
+    os.makedirs(OUT, exist_ok=True)
+    with open(os.path.join(OUT, "machine.json"), "w") as fh:
+        json.dump(m, fh, indent=1)
+    return m
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("cmd", choices=["all", "build", "test", "bench", "summary", "_child"])
@@ -431,6 +457,11 @@ def main():
         child(a.lib, a.secs, cpu, a.round, a.variant, a.out)
         return
     print("bslz4_to_sparse compiler suite: %s -> %s (data %s)" % (HOST, OUT, DATA))
+    try:
+        m = write_machine()
+        print("cpu: %s" % (m.get("cpu_model_name") or m.get("cpu_cpu") or m.get("machine")))
+    except Exception as e:                      # never stop a run over this
+        print("machine.json not written: %s" % e)
     wanted = [v for v in a.variants.split(",") if v]
     if a.cmd in ("all", "build"):
         build(wanted)
