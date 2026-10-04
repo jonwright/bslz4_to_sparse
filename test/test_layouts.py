@@ -58,6 +58,32 @@ def make_split_1d(npix, nbins, seed):
                           indptr.astype(np.int32)), shape=(nbins, npix))
 
 
+def make_nosplit(npix, nbins, seed):
+    """A histogram (pyFAI split='no'): each pixel reaches at most one bin,
+    weight exactly 1 (csc-nosplit can represent it)."""
+    rng = np.random.default_rng(seed)
+    n = (rng.random(npix) > 0.1).astype(np.int64)
+    indptr = np.concatenate(([0], np.cumsum(n)))
+    indices = rng.integers(0, nbins, int(n.sum()))
+    return sp.csc_matrix((np.ones(int(n.sum()), np.float32), indices.astype(np.int32),
+                          indptr.astype(np.int32)), shape=(nbins, npix))
+
+
+def make_nosplit_moment(npix, nbins, seed):
+    """A histogram with a first moment: each pixel reaches no bin or the pair
+    (2k, 2k+1) with weights 1 (sum I) and its q (sum qI)."""
+    rng = np.random.default_rng(seed)
+    has = rng.random(npix) > 0.1
+    n = np.where(has, 2, 0)
+    k = rng.integers(0, nbins // 2, npix)
+    q = rng.uniform(1.0, 30.0, npix).astype(np.float32)
+    indptr = np.concatenate(([0], np.cumsum(n)))
+    indices = np.stack([2 * k, 2 * k + 1], axis=1)[has].ravel()
+    data = np.stack([np.ones(npix, np.float32), q], axis=1)[has].ravel()
+    return sp.csc_matrix((data, indices.astype(np.int32), indptr.astype(np.int32)),
+                         shape=(nbins, npix))
+
+
 def make_general(npix, nbins, seed):
     """Pixels reach arbitrary bins (padded must refuse it)."""
     rng = np.random.default_rng(seed)
@@ -79,8 +105,24 @@ def reference(M, frames, mask):
     return np.array([M @ (f.ravel().astype(np.float64) * keep) for f in frames])
 
 
+def expected(integ, frames, ref):
+    """(reference powder, relative tolerance) for this integrator's dot.  The
+    fixed-point dots sum exact integers, so they are checked against numpy
+    with the same rounded weights; csc-run-moment multiplies by q itself
+    instead of using the stored float32 w*q, so it agrees to ~1e-7."""
+    v = getattr(integ, "variant", None)
+    if v is not None and v.scale is not None:
+        nm = integ._nm
+        Mq = sp.csc_matrix((v.data.astype(np.float64) * v.scale, nm.indices, nm.indptr),
+                           shape=nm.shape)
+        return np.array([Mq @ f.ravel().astype(np.float64) for f in frames]), 1e-12
+    if integ.dot == "csc-run-moment":
+        return ref, 1e-6
+    return ref, 1e-9
+
+
 def run_all_dots(mask, M, frames, chunks, codec, dt):
-    """Yield (dot, route, powder, npx, adr) for every dot that accepts M."""
+    """Yield (dot, route, powder, npx, adr, integ) for every dot that accepts M."""
     saved = b.get_dense_sparse_threshold()
     try:
         for dot in b.available_dots():
@@ -91,13 +133,13 @@ def run_all_dots(mask, M, frames, chunks, codec, dt):
                 except ValueError:      # padded refusing a general matrix
                     continue
                 npx, (_v, adr), p = integ(chunks, 0)
-                yield dot, route, p.copy(), npx.copy(), adr.copy()
+                yield dot, route, p.copy(), npx.copy(), adr.copy(), integ
     finally:
         b.set_dense_sparse_threshold(saved)
 
 
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32, np.int32, np.float32])
-@pytest.mark.parametrize("kind", ["split1d", "general"])
+@pytest.mark.parametrize("kind", ["split1d", "general", "nosplit", "moment"])
 def test_every_dot_matches_numpy_with_masked_big_values(tmp_path, dt, kind):
     shape = (61, 83)                              # 5063 px: a raw tail for every dtype
     npix = shape[0] * shape[1]
@@ -106,16 +148,31 @@ def test_every_dot_matches_numpy_with_masked_big_values(tmp_path, dt, kind):
     frames = rng.poisson(0.8, (3,) + shape).astype(dt)
     frames[:, mask == 0] = big_value(dt)          # must never reach the powder
     chunks, codec = write_chunks(tmp_path / "f.h5", frames)
-    M = make_split_1d(npix, 200, 4) if kind == "split1d" else make_general(npix, 300, 5)
+    M = {"split1d": lambda: make_split_1d(npix, 200, 4),
+         "general": lambda: make_general(npix, 300, 5),
+         "nosplit": lambda: make_nosplit(npix, 250, 8),
+         "moment": lambda: make_nosplit_moment(npix, 240, 9)}[kind]()
     ref = reference(M, frames, mask)
     seen = set()
-    for dot, route, p, _npx, _adr in run_all_dots(mask, M, frames, chunks, codec, dt):
+    keep = (mask > 0)
+    for dot, route, p, _npx, _adr, integ in run_all_dots(mask, M, frames, chunks, codec, dt):
         seen.add(dot)
-        err = np.abs(p - ref).max() / max(np.abs(ref).max(), 1.0)
-        assert err < 1e-9, (dot, route, err)
+        r, tol = expected(integ, frames * keep, ref)
+        err = np.abs(p - r).max() / max(np.abs(r).max(), 1.0)
+        assert err < tol, (dot, route, err)
     assert "bsb-csr" in seen and "csc" in seen
     if kind == "split1d":
-        assert "padded" in seen
+        assert "padded" in seen and "csc-run" in seen
+        assert "csc-nosplit" not in seen
+    if kind == "general":
+        assert "csc-run" not in seen and "csc-nosplit" not in seen
+    if kind == "nosplit":
+        assert "csc-run" in seen and "csc-nosplit" in seen and "bsb-csr-nosplit" in seen
+    else:
+        assert "bsb-csr-nosplit" not in seen
+    assert ("csc-nosplit-moment" in seen) == (kind == "moment")
+    if kind == "moment":
+        assert "csc-run" in seen and "csc-nosplit" not in seen
 
 
 def test_whole_number_of_blocks(tmp_path):
@@ -129,8 +186,9 @@ def test_whole_number_of_blocks(tmp_path):
     mask = np.ones(shape, np.uint8)
     M = make_split_1d(npix, 150, 7)
     ref = reference(M, frames, mask)
-    for dot, route, p, _npx, _adr in run_all_dots(mask, M, frames, chunks, codec, np.uint16):
-        assert np.abs(p - ref).max() < 1e-9 * max(np.abs(ref).max(), 1.0), (dot, route)
+    for dot, route, p, _npx, _adr, integ in run_all_dots(mask, M, frames, chunks, codec, np.uint16):
+        r, tol = expected(integ, frames, ref)
+        assert np.abs(p - r).max() < tol * max(np.abs(r).max(), 1.0), (dot, route)
     integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, dot="bsb-csr")
     assert len(integ.bsb_csr.blk_ptr) == npix // integ.bsb_csr.block_elems + 1
 
@@ -143,7 +201,10 @@ def test_frame_smaller_than_mask_is_an_error(tmp_path):
     mask = np.ones((1, npix), np.uint8)
     M = make_split_1d(npix, 150, 8)
     for dot in b.available_dots():
-        integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec, dot=dot)
+        try:
+            integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec, dot=dot)
+        except ValueError:      # a dot that cannot represent M (csc-nosplit)
+            continue
         with pytest.raises(Exception, match="-110"):
             integ(chunks, 0)
     with pytest.raises(Exception, match="-110"):
@@ -161,7 +222,7 @@ def test_intensity_preserved(tmp_path, masked):
     chunks, codec = write_chunks(tmp_path / "i.h5", frames)
     M = make_split_1d(npix, 200, 10)
     total = np.array([f[mask > 0].sum() for f in frames], np.float64)
-    for dot, route, p, _npx, _adr in run_all_dots(mask, M, frames, chunks, codec, np.uint16):
+    for dot, route, p, _npx, _adr, _integ in run_all_dots(mask, M, frames, chunks, codec, np.uint16):
         rel = np.abs(p.sum(axis=1) / total - 1).max()
         assert rel < 1e-6, (dot, route, rel)      # float32 weights sum to 1 +- 6e-8
 

@@ -44,6 +44,27 @@ static const bslz4_dot_desc bslz4_dots[] = {
     /* 4 padded-avx2  */ {BSLZ4_LAYOUT_PADDED, 0x3FFu, 8, bslz4_available_avx2_padded},
     /* 5 padd-avx512  */ {BSLZ4_LAYOUT_PADDED, 0x3FFu, 8, bslz4_available_avx512_padded},
     /* 6 bsb-csr      */ {BSLZ4_LAYOUT_BSBCSR, 0x3FFu, 8, bslz4_dot_always},
+    /* 7 csc-run      */ {BSLZ4_LAYOUT_CSC,    0x3FFu, 8, bslz4_dot_always},  /* start + length */
+    /* 8 csc-nosplit  */ {BSLZ4_LAYOUT_CSC,    0x3FFu, 8, bslz4_dot_always},  /* one bin, weight 1 */
+    /* 9 bsb-csr-nosplit */ {BSLZ4_LAYOUT_BSBCSR, 0x3FFu, 8, bslz4_dot_always},  /* weight 1 */
+    /* 10 csc-nosplit-moment */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 8, bslz4_dot_always},  /* bins b, b+1: 1, q */
+    /* Experimental CSC-entry dots (bslz4_csc_variants.hpp); 20-22 are
+     * integer weights with an int64 powder, integer pixels only. */
+    /* 11 csc-nosplit-dump         */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 8, bslz4_dot_always},
+    /* 12 csc-nosplit-moment-dump  */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 8, bslz4_dot_always},
+    /* 13 csc-run-u16              */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 8, bslz4_dot_always},
+    /* 14 csc-nosplit-u16          */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 8, bslz4_dot_always},
+    /* 15 csc-run-delta            */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 8, bslz4_dot_always},
+    /* 16 csc-nosplit-delta        */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 8, bslz4_dot_always},
+    /* 17 csc-nosplit-walk         */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 8, bslz4_dot_always},
+    /* 18 csc-tile                 */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 8, bslz4_dot_always},
+    /* 19 csc-run-moment           */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 8, bslz4_dot_always},
+    /* 20 csc-int                  */ {BSLZ4_LAYOUT_CSC, 0x0FFu, 8, bslz4_dot_always},
+    /* 21 csc-run-int              */ {BSLZ4_LAYOUT_CSC, 0x0FFu, 8, bslz4_dot_always},
+    /* 22 csc-run-int16            */ {BSLZ4_LAYOUT_CSC, 0x0FFu, 8, bslz4_dot_always},
+    /* out_size 0: the output element is the pixel dtype (a packed output) */
+    /* 23 csc-permute              */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 0, bslz4_dot_always},
+    /* 24 csc-permute-runs         */ {BSLZ4_LAYOUT_CSC, 0x3FFu, 0, bslz4_dot_always},
 };
 
 static int bslz4_dot_count(void) {
@@ -53,6 +74,11 @@ static int bslz4_dot_count(void) {
 int bslz4_dot_layout(int id) {
     if (id < 0 || id >= bslz4_dot_count()) return -1;
     return bslz4_dots[id].layout;
+}
+
+/* 1 if the dot's `indices` is a byte stream with a header (bslz4_csc_variants.hpp) */
+int bslz4_dot_stream(int id) {
+    return id == 15 || id == 16 || id == 17 || id == 18 || id == 24;
 }
 
 int bslz4_dot_out_size(int id) {
@@ -80,6 +106,7 @@ int bslz4_impl_available(int stage, int id) {
         case 3: return bslz4_available_sse2_collect() ? 1 : 0;
         case 4: return bslz4_available_vsx_collect() ? 1 : 0;
         case 5: return bslz4_available_neon_collect() ? 1 : 0;
+        case 6: return bslz4_available_avx512cs_collect() ? 1 : 0;   /* compress-store */
         default: return -1;
         }
     case BSLZ4_STAGE_DOT:
@@ -106,7 +133,9 @@ static uint32_t dot_dtype_mask(int id) {
 /* Known options bits.  Only the reserved DROP_NEGATIVES flag exists; it is
  * not yet implemented, so requesting it is currently rejected. */
 static int options_ok(uint16_t options) {
-    return (options & (uint16_t) ~(BSLZ4_OPT_DROP_NEGATIVES | BSLZ4_OPT_NO_MASK)) == 0;
+    return (options & (uint16_t) ~(BSLZ4_OPT_DROP_NEGATIVES | BSLZ4_OPT_NO_MASK |
+                                   BSLZ4_OPT_BYTESKIP | BSLZ4_OPT_PLANE_EXTRACT |
+                                   BSLZ4_OPT_LZ4_ZERO)) == 0;
 }
 
 static bslz4_untranspose_fn untranspose_by_id(int id) {

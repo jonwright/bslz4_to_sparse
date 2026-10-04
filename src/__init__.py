@@ -3,13 +3,16 @@ import os
 import struct
 import numpy as np
 from .c2py_loader import load_native
+from . import _csc_variants
 
 _ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse")
 
 version = "0.0.21a1"
 
 # The general/documented public API.  Expert tuning knobs (available_backends,
-# set_backend, set_dense_sparse_threshold, get_dense_sparse_threshold),
+# set_backend, set_dense_sparse_threshold, get_dense_sparse_threshold,
+# set_byteskip, get_byteskip, set_plane_extract, get_plane_extract,
+# set_lz4_zero, get_lz4_zero),
 # test/introspection helpers and the internal decode helpers are all still
 # importable directly, but are deliberately not part of `import *`.
 __all__ = [
@@ -49,14 +52,26 @@ _STAGE_DECOMPRESS, _STAGE_UNTRANSPOSE, _STAGE_COLLECT, _STAGE_DOT = 0, 1, 2, 3
 _SUFFIX_TO_DTYPE = {"u8": 0, "u16": 1, "u32": 2, "u64": 3, "i8": 4, "i16": 5,
                     "i32": 6, "i64": 7, "f32": 8, "f64": 9}
 _BACKEND_TO_ID = {"kcb": 0, "sse": 1, "neon": 2, "scal": 3}
-_COLLECT_ID_TO_NAME = {0: "scalar", 1: "avx512", 2: "avx2", 3: "sse2", 4: "vsx", 5: "neon"}
+_COLLECT_ID_TO_NAME = {0: "scalar", 1: "avx512", 2: "avx2", 3: "sse2", 4: "vsx", 5: "neon",
+                       6: "avx512cs"}
 
 # Pipeline option bits (bslz4_common.h).  NO_MASK: every pixel is valid (e.g.
 # the data was zeroed at collection), so the kernels skip the mask entirely.
 _OPT_NO_MASK = 1 << 1
+# The untranspose byte skip (bslz4_common.h BSLZ4_OPT_BYTESKIP); on by
+# default, set by set_byteskip().
+_OPT_BYTESKIP = 1 << 2
+# Plane extraction for the plain u8/u16/u32 sparsify (bslz4_common.h
+# BSLZ4_OPT_PLANE_EXTRACT); on by default, set by set_plane_extract().
+_OPT_PLANE_EXTRACT = 1 << 3
+# The zero-aware lz4 block decoder (bslz4_common.h BSLZ4_OPT_LZ4_ZERO); on by
+# default, set by set_lz4_zero().
+_OPT_LZ4_ZERO = 1 << 4
 
 # Dot implementations (mirrors bslz4_registry.c bslz4_dots[]): id -> (name,
-# layout).  Layout is a string: "csc", "padded" or "bsb-csr".  New schemes
+# layout).  Layout is a string: "csc", "csc-run", "csc-nosplit", "padded" or
+# "bsb-csr".  The three csc* layouts share the one CSC entry and differ only
+# in what `indices` holds (see _run_starts / _nosplit_bins).  New schemes
 # append a row here and a matching dot id in the native registry.
 _DOT_TABLE = {
     0: ("csc", "csc"),
@@ -66,6 +81,26 @@ _DOT_TABLE = {
     4: ("padded-avx2", "padded"),
     5: ("padded-avx512", "padded"),
     6: ("bsb-csr", "bsb-csr"),
+    7: ("csc-run", "csc-run"),
+    8: ("csc-nosplit", "csc-nosplit"),
+    9: ("bsb-csr-nosplit", "bsb-csr"),
+    10: ("csc-nosplit-moment", "csc-nosplit-moment"),
+    # Experimental CSC-entry dots: the arrays for each are made by
+    # _csc_variants.BUILDERS[name] (layout "csc-x").
+    11: ("csc-nosplit-dump", "csc-x"),
+    12: ("csc-nosplit-moment-dump", "csc-x"),
+    13: ("csc-run-u16", "csc-x"),
+    14: ("csc-nosplit-u16", "csc-x"),
+    15: ("csc-run-delta", "csc-x"),
+    16: ("csc-nosplit-delta", "csc-x"),
+    17: ("csc-nosplit-walk", "csc-x"),
+    18: ("csc-tile", "csc-x"),
+    19: ("csc-run-moment", "csc-x"),
+    20: ("csc-int", "csc-x"),
+    21: ("csc-run-int", "csc-x"),
+    22: ("csc-run-int16", "csc-x"),
+    23: ("csc-permute", "csc-x"),
+    24: ("csc-permute-runs", "csc-x"),
 }
 _DOT_IDS = {name: i for i, (name, _l) in _DOT_TABLE.items()}
 
@@ -138,6 +173,9 @@ CODEC_ZSTD = 3
 _BACKEND_NAMES = ("kcb", "sse", "neon", "scal")
 _default_backend = "kcb"
 _dense_sparse_threshold = 8.0
+_byteskip = True
+_plane_extract = True
+_lz4_zero = True
 
 
 def _backend_available(name):
@@ -175,6 +213,51 @@ def set_dense_sparse_threshold(x):
     _dense_sparse_threshold = float(x)
 
 
+def set_byteskip(enabled):
+    """Enable (default) or disable the untranspose byte skip: when every value
+    in a u16 decode block is < 256 (e.g. low counts, masked pixels zero), only
+    the low 8 bit-planes are untransposed, straight into u16 (on CPUs with
+    AVX-512 VBMI and GFNI; ignored elsewhere).  Identical results either way;
+    5-12 % faster on medium/dense u16 frames."""
+    global _byteskip
+    _byteskip = bool(enabled)
+
+
+def set_plane_extract(enabled):
+    """Enable (default) or disable plane extraction for the plain sparsify of
+    unsigned integer pixels: for a well compressed block with only a few
+    non-zero pixels, the values are read straight from the bit-planes,
+    skipping the untranspose and the scan (~25 % faster on very sparse u16
+    frames).  Identical results either way."""
+    global _plane_extract
+    _plane_extract = bool(enabled)
+
+
+def set_lz4_zero(enabled):
+    """Enable (default) or disable the zero-aware lz4 block decoder for well
+    compressed blocks (> 24x): zero runs and the block's zero tail are not
+    written, and the plane extraction / u16 untranspose are told where the
+    data ends.  Identical results either way; 40-60 % faster on very sparse
+    u16 frames."""
+    global _lz4_zero
+    _lz4_zero = bool(enabled)
+
+
+def get_lz4_zero():
+    """Whether the zero-aware lz4 decoder is enabled (see set_lz4_zero)."""
+    return _lz4_zero
+
+
+def get_plane_extract():
+    """Whether plane extraction is enabled (see set_plane_extract)."""
+    return _plane_extract
+
+
+def get_byteskip():
+    """Whether the untranspose byte skip is enabled (see set_byteskip)."""
+    return _byteskip
+
+
 def get_dense_sparse_threshold():
     """Current dense/sparse routing threshold (see set_dense_sparse_threshold)."""
     return _dense_sparse_threshold
@@ -188,7 +271,10 @@ def get_dense_sparse_threshold():
 # set_/get_ shims or C flags state anymore.
 
 def _active_collect_tier():
-    for mid in (1, 2, 3, 4, 5):   # avx512, avx2, sse2, vsx, neon
+    # avx512cs (compress-store: branch-free extraction) first: 23-57 % faster
+    # than avx512 when many pixels are selected, the same when few are
+    # (2026-10-03, EPYC 9454); then avx512, avx2, sse2, vsx, neon
+    for mid in (6, 1, 2, 3, 4, 5):
         if _ext.impl_available(_STAGE_COLLECT, mid) == 1:
             return mid
     return 0
@@ -222,7 +308,7 @@ def pack_pipeline(decompress=None, untranspose=None, collect=None, dot=None, opt
             raise NotImplementedError(
                 "%s implementation (id %d) is not available in this build/CPU" % (name, value)
             )
-    if options & ~((1 << 0) | _OPT_NO_MASK):
+    if options & ~((1 << 0) | _OPT_NO_MASK | _OPT_BYTESKIP | _OPT_PLANE_EXTRACT | _OPT_LZ4_ZERO):
         raise ValueError("unknown option bits: %r" % (options,))
     return _stages(decompress, untranspose, collect, dot, options)
 
@@ -243,6 +329,12 @@ def _pipeline_for(codec, collect_tier, dot=0, options=0):
     the collect tier for this dtype (0 for anything but u16/u32, which are
     the only types the SIMD collect tiers support) and the dot implementation
     id."""
+    if _byteskip:
+        options |= _OPT_BYTESKIP
+    if _plane_extract:
+        options |= _OPT_PLANE_EXTRACT
+    if _lz4_zero:
+        options |= _OPT_LZ4_ZERO
     return _stages(codec, _BACKEND_TO_ID[_default_backend], collect_tier, dot, options)
 
 
@@ -699,6 +791,76 @@ def _padded_from_csc(nm, block_elems):
     return _PaddedLayout(new_base, w, None, None, cb, width, 0, block_elems, nbins, npix)
 
 
+_NO_BIN = np.uint32(0xFFFFFFFF)
+
+
+def _run_starts(nm):
+    """indices for dot='csc-run' (start + length): the first bin of each
+    pixel (npix entries; 0 for an empty column).  The pixel's entries stay
+    data[indptr[p]:indptr[p+1]], for the consecutive bins start, start+1, ...
+    Raises ValueError if some pixel's bins are not one ascending run."""
+    indptr = nm.indptr.astype(np.int64)
+    indices = nm.indices.astype(np.int64)
+    n = np.diff(indptr)
+    pix = np.repeat(np.arange(nm.npix, dtype=np.int64), n)
+    if pix.size > 1:
+        broken = (pix[1:] == pix[:-1]) & (np.diff(indices) != 1)
+        nb = np.unique(pix[1:][broken]).size
+        if nb:
+            raise ValueError("%d of %d pixels reach bins that are not one ascending run of "
+                             "consecutive bins, so dot='csc-run' cannot represent this matrix; "
+                             "use dot='csc'" % (nb, int((n > 1).sum())))
+    starts = np.zeros(nm.npix, dtype=np.uint32)
+    has = n > 0
+    starts[has] = indices[indptr[:-1][has]]
+    return starts
+
+
+def _nosplit_bins(nm):
+    """indices for dot='csc-nosplit' (a histogram): the one bin of each pixel
+    (npix entries, _NO_BIN for an empty column).  data and indptr are not
+    read, so every weight must be exactly 1.  Raises ValueError otherwise."""
+    n = np.diff(nm.indptr.astype(np.int64))
+    if (n > 1).any():
+        raise ValueError("%d pixels reach more than one bin, so dot='csc-nosplit' cannot "
+                         "represent this matrix; use dot='csc-run' or 'csc'" % int((n > 1).sum()))
+    if nm.data.size and not (nm.data == 1).all():
+        raise ValueError("dot='csc-nosplit' needs every weight to be 1 (%d are not); "
+                         "use dot='csc-run' or 'csc'" % int((nm.data != 1).sum()))
+    bins = np.full(nm.npix, _NO_BIN, dtype=np.uint32)
+    bins[n == 1] = nm.indices[nm.indptr[:-1][n == 1]]
+    return bins
+
+
+def _nosplit_moment(nm):
+    """(data, indices) for dot='csc-nosplit-moment': a histogram with a first
+    moment beside each output, i.e. every pixel reaches either no bin or the
+    pair b, b+1 with weights exactly 1 (sum I) and q (sum qI) -- the
+    interleaved [I, qI, I, qI, ...] order.  indices[p] = b (_NO_BIN for none),
+    data[p] = q (npix entries each).  Raises ValueError otherwise."""
+    indptr = nm.indptr.astype(np.int64)
+    n = np.diff(indptr)
+    if ((n != 0) & (n != 2)).any():
+        raise ValueError("%d pixels do not reach exactly 0 or 2 bins, so "
+                         "dot='csc-nosplit-moment' cannot represent this matrix; use "
+                         "dot='csc-run' or 'csc'" % int(((n != 0) & (n != 2)).sum()))
+    has = n == 2
+    k0 = indptr[:-1][has]
+    b0 = nm.indices[k0].astype(np.int64)
+    b1 = nm.indices[k0 + 1].astype(np.int64)
+    w0 = nm.data[k0]
+    bad = int(((b1 != b0 + 1) | (w0 != 1)).sum())
+    if bad:
+        raise ValueError("%d pixels are not (bin b weight 1, bin b+1), so "
+                         "dot='csc-nosplit-moment' cannot represent this matrix; use "
+                         "dot='csc-run' or 'csc'" % bad)
+    bins = np.full(nm.npix, _NO_BIN, dtype=np.uint32)
+    bins[has] = b0
+    q = np.zeros(nm.npix, dtype=np.float32)
+    q[has] = nm.data[k0 + 1]
+    return q, bins
+
+
 def _bsb_csr_from_csc(nm, block_elems):
     """Build a _BsbCSR from a _NormalMatrix: CSC entries sorted by
     (pixel//block_elems, bin), grouped per (block, bin).  General (works for
@@ -859,7 +1021,12 @@ class chunk2sparseCSCmulti:
     sparse (>cut) output.  Frames must have exactly mask.size pixels.
 
     `dot` picks the matrix-dot layout: "auto"/None (= "csc" for now),
-    "csc", "csc-fused", "padded" (and its SIMD tiers), or "bsb-csr"; see
+    "csc", "csc-fused", "csc-run" (start + length, for pixels that reach
+    consecutive bins), "csc-nosplit" (one bin per pixel, weight 1: a
+    histogram), "padded" (and its SIMD tiers), "bsb-csr", or
+    "bsb-csr-nosplit" (bsb-csr for a histogram), "csc-nosplit-moment"
+    (a histogram with sum qI interleaved after each sum I), or one of the
+    experimental dots of _csc_variants (index formats, integer weights); see
     available_dots().
     """
 
@@ -890,11 +1057,34 @@ class chunk2sparseCSCmulti:
         self._block_elems = be
         self.padded = None
         self.bsb_csr = None
+        if self.layout == "csc-run":
+            self.cscindices = _run_starts(self._nm)
+        elif self.layout == "csc-nosplit":
+            self.cscindices = _nosplit_bins(self._nm)
+        elif self.layout == "csc-nosplit-moment":
+            self.cscdata, self.cscindices = _nosplit_moment(self._nm)
+        # experimental CSC-entry dots: their own arrays, maybe hidden dump
+        # bins after the real ones (nout = nbins + extra), maybe an int64
+        # powder scaled back to float (scale)
+        self.variant = None
+        if self.layout == "csc-x":
+            self.variant = _csc_variants.BUILDERS[self.dot](self._nm, be, dtype)
+        self._nout = self.nbins + (self.variant.extra if self.variant else 0)
+        self._powder_dtype = np.int64 if (self.variant and self.variant.scale) else np.float64
+        if self.variant is not None and self.variant.packed:
+            self._powder_dtype = np.dtype(dtype)
+        self._nosplit_csc = None
+        if self.dot == "bsb-csr-nosplit":
+            # the sparse route walks the nested csc as csc-nosplit does: one
+            # bin per pixel.  csc_data is never read; it is only there because
+            # the bsb-csr entry checks csc_indices.n == csc_data.n.
+            bins = _nosplit_bins(self._nm)
+            self._nosplit_csc = (np.ones(bins.size, np.float32), bins, self.cscindptr)
         if self.layout == "padded":
             self.padded = _padded_from_csc(self._nm, be)
         elif self.layout == "bsb-csr":
             self.bsb_csr = _bsb_csr_from_csc(self._nm, be)
-        if self.layout == "csc":
+        if self.layout in ("csc", "csc-run", "csc-nosplit", "csc-nosplit-moment", "csc-x"):
             self._fn = _make_csc(suffix, pipeline=pipeline, dot=self.dot_id,
                                  options=_OPT_NO_MASK if bool((self.mask == 1).all()) else 0)
             self._fn_base = _make_csc_base(suffix, pipeline=pipeline, dot=self.dot_id,
@@ -923,7 +1113,7 @@ class chunk2sparseCSCmulti:
             self._outpx = np.empty((nframes, self.npix), self.dtype)
             self._output_adr = np.empty((nframes, self.npix), np.uint32)
             self._npx_out = np.empty(nframes, np.int32)
-            self._powder = np.empty((nframes, self.nbins), np.float64)
+            self._powder = np.empty((nframes, self._nout), self._powder_dtype)
             self._cursors = np.empty(nframes, np.int64)
             self._nframes = nframes
         be = (_blocksize_bytes(cmp) // self.itemsize) or self._block_elems
@@ -942,17 +1132,22 @@ class chunk2sparseCSCmulti:
             self.padded = _padded_from_csc(self._nm, block_elems)
         elif self.layout == "bsb-csr":
             self.bsb_csr = _bsb_csr_from_csc(self._nm, block_elems)
+        elif self.variant is not None and self.variant.block_dependent:
+            self.variant = _csc_variants.BUILDERS[self.dot](self._nm, block_elems, self.dtype)
 
     def _matrix_args(self):
-        if self.layout == "csc":
+        if self.variant is not None:
+            v = self.variant
+            return (v.data, v.indices, v.indptr)
+        if self.layout in ("csc", "csc-run", "csc-nosplit", "csc-nosplit-moment"):
             return (self.cscdata, self.cscindices, self.cscindptr)
         if self.layout == "padded":
             p = self.padded
             return (p.base, p._weights_flat, p._pixels_arg, p._rowmap_arg, p.row_ptr,
                     p.width, int(p.listed), p.block_elems)
         q = self.bsb_csr
-        return (q.blk_ptr, q.bins, q.bin_ptr, q.idx, q.data,
-                self.cscdata, self.cscindices, self.cscindptr, q.block_elems)
+        csc = self._nosplit_csc or (self.cscdata, self.cscindices, self.cscindptr)
+        return (q.blk_ptr, q.bins, q.bin_ptr, q.idx, q.data) + tuple(csc) + (q.block_elems,)
 
     def __call__(self, buffers, cut):
         nframes = len(buffers)
@@ -991,13 +1186,25 @@ class chunk2sparseCSCmulti:
         ) + self._matrix_args() + (
             self._workspace,
             self._cursors,
-            self.nbins,
+            self._nout,
             self.codec,
         )))
         if ret < 0:
             self._npx_out[:] = 0
             raise _decode_error(ret)
-        return self._npx_out, (self._outpx, self._output_adr), self._powder
+        return self._npx_out, (self._outpx, self._output_adr), self._powder_out()
+
+    def _powder_out(self):
+        """The (nframes, nbins) float powder: the work buffer itself for the
+        float dots, without the hidden dump bins, or the int64 fixed-point
+        sums scaled back to float."""
+        v = self.variant
+        if v is None:
+            return self._powder
+        p = self._powder[:, :self.nbins]
+        if v.scale is not None:
+            return p * v.scale
+        return p
 
 
 class chunk2sparseCSC:

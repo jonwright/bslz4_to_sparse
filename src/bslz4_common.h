@@ -65,6 +65,29 @@ static inline uint64_t bslz4_read_be64(const uint8_t *BSLZ4_RESTRICT p) {
  * zeroed at collection, where no detector mask is needed in processing. */
 #define BSLZ4_OPT_NO_MASK ((uint16_t) 1 << 1)
 
+/* Option bit: byte skip in the untranspose (the Python bindings set it by
+ * default).  When a u16 block's high byte-planes are all zero (every value
+ * < 256, e.g. low counts with a zero-filled mask), only the low 8 planes are
+ * untransposed, straight into u16 (AVX-512 VBMI + GFNI; bslz4_driver.c).
+ * Byte-exact; 5-12 % faster on medium/dense u16 frames.  Other element sizes
+ * and CPUs ignore it. */
+#define BSLZ4_OPT_BYTESKIP ((uint16_t) 1 << 2)
+
+/* Option bit: plane extraction for the plain sparsify of unsigned integer
+ * pixels (the Python bindings set it by default).  For a well compressed
+ * block, the OR of its bit-planes is a bitmap of the non-zero pixels; when
+ * only a few are set, their values are read straight from the planes and the
+ * block is never untransposed or scanned (bslz4_driver.c).  ~25 % faster on
+ * very sparse u16 frames (0.1 % non-zero), neutral otherwise. */
+#define BSLZ4_OPT_PLANE_EXTRACT ((uint16_t) 1 << 3)
+
+/* Option bit: decode well compressed lz4 blocks (> 24x) with the zero-aware
+ * decoder (bslz4_lz4zero.h; the Python bindings set it by default): zero runs
+ * are not written, the zero tail of the block is never written, and the
+ * consumers (plane extraction, the u16 low-planes untranspose) are told where
+ * the non-zero data ends.  40-60 % faster on very sparse u16 frames. */
+#define BSLZ4_OPT_LZ4_ZERO ((uint16_t) 1 << 4)
+
 /* Error codes.  The values are part of the C API: keep them stable. */
 enum {
     BSLZ4_ERR_TOO_MANY_PIXELS = -99,     /* decompressed size needs more room than NIJ */

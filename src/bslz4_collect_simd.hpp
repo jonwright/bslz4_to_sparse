@@ -84,6 +84,18 @@ inline bool bslz4_avx512_collect_capable() {
 #endif
 }
 
+/* The compress-store tier (collect id 6) also needs AVX-512 VBMI2 for the
+ * 16-bit compress; c2py_amd64.h has no flag for it, so ask the compiler's
+ * cpu probe (gcc/clang, the only compilers this tier is built with). */
+inline bool bslz4_avx512cs_collect_capable() {
+#if BSLZ4_HAVE_AVX512_COLLECT
+    return bslz4_avx512_collect_capable() && __builtin_cpu_supports("avx512vbmi2") &&
+           __builtin_cpu_supports("popcnt");
+#else
+    return false;
+#endif
+}
+
 inline bool bslz4_avx2_collect_capable() {
 #if BSLZ4_HAVE_AVX2_COLLECT
     return c2py_amd64_avx2 != 0;
@@ -145,6 +157,91 @@ inline int bslz4_collect_avx512_u16(const uint16_t *BSLZ4_RESTRICT block,
             npx++;
             bits &= bits - 1;
         }
+    }
+    for (; j < block_elems; j++) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
+            out_vals[npx] = block[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+
+/* Collect id 6, "avx512cs": the same selection as the avx512 tier, but the
+ * selected values and their pixel indices are compressed into registers
+ * (vpcompressw / vpcompressd), stored with plain full-width stores, and the
+ * output advanced by popcnt -- no per-pixel loop, so no data-dependent
+ * branch per selected pixel.  (Compress-to-register then store: the
+ * compress-to-memory form is slow on Zen 4.)
+ *
+ * The full-width stores write up to 32 entries past the last selected one.
+ * That stays inside the caller's buffers: before group j, at most j of this
+ * block's pixels have been selected, and the caller's offset counts at most
+ * i0 earlier pixels, so a store ends before i0 + j + 32 <= i0 + block_elems,
+ * which the per-frame output (NIJ entries) and the per-block compaction
+ * scratch (block_elems entries) both cover.  The entries past the returned
+ * count are scratch the caller never reads. */
+__attribute__((target("avx512f,avx512bw,avx512vl,avx512vbmi2,popcnt")))
+inline int bslz4_collect_avx512cs_u16(const uint16_t *BSLZ4_RESTRICT block,
+                                       const uint8_t *BSLZ4_RESTRICT mask,
+                                       size_t i0, size_t block_elems, uint16_t cut,
+                                       uint16_t *BSLZ4_RESTRICT out_vals,
+                                       uint32_t *BSLZ4_RESTRICT out_adr) {
+    int npx = 0;
+    size_t j = 0;
+    const __m512i vcut = _mm512_set1_epi16((short) cut);
+    const __m512i iota = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    const __m512i sixteen = _mm512_set1_epi32(16);
+    for (; j + 32 <= block_elems; j += 32) {
+        const __m512i v = _mm512_loadu_si512((const void *) &block[j]);
+        __mmask32 m = _mm512_cmpgt_epu16_mask(v, vcut);
+        if (mask)
+            m &= _mm256_cmpneq_epu8_mask(_mm256_loadu_si256((const __m256i *) &mask[j + i0]),
+                                         _mm256_setzero_si256());
+        if (!m) continue;                     /* the common case for sparse data */
+        _mm512_storeu_si512((void *) &out_vals[npx], _mm512_maskz_compress_epi16(m, v));
+        const __m512i lo = _mm512_add_epi32(_mm512_set1_epi32((int) (j + i0)), iota);
+        const __mmask16 mlo = (__mmask16) m, mhi = (__mmask16) (m >> 16);
+        const int nlo = __builtin_popcount((unsigned) mlo);
+        _mm512_storeu_si512((void *) &out_adr[npx], _mm512_maskz_compress_epi32(mlo, lo));
+        _mm512_storeu_si512((void *) &out_adr[npx + nlo],
+                            _mm512_maskz_compress_epi32(mhi, _mm512_add_epi32(lo, sixteen)));
+        npx += nlo + __builtin_popcount((unsigned) mhi);
+    }
+    for (; j < block_elems; j++) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
+            out_vals[npx] = block[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+
+/* u32 version of collect id 6: vpcompressd is plain AVX-512F.  Same store
+ * bound as the u16 one, with 16 entries per group. */
+__attribute__((target("avx512f,avx512bw,avx512vl,popcnt")))
+inline int bslz4_collect_avx512cs_u32(const uint32_t *BSLZ4_RESTRICT block,
+                                       const uint8_t *BSLZ4_RESTRICT mask,
+                                       size_t i0, size_t block_elems, uint32_t cut,
+                                       uint32_t *BSLZ4_RESTRICT out_vals,
+                                       uint32_t *BSLZ4_RESTRICT out_adr) {
+    int npx = 0;
+    size_t j = 0;
+    const __m512i vcut = _mm512_set1_epi32((int) cut);
+    const __m512i iota = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    for (; j + 16 <= block_elems; j += 16) {
+        const __m512i v = _mm512_loadu_si512((const void *) &block[j]);
+        __mmask16 m = _mm512_cmpgt_epu32_mask(v, vcut);
+        if (mask)
+            m &= _mm_cmpneq_epu8_mask(_mm_loadu_si128((const __m128i *) &mask[j + i0]),
+                                      _mm_setzero_si128());
+        if (!m) continue;
+        _mm512_storeu_si512((void *) &out_vals[npx], _mm512_maskz_compress_epi32(m, v));
+        _mm512_storeu_si512((void *) &out_adr[npx],
+                            _mm512_maskz_compress_epi32(m, _mm512_add_epi32(_mm512_set1_epi32((int) (j + i0)), iota)));
+        npx += __builtin_popcount((unsigned) m);
     }
     for (; j < block_elems; j++) {
         if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
@@ -630,6 +727,7 @@ inline int bslz4_collect_gt<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
                                        size_t i0, size_t n, uint16_t cut, int collect_id,
                                        uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
+    if (collect_id == 6) return bslz4_collect_avx512cs_u16(block, mask, i0, n, cut, out_vals, out_adr);
     if (collect_id == 1) return bslz4_collect_avx512_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
@@ -660,6 +758,7 @@ inline int bslz4_collect_gt<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
                                        size_t i0, size_t n, uint32_t cut, int collect_id,
                                        uint32_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
+    if (collect_id == 6) return bslz4_collect_avx512cs_u32(block, mask, i0, n, cut, out_vals, out_adr);
     if (collect_id == 1) return bslz4_collect_avx512_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
@@ -691,6 +790,7 @@ inline int bslz4_collect_nz<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
                                        uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
     /* unsigned T: !=0 is exactly >0, so cut==0 reuses the same kernels. */
 #if BSLZ4_HAVE_AVX512_COLLECT
+    if (collect_id == 6) return bslz4_collect_avx512cs_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
     if (collect_id == 1) return bslz4_collect_avx512_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
@@ -722,6 +822,7 @@ inline int bslz4_collect_nz<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
                                        size_t i0, size_t n, int collect_id,
                                        uint32_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
+    if (collect_id == 6) return bslz4_collect_avx512cs_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
     if (collect_id == 1) return bslz4_collect_avx512_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT

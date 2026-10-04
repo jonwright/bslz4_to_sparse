@@ -104,7 +104,7 @@ def test_pack_pipeline_defaults_and_rejects():
     with pytest.raises(NotImplementedError):
         b.pack_pipeline(dot=99)
     with pytest.raises(ValueError):
-        b.pack_pipeline(options=4)      # only bit 0 (DROP_NEGATIVES) is reserved
+        b.pack_pipeline(options=32)     # bits 0-4 are in use (see bslz4_common.h BSLZ4_OPT_*)
 
 
 # ---- an explicit pipeline forces the selected collect tier -------------------
@@ -136,8 +136,8 @@ def test_pipeline_forces_collect_tier():
 # ---- per-block counters: every route and the tail, scalar not used -----------
 
 def test_counters_every_route_and_tail():
-    simd = next((i for i in (1, 2, 3, 4, 5) if b.impl_available(b._STAGE_COLLECT, i) == 1), None)
-    if simd is None:
+    simd = b._active_collect_tier()     # the default tier the integrator uses
+    if simd == 0:
         pytest.skip("no SIMD collect tier in this build")
 
     saved = b.get_dense_sparse_threshold()
