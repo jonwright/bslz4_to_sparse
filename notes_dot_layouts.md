@@ -380,6 +380,51 @@ magic = ceil(2**40 / nfast), row = index * magic >> 40; exact for index <
 2**26 and nfast < 2**14, checked for every pixel of the 4M/16M shapes),
 1.6-1.7x faster; np.divmod fallback beyond.
 
+## Real mask=0 data: decoder copies and the fused collect (2026-10-04)
+
+perf on WAu0012 mask=0 showed ~40 % in libc memmove, called from the zero
+decoder.  Counting its copy paths on the real blocks (53585 blocks of 0012):
+~6 overlap copies per block averaging 1.2 kB, all repeating a zero pattern
+(offset 2) that the decoder did not know was zero -- after a copied match
+zero_from was set to op.  Now it is set after the copy's trailing zeros, so
+those are skipped (7 skipped matches/block, ~1.1 kB each); short matches
+(<= 64 B) are one fixed load+store, zero fills <= 512 B fixed 64 B stores,
+short literals a fixed 32 B copy.  Copies may write into `slack` bytes past
+the block (the scratch buffer follows raw).  libc calls left: 0.5/block
+(0012), 0.1 (0008).  Fuzzed against LZ4_decompress_safe with garbage-filled
+output and slack 0/31/64/8192, real blocks as seeds.  The fuzzer also found
+that stock accepts a block ending in a match (its literal<=14/match<=18
+shortcut skips the end-of-block check); ours rejects it -- stricter, the
+same before this change, never written by a compressor.
+
+Fused low-planes transpose + collect (bslz4_lowplanes_collect_u16,
+BSLZ4_LOWPLANES_FUSED): u16 blocks with empty high planes are compared,
+masked and compressed straight from the GFNI transpose register; the block
+is never written.  Plain sparsify writes the >cut pixels to the output; the
+CSC sparse route gets the non-zero list (w->precompacted, read through
+bslz4_collect_nz_w; not csc-permute-runs, whose sparse route reads the
+block).  An early exit for all-zero 64-px groups lost (mispredicts on
+photon noise); so did a fully branch-free loop at cut 2; kept: skip a group
+when nothing passes, branch-free after that.
+
+WAu mask=0, ms/frame, min of 3 interleaved runs, one core (EPYC 9454):
+
+| case | HEAD 45f830d | + decoder | + fused |
+|---|---|---|---|
+| 0008 sparsify cut 0 | 1.621 | 1.629 | 1.592 |
+| 0008 sparsify cut 2 | 1.015 | 1.034 | 0.854 |
+| 0008 csc 1D bbox | 2.580 | 2.605 | 2.551 |
+| 0008 csc 2D bbox | 3.255 | 3.299 | 3.242 |
+| 0012 sparsify cut 0 | 1.008 | 0.944 | 0.952 |
+| 0012 sparsify cut 2 | 0.782 | 0.713 | 0.563 |
+| 0012 csc 1D bbox | 1.547 | 1.489 | 1.490 |
+| 0012 csc 2D bbox | 1.942 | 1.888 | 1.897 |
+
+(+fused column from a second run against the +decoder build: -17/-21 % at
+cut 2, -2..+1 % at cut 0.)  The CSC (cut 0 compaction) gains little: at
+cut 0 nearly every 64-px group holds a noise pixel, and the dot itself
+dominates.
+
 ## To do (2026-10-04)
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype

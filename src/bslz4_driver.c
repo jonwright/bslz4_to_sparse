@@ -105,6 +105,17 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
 #define BSLZ4_EXTRACT_RATIO 24
 #endif
 
+#ifndef BSLZ4_FUSED_KSKIP
+#define BSLZ4_FUSED_KSKIP 1
+#endif
+
+#ifndef BSLZ4_LOWPLANES_FUSED
+/* 1: u16 blocks taking the byte skip are transposed and collected in one
+ * pass (bslz4_lowplanes_collect_u16) for plain sparsify and the sparse dot
+ * route; 0: transpose to the block, then collect */
+#define BSLZ4_LOWPLANES_FUSED 1
+#endif
+
 /* Set bits in n words, with the hardware popcount where there is one (the
  * driver is not built with -mpopcnt, so __builtin_popcountll alone would be
  * a libgcc call). */
@@ -353,6 +364,97 @@ static int bslz4_lowplanes_u16_capable(void) {
                  __builtin_cpu_supports("gfni");
     return cached;
 }
+
+/* The low-planes transpose fused with the collect, for u16 blocks whose high
+ * byte-planes are all zero: per 64 pixels the 8 plane bytes are transposed
+ * (as bslz4_untrans_lowplanes_u16) and the pixels > cut (and unmasked) are
+ * compressed straight out of the register -- values (vpcompressb, widened to
+ * u16) and pixel indices (vpcompressd) -- so the u16 block is never written
+ * or re-read.  (No early exit for an all-zero group: on photon-noise frames
+ * that branch mispredicts; the one after the cut is predictable.)  Planes at or past nz_end are read from `zeros` (ne/8 zero
+ * bytes) rather than zero-filled; only the partial last plane is.  Needs
+ * cut < 255 (nothing in these blocks exceeds 255).  Full-width stores reach
+ * at most 64 entries past this block's count, so they stay below
+ * i0 + j + 64 <= i0 + ne (see bslz4_collect_avx512cs_u16). */
+__attribute__((target("avx512f,avx512bw,avx512vl,avx512vbmi,avx512vbmi2,gfni,popcnt")))
+static int bslz4_lowplanes_collect_u16(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
+                                       const uint8_t *BSLZ4_RESTRICT zeros,
+                                       const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
+                                       uint16_t *BSLZ4_RESTRICT out_vals,
+                                       uint32_t *BSLZ4_RESTRICT out_adr) {
+    const size_t size = ne / 8;                 /* bytes per plane; a multiple of 8 */
+    if (nz_end > ne) nz_end = ne;               /* planes 8..15 are zero (checked by the caller) */
+    const size_t np = (nz_end + size - 1) / size;
+    if (nz_end < np * size) memset(raw + nz_end, 0, np * size - nz_end);
+    const uint8_t *pl[8];
+    for (size_t p = 0; p < 8; p++) pl[p] = p < np ? raw + p * size : zeros;
+    const __m512i C = _mm512_set_epi64(0x070f171f474f575f, 0x060e161e464e565e, 0x050d151d454d555d,
+                                       0x040c141c444c545c, 0x030b131b434b535b, 0x020a121a424a525a,
+                                       0x0109111941495159, 0x0008101840485058);
+    const __m512i I8 = _mm512_set1_epi64(0x8040201008040201);
+    const __m512i vcut = _mm512_set1_epi8((char) cut);
+    const __m512i iota = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    int npx = 0;
+    for (size_t i = 0; i < size; i += 8) {
+        int64_t a1, a3, a5, a7;
+        memcpy(&a1, pl[1] + i, 8);
+        memcpy(&a3, pl[3] + i, 8);
+        memcpy(&a5, pl[5] + i, 8);
+        memcpy(&a7, pl[7] + i, 8);
+        const __m128i u0 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[0] + i)), a1, 1);
+        const __m128i u1 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[2] + i)), a3, 1);
+        const __m128i u2 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[4] + i)), a5, 1);
+        const __m128i u3 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[6] + i)), a7, 1);
+        const __m256i v0 = _mm256_inserti128_si256(_mm256_castsi128_si256(u0), u1, 1);
+        const __m256i v1 = _mm256_inserti128_si256(_mm256_castsi128_si256(u2), u3, 1);
+        __m512i u = _mm512_permutex2var_epi8(_mm512_castsi256_si512(v0), C, _mm512_castsi256_si512(v1));
+        u = _mm512_gf2p8affine_epi64_epi8(I8, u, 0x00);   /* byte j = pixel 8i + j */
+        __mmask64 k = _mm512_cmpgt_epu8_mask(u, vcut);
+        if (mask) {
+            const __m512i m = _mm512_loadu_si512((const void *) (mask + i0 + 8 * i));
+            k &= _mm512_test_epi8_mask(m, m);
+        }
+#if BSLZ4_FUSED_KSKIP
+        if (!k) continue;
+#endif
+        /* branch-free below: at cut 0 on noise frames which groups and
+         * which 16-lane quarters hold pixels is unpredictable */
+        const __m512i c = _mm512_maskz_compress_epi8(k, u);
+        _mm512_storeu_si512((void *) (out_vals + npx), _mm512_cvtepu8_epi16(_mm512_castsi512_si256(c)));
+        _mm512_storeu_si512((void *) (out_vals + npx + 32),
+                            _mm512_cvtepu8_epi16(_mm512_extracti64x4_epi64(c, 1)));
+        const __m512i base = _mm512_add_epi32(_mm512_set1_epi32((int) (i0 + 8 * i)), iota);
+        const __m512i sixteen = _mm512_set1_epi32(16);
+        int at = npx;
+        __m512i ix = base;
+        for (int q = 0; q < 4; q++) {
+            const __mmask16 mq = (__mmask16) (k >> (16 * q));
+            _mm512_storeu_si512((void *) (out_adr + at), _mm512_maskz_compress_epi32(mq, ix));
+            at += __builtin_popcount((unsigned) mq);
+            ix = _mm512_add_epi32(ix, sixteen);
+        }
+        npx = at;
+    }
+    return npx;
+}
+
+static const uint8_t bslz4_zero_plane[1024];      /* planes of up to 8192 pixels */
+
+static int bslz4_lowplanes_collect_capable(void) {
+    static int cached = -1;
+    if (cached < 0)
+        cached = bslz4_lowplanes_u16_capable() && c2py_amd64_avx512vl &&
+                 __builtin_cpu_supports("avx512vbmi2") && __builtin_cpu_supports("popcnt");
+    return cached;
+}
+
+/* 1 if the u16 block's high byte-planes (raw[ne..2ne)) are all zero; zero
+ * fills raw[nz_end..2ne) when it has to look. */
+static int bslz4_high_planes_zero(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end) {
+    if (nz_end <= ne) return 1;
+    if (nz_end < 2 * ne) memset(raw + nz_end, 0, 2 * ne - nz_end);
+    return bslz4_all_zero_avx512(raw + ne, ne);
+}
 #endif
 
 /* Untranspose one full block; with the byte skip allowed, a u16 block whose
@@ -429,6 +531,14 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     const int maskplanes = (st->options & BSLZ4_OPT_MASK_PLANES) != 0 && emask != NULL &&
                            block_elems <= BSLZ4_MASKPLANE_MAX_ELEMS && block_elems % 64 == 0;
     uint64_t maskbits[BSLZ4_MASKPLANE_MAX_ELEMS / 64];
+    /* the byte skip's fused transpose + collect (u16; not csc-permute-runs,
+     * whose sparse route reads the block) */
+    int fused = 0;
+#if BSLZ4_HAVE_AVX2_OR && BSLZ4_LOWPLANES_FUSED
+    fused = byteskip && NB == 2 && st->dtype == 1 && block_elems % 64 == 0 &&
+            block_elems / 8 <= sizeof(bslz4_zero_plane) && (!is_dot || st->dot_id != 24) &&
+            bslz4_lowplanes_collect_capable();
+#endif
     if (is_dot) {
         /* The derived layouts index a per-block pointer array by
          * i0 / block_elems, so they must be built at this block size and
@@ -506,7 +616,9 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             size_t nz_end = blocksize;      /* raw[nz_end..blocksize) is zero, maybe unwritten */
             int ret;
             if (lz4zero && (size_t) nbytes * BSLZ4_LZ4ZERO_RATIO < blocksize)
-                ret = bslz4_lz4_decode_zero((const uint8_t *) cf + p + 4, nbytes, raw, blocksize, &nz_end);
+                /* slack: the scratch buffer (blocksize bytes) follows raw */
+                ret = bslz4_lz4_decode_zero((const uint8_t *) cf + p + 4, nbytes, raw, blocksize,
+                                            blocksize, &nz_end);
             else
                 ret = st->decompress(codec, cf + p + 4, (int) nbytes, (char *) raw, (int) blocksize);
             cursors[f] = p + (int64_t) nbytes + 4;
@@ -528,6 +640,40 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                     continue;
                 }
             }
+#if BSLZ4_HAVE_AVX2_OR
+            if (fused && (!is_dot || (double) blocksize > dense_sparse_x * (double) nbytes) &&
+                bslz4_high_planes_zero(raw, block_elems, nz_end)) {
+                bslz4_counters_bump(BSLZ4_STAGE_DECOMPRESS, codec);
+                bslz4_counters_bump(BSLZ4_STAGE_UNTRANSPOSE, st->untranspose_id);
+                bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
+                const int32_t npx0 = npx_out[f];
+                if (!is_dot) {                  /* the >cut pixels straight to the output */
+                    if (threshold < 255)
+                        npx_out[f] = npx0 + bslz4_lowplanes_collect_u16(
+                            raw, block_elems, nz_end, bslz4_zero_plane, bmask, (size_t) i0,
+                            (unsigned) threshold,
+                            (uint16_t *) (void *) outpx + (size_t) f * NIJ + (size_t) npx0,
+                            output_adr + (size_t) f * NIJ + npx0);
+                    continue;
+                }
+                /* dot: the non-zero pixels into the sparse route's list */
+                bslz4_work w = wbase;
+                if (maskplanes) w.no_mask = 1;
+                w.n = block_elems;
+                w.i0 = (size_t) i0;
+                w.out_vals = (uint8_t *) outpx + ((size_t) f * NIJ + (size_t) npx0) * NB;
+                w.out_adr = output_adr + (size_t) f * NIJ + npx0;
+                w.route = 1;
+                w.powder = (uint8_t *) powder + (size_t) f * nout * (size_t) out_size;
+                w.precompacted = 1;
+                w.pre_nz = bslz4_lowplanes_collect_u16(raw, block_elems, nz_end, bslz4_zero_plane,
+                                                      bmask, (size_t) i0, 0u,
+                                                      (uint16_t *) tval, tidx);
+                bslz4_counters_bump(BSLZ4_STAGE_DOT, st->dot_id);
+                npx_out[f] = npx0 + bslz4_sparse_dot_dispatch(&w);
+                continue;
+            }
+#endif
             if (BSLZ4_UNLIKELY(bslz4_untranspose_block(st, block, raw, scratch, block_elems, NB,
                                                        byteskip, nz_end) < 0))
                 return BSLZ4_ERR_UNTRANSPOSE;

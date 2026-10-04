@@ -163,6 +163,17 @@ int dense_dot_fused(const bslz4_work *BSLZ4_RESTRICT w) {
     return npx;
 }
 
+/* The sparse-route compaction (non-zero, unmasked pixels into tv/tidx), or
+ * the list the driver already built for this block (w->precompacted). */
+template<typename T>
+static inline
+int bslz4_collect_nz_w(const bslz4_work *BSLZ4_RESTRICT w, const T *BSLZ4_RESTRICT px,
+                       const uint8_t *BSLZ4_RESTRICT mask, size_t i0, size_t n,
+                       T *BSLZ4_RESTRICT tv, uint32_t *BSLZ4_RESTRICT tidx) {
+    if (w->precompacted) return w->pre_nz;
+    return bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
+}
+
 /* sparse CSC route body over an explicit csc: compact non-zeros into
  * (tval,tidx), dot.sparse over the list, then the >cut collect over the same
  * list.  Shared by the CSC dots (which read the descriptor from w->mat) and
@@ -177,7 +188,7 @@ int sparse_dot_core(const bslz4_work *BSLZ4_RESTRICT w, const bslz4_mat_csc *BSL
     T *tv = (T *) w->tval;
     uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
     int npx = 0;
-    int nz = bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
+    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
     double *BSLZ4_RESTRICT out = (double *) w->powder;
     const float *BSLZ4_RESTRICT data = (const float *) m->data;
     const uint32_t *BSLZ4_RESTRICT indices = m->indices;
@@ -260,7 +271,7 @@ int run_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
     T *tv = (T *) w->tval;
     uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
     int npx = 0;
-    int nz = bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
+    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
     const bslz4_mat_csc *BSLZ4_RESTRICT m = (const bslz4_mat_csc *) w->mat;
     double *BSLZ4_RESTRICT out = (double *) w->powder;
     const float *BSLZ4_RESTRICT data = (const float *) m->data;
@@ -318,7 +329,7 @@ int nosplit_sparse_core(const bslz4_work *BSLZ4_RESTRICT w, const uint32_t *BSLZ
     T *tv = (T *) w->tval;
     uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
     int npx = 0;
-    int nz = bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
+    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
     double *BSLZ4_RESTRICT out = (double *) w->powder;
     for (int kk = 0; kk < nz; kk++) {
         uint32_t b = bin[tidx[kk]];
@@ -383,7 +394,7 @@ int nosplit_moment_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
     T *tv = (T *) w->tval;
     uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
     int npx = 0;
-    int nz = bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
+    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
     const bslz4_mat_csc *BSLZ4_RESTRICT m = (const bslz4_mat_csc *) w->mat;
     double *BSLZ4_RESTRICT out = (double *) w->powder;
     const uint32_t *BSLZ4_RESTRICT bin = m->indices;
@@ -455,7 +466,7 @@ int padded_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
     T *tv = (T *) w->tval;
     uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
     int npx = 0;
-    int nz = bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
+    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
     double *BSLZ4_RESTRICT out = (double *) w->powder;
     const size_t W = (size_t) m->width;
     const int32_t *BSLZ4_RESTRICT base = m->base;

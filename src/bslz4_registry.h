@@ -105,6 +105,12 @@ typedef struct bslz4_work {
     int           nout;
     uint32_t      *BSLZ4_RESTRICT tidx;    /* sparse-route compaction scratch */
     void          *BSLZ4_RESTRICT tval;
+    /* 1: the driver already compacted this block's non-zero (unmasked)
+     * pixels into tval/tidx (pre_nz entries) and `block` is not filled; only
+     * set for the sparse route of dots whose sparse route reads just the
+     * list (bslz4_collect_nz_w in kernels_generic.cpp). */
+    int           precompacted;
+    int           pre_nz;
 } bslz4_work;
 
 /* What the dtype-agnostic driver needs to decode: element width, dtype

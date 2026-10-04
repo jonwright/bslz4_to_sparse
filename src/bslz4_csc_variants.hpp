@@ -391,7 +391,7 @@ static inline int sparse(const bslz4_work *BSLZ4_RESTRICT w) {
     if (n == 0) return 0;
     T *tv = (T *) w->tval;
     uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
-    int nz = bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
+    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
     if (nz > 0) {
         Body body;
         body.init(w);
