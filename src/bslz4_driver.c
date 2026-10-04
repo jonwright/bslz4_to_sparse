@@ -93,11 +93,13 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
 #endif
 #ifndef BSLZ4_LZ4ZERO_RATIO
 /* the zero-aware lz4 decoder is used for blocks compressed more than this.
- * Synthetic data: at 8x medium frames (blocks ~13x) were 50-60 % slower; at
- * 24x fine.  Real Eiger frames (WAu5um, blocks ~30-45x with many short
- * sequences from photon noise and masked gaps) lost up to 6 % at 24x and are
- * neutral or 5 % faster at 48x (2026-10-04, EPYC 9454) */
-#define BSLZ4_LZ4ZERO_RATIO 48
+ * It was 48 while long match copies took a byte scan for their trailing
+ * zeros; with chunked copies (d3ce41e) it beats stock LZ4_decompress_safe on
+ * almost every block -- dense ones too, as it never writes the empty high
+ * byte-planes -- so it takes every compressed block (hpc5, vs 48: WAu0008
+ * -17..-36 %, 0.1 % frames -6..-13 %, dense sparsify -15 %, 9 % frames
+ * -7..+1 %, 2026-10-05) */
+#define BSLZ4_LZ4ZERO_RATIO 1
 #endif
 #ifndef BSLZ4_EXTRACT_RATIO
 /* only blocks compressed more than this are tried: at 8x, medium-density
