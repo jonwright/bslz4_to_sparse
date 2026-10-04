@@ -135,7 +135,7 @@ static uint32_t dot_dtype_mask(int id) {
 static int options_ok(uint16_t options) {
     return (options & (uint16_t) ~(BSLZ4_OPT_DROP_NEGATIVES | BSLZ4_OPT_NO_MASK |
                                    BSLZ4_OPT_BYTESKIP | BSLZ4_OPT_PLANE_EXTRACT |
-                                   BSLZ4_OPT_LZ4_ZERO)) == 0;
+                                   BSLZ4_OPT_LZ4_ZERO | BSLZ4_OPT_MASK_PLANES)) == 0;
 }
 
 static bslz4_untranspose_fn untranspose_by_id(int id) {

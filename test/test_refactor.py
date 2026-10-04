@@ -104,7 +104,7 @@ def test_pack_pipeline_defaults_and_rejects():
     with pytest.raises(NotImplementedError):
         b.pack_pipeline(dot=99)
     with pytest.raises(ValueError):
-        b.pack_pipeline(options=32)     # bits 0-4 are in use (see bslz4_common.h BSLZ4_OPT_*)
+        b.pack_pipeline(options=64)     # bits 0-5 are in use (see bslz4_common.h BSLZ4_OPT_*)
 
 
 # ---- an explicit pipeline forces the selected collect tier -------------------

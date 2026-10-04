@@ -88,6 +88,14 @@ static inline uint64_t bslz4_read_be64(const uint8_t *BSLZ4_RESTRICT p) {
  * the non-zero data ends.  40-60 % faster on very sparse u16 frames. */
 #define BSLZ4_OPT_LZ4_ZERO ((uint16_t) 1 << 4)
 
+/* Option bit: apply the (fixed, caller-supplied) mask in the bitshuffled
+ * domain.  Each block's mask is packed once per batch into the bit-plane
+ * layout (bit e % 8 of byte e / 8) and AND-ed into every bit-plane straight
+ * after lz4, so masked pixels are 0 before any untranspose; the block is then
+ * processed without per-pixel mask tests.  Blocks with no masked pixel skip
+ * it.  Values of unmasked pixels (saturated 65535 included) are untouched. */
+#define BSLZ4_OPT_MASK_PLANES ((uint16_t) 1 << 5)
+
 /* Error codes.  The values are part of the C API: keep them stable. */
 enum {
     BSLZ4_ERR_TOO_MANY_PIXELS = -99,     /* decompressed size needs more room than NIJ */

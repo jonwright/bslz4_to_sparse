@@ -12,7 +12,7 @@ version = "0.0.21a1"
 # The general/documented public API.  Expert tuning knobs (available_backends,
 # set_backend, set_dense_sparse_threshold, get_dense_sparse_threshold,
 # set_byteskip, get_byteskip, set_plane_extract, get_plane_extract,
-# set_lz4_zero, get_lz4_zero),
+# set_lz4_zero, get_lz4_zero, set_mask_planes, get_mask_planes),
 # test/introspection helpers and the internal decode helpers are all still
 # importable directly, but are deliberately not part of `import *`.
 __all__ = [
@@ -62,11 +62,16 @@ _OPT_NO_MASK = 1 << 1
 # default, set by set_byteskip().
 _OPT_BYTESKIP = 1 << 2
 # Plane extraction for the plain u8/u16/u32 sparsify (bslz4_common.h
-# BSLZ4_OPT_PLANE_EXTRACT); on by default, set by set_plane_extract().
+# BSLZ4_OPT_PLANE_EXTRACT); off by default (it wins on nearly empty blocks,
+# but real frames with photon noise, ~10-35 non-zero px per block, lose),
+# set by set_plane_extract().
 _OPT_PLANE_EXTRACT = 1 << 3
 # The zero-aware lz4 block decoder (bslz4_common.h BSLZ4_OPT_LZ4_ZERO); on by
 # default, set by set_lz4_zero().
 _OPT_LZ4_ZERO = 1 << 4
+# The fixed mask applied in the bitshuffled domain (bslz4_common.h
+# BSLZ4_OPT_MASK_PLANES); set by set_mask_planes().
+_OPT_MASK_PLANES = 1 << 5
 
 # Dot implementations (mirrors bslz4_registry.c bslz4_dots[]): id -> (name,
 # layout).  Layout is a string: "csc", "csc-run", "csc-nosplit", "padded" or
@@ -174,8 +179,9 @@ _BACKEND_NAMES = ("kcb", "sse", "neon", "scal")
 _default_backend = "kcb"
 _dense_sparse_threshold = 8.0
 _byteskip = True
-_plane_extract = True
+_plane_extract = False
 _lz4_zero = True
+_mask_planes = False
 
 
 def _backend_available(name):
@@ -224,23 +230,38 @@ def set_byteskip(enabled):
 
 
 def set_plane_extract(enabled):
-    """Enable (default) or disable plane extraction for the plain sparsify of
-    unsigned integer pixels: for a well compressed block with only a few
-    non-zero pixels, the values are read straight from the bit-planes,
-    skipping the untranspose and the scan (~25 % faster on very sparse u16
-    frames).  Identical results either way."""
+    """Enable or disable (default) plane extraction for the plain sparsify of
+    unsigned integer pixels: for a well compressed block with at most 16
+    non-zero (unmasked) pixels, the values are read straight from the
+    bit-planes, skipping the untranspose and the scan.  ~25 % faster on nearly
+    empty synthetic frames, 0-12 % slower on real frames with photon noise
+    (2026-10-04); identical results either way."""
     global _plane_extract
     _plane_extract = bool(enabled)
 
 
 def set_lz4_zero(enabled):
     """Enable (default) or disable the zero-aware lz4 block decoder for well
-    compressed blocks (> 24x): zero runs and the block's zero tail are not
+    compressed blocks (> 48x): zero runs and the block's zero tail are not
     written, and the plane extraction / u16 untranspose are told where the
-    data ends.  Identical results either way; 40-60 % faster on very sparse
-    u16 frames."""
+    data ends.  Identical results either way."""
     global _lz4_zero
     _lz4_zero = bool(enabled)
+
+
+def set_mask_planes(enabled):
+    """Enable or disable (default) applying the caller's fixed mask in the
+    bitshuffled domain: each block's mask is packed into the bit-plane layout
+    and AND-ed into the planes straight after lz4, so masked pixels are 0
+    before the untranspose and no per-pixel mask test is made.  Values of
+    unmasked pixels (65535 included) are untouched; results are identical."""
+    global _mask_planes
+    _mask_planes = bool(enabled)
+
+
+def get_mask_planes():
+    """Whether the mask is applied in the bitshuffled domain (set_mask_planes)."""
+    return _mask_planes
 
 
 def get_lz4_zero():
@@ -308,7 +329,8 @@ def pack_pipeline(decompress=None, untranspose=None, collect=None, dot=None, opt
             raise NotImplementedError(
                 "%s implementation (id %d) is not available in this build/CPU" % (name, value)
             )
-    if options & ~((1 << 0) | _OPT_NO_MASK | _OPT_BYTESKIP | _OPT_PLANE_EXTRACT | _OPT_LZ4_ZERO):
+    if options & ~((1 << 0) | _OPT_NO_MASK | _OPT_BYTESKIP | _OPT_PLANE_EXTRACT | _OPT_LZ4_ZERO |
+                   _OPT_MASK_PLANES):
         raise ValueError("unknown option bits: %r" % (options,))
     return _stages(decompress, untranspose, collect, dot, options)
 
@@ -335,6 +357,8 @@ def _pipeline_for(codec, collect_tier, dot=0, options=0):
         options |= _OPT_PLANE_EXTRACT
     if _lz4_zero:
         options |= _OPT_LZ4_ZERO
+    if _mask_planes:
+        options |= _OPT_MASK_PLANES
     return _stages(codec, _BACKEND_TO_ID[_default_backend], collect_tier, dot, options)
 
 
@@ -952,6 +976,30 @@ class chunk2sparseMulti:
         return self._npx_out, (self._output, self._output_adr)
 
 
+def _unravel(indices, nfast, row, col):
+    """row, col = divmod(indices, nfast) without a division per pixel.
+
+    nfast is fixed for a dataset, so divide by multiplying with its
+    reciprocal: magic = ceil(2**40 / nfast), row = (index * magic) >> 40,
+    col = index - row * nfast.  Exact while index * (magic * nfast - 2**40)
+    < 2**40, which holds for index < 2**26 (67M pixels) and nfast < 2**14
+    (checked against divmod for every pixel of the Eiger 4M/16M shapes); the
+    product fits in 64 bits.  Larger images fall back to np.divmod."""
+    n = indices.shape[0]
+    if n == 0:
+        return
+    if nfast >= (1 << 14) or int(indices.max()) >= (1 << 26):
+        np.divmod(indices, nfast, out=(row, col), casting="unsafe")
+        return
+    t = indices.astype(np.uint64)
+    r = t * np.uint64(-(-(1 << 40) // nfast))
+    r >>= np.uint64(40)
+    row[:] = r
+    r *= np.uint64(nfast)
+    np.subtract(t, r, out=t)
+    col[:] = t
+
+
 class chunk2sparse:
     """Single-frame plain sparse decode: chunk2sparseMulti with nframes fixed at 1."""
 
@@ -967,7 +1015,7 @@ class chunk2sparse:
         npixels, (values, indices) = self.__call__(buffer, cut)
         row = np.empty(npixels, np.uint16)
         col = np.empty(npixels, np.uint16)
-        np.divmod(indices[:npixels], self.nfast, out=(row, col))
+        _unravel(indices[:npixels], self.nfast, row, col)
         return npixels, row, col, values[:npixels].copy()
 
 
@@ -1223,5 +1271,5 @@ class chunk2sparseCSC:
         npixels, (values, indices), powder = self.__call__(buffer, cut)
         row = np.empty(npixels, np.uint16)
         col = np.empty(npixels, np.uint16)
-        np.divmod(indices[:npixels], self.nfast, out=(row, col))
+        _unravel(indices[:npixels], self.nfast, row, col)
         return npixels, row, col, values[:npixels].copy(), powder.copy()

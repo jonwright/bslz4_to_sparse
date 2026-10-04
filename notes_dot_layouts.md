@@ -341,3 +341,48 @@ runs), EPYC 9454, one core, u16, batches of 25.
 
 Net for the focus case (4M very sparse u16 sparsify, cut 0): ~0.92 ms/frame
 before step 1 -> ~0.42 ms/frame with all three (same-run comparisons chained).
+
+## Real data: WAu5um (2026-10-04)
+
+/data/id11/nanoscope/blc12454/id11/WAu5um/WAu5um_DT3/scan0001, Eiger2 4M
+u16, frames 400-599 of eiger_0008 (largest file, 303 kB/frame, x29, ~1 %
+non-zero) and eiger_0012 (typical, 204 kB/frame, x44, 0.34 %).  Masked
+pixels hold 65535; frame 0 == 65535 used as this scan's stand-in for the
+fixed mask (special case: 65535 is also saturation / dynamic masking and is
+never dropped by the library).  Copies with those pixels set to 0 in
+/tmp/$USER/bslz4_bench/WAu5um_eiger*_maskzero.h5.
+
+- Every 4096-px block crosses a module gap: with mask = 65535 no block has
+  zero high byte-planes (byte skip never applies).  Real frames have ~10-35
+  non-zero px per block (photon noise), not ~4 as the synthetic "sparse".
+- Defaults tuned on synthetic data lost 8-13 % on these frames.  Per feature:
+  plane extraction loses even at a 16-px limit (now OFF by default); the
+  zero-aware lz4 decoder lost up to 6 % at a 24x filter (now 48x); byte skip
+  is the clear real-data win with mask = 0 (6-12 %).
+- New defaults (avx512cs, byte skip, zero lz4 at 48x; extraction and mask
+  planes off), within-run vs the old pipeline: mask = 65535 -4 % .. +3.6 %;
+  mask = 0 -2.6 % .. -20 %; synthetic sparse -39 %, medium -10/-34 %, dense
+  -15/-58 %.
+- Mask in the bitshuffled domain (set_mask_planes, off by default): the
+  caller's fixed mask packed into the bit-plane layout once per block per
+  batch and AND-ed into the planes after lz4 (blocks with nothing masked
+  skip it).  First version had an integer division per 64-byte chunk (~1
+  us/block); fixed.  Now: mask = 65535 cut 0 -1..-5 % (it lets the byte skip
+  apply), cut 2 ~0, mask = 0 +2..+17 % (pure overhead).  To be enabled only
+  when the first frame shows masked pixels hold the dtype maximum.
+
+## Divisions (2026-10-04)
+
+No division per pixel/entry remains in the C/C++ hot loops: block index
+i0 / block_elems once per block, sizes once per call, constant /8 -> shifts.
+coo(): np.divmod(index, nfast) replaced by a reciprocal multiply (_unravel:
+magic = ceil(2**40 / nfast), row = index * magic >> 40; exact for index <
+2**26 and nfast < 2**14, checked for every pixel of the 4M/16M shapes),
+1.6-1.7x faster; np.divmod fallback beyond.
+
+## To do (2026-10-04)
+
+- First-frame check (Eiger): if the fixed-masked pixels hold the dtype
+  maximum, enable mask planes for that dataset.
+- Plane extraction: only worth it for nearly empty blocks; maybe a limit of
+  ~4 px or drop it.

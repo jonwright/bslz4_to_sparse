@@ -87,14 +87,15 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
  * no untranspose and no scan of ne values.  Unsigned u8/u16/u32 only. */
 
 #ifndef BSLZ4_EXTRACT_MAX
-#define BSLZ4_EXTRACT_MAX 48   /* above this many non-zero pixels: untranspose */
+#define BSLZ4_EXTRACT_MAX 16   /* above this many non-zero pixels: untranspose (48 lost on real frames) */
 #endif
 #ifndef BSLZ4_LZ4ZERO_RATIO
-/* the zero-aware lz4 decoder is used for blocks compressed more than this:
- * at 8x, medium-density frames (blocks ~13x, many sequences) were 50-60 %
- * slower than with stock lz4; at 24x they are 1-3 % faster and very sparse
- * frames 40-60 % faster (2026-10-03, EPYC 9454) */
-#define BSLZ4_LZ4ZERO_RATIO 24
+/* the zero-aware lz4 decoder is used for blocks compressed more than this.
+ * Synthetic data: at 8x medium frames (blocks ~13x) were 50-60 % slower; at
+ * 24x fine.  Real Eiger frames (WAu5um, blocks ~30-45x with many short
+ * sequences from photon noise and masked gaps) lost up to 6 % at 24x and are
+ * neutral or 5 % faster at 48x (2026-10-04, EPYC 9454) */
+#define BSLZ4_LZ4ZERO_RATIO 48
 #endif
 #ifndef BSLZ4_EXTRACT_RATIO
 /* only blocks compressed more than this are tried: at 8x, medium-density
@@ -165,6 +166,95 @@ static void bslz4_or_planes_avx2(const uint8_t *BSLZ4_RESTRICT raw, size_t nb, i
 }
 #endif
 
+/* AND the pixel bitmap with the mask (bytes mask[i0 + e] != 0), packed 64
+ * pixels per word: masked pixels -- whatever value they hold, 0 or the
+ * dtype maximum -- then neither count towards the limit nor get gathered. */
+#if BSLZ4_HAVE_AVX2_OR
+__attribute__((target("avx512f,avx512bw")))
+static void bslz4_and_mask_avx512(uint64_t *BSLZ4_RESTRICT bitmap, const uint8_t *BSLZ4_RESTRICT m,
+                                  size_t nw) {
+    for (size_t w = 0; w < nw; w++) {
+        const __m512i v = _mm512_loadu_si512((const void *) (m + 64 * w));
+        bitmap[w] &= (uint64_t) _mm512_test_epi8_mask(v, v);
+    }
+}
+#endif
+
+static void bslz4_and_mask(uint64_t *BSLZ4_RESTRICT bitmap, const uint8_t *BSLZ4_RESTRICT m, size_t nw) {
+#if BSLZ4_HAVE_AVX2_OR
+    if (c2py_amd64_avx512f && c2py_amd64_avx512bw) {
+        bslz4_and_mask_avx512(bitmap, m, nw);
+        return;
+    }
+#endif
+    for (size_t w = 0; w < nw; w++) {
+        uint64_t keep = 0;
+        for (int k = 0; k < 64; k++) keep |= (uint64_t) (m[64 * w + k] != 0) << k;
+        bitmap[w] &= keep;
+    }
+}
+
+/* ---- mask in the bitshuffled domain ------------------------------------ */
+
+#define BSLZ4_MASKPLANE_MAX_ELEMS 8192   /* largest block packed (8 kB of u8) */
+
+/* Pack mask[0..ne) (bytes, != 0 = use) into ne / 64 words in the bit-plane
+ * layout; returns 1 if every pixel is unmasked (nothing to AND). */
+static int bslz4_pack_mask(uint64_t *BSLZ4_RESTRICT bits, const uint8_t *BSLZ4_RESTRICT m, size_t ne) {
+    const size_t nw = ne / 64;
+    uint64_t all = ~(uint64_t) 0;
+#if BSLZ4_HAVE_AVX2_OR
+    if (c2py_amd64_avx512f && c2py_amd64_avx512bw) {
+        for (size_t w = 0; w < nw; w++) bits[w] = ~(uint64_t) 0;
+        bslz4_and_mask_avx512(bits, m, nw);
+    } else
+#endif
+    {
+        for (size_t w = 0; w < nw; w++) {
+            uint64_t keep = 0;
+            for (int k = 0; k < 64; k++) keep |= (uint64_t) (m[64 * w + k] != 0) << k;
+            bits[w] = keep;
+        }
+    }
+    for (size_t w = 0; w < nw; w++) all &= bits[w];
+    return all == ~(uint64_t) 0;
+}
+
+/* AND the packed mask into raw[0..nz_end) plane by plane (planes of nb = ne/8
+ * bytes); bytes past nz_end are zero already (or are zero-filled later). */
+#if BSLZ4_HAVE_AVX2_OR
+__attribute__((target("avx512f")))
+static size_t bslz4_mask_planes_avx512(uint8_t *BSLZ4_RESTRICT raw, const uint64_t *BSLZ4_RESTRICT bits,
+                                       size_t nb, size_t nz_end) {
+    /* whole 64-byte chunks below nz_end, plane by plane (no division in the
+     * loop); returns where it stopped */
+    size_t p0 = 0, j = 0;
+    for (; p0 < nz_end; p0 += nb) {
+        for (j = 0; j < nb && p0 + j + 64 <= nz_end; j += 64) {
+            __m512i v = _mm512_loadu_si512((const void *) (raw + p0 + j));
+            v = _mm512_and_si512(v, _mm512_loadu_si512((const void *) ((const uint8_t *) bits + j)));
+            _mm512_storeu_si512((void *) (raw + p0 + j), v);
+        }
+        if (j < nb) break;
+    }
+    return p0 + j < nz_end ? p0 + j : nz_end;
+}
+#endif
+
+static void bslz4_mask_planes(uint8_t *BSLZ4_RESTRICT raw, const uint64_t *BSLZ4_RESTRICT bits,
+                              size_t nb, size_t nz_end) {
+    const uint8_t *mb = (const uint8_t *) bits;
+    size_t i = 0;
+#if BSLZ4_HAVE_AVX2_OR
+    if (c2py_amd64_avx512f && nb % 64 == 0) i = bslz4_mask_planes_avx512(raw, bits, nb, nz_end);
+#endif
+    for (size_t p0 = i - i % nb; p0 < nz_end; p0 += nb) {      /* the rest, plane by plane */
+        size_t j = p0 < i ? i - p0 : 0;
+        const size_t jend = nz_end - p0 < nb ? nz_end - p0 : nb;
+        for (; j < jend; j++) raw[p0 + j] &= mb[j];
+    }
+}
+
 /* Returns the number of pixels > cut written to out_vals/out_adr, or -1 if
  * the block has more than BSLZ4_EXTRACT_MAX non-zero pixels (the caller then
  * untransposes it; what was written here is overwritten, as the caller's
@@ -186,6 +276,7 @@ static int bslz4_plane_extract(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t NB
     else
 #endif
     bslz4_or_planes_scalar(raw, nb, np, bitmap);
+    if (mask) bslz4_and_mask(bitmap, mask + i0, nw);
     if (bslz4_popcount_words(bitmap, nw) > BSLZ4_EXTRACT_MAX) return -1;
     int npx = 0;
     for (size_t w = 0; w < nw; w++) {
@@ -193,7 +284,6 @@ static int bslz4_plane_extract(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t NB
         while (bits) {
             const size_t e = 64 * w + (size_t) bslz4_ctz64(bits);
             bits &= bits - 1;
-            if (mask && !mask[i0 + e]) continue;
             const uint8_t *q = raw + (e >> 3);
             const unsigned sh = (unsigned) (e & 7);
             uint32_t v = 0;
@@ -335,6 +425,10 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     const int extract = !is_dot && (st->options & BSLZ4_OPT_PLANE_EXTRACT) != 0 && st->dtype <= 2;
     const uint8_t *BSLZ4_RESTRICT emask = (st->options & BSLZ4_OPT_NO_MASK) ? NULL : mask;
     const int lz4zero = (st->options & BSLZ4_OPT_LZ4_ZERO) != 0 && codec == BSLZ4_CODEC_LZ4;
+    /* mask in the bitshuffled domain: needs a mask, blocks of <= 8192 pixels */
+    const int maskplanes = (st->options & BSLZ4_OPT_MASK_PLANES) != 0 && emask != NULL &&
+                           block_elems <= BSLZ4_MASKPLANE_MAX_ELEMS && block_elems % 64 == 0;
+    uint64_t maskbits[BSLZ4_MASKPLANE_MAX_ELEMS / 64];
     if (is_dot) {
         /* The derived layouts index a per-block pointer array by
          * i0 / block_elems, so they must be built at this block size and
@@ -400,6 +494,8 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     int64_t remaining = (int64_t) total_output_length;
 
     for (; remaining >= (int64_t) blocksize; remaining -= (int64_t) blocksize) {
+        /* the block's mask, packed once for all frames; 1 = nothing masked */
+        const int block_unmasked = maskplanes ? bslz4_pack_mask(maskbits, emask + i0, block_elems) : 0;
         for (int f = 0; f < nframes; f++) {
             const char *BSLZ4_RESTRICT cf = (const char *) (intptr_t) compressed_ptrs[f];
             const int64_t clen = compressed_lengths[f];
@@ -415,9 +511,13 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                 ret = st->decompress(codec, cf + p + 4, (int) nbytes, (char *) raw, (int) blocksize);
             cursors[f] = p + (int64_t) nbytes + 4;
             if (BSLZ4_UNLIKELY(ret != (int) blocksize)) return BSLZ4_ERR_DECOMPRESS;
+            if (maskplanes && !block_unmasked)
+                bslz4_mask_planes(raw, maskbits, block_elems / 8, nz_end);
+            /* masked pixels are 0 now: no per-pixel mask tests for this block */
+            const uint8_t *BSLZ4_RESTRICT bmask = maskplanes ? NULL : emask;
             if (extract && (size_t) nbytes * BSLZ4_EXTRACT_RATIO < blocksize) {
                 const int32_t npx0 = npx_out[f];
-                int r = bslz4_plane_extract(raw, block_elems, NB, nz_end, emask, (size_t) i0,
+                int r = bslz4_plane_extract(raw, block_elems, NB, nz_end, bmask, (size_t) i0,
                                             (uint32_t) threshold,
                                             (uint8_t *) outpx + ((size_t) f * NIJ + (size_t) npx0) * NB,
                                             output_adr + (size_t) f * NIJ + npx0,
@@ -439,6 +539,7 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             int32_t npx = npx_out[f];
             bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
             bslz4_work w = wbase;
+            if (maskplanes) w.no_mask = 1;
             w.n = block_elems;
             w.i0 = (size_t) i0;
             w.out_vals = outf + (size_t) npx * NB;
