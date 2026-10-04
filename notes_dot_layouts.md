@@ -593,6 +593,21 @@ hpc6, ms/frame, ce9504c -> b0dd89b+fused:
 | WAu0008 | 2.57 -> 1.53 | 3.45 -> 2.46 | 4.09 -> 3.11 | 2.82 -> 1.78 |
 | WAu0012 | 2.07 -> 1.06 | 2.64 -> 1.62 | 3.06 -> 2.03 | 2.26 -> 1.22 |
 
+5. Group skipping (75f5b8d): the planes ORed 32 bytes at a time give a
+   bitmap of 64-px groups holding data; pass A transposes/records only
+   those, pass B packs only groups with selected pixels.
+6. Zero decoder (a2965f9): no perf, so an in-process SIGPROF PC sampler +
+   addr2line on a harness of real blocks.  26 % was the byte scan of a
+   copied match's trailing zeros, 10 % the 64-byte load of a just-written
+   source.  16-byte chunks with a non-zero mask: 1077 -> 781 cycles/block.
+   Tried and lost: SIMD literal mask (+3 %), SIMD 255-run length (+6 %).
+   Cutoff 32x instead of 48x on hpc6: WAu -8..-24 %, 0.1 % synthetic
+   +10..+16 % (on Zen 4 last week 32x lost on WAu0008) -- left at 48x.
+
+hpc6 now (a2965f9), ms/frame vs ce9504c: WAu0012 sparsify 2.07 -> 0.61,
+WAu0008 2.57 -> 1.23, mid 4.37 -> 2.45, sparse 1.67 -> 0.58, dense
+6.65 -> 2.40; WAu0012 CSC 1D 2.64 -> 1.19, rings 2.25 -> 0.76.
+
 ## To do (2026-10-04)
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype
