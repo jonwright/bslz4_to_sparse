@@ -74,9 +74,63 @@ def _rel(path):
     return os.path.relpath(path, REPO).replace(os.sep, "/")
 
 
+def _patch_files(lib):
+    """patches/<lib>/*.patch, in order: applied to the submodule's sources at
+    build time (the submodule itself stays at the upstream commit)."""
+    return sorted(glob.glob(os.path.join(REPO, "patches", lib, "*.patch")))
+
+
+def _apply_patches(src, patches, out):
+    """Write `src` with the unified-diff hunks for its basename from `patches`
+    applied to `out`.  Strict: every hunk's context must match exactly (near
+    its stated line), or the build stops -- a submodule bump that no longer
+    takes the patch must be noticed."""
+    with open(src, "r", newline="") as f:
+        lines = f.read().split("\n")
+    name = os.path.basename(src)
+    for pf in patches:
+        with open(pf, "r", newline="") as f:
+            plines = f.read().split("\n")
+        i, active = 0, False
+        while i < len(plines):
+            l = plines[i]
+            if l.startswith("+++ "):
+                active = l[4:].strip().split("/")[-1] == name
+            elif l.startswith("@@") and active:
+                start = int(re.match(r"@@ -(\d+)", l).group(1)) - 1
+                old, new = [], []
+                i += 1
+                while i < len(plines) and not plines[i].startswith(("@@", "diff ", "--- ")) \
+                        and plines[i] != "-- ":                     # format-patch signature
+
+                    h = plines[i]
+                    if h.startswith(" ") or h == "":
+                        old.append(h[1:]); new.append(h[1:])
+                    elif h.startswith("-"):
+                        old.append(h[1:])
+                    elif h.startswith("+"):
+                        new.append(h[1:])
+                    i += 1
+                while old and new and old[-1] == "" and new[-1] == "":     # trailing blank of the patch file
+                    old.pop(); new.pop()
+                hits = [k for k in range(max(0, start - 200), min(len(lines), start + 200))
+                        if lines[k:k + len(old)] == old]
+                if len(hits) != 1:
+                    raise SystemExit("patch %s does not apply to %s (hunk at line %d: %d matches)"
+                                     % (os.path.basename(pf), src, start + 1, len(hits)))
+                k = hits[0]
+                lines[k:k + len(old)] = new
+                continue
+            i += 1
+    with open(out, "w", newline="") as f:
+        f.write("\n".join(lines))
+    return out
+
+
 def _digest_files():
-    """Every compiled source and every header next to one, sorted."""
-    files = set(_sources())
+    """Every compiled source and every header next to one, sorted (and the
+    patches applied at build time)."""
+    files = set(_sources()) | set(_patch_files("lz4"))
     for d in [os.path.join(REPO, "src")] + _include_dirs():
         for pat in ("*.h", "*.hpp"):
             files.update(glob.glob(os.path.join(d, pat)))
@@ -281,6 +335,14 @@ def main():
     outpath = os.path.join(outdir, outname)
 
     srcs = _sources()
+    builddir_ = os.path.abspath(args.build_dir or os.path.join(REPO, "build", "build_extension"))
+    os.makedirs(builddir_, exist_ok=True)
+    if _patch_files("lz4"):
+        # lz4 stays at the upstream release in the submodule; our patches
+        # (patches/lz4) go into a copy compiled in its place
+        lz4c = os.path.join(REPO, "lz4", "lib", "lz4.c")
+        patched = _apply_patches(lz4c, _patch_files("lz4"), os.path.join(builddir_, "lz4.c"))
+        srcs = [patched if s == lz4c else s for s in srcs]
     incs = _include_dirs()
     builddir = os.path.abspath(args.build_dir or os.path.join(REPO, "build", "build_extension"))
     os.makedirs(builddir, exist_ok=True)

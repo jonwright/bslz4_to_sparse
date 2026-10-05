@@ -279,9 +279,11 @@ ms/frame, best kernel per case (perf record, cycles:u, grouped by symbol):
   with offset 8..15), `make usan`: pass. Combined ASan+UBSan fuzzer reports
   are pre-existing in stock (compressor pointer arithmetic, low-address test).
   gcc-ASan jobs hang in an ASan DEADLYSIGNAL loop at process start here.
-- Plan: one commit on a branch from v1.10.0 in the lz4 submodule, a fork to
-  push it to (location to be decided by the user), and the same change as
-  patches/lz4/*.patch in this repo.
+- Done (2026-10-05): the lz4 submodule stays at upstream v1.10.0 (ebb370ca,
+  also upstream's "release" branch), and tools/build_extension.py compiles a
+  copy of lib/lz4.c with patches/lz4/*.patch applied (strict pure-Python
+  applier, so no git/patch binary is needed, e.g. on Windows; the patches are
+  part of the source digest).  No fork.
 
 ## To do
 
