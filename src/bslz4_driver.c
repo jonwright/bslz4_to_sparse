@@ -119,6 +119,11 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
 #define BSLZ4_FUSED_GENERIC 1
 #endif
 
+#ifndef BSLZ4_FUSED_VSX
+/* 1: on POWER8+ the byte-skip collect transposes with VSX vgbbd, fused */
+#define BSLZ4_FUSED_VSX 1
+#endif
+
 #ifndef BSLZ4_FUSED_U8
 /* With the generic byte skip, plain sparsify and the sparse dot route
  * collect without a u16 block: 1 = kcb's low planes as bytes into scratch,
@@ -632,6 +637,72 @@ static inline int bslz4_collect_u8_swar(const uint8_t *BSLZ4_RESTRICT v8, const 
     return npx;
 }
 
+#if !BSLZ4_HAVE_AVX2_OR && defined(__POWER8_VECTOR__) && defined(__ALTIVEC__)
+#include <altivec.h>
+#undef vector
+#undef pixel
+#undef bool
+#define BSLZ4_HAVE_LOWPLANES_VSX 1
+/* The byte skip and collect fused on POWER8+ (VSX): per 64-pixel group the
+ * 8 planes' 8-byte chunks are regrouped by two vec_perm rounds so that each
+ * doubleword holds one byte of every plane, then vgbbd (vec_gb: an 8x8 bit
+ * transpose per doubleword) gives the 64 pixel bytes; planes at or past
+ * nz_end are read from `zeros`; a group whose plane bytes are all zero is
+ * skipped; the pixels > cut (and unmasked) are collected from the bytes with
+ * all-zero 8-byte words skipped.  POWER9: kcb's scalar transpose was ~60 %
+ * of WAu sparsify after the byte skip. */
+static int bslz4_lowplanes_collect_vsx(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
+                                       const uint8_t *BSLZ4_RESTRICT zeros,
+                                       const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
+                                       uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
+    typedef __vector unsigned char vu8;
+    typedef __vector unsigned long long vu64;
+    const size_t size = ne / 8;
+    if (nz_end > ne) nz_end = ne;
+    const size_t np = (nz_end + size - 1) / size;
+    if (nz_end < np * size) memset(raw + nz_end, 0, np * size - nz_end);
+    const uint8_t *pl[8];
+    for (size_t p = 0; p < 8; p++) pl[p] = p < np ? raw + p * size : zeros;
+    /* stage 1: bytes b = 0..3 (lo) or 4..7 (hi) of 4 planes, 4 per b */
+    const vu8 P1l = {0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, 3, 11, 19, 27};
+    const vu8 P1h = {4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31};
+    /* stage 2: two b's, planes 0..3 then 4..7 */
+    const vu8 P2a = {0, 1, 2, 3, 16, 17, 18, 19, 4, 5, 6, 7, 20, 21, 22, 23};
+    const vu8 P2b = {8, 9, 10, 11, 24, 25, 26, 27, 12, 13, 14, 15, 28, 29, 30, 31};
+    int npx = 0;
+    uint8_t ub[64] __attribute__((aligned(16)));
+    for (size_t i = 0; i < size; i += 8) {
+        uint64_t a[8];
+        for (int p = 0; p < 8; p++) memcpy(&a[p], pl[p] + i, 8);
+        if (!(a[0] | a[1] | a[2] | a[3] | a[4] | a[5] | a[6] | a[7])) continue;   /* 64 zero pixels */
+        const vu8 L0 = (vu8) (vu64) {a[0], a[1]}, L1 = (vu8) (vu64) {a[2], a[3]};
+        const vu8 L2 = (vu8) (vu64) {a[4], a[5]}, L3 = (vu8) (vu64) {a[6], a[7]};
+        const vu8 Xl = vec_perm(L0, L1, P1l), Xh = vec_perm(L0, L1, P1h);
+        const vu8 Yl = vec_perm(L2, L3, P1l), Yh = vec_perm(L2, L3, P1h);
+        vec_xst(vec_gb(vec_perm(Xl, Yl, P2a)), 0, ub);        /* pixels 8i + 0..15 */
+        vec_xst(vec_gb(vec_perm(Xl, Yl, P2b)), 16, ub);
+        vec_xst(vec_gb(vec_perm(Xh, Yh, P2a)), 32, ub);
+        vec_xst(vec_gb(vec_perm(Xh, Yh, P2b)), 48, ub);
+        const size_t base = i0 + 8 * i;
+        for (size_t w = 0; w < 64; w += 8) {
+            uint64_t x;
+            memcpy(&x, ub + w, 8);
+            if (!x) continue;
+            for (size_t b = w; b < w + 8; b++) {
+                const unsigned v = ub[b];
+                if (v > cut && (!mask || mask[base + b])) {
+                    out_vals[npx] = (uint16_t) v;
+                    out_adr[npx] = (uint32_t) (base + b);
+                    npx++;
+                }
+            }
+        }
+    }
+    return npx;
+}
+static const uint8_t bslz4_zero_plane_vsx[1024];
+#endif
+
 /* As bslz4_high_planes_zero, without AVX-512 (any architecture); also zero
  * fills raw[nz_end..ne) for kcb, which reads the whole low half. */
 static int bslz4_high_planes_zero_c(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end) {
@@ -643,15 +714,13 @@ static int bslz4_high_planes_zero_c(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size
     return bslz4_all_zero_c(raw + ne, ne);
 }
 
-#if BSLZ4_HAVE_AVX2_OR
 /* As bslz4_high_planes_zero_c, leaving raw[nz_end..ne) alone (the fused
- * AVX2 collect handles the low half itself). */
+ * collects handle the low half themselves). */
 static int bslz4_high_planes_zero_c_nofill(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end) {
     if (nz_end <= ne) return 1;
     if (nz_end < 2 * ne) memset(raw + nz_end, 0, 2 * ne - nz_end);
     return bslz4_all_zero_c(raw + ne, ne);
 }
-#endif
 
 /* Untranspose one full block; with the byte skip allowed, a u16 block whose
  * high byte-planes are all zero takes the low-planes path. */
@@ -752,6 +821,20 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 #if !BSLZ4_HAVE_AVX2_OR && BSLZ4_FUSED_GENERIC
     const int fused_generic = byteskip && NB == 2 && st->dtype == 1 && block_elems % 8 == 0 &&
                               (!is_dot || st->dot_id != 24);
+#if defined(BSLZ4_HAVE_LOWPLANES_VSX) && BSLZ4_FUSED_VSX
+    const int use_vsx = block_elems / 8 <= sizeof(bslz4_zero_plane_vsx);
+#else
+    const int use_vsx = 0;
+#endif
+    /* the low bytes' collect: fused VSX transpose, or kcb's bytes in scratch */
+#if defined(BSLZ4_HAVE_LOWPLANES_VSX) && BSLZ4_FUSED_VSX
+#define BSLZ4_COLLECT_LOW(cut_, vals_, adr_) (use_vsx \
+        ? bslz4_lowplanes_collect_vsx(raw, block_elems, nz_end, bslz4_zero_plane_vsx, bmask, (size_t) i0, (cut_), (vals_), (adr_)) \
+        : bslz4_collect_u8_swar(scratch, bmask, (size_t) i0, block_elems, (cut_), (vals_), (adr_)))
+#else
+#define BSLZ4_COLLECT_LOW(cut_, vals_, adr_) \
+        bslz4_collect_u8_swar(scratch, bmask, (size_t) i0, block_elems, (cut_), (vals_), (adr_))
+#endif
 #endif
 #if BSLZ4_HAVE_AVX2_OR && BSLZ4_LOWPLANES_FUSED
     if (byteskip && NB == 2 && st->dtype == 1 && block_elems % 64 == 0 &&
@@ -931,8 +1014,10 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             /* other architectures (ppc64le, aarch64): the byte skip and the
              * collect from the low bytes, in portable C over kcb */
             if (fused_generic && (!is_dot || (double) blocksize > dense_sparse_x * (double) nbytes) &&
-                bslz4_high_planes_zero_c(raw, block_elems, nz_end)) {
-                if (bitshuf_decode_block((char *) scratch, (const char *) raw, NULL, block_elems, 1) < 0)
+                (use_vsx ? bslz4_high_planes_zero_c_nofill(raw, block_elems, nz_end)
+                         : bslz4_high_planes_zero_c(raw, block_elems, nz_end))) {
+                if (!use_vsx &&
+                    bitshuf_decode_block((char *) scratch, (const char *) raw, NULL, block_elems, 1) < 0)
                     return BSLZ4_ERR_UNTRANSPOSE;
                 bslz4_counters_bump(BSLZ4_STAGE_DECOMPRESS, codec);
                 bslz4_counters_bump(BSLZ4_STAGE_UNTRANSPOSE, st->untranspose_id);
@@ -940,8 +1025,8 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                 const int32_t npx0 = npx_out[f];
                 if (!is_dot) {
                     if (threshold < 255)
-                        npx_out[f] = npx0 + bslz4_collect_u8_swar(
-                            scratch, bmask, (size_t) i0, block_elems, (unsigned) threshold,
+                        npx_out[f] = npx0 + BSLZ4_COLLECT_LOW(
+                            (unsigned) threshold,
                             (uint16_t *) (void *) outpx + (size_t) f * NIJ + (size_t) npx0,
                             output_adr + (size_t) f * NIJ + npx0);
                     continue;
@@ -955,8 +1040,7 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                 w.route = 1;
                 w.powder = (uint8_t *) powder + (size_t) f * nout * (size_t) out_size;
                 w.precompacted = 1;
-                w.pre_nz = bslz4_collect_u8_swar(scratch, bmask, (size_t) i0, block_elems, 0u,
-                                                 (uint16_t *) tval, tidx);
+                w.pre_nz = BSLZ4_COLLECT_LOW(0u, (uint16_t *) tval, tidx);
                 bslz4_counters_bump(BSLZ4_STAGE_DOT, st->dot_id);
                 npx_out[f] = npx0 + bslz4_sparse_dot_dispatch(&w);
                 continue;
