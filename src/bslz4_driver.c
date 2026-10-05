@@ -92,14 +92,17 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
 #define BSLZ4_EXTRACT_MAX 16   /* above this many non-zero pixels: untranspose (48 lost on real frames) */
 #endif
 #ifndef BSLZ4_LZ4ZERO_RATIO
-/* the zero-aware lz4 decoder is used for blocks compressed more than this.
- * It was 48 while long match copies took a byte scan for their trailing
- * zeros; with chunked copies (d3ce41e) it beats stock LZ4_decompress_safe on
- * almost every block -- dense ones too, as it never writes the empty high
- * byte-planes -- so it takes every compressed block (hpc5, vs 48: WAu0008
- * -17..-36 %, 0.1 % frames -6..-13 %, dense sparsify -15 %, 9 % frames
- * -7..+1 %, 2026-10-05) */
-#define BSLZ4_LZ4ZERO_RATIO 1
+/* The zero-aware lz4 decoder takes blocks compressed more than RATIO, and
+ * those compressed less than DENSE; stock LZ4_decompress_safe the band in
+ * between.  Per block (2026-10-05): it wins on sparse blocks (skipped zero
+ * runs) and on dense ones (literal heavy; it never writes the empty high
+ * byte-planes), but blocks of ~8-24x are many short sequences (~90-130 per
+ * 8 kB) where stock's loop is faster on Zen 5 (8-16x: 2408 vs 3142 cycles)
+ * and level on Cascade Lake (6170 vs 6463). */
+#define BSLZ4_LZ4ZERO_RATIO 24
+#endif
+#ifndef BSLZ4_LZ4ZERO_DENSE
+#define BSLZ4_LZ4ZERO_DENSE 8
 #endif
 #ifndef BSLZ4_EXTRACT_RATIO
 /* only blocks compressed more than this are tried: at 8x, medium-density
@@ -767,7 +770,8 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             if (BSLZ4_UNLIKELY((int64_t) nbytes > clen - p - 4)) return BSLZ4_ERR_CORRUPT_CHUNK;
             size_t nz_end = blocksize;      /* raw[nz_end..blocksize) is zero, maybe unwritten */
             int ret;
-            if (lz4zero && (size_t) nbytes * BSLZ4_LZ4ZERO_RATIO < blocksize)
+            if (lz4zero && ((size_t) nbytes * BSLZ4_LZ4ZERO_RATIO < blocksize ||
+                            (size_t) nbytes * BSLZ4_LZ4ZERO_DENSE > blocksize))
                 /* slack: the scratch buffer (blocksize bytes) follows raw */
                 ret = bslz4_lz4_decode_zero((const uint8_t *) cf + p + 4, nbytes, raw, blocksize,
                                             blocksize, &nz_end);
