@@ -38,3 +38,7 @@ recursive-include zstd/lib *.c *.h
 
 # Don't let build leftovers leak into the sdist.
 global-exclude *.py[cod]
+
+# Patches to the submodules, applied by tools/build_extension.py at build time;
+# without them an sdist build silently compiles the unpatched upstream sources.
+graft patches

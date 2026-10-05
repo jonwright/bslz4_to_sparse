@@ -599,7 +599,7 @@ hpc6, ms/frame, ce9504c -> b0dd89b+fused:
    bitmap of 64-px groups holding data; pass A transposes/records only
    those, pass B packs only groups with selected pixels.
 6. Zero decoder (a2965f9): no perf, so an in-process SIGPROF PC sampler +
-   addr2line on a harness of real blocks.  26 % was the byte scan of a
+   addr2line on a harness of real blocks (now tools/sampler/prof.h).  26 % was the byte scan of a
    copied match's trailing zeros, 10 % the 64-byte load of a just-written
    source.  16-byte chunks with a non-zero mask: 1077 -> 781 cycles/block.
    Tried and lost: SIMD literal mask (+3 %), SIMD 255-run length (+6 %).
@@ -648,7 +648,8 @@ WAu0012 sparsify ~0.55 -> 0.42, 0.1 % frames 0.35 -> 0.23, WAu0008
 Driven from an x86 session as an extra step of the p9 job (srun --overlap;
 slurmsh's --interactive step is single), tools in /tmp_14_days/wright/
 bslz4_prof (p9run.sh; sampler/ = an LD_PRELOAD SIGPROF PC sampler +
-addr2line report, as py-spy is x86-only and perf is locked).  Before: kcb's
+addr2line report, as py-spy is x86-only and perf is locked; the sampler is
+now in tools/sampler/).  Before: kcb's
 scalar 16-plane bit transpose + byte transpose ~80 % of sparsify, the
 generic collect 44-60 % of 9 %/dense frames.
 
@@ -662,6 +663,55 @@ generic collect 44-60 % of 9 %/dense frames.
 p9 ms/frame, before today -> now: WAu0012 sparsify 11.7 -> 2.2, WAu0008
 13.5 -> 3.7, 0.1 % 11.0 -> 3.0, 9 % 26.7 -> 9.3, dense 28.3 -> 8.3; CSC 1D
 WAu0012 12.1 -> 2.8, 9 % 31.1 -> 14.5.
+
+## Windows: i7-8700 (Coffee Lake, AVX2, no AVX-512) (2026-10-05)
+
+compiler_suite cases (child timed through a Windows driver: no
+sched_setaffinity), 3 interleaved rounds, one pinned core; profiles from
+tools/sampler/winprof.py.
+
+1. MSVC (VS 2019): every x86 SIMD path is gated on gcc/clang, kcb has no
+   dispatch there and MSVC does not define __SSE2__, so collect tier 0
+   (scalar) and kcb's scalar transpose.  570 tests pass.
+2. gcc 13 cross build from Linux (Ubuntu 24.04 mingw-w64, in WSL): 2.0x
+   MSVC (geomean 0.494), faster on every case; the .pyd imports only
+   KERNEL32 + msvcrt, c2py23 finds Python at runtime as elsewhere.  Needs
+   - -Wa,-muse-unaligned-vector-move: gcc on Win64 keeps 32-byte stack
+     alignment it never sets up (GCC bug 54412); vmovdqa to ubuf in
+     bslz4_lowplanes_collect_avx2_impl crashed.  binutils >= 2.38 (msys2's
+     gcc 9.1 / binutils 2.30 cannot); clang/zig realign the stack.
+   - patches/kcb: no ifunc on PE, so the resolvers fill a function pointer
+     from a constructor.  With BITSHUF_USE_IFUNC=0 instead kcb stayed SSE2:
+     0.1 % frames 0.745 -> 0.599, geomean 0.956 (= -mavx2 everywhere, 0.947).
+   Both now in build_extension.py / patches/kcb.  573 tests pass; sparsify
+   output identical (vals, addresses) to MSVC on all 700 benchmark frames.
+3. Against hpc6 (Zen 3, the nearest AVX2 machine), ms/frame:
+
+| | hpc6 | i7-8700 |
+|---|---|---|
+| WAu0012 sparsify c0 | 0.55 | 0.68 |
+| WAu0008 sparsify c0 | 1.00 | 1.22 |
+| mid 9 % | 2.43 | 3.41 |
+| sparse 0.1 % | 0.49 | 0.58 |
+| dense | 2.15 | 3.04 |
+| WAu0012 CSC 1D | 1.12 | 1.04 |
+| WAu0012 rings | 0.70 | 0.82 |
+
+   Profiles have hpc6's shape: WAu0012 zero decoder ~50 % + fused collect
+   ~45 %; mid lz4 52 % + fused collect 42 %; dense fused collect 74 %; 0.1 %
+   frames 37 % in kcb's 16-plane transpose + avx2cs collect (blocks with a
+   peak > 255 miss the fused path).
+4. Tried and lost (all within noise, geomean 0.995-1.005; dropped):
+   - pass B of the fused collect with u32 index / pshufb-to-u16 tables (one
+     shuffle per 8 px instead of ~6: port 5 was not the limit; more likely
+     the npx chain)
+   - zero decoder for every block (ratio 1): WAu +3..+7 %; the 8x/24x band
+     holds here too, as on Zen
+   - literal runs and overlapping matches as fixed 16/32-byte chunks
+     instead of msvcrt memcpy (msvcrt 7 % of dense, ~1 % of WAu): dense
+     sparsify +10 %
+   - -mavx2 for everything: only dense csc-nosplit (-20 %, gcc
+     auto-vectorising the dot); target_clones there is the one lead left.
 
 ## To do (2026-10-04)
 
