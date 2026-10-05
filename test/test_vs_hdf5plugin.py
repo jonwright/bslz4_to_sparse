@@ -3,7 +3,7 @@ from __future__ import print_function
 import hdf5plugin
 import h5py
 import numpy as np
-import sys, os
+import sys, os, subprocess
 
 path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
 if path:
@@ -36,7 +36,7 @@ for f,d in TESTCASES:
 if not os.path.exists('bslz4testcases.h5'):
     print('Making more testcases')
     make_script = os.path.join(os.path.dirname(__file__), 'make_testcases.py')
-    ret = os.system(sys.executable + ' ' + make_script)
+    ret = subprocess.call([sys.executable, make_script])
     assert ret == 0
 
 with h5py.File('bslz4testcases.h5','r') as hin:

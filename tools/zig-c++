@@ -1,0 +1,17 @@
+#!/bin/sh
+# zig as a C++ compiler for tools/build_extension.py: baseline CPU (as gcc's
+# default), not zig's native default.  ZIG may name the zig binary;
+# otherwise $BSLZ4_SUITE_TOOLS/zig-<arch>-linux-0.16.0/zig (see tools/compiler_suite.py).
+tools=${BSLZ4_SUITE_TOOLS:-/tmp_14_days/wright/tools}
+extra=
+arch=$(uname -m)
+case $arch in
+  # clang finds the x86-intrinsic emulation headers (ppc_wrappers) itself
+  # for powerpc; zig cc does not
+  ppc64le) za=powerpc64le; cpu=baseline; extra="-I$tools/zig-$za-linux-0.16.0/lib/include/ppc_wrappers" ;;
+  # zig's baseline feature list switches evex512 off, which clang >= 18
+  # needs (with avx512f) for the 512-bit target("avx512...") functions
+  x86_64) za=x86_64; cpu=baseline+evex512 ;;
+  *) za=$arch; cpu=baseline ;;
+esac
+exec "${ZIG:-$tools/zig-$za-linux-0.16.0/zig}" c++ -target $za-linux-gnu.2.28 -mcpu=$cpu $extra "$@"

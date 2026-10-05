@@ -45,11 +45,14 @@ _BUILD_FILES = (
     "MANIFEST.in",
     "src/__init__.py",
     "src/c2py_loader.py",
+    "src/_csc_variants.py",
     "src/bslz4_common.h",
     "src/bslz4_codec.h",
     "src/bslz4_untranspose.h",
     "src/bslz4_collect_caps.h",
     "src/bslz4_collect_simd.hpp",
+    "src/bslz4_csc_variants.hpp",
+    "src/bslz4_lz4zero.h",
     "tools/build_extension.py",
 )
 

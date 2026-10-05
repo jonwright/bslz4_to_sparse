@@ -69,7 +69,221 @@ template<> struct bslz4_cutmax<double>   { static inline bool above(int64_t) { r
  * used by bslz4_impl_available(COLLECT, id).  The pick itself is by collect id
  * in the decode stages, so there is no set_/get_ state here anymore. */
 extern "C" int bslz4_available_avx512_collect(void) { return bslz4_avx512_collect_capable() ? 1 : 0; }
+extern "C" int bslz4_available_avx512cs_collect(void) { return bslz4_avx512cs_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_avx2_collect(void)   { return bslz4_avx2_collect_capable() ? 1 : 0; }
+extern "C" int bslz4_available_avx2cs_collect(void) { return bslz4_avx2cs_collect_capable() ? 1 : 0; }
+
+/* The fused byte-skip collect for CPUs without VBMI + GFNI (driver): the
+ * pixels > cut (and unmasked) of a block whose values are all < 256, read
+ * from its untransposed low bytes v8[0..n), out as u16 values and u32 pixel
+ * indices.  Per 32 pixels one compare; each 8 are packed with the avx2cs
+ * lane table (vpermd: indices; pshufb on the bytes then zero-extend:
+ * values), stored full width.  A group with one pixel keeps the bit loop.
+ * Stores reach at most 8 entries past the count: before group j at most j
+ * pixels were selected, so a store ends before i0 + j + 32 <= i0 + n. */
+#if BSLZ4_HAVE_AVX2_COLLECT
+__attribute__((target("avx2,popcnt")))
+static int bslz4_collect_u8_avx2cs_impl(const uint8_t *BSLZ4_RESTRICT v8, const uint8_t *BSLZ4_RESTRICT mask,
+                                        size_t i0, size_t n, unsigned cut,
+                                        uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
+    const uint64_t *lut = bslz4::bslz4_avx2cs_table();
+    const __m256i bias = _mm256_set1_epi8((char) 0x80);
+    const __m256i vcut = _mm256_xor_si256(_mm256_set1_epi8((char) cut), bias);
+    const __m256i iota8 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+    const __m128i eight = _mm_set1_epi8(8);
+    int npx = 0;
+    size_t j = 0;
+    for (; j + 32 <= n; j += 32) {
+        const __m256i v = _mm256_loadu_si256((const __m256i *) (const void *) (v8 + j));
+        uint32_t bits = (uint32_t) _mm256_movemask_epi8(_mm256_cmpgt_epi8(_mm256_xor_si256(v, bias), vcut));
+        if (mask)
+            bits &= ~(uint32_t) _mm256_movemask_epi8(_mm256_cmpeq_epi8(
+                _mm256_loadu_si256((const __m256i *) (const void *) (mask + i0 + j)), _mm256_setzero_si256()));
+        if (!bits) continue;
+        if (__builtin_popcount(bits) <= BSLZ4_AVX2CS_SCALAR_MAX) {
+            const int b = __builtin_ctz(bits);
+            out_vals[npx] = v8[j + b];
+            out_adr[npx] = (uint32_t) (j + i0 + b);
+            npx++;
+            continue;
+        }
+        const __m128i lo = _mm256_castsi256_si128(v), hi = _mm256_extracti128_si256(v, 1);
+        for (int q = 0; q < 4; q++) {
+            const uint32_t m = (bits >> (8 * q)) & 0xFFu;
+            const __m128i sel = _mm_loadl_epi64((const __m128i *) (const void *) &lut[m]);
+            const __m256i idx = _mm256_add_epi32(_mm256_set1_epi32((int) (j + i0 + 8 * q)), iota8);
+            _mm256_storeu_si256((__m256i *) (void *) &out_adr[npx],
+                                _mm256_permutevar8x32_epi32(idx, _mm256_cvtepu8_epi32(sel)));
+            const __m128i src = q < 2 ? lo : hi;
+            const __m128i bsel = (q & 1) ? _mm_add_epi8(sel, eight) : sel;
+            _mm_storeu_si128((__m128i *) (void *) &out_vals[npx], _mm_cvtepu8_epi16(_mm_shuffle_epi8(src, bsel)));
+            npx += __builtin_popcount(m);
+        }
+    }
+    for (; j < n; j++) {
+        if ((!mask || mask[j + i0]) && v8[j] > cut) {
+            out_vals[npx] = v8[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+#endif
+
+/* The byte-skip transpose fused with the collect on AVX2 (no VBMI/GFNI):
+ * pass 1 untransposes the 8 low bit-planes 64 pixels at a time -- kcb's
+ * bitshuf_untrans_bit_avx2 (Copyright (c) 2023 Kal Conley, MIT /
+ * Apache-2.0), reading planes at or past nz_end from `zeros` instead of
+ * zero-filling them.  First the planes are ORed 32 bytes at a time into a
+ * bitmap of the 64-pixel groups holding any data (no branch); pass A
+ * transposes and compares (> cut, unmasked) only those groups, recording
+ * bytes and selection with no branch; pass B packs only the groups with
+ * selected pixels, with the avx2cs lane table (a group with one pixel: the
+ * bit loop).  On sparse frames most groups are never touched; on 9 %-
+ * occupied ones there is still no branch per group.  Needs ne <= 8192 (128 groups)
+ * and ne % 256 == 0.  Stores reach at most 8 entries past the count, within
+ * i0 + 64 g + 64 <= i0 + ne. */
+#if BSLZ4_HAVE_AVX2_COLLECT
+static const uint8_t bslz4_zero_plane8[1024] = {0};
+
+__attribute__((target("avx2,popcnt")))
+static int bslz4_lowplanes_collect_avx2_impl(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
+                                             const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
+                                             uint16_t *BSLZ4_RESTRICT out_vals,
+                                             uint32_t *BSLZ4_RESTRICT out_adr) {
+    const size_t size = ne / 8;                       /* bytes per plane; a multiple of 32 */
+    if (nz_end > ne) nz_end = ne;
+    const size_t np = (nz_end + size - 1) / size;     /* planes holding data */
+    if (nz_end < np * size) memset(raw + nz_end, 0, np * size - nz_end);
+    const uint8_t *pl[8];
+    for (size_t p = 0; p < 8; p++) pl[p] = p < np ? raw + p * size : bslz4_zero_plane8;
+    /* groups of 64 pixels with any bit set in any plane: OR the planes, 4
+     * groups (32 bytes) per step, no branch */
+    uint64_t gm[2] = {0, 0};
+    for (size_t i = 0; i < size; i += 32) {
+        __m256i acc = _mm256_loadu_si256((const __m256i *) (const void *) (pl[0] + i));
+        for (size_t p = 1; p < 8; p++)
+            acc = _mm256_or_si256(acc, _mm256_loadu_si256((const __m256i *) (const void *) (pl[p] + i)));
+        const uint32_t zero4 = (uint32_t) _mm256_movemask_pd(
+            _mm256_castsi256_pd(_mm256_cmpeq_epi64(acc, _mm256_setzero_si256())));
+        const size_t g = i / 8;
+        gm[g >> 6] |= (uint64_t) (~zero4 & 0xFu) << (g & 63);
+    }
+    const __m256i PERM = _mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
+    const __m256i MASK0 = _mm256_set1_epi64x(0x00aa00aa00aa00aa);
+    const __m256i MASK1 = _mm256_set1_epi64x(0x0000cccc0000cccc);
+    const __m256i MASK2 = _mm256_set1_epi64x(0x00000000f0f0f0f0);
+    const __m256i bias = _mm256_set1_epi8((char) 0x80);
+    const __m256i vcut = _mm256_xor_si256(_mm256_set1_epi8((char) cut), bias);
+    const __m256i iota8 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+    alignas(32) uint8_t ubuf[8192];
+    uint64_t kv[128];
+    uint64_t km[2] = {0, 0};
+    for (int w = 0; w < 2; w++) {
+        uint64_t gbits = gm[w];
+        while (gbits) {                               /* A: only the groups holding data */
+            const size_t g = (size_t) (64 * w + __builtin_ctzll(gbits));
+            gbits &= gbits - 1;
+            const size_t i = 8 * g;
+            const __m128i a0 = _mm_loadl_epi64((const __m128i *) (const void *) (pl[0] + i));
+            const __m128i a1 = _mm_loadl_epi64((const __m128i *) (const void *) (pl[1] + i));
+            const __m128i a2 = _mm_loadl_epi64((const __m128i *) (const void *) (pl[2] + i));
+            const __m128i a3 = _mm_loadl_epi64((const __m128i *) (const void *) (pl[3] + i));
+            const __m128i a4 = _mm_loadl_epi64((const __m128i *) (const void *) (pl[4] + i));
+            const __m128i a5 = _mm_loadl_epi64((const __m128i *) (const void *) (pl[5] + i));
+            const __m128i a6 = _mm_loadl_epi64((const __m128i *) (const void *) (pl[6] + i));
+            const __m128i a7 = _mm_loadl_epi64((const __m128i *) (const void *) (pl[7] + i));
+            __m256i u0 = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_unpacklo_epi8(a0, a1)), _mm_unpacklo_epi8(a4, a5), 1);
+            __m256i u1 = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_unpacklo_epi8(a2, a3)), _mm_unpacklo_epi8(a6, a7), 1);
+            __m256i v0 = _mm256_unpacklo_epi16(u0, u1);
+            __m256i v1 = _mm256_unpackhi_epi16(u0, u1);
+            u0 = _mm256_permutevar8x32_epi32(v0, PERM);
+            u1 = _mm256_permutevar8x32_epi32(v1, PERM);
+            v0 = _mm256_and_si256(_mm256_xor_si256(u0, _mm256_srli_epi64(u0, 7)), MASK0);
+            v1 = _mm256_and_si256(_mm256_xor_si256(u1, _mm256_srli_epi64(u1, 7)), MASK0);
+            u0 = _mm256_xor_si256(_mm256_xor_si256(u0, _mm256_slli_epi64(v0, 7)), v0);
+            u1 = _mm256_xor_si256(_mm256_xor_si256(u1, _mm256_slli_epi64(v1, 7)), v1);
+            v0 = _mm256_and_si256(_mm256_xor_si256(u0, _mm256_srli_epi64(u0, 14)), MASK1);
+            v1 = _mm256_and_si256(_mm256_xor_si256(u1, _mm256_srli_epi64(u1, 14)), MASK1);
+            u0 = _mm256_xor_si256(_mm256_xor_si256(u0, _mm256_slli_epi64(v0, 14)), v0);
+            u1 = _mm256_xor_si256(_mm256_xor_si256(u1, _mm256_slli_epi64(v1, 14)), v1);
+            v0 = _mm256_and_si256(_mm256_xor_si256(u0, _mm256_srli_epi64(u0, 28)), MASK2);
+            v1 = _mm256_and_si256(_mm256_xor_si256(u1, _mm256_srli_epi64(u1, 28)), MASK2);
+            u0 = _mm256_xor_si256(_mm256_xor_si256(u0, _mm256_slli_epi64(v0, 28)), v0);
+            u1 = _mm256_xor_si256(_mm256_xor_si256(u1, _mm256_slli_epi64(v1, 28)), v1);
+            /* u0, u1: the bytes of pixels 64g .. 64g+31, 64g+32 .. 64g+63 */
+            uint64_t k = (uint64_t) (uint32_t) _mm256_movemask_epi8(_mm256_cmpgt_epi8(_mm256_xor_si256(u0, bias), vcut)) |
+                         (uint64_t) (uint32_t) _mm256_movemask_epi8(_mm256_cmpgt_epi8(_mm256_xor_si256(u1, bias), vcut)) << 32;
+            if (mask) {
+                const uint8_t *mm = mask + i0 + 64 * g;
+                const __m256i z = _mm256_setzero_si256();
+                k &= ~((uint64_t) (uint32_t) _mm256_movemask_epi8(_mm256_cmpeq_epi8(
+                            _mm256_loadu_si256((const __m256i *) (const void *) mm), z)) |
+                       (uint64_t) (uint32_t) _mm256_movemask_epi8(_mm256_cmpeq_epi8(
+                            _mm256_loadu_si256((const __m256i *) (const void *) (mm + 32)), z)) << 32);
+            }
+            /* record; no branch on k (mispredicts on 9 %-occupied frames) */
+            _mm256_store_si256((__m256i *) (void *) (ubuf + 64 * g), u0);
+            _mm256_store_si256((__m256i *) (void *) (ubuf + 64 * g + 32), u1);
+            kv[g] = k;
+            km[g >> 6] |= (uint64_t) (k != 0) << (g & 63);
+        }
+    }
+    const uint64_t *lut = bslz4::bslz4_avx2cs_table();
+    int npx = 0;
+    for (int w = 0; w < 2; w++) {
+        uint64_t kbits = km[w];
+        while (kbits) {                               /* B: only the groups with pixels */
+            const size_t g = (size_t) (64 * w + __builtin_ctzll(kbits));
+            kbits &= kbits - 1;
+            const uint64_t k = kv[g];
+            const uint8_t *ub = ubuf + 64 * g;
+            const size_t base = i0 + 64 * g;
+            if (__builtin_popcountll(k) <= BSLZ4_AVX2CS_SCALAR_MAX) {
+                const int b = __builtin_ctzll(k);
+                out_vals[npx] = ub[b];
+                out_adr[npx] = (uint32_t) (base + b);
+                npx++;
+                continue;
+            }
+            for (int q = 0; q < 8; q++) {
+                const uint32_t m = (uint32_t) (k >> (8 * q)) & 0xFFu;
+                const __m128i sel = _mm_loadl_epi64((const __m128i *) (const void *) &lut[m]);
+                _mm256_storeu_si256((__m256i *) (void *) &out_adr[npx],
+                                    _mm256_permutevar8x32_epi32(
+                                        _mm256_add_epi32(_mm256_set1_epi32((int) (base + 8 * q)), iota8),
+                                        _mm256_cvtepu8_epi32(sel)));
+                const __m128i b8 = _mm_loadl_epi64((const __m128i *) (const void *) (ub + 8 * q));
+                _mm_storeu_si128((__m128i *) (void *) &out_vals[npx], _mm_cvtepu8_epi16(_mm_shuffle_epi8(b8, sel)));
+                npx += __builtin_popcount(m);
+            }
+        }
+    }
+    return npx;
+}
+#endif
+
+extern "C" int bslz4_lowplanes_collect_avx2(uint8_t *raw, size_t ne, size_t nz_end, const uint8_t *mask,
+                                            size_t i0, unsigned cut, uint16_t *out_vals, uint32_t *out_adr) {
+#if BSLZ4_HAVE_AVX2_COLLECT
+    if (ne % 256 || ne > 8192) return -1;
+    return bslz4_lowplanes_collect_avx2_impl(raw, ne, nz_end, mask, i0, cut, out_vals, out_adr);
+#else
+    (void) raw; (void) ne; (void) nz_end; (void) mask; (void) i0; (void) cut; (void) out_vals; (void) out_adr;
+    return -1;
+#endif
+}
+
+extern "C" int bslz4_collect_u8_avx2cs(const uint8_t *v8, const uint8_t *mask, size_t i0, size_t n,
+                                       unsigned cut, uint16_t *out_vals, uint32_t *out_adr) {
+#if BSLZ4_HAVE_AVX2_COLLECT
+    return bslz4_collect_u8_avx2cs_impl(v8, mask, i0, n, cut, out_vals, out_adr);
+#else
+    (void) v8; (void) mask; (void) i0; (void) n; (void) cut; (void) out_vals; (void) out_adr;
+    return -1;
+#endif
+}
 extern "C" int bslz4_available_sse2_collect(void)   { return bslz4_sse2_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_vsx_collect(void)    { return bslz4_vsx_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_neon_collect(void)   { return bslz4_neon_collect_capable() ? 1 : 0; }
@@ -162,6 +376,37 @@ int dense_dot_fused(const bslz4_work *BSLZ4_RESTRICT w) {
     return npx;
 }
 
+/* a read prefetch hint, gcc/clang or MSVC x64 (else nothing) */
+#if defined(__GNUC__) || defined(__clang__)
+#define BSLZ4_PREFETCH(p) __builtin_prefetch(p)
+#elif defined(_MSC_VER) && defined(_M_X64)
+#include <xmmintrin.h>
+#define BSLZ4_PREFETCH(p) _mm_prefetch((const char *) (p), _MM_HINT_T0)
+#else
+#define BSLZ4_PREFETCH(p) ((void) 0)
+#endif
+
+#ifndef BSLZ4_DOT_PREFETCH
+/* sparse CSC route: software prefetch distance in pixels (0 = off) */
+#define BSLZ4_DOT_PREFETCH 8
+#endif
+
+#ifndef BSLZ4_DOT_STAGE
+/* sparse CSC route: pixels per staging chunk (0 = walk each pixel's entries) */
+#define BSLZ4_DOT_STAGE 128
+#endif
+
+/* The sparse-route compaction (non-zero, unmasked pixels into tv/tidx), or
+ * the list the driver already built for this block (w->precompacted). */
+template<typename T>
+static inline
+int bslz4_collect_nz_w(const bslz4_work *BSLZ4_RESTRICT w, const T *BSLZ4_RESTRICT px,
+                       const uint8_t *BSLZ4_RESTRICT mask, size_t i0, size_t n,
+                       T *BSLZ4_RESTRICT tv, uint32_t *BSLZ4_RESTRICT tidx) {
+    if (w->precompacted) return w->pre_nz;
+    return bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
+}
+
 /* sparse CSC route body over an explicit csc: compact non-zeros into
  * (tval,tidx), dot.sparse over the list, then the >cut collect over the same
  * list.  Shared by the CSC dots (which read the descriptor from w->mat) and
@@ -176,12 +421,69 @@ int sparse_dot_core(const bslz4_work *BSLZ4_RESTRICT w, const bslz4_mat_csc *BSL
     T *tv = (T *) w->tval;
     uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
     int npx = 0;
-    int nz = bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
+    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
     double *BSLZ4_RESTRICT out = (double *) w->powder;
     const float *BSLZ4_RESTRICT data = (const float *) m->data;
     const uint32_t *BSLZ4_RESTRICT indices = m->indices;
     const uint32_t *BSLZ4_RESTRICT indptr = m->indptr;
+#if BSLZ4_DOT_STAGE
+    /* Staged: for a chunk of pixels, each writes 8 (entry, value) slots with
+     * fixed stores and advances by its entry count; then one branch-free
+     * loop applies all staged entries.  The per-pixel loop over 2 or 3
+     * entries (pyFAI bbox, at random) mispredicted about once per pixel.
+     * Only for blocks averaging 1.5-4 entries per pixel: at 1 (no split) the
+     * staging is pure overhead, at ~7 (5 bins per pixel) it lost too
+     * (real WAu and synthetic frames, 2026-10-04). */
+    const size_t eblk = (size_t) (indptr[i0 + n] - indptr[i0]);
+    const int stage = 2 * eblk > 3 * n && eblk < 4 * n;
+    uint32_t sk[BSLZ4_DOT_STAGE * 8 + 8];
+    float sv[BSLZ4_DOT_STAGE * 8 + 8];
+    for (int base = 0; stage && base < nz; base += BSLZ4_DOT_STAGE) {
+        const int end = nz - base < BSLZ4_DOT_STAGE ? nz : base + BSLZ4_DOT_STAGE;
+        int pos = 0;
+        for (int kk = base; kk < end; kk++) {
+#if BSLZ4_DOT_PREFETCH
+            if (kk + 2 * BSLZ4_DOT_PREFETCH < nz)
+                BSLZ4_PREFETCH(&indptr[tidx[kk + 2 * BSLZ4_DOT_PREFETCH]]);
+            if (kk + BSLZ4_DOT_PREFETCH < nz) {
+                const uint32_t kp = indptr[tidx[kk + BSLZ4_DOT_PREFETCH]];
+                BSLZ4_PREFETCH(&indices[kp]);
+                BSLZ4_PREFETCH(&data[kp]);
+            }
+#endif
+            const uint32_t addr = tidx[kk];
+            const uint32_t k0 = indptr[addr], len = indptr[addr + 1] - k0;
+            const float v = (float) tv[kk];
+            if (!BSLZ4_UNLIKELY(len > 8)) {
+                for (int j = 0; j < 8; j++) { sk[pos + j] = k0 + (uint32_t) j; sv[pos + j] = v; }
+                pos += (int) len;
+            } else {                    /* rare: flush, then this pixel directly */
+                for (int e = 0; e < pos; e++)
+                    out[indices[sk[e]]] += (double) data[sk[e]] * (double) sv[e];
+                pos = 0;
+                for (uint32_t k = k0; k < k0 + len; k++)
+                    out[indices[k]] += (double) data[k] * (double) tv[kk];
+            }
+        }
+        for (int e = 0; e < pos; e++)
+            out[indices[sk[e]]] += (double) data[sk[e]] * (double) sv[e];
+    }
+    for (int kk = 0; !stage && kk < nz; kk++) {
+#else
     for (int kk = 0; kk < nz; kk++) {
+#endif
+#if BSLZ4_DOT_PREFETCH
+        /* the pixel list is known: fetch indptr two strides ahead, then the
+         * entries one stride ahead (each active pixel lands at a random
+         * place in the multi-MB matrix; latency, not arithmetic) */
+        if (kk + 2 * BSLZ4_DOT_PREFETCH < nz)
+            BSLZ4_PREFETCH(&indptr[tidx[kk + 2 * BSLZ4_DOT_PREFETCH]]);
+        if (kk + BSLZ4_DOT_PREFETCH < nz) {
+            const uint32_t kp = indptr[tidx[kk + BSLZ4_DOT_PREFETCH]];
+            BSLZ4_PREFETCH(&indices[kp]);
+            BSLZ4_PREFETCH(&data[kp]);
+        }
+#endif
         uint32_t addr = tidx[kk];
         T val = tv[kk];
         uint32_t k0 = indptr[addr], k1 = indptr[addr + 1];
@@ -207,6 +509,207 @@ template<typename T>
 static inline
 int sparse_dot(const bslz4_work *BSLZ4_RESTRICT w) {
     return sparse_dot_core<T>(w, (const bslz4_mat_csc *) w->mat);
+}
+
+/* ---- csc-run (start + length) and csc-nosplit (histogram) ----------
+ *
+ * New dots on the one CSC entry; the arrays mean something else per dot id:
+ *
+ *   csc-run     indices[p] = first bin of pixel p (n = npix); its entries
+ *               are data[indptr[p]..indptr[p+1]] for the consecutive bins
+ *               indices[p], indices[p]+1, ...  One bin read per pixel instead
+ *               of one per entry.
+ *   csc-nosplit indices[p] = the one bin of pixel p, or BSLZ4_NO_BIN; the
+ *               weight is 1, so neither data nor indptr is read.
+ *
+ * Kept as separate leaves (not shared with the csc kernels above) so the
+ * existing kernels are unchanged while these are measured. */
+#define BSLZ4_NO_BIN 0xFFFFFFFFu
+
+template<typename T>
+static inline
+int run_dense(const bslz4_work *BSLZ4_RESTRICT w) {
+    const T cut = (T) w->threshold;
+    const T *px = (const T *) w->block;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
+    const size_t i0 = w->i0, n = w->n;
+    const bslz4_mat_csc *BSLZ4_RESTRICT m = (const bslz4_mat_csc *) w->mat;
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    const float *BSLZ4_RESTRICT data = (const float *) m->data;
+    const uint32_t *BSLZ4_RESTRICT start = m->indices;
+    const uint32_t *BSLZ4_RESTRICT indptr = m->indptr;
+    for (size_t j = 0; j < n; j++) {
+        uint32_t k0 = indptr[j + i0], k1 = indptr[j + i0 + 1];
+        double *BSLZ4_RESTRICT o = out + start[j + i0];
+        const float *BSLZ4_RESTRICT d = data + k0;
+        double pv = (double) px[j];
+        for (uint32_t k = 0; k < k1 - k0; k++)
+            o[k] += (double) d[k] * pv;
+    }
+    if (BSLZ4_CUT_ABOVE_MAX(w)) return 0;
+    return bslz4_collect_gt<T>(px, mask, i0, n, cut, w->collect_id,
+                               (T *) w->out_vals, w->out_adr);
+}
+
+template<typename T>
+static inline
+int run_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
+    const T cut = (T) w->threshold;
+    const T *px = (const T *) w->block;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
+    const size_t i0 = w->i0, n = w->n;
+    T *tv = (T *) w->tval;
+    uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
+    int npx = 0;
+    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
+    const bslz4_mat_csc *BSLZ4_RESTRICT m = (const bslz4_mat_csc *) w->mat;
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    const float *BSLZ4_RESTRICT data = (const float *) m->data;
+    const uint32_t *BSLZ4_RESTRICT start = m->indices;
+    const uint32_t *BSLZ4_RESTRICT indptr = m->indptr;
+    for (int kk = 0; kk < nz; kk++) {
+        uint32_t addr = tidx[kk];
+        uint32_t k0 = indptr[addr], k1 = indptr[addr + 1];
+        double *BSLZ4_RESTRICT o = out + start[addr];
+        const float *BSLZ4_RESTRICT d = data + k0;
+        double val = (double) tv[kk];
+        for (uint32_t k = 0; k < k1 - k0; k++)
+            o[k] += (double) d[k] * val;
+    }
+    T *ov = (T *) w->out_vals;
+    uint32_t *BSLZ4_RESTRICT out_adr = w->out_adr;
+    const int skip = BSLZ4_CUT_ABOVE_MAX(w);
+    for (int kk = 0; kk < nz; kk++) {
+        T val = tv[kk];
+        if (!skip && BSLZ4_UNLIKELY(val > cut)) {
+            ov[npx] = val;
+            out_adr[npx] = tidx[kk];
+            npx++;
+        }
+    }
+    return npx;
+}
+
+template<typename T>
+static inline
+int nosplit_dense(const bslz4_work *BSLZ4_RESTRICT w) {
+    const T cut = (T) w->threshold;
+    const T *px = (const T *) w->block;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
+    const size_t i0 = w->i0, n = w->n;
+    const bslz4_mat_csc *BSLZ4_RESTRICT m = (const bslz4_mat_csc *) w->mat;
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    const uint32_t *BSLZ4_RESTRICT bin = m->indices + i0;
+    for (size_t j = 0; j < n; j++) {
+        uint32_t b = bin[j];
+        if (b != BSLZ4_NO_BIN) out[b] += (double) px[j];
+    }
+    if (BSLZ4_CUT_ABOVE_MAX(w)) return 0;
+    return bslz4_collect_gt<T>(px, mask, i0, n, cut, w->collect_id,
+                               (T *) w->out_vals, w->out_adr);
+}
+
+template<typename T>
+static inline
+int nosplit_sparse_core(const bslz4_work *BSLZ4_RESTRICT w, const uint32_t *BSLZ4_RESTRICT bin) {
+    const T cut = (T) w->threshold;
+    const T *px = (const T *) w->block;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
+    const size_t i0 = w->i0, n = w->n;
+    T *tv = (T *) w->tval;
+    uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
+    int npx = 0;
+    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    for (int kk = 0; kk < nz; kk++) {
+        uint32_t b = bin[tidx[kk]];
+        if (b != BSLZ4_NO_BIN) out[b] += (double) tv[kk];
+    }
+    T *ov = (T *) w->out_vals;
+    uint32_t *BSLZ4_RESTRICT out_adr = w->out_adr;
+    const int skip = BSLZ4_CUT_ABOVE_MAX(w);
+    for (int kk = 0; kk < nz; kk++) {
+        T val = tv[kk];
+        if (!skip && BSLZ4_UNLIKELY(val > cut)) {
+            ov[npx] = val;
+            out_adr[npx] = tidx[kk];
+            npx++;
+        }
+    }
+    return npx;
+}
+
+template<typename T>
+static inline
+int nosplit_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
+    return nosplit_sparse_core<T>(w, ((const bslz4_mat_csc *) w->mat)->indices);
+}
+
+/* csc-nosplit-moment: a histogram with a first moment beside each output.
+ * Pixel p reaches the pair of bins b = indices[p] (sum I) and b+1 (sum qI),
+ * or none (BSLZ4_NO_BIN); data[p] is its q (n = npix).  The sum I bin gets
+ * the value with no multiply, the sum qI bin gets value * q.  indptr is not
+ * read.  This is the interleaved [I, qI, I, qI, ...] output order. */
+template<typename T>
+static inline
+int nosplit_moment_dense(const bslz4_work *BSLZ4_RESTRICT w) {
+    const T cut = (T) w->threshold;
+    const T *px = (const T *) w->block;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
+    const size_t i0 = w->i0, n = w->n;
+    const bslz4_mat_csc *BSLZ4_RESTRICT m = (const bslz4_mat_csc *) w->mat;
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    const uint32_t *BSLZ4_RESTRICT bin = m->indices + i0;
+    const float *BSLZ4_RESTRICT q = (const float *) m->data + i0;
+    for (size_t j = 0; j < n; j++) {
+        uint32_t b = bin[j];
+        if (b != BSLZ4_NO_BIN) {
+            double v = (double) px[j];
+            out[b] += v;
+            out[b + 1] += v * (double) q[j];
+        }
+    }
+    if (BSLZ4_CUT_ABOVE_MAX(w)) return 0;
+    return bslz4_collect_gt<T>(px, mask, i0, n, cut, w->collect_id,
+                               (T *) w->out_vals, w->out_adr);
+}
+
+template<typename T>
+static inline
+int nosplit_moment_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
+    const T cut = (T) w->threshold;
+    const T *px = (const T *) w->block;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
+    const size_t i0 = w->i0, n = w->n;
+    T *tv = (T *) w->tval;
+    uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
+    int npx = 0;
+    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
+    const bslz4_mat_csc *BSLZ4_RESTRICT m = (const bslz4_mat_csc *) w->mat;
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    const uint32_t *BSLZ4_RESTRICT bin = m->indices;
+    const float *BSLZ4_RESTRICT q = (const float *) m->data;
+    for (int kk = 0; kk < nz; kk++) {
+        uint32_t p = tidx[kk];
+        uint32_t b = bin[p];
+        if (b != BSLZ4_NO_BIN) {
+            double v = (double) tv[kk];
+            out[b] += v;
+            out[b + 1] += v * (double) q[p];
+        }
+    }
+    T *ov = (T *) w->out_vals;
+    uint32_t *BSLZ4_RESTRICT out_adr = w->out_adr;
+    const int skip = BSLZ4_CUT_ABOVE_MAX(w);
+    for (int kk = 0; kk < nz; kk++) {
+        T val = tv[kk];
+        if (!skip && BSLZ4_UNLIKELY(val > cut)) {
+            ov[npx] = val;
+            out_adr[npx] = tidx[kk];
+            npx++;
+        }
+    }
+    return npx;
 }
 
 /* padded route tier for a padded dot id: 2 scalar (0), 3 sse2 (1), 4 avx2 (2),
@@ -253,7 +756,7 @@ int padded_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
     T *tv = (T *) w->tval;
     uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
     int npx = 0;
-    int nz = bslz4_collect_nz<T>(px, mask, i0, n, w->collect_id, tv, tidx);
+    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
     double *BSLZ4_RESTRICT out = (double *) w->powder;
     const size_t W = (size_t) m->width;
     const int32_t *BSLZ4_RESTRICT base = m->base;
@@ -340,6 +843,52 @@ int bsbcsr_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
     return sparse_dot_core<T>(w, &m->csc);
 }
 
+/* bsb-csr-nosplit: the bsb-csr layout of a histogram (every weight 1).
+ * Dense route: per active bin, the sum of its pixels' values; data is not
+ * read and nothing is multiplied.  Sparse route: the nested csc carries one
+ * bin per pixel (csc-nosplit's indices, BSLZ4_NO_BIN for none), so it is
+ * csc-nosplit's loop; csc.data and csc.indptr are not read. */
+template<typename T>
+static inline
+int bsbcsr_nosplit_dense(const bslz4_work *BSLZ4_RESTRICT w) {
+    const T cut = (T) w->threshold;
+    const T *px = (const T *) w->block;
+    const size_t i0 = w->i0, n = w->n;
+    const bslz4_mat_bsbcsr *BSLZ4_RESTRICT m = (const bslz4_mat_bsbcsr *) w->mat;
+    double *BSLZ4_RESTRICT out = (double *) w->powder;
+    if (n == 0) return 0;
+    const size_t block_idx = i0 / m->block_elems;
+    const uint32_t b0 = m->blk_ptr[block_idx], b1 = m->blk_ptr[block_idx + 1];
+    const uint16_t *BSLZ4_RESTRICT idx = (const uint16_t *) m->idx;
+    for (uint32_t bi = b0; bi < b1; bi++) {
+        const uint32_t bin = m->bins[bi];
+        const uint32_t k0 = m->bin_ptr[bi], k1 = m->bin_ptr[bi + 1];
+        double a0 = 0.0, a1 = 0.0, a2 = 0.0, a3 = 0.0;
+        uint32_t k = k0;
+        for (; k + 4 <= k1; k += 4) {
+            a0 += (double) px[idx[k]];
+            a1 += (double) px[idx[k + 1]];
+            a2 += (double) px[idx[k + 2]];
+            a3 += (double) px[idx[k + 3]];
+        }
+        for (; k < k1; k++)
+            a0 += (double) px[idx[k]];
+        out[bin] += (a0 + a1) + (a2 + a3);
+    }
+    if (BSLZ4_CUT_ABOVE_MAX(w)) return 0;
+    return bslz4_collect_gt<T>(px, w->no_mask ? NULL : w->mask, i0, n, cut,
+                               w->collect_id, (T *) w->out_vals, w->out_adr);
+}
+
+template<typename T>
+static inline
+int bsbcsr_nosplit_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
+    const bslz4_mat_bsbcsr *BSLZ4_RESTRICT m = (const bslz4_mat_bsbcsr *) w->mat;
+    return nosplit_sparse_core<T>(w, m->csc.indices);
+}
+
+#include "bslz4_csc_variants.hpp"
+
 /* ---- per-dtype noinline kernels ------------------------------------ */
 
 #define BSLZ4_DTYPE_KERNELS(T, name)                                      \
@@ -358,6 +907,20 @@ int bsbcsr_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
         } else if (id == 6) {                                             \
             if (w->route) return bsbcsr_sparse<T>(w);                     \
             return bsbcsr_dense<T>(w);                                    \
+        } else if (id == 7) {                                             \
+            if (w->route) return run_sparse<T>(w);                        \
+            return run_dense<T>(w);                                       \
+        } else if (id == 8) {                                             \
+            if (w->route) return nosplit_sparse<T>(w);                    \
+            return nosplit_dense<T>(w);                                   \
+        } else if (id == 9) {                                             \
+            if (w->route) return bsbcsr_nosplit_sparse<T>(w);             \
+            return bsbcsr_nosplit_dense<T>(w);                            \
+        } else if (id == 10) {                                            \
+            if (w->route) return nosplit_moment_sparse<T>(w);             \
+            return nosplit_moment_dense<T>(w);                            \
+        } else if (id >= 11) {                                            \
+            return bslz4v::dispatch<T>(w);                                \
         }                                                                 \
         return BSLZ4_ERR_BAD_LAYOUT;                                      \
     }

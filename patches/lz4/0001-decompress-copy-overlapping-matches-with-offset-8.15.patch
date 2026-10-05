@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jonathan Wright <wright@esrf.fr>
+Date: Sat, 3 Oct 2026 21:37:57 +0200
+Subject: [PATCH] decompress: copy overlapping matches with offset 8..15
+ without a store-to-load chain
+
+A match whose offset is 8..15 bytes overlaps its own output.  Both decode
+loops copied it 8 bytes at a time (LZ4_wildCopy8), each load reading bytes
+that the previous store had just written, so the copy runs at the speed of
+store-to-load forwarding (~2.6 GB/s for a long match on Zen 4).
+
+Bitshuffled 16-bit detector frames hit this constantly: a block whose top
+bit-planes are all zero ends in a ~5 kB zero run that lz4 encodes as one
+match with offset 8..15.
+
+LZ4_copy_overlap_doubling() writes such a match exactly up to its end:
+- if the 8..15-byte pattern is all zero (its first and last 8 bytes cover
+  it), with memset;
+- otherwise by copying [src, op) onto op, which doubles the periodic region,
+  so non-overlapping copies of growing length reproduce the match.
+The output is byte-identical; nothing is written past the end of the match.
+
+Used for 8 <= offset < 16 in the fast loop (LZ4_memcpy_using_offset_base)
+and, for matches longer than 16 bytes, in the safe loop.
+
+Measured (LZ4_decompress_safe on 8 kB bitshuffle-LZ4 blocks, EPYC 9454):
+long zero runs at offset 8..15: 2.6 -> ~33 GB/s; Eiger2 16M dense frame
+4.1 -> 26.5 GB/s; other data unchanged (-3 % on a Poisson-1000 frame).
+
+Validated: tests/ `make test`; fuzzer/frametest/decompress-partial with
+LZ4_FAST_DEC_LOOP=0; `make usan`; fuzzer/frametest under clang ASan;
+ossfuzz decompress, round_trip, round_trip_stream, round_trip_hc,
+decompress_frame and round_trip_frame under clang ASan+UBSan (5 min each);
+a targeted round-trip/corruption stress test (~11M matches with offset
+8..15, ASan+UBSan, fast loop on and off).
+
+Local patch for bslz4_to_sparse (on top of v1.10.0); not submitted upstream.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lib/lz4.c | 35 ++++++++++++++++++++++++++++++++---
+ 1 file changed, 32 insertions(+), 3 deletions(-)
+
+diff --git a/lib/lz4.c b/lib/lz4.c
+index a2f7abee..dcb49271 100644
+--- a/lib/lz4.c
++++ b/lib/lz4.c
+@@ -490,6 +490,30 @@ static const int      dec64table[8] = {0, 0, 0, -1, -4,  1, 2, 3};
+ #  endif
+ #endif
+ 
++/* Used by both decode loops (with or without LZ4_FAST_DEC_LOOP). */
++LZ4_FORCE_INLINE void
++LZ4_copy_overlap_doubling(BYTE* op, const BYTE* src, BYTE* const end)
++{
++    /* An overlapping match: [src, op) is a pattern of 8..15 bytes that repeats
++     * up to end.  If it is all zero (its first and last 8 bytes cover it),
++     * write the zeros with memset.  Otherwise copy [src, op) onto op: that
++     * doubles the periodic region, so non-overlapping copies of growing length
++     * reproduce the match exactly, with no store-to-load dependency chain. */
++    U64 head, tail;
++    LZ4_memcpy(&head, src, 8);
++    LZ4_memcpy(&tail, op - 8, 8);
++    if ((head | tail) == 0) {
++        MEM_INIT(op, 0, (size_t)(end - op));
++        return;
++    }
++    while (op < end) {
++        size_t n = (size_t)(op - src);
++        if (n > (size_t)(end - op)) n = (size_t)(end - op);
++        LZ4_memcpy(op, src, n);
++        op += n;
++    }
++}
++
+ #if LZ4_FAST_DEC_LOOP
+ 
+ LZ4_FORCE_INLINE void
+@@ -507,9 +531,8 @@ LZ4_memcpy_using_offset_base(BYTE* dstPtr, const BYTE* srcPtr, BYTE* dstEnd, con
+         srcPtr -= dec64table[offset];
+         dstPtr += 8;
+     } else {
+-        LZ4_memcpy(dstPtr, srcPtr, 8);
+-        dstPtr += 8;
+-        srcPtr += 8;
++        LZ4_copy_overlap_doubling(dstPtr, srcPtr, dstEnd);   /* 8 <= offset < 16 */
++        return;
+     }
+ 
+     LZ4_wildCopy8(dstPtr, srcPtr, dstEnd);
+@@ -2403,6 +2426,12 @@ LZ4_decompress_generic(
+                 continue;
+             }
+ 
++            if (offset >= 8 && offset < 16 && length > 16) {
++                if (cpy > oend-LASTLITERALS) { goto _output_error; }
++                LZ4_copy_overlap_doubling(op, match, cpy);
++                op = cpy;
++                continue;
++            }
+             if (unlikely(offset<8)) {
+                 LZ4_write32(op, 0);   /* silence msan warning when offset==0 */
+                 op[0] = match[0];
+-- 
+2.49.0
+

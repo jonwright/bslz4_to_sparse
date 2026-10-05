@@ -25,6 +25,8 @@ include src/bslz4_untranspose.h
 include src/bslz4_collect_caps.h
 include src/bslz4_collect_simd.hpp
 include src/bslz4_padded.hpp
+include src/bslz4_csc_variants.hpp
+include src/bslz4_lz4zero.h
 include src/msvc_include/stdint.h
 
 # Vendored c2py23 runtime (dlsym-based, so one binary serves every Python) and
@@ -36,3 +38,7 @@ recursive-include zstd/lib *.c *.h
 
 # Don't let build leftovers leak into the sdist.
 global-exclude *.py[cod]
+
+# Patches to the submodules, applied by tools/build_extension.py at build time;
+# without them an sdist build silently compiles the unpatched upstream sources.
+graft patches

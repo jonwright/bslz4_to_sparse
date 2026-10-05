@@ -20,6 +20,19 @@
 #define BSLZ4_NOINLINE __attribute__((noinline))
 #endif
 
+/* AVX-512 VBMI/VBMI2 and GFNI need gcc >= 8 or clang >= 7 (target
+ * attributes, intrinsics, __builtin_cpu_supports names); older compilers
+ * build without those paths and pick the AVX2 ones at run time.
+ * BSLZ4_NO_VBMI_GFNI forces them off (to test the fallback). */
+#ifndef BSLZ4_HAVE_VBMI_GFNI
+#if !defined(BSLZ4_NO_VBMI_GFNI) && \
+    ((defined(__clang__) && __clang_major__ >= 7) || (!defined(__clang__) && defined(__GNUC__) && __GNUC__ >= 8))
+#define BSLZ4_HAVE_VBMI_GFNI 1
+#else
+#define BSLZ4_HAVE_VBMI_GFNI 0
+#endif
+#endif
+
 #ifndef BSLZ4_UNLIKELY
 #if defined(_MSC_VER)
 #define BSLZ4_UNLIKELY(expr) (expr)
@@ -64,6 +77,37 @@ static inline uint64_t bslz4_read_be64(const uint8_t *BSLZ4_RESTRICT p) {
  * Set by the Python bindings when `(mask == 1).all()` -- e.g. data that was
  * zeroed at collection, where no detector mask is needed in processing. */
 #define BSLZ4_OPT_NO_MASK ((uint16_t) 1 << 1)
+
+/* Option bit: byte skip in the untranspose (the Python bindings set it by
+ * default).  When a u16 block's high byte-planes are all zero (every value
+ * < 256, e.g. low counts with a zero-filled mask), only the low 8 planes are
+ * untransposed, straight into u16 (AVX-512 VBMI + GFNI; bslz4_driver.c).
+ * Byte-exact; 5-12 % faster on medium/dense u16 frames.  Other element sizes
+ * and CPUs ignore it. */
+#define BSLZ4_OPT_BYTESKIP ((uint16_t) 1 << 2)
+
+/* Option bit: plane extraction for the plain sparsify of unsigned integer
+ * pixels (the Python bindings set it by default).  For a well compressed
+ * block, the OR of its bit-planes is a bitmap of the non-zero pixels; when
+ * only a few are set, their values are read straight from the planes and the
+ * block is never untransposed or scanned (bslz4_driver.c).  ~25 % faster on
+ * very sparse u16 frames (0.1 % non-zero), neutral otherwise. */
+#define BSLZ4_OPT_PLANE_EXTRACT ((uint16_t) 1 << 3)
+
+/* Option bit: decode well compressed lz4 blocks (> 24x) with the zero-aware
+ * decoder (bslz4_lz4zero.h; the Python bindings set it by default): zero runs
+ * are not written, the zero tail of the block is never written, and the
+ * consumers (plane extraction, the u16 low-planes untranspose) are told where
+ * the non-zero data ends.  40-60 % faster on very sparse u16 frames. */
+#define BSLZ4_OPT_LZ4_ZERO ((uint16_t) 1 << 4)
+
+/* Option bit: apply the (fixed, caller-supplied) mask in the bitshuffled
+ * domain.  Each block's mask is packed once per batch into the bit-plane
+ * layout (bit e % 8 of byte e / 8) and AND-ed into every bit-plane straight
+ * after lz4, so masked pixels are 0 before any untranspose; the block is then
+ * processed without per-pixel mask tests.  Blocks with no masked pixel skip
+ * it.  Values of unmasked pixels (saturated 65535 included) are untouched. */
+#define BSLZ4_OPT_MASK_PLANES ((uint16_t) 1 << 5)
 
 /* Error codes.  The values are part of the C API: keep them stable. */
 enum {

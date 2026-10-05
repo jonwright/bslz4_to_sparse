@@ -1,0 +1,38 @@
+Subject: [PATCH] Windows: function-pointer dispatch in place of ifunc
+
+PE/COFF has no ifunc, so on _WIN32 the resolvers run from a load-time
+constructor into a static function pointer; without this a mingw/clang
+Windows build needs BITSHUF_USE_IFUNC=0 and kcb stays at the compile-time
+baseline (SSE2) for its untranspose.
+
+diff --git a/src/bitshuffle.c b/src/bitshuffle.c
+index 81f6a13..44498a1 100644
+--- a/src/bitshuffle.c
++++ b/src/bitshuffle.c
+@@ -117,6 +117,18 @@
+ #endif
+ 
+ // clang-format off
++#if defined(_WIN32)
++// PE/COFF has no ifunc: NAME is a function pointer that a load-time
++// constructor sets from the same resolver (call sites are NAME(...) either way).
++#define IMPLEMENT_IFUNC(NAME, PARAMS)                         \
++    static void (*NAME##_resolver(void))PARAMS;               \
++    static void (*NAME)PARAMS;                                \
++    __attribute__((constructor)) static void NAME##_init(void) \
++    {                                                         \
++        NAME = NAME##_resolver();                             \
++    }                                                         \
++    static void (*NAME##_resolver(void))PARAMS
++#else
+ #define IMPLEMENT_IFUNC(NAME, PARAMS)                         \
+     __attribute__((ifunc(STRINGIZE(NAME##_resolver))))        \
+     static void NAME PARAMS;                                  \
+@@ -124,6 +136,7 @@
+     DISABLE_SANITIZER_INSTRUMENTATION                         \
+     NO_SANITIZE_ADDRESS NO_SANITIZE_MEMORY NO_SANITIZE_THREAD \
+     static void (*NAME##_resolver(void))PARAMS
++#endif
+ // clang-format on
+ 
+ #define IMPLEMENT_LOAD_FUNCTION(NAME, TYPE)                \

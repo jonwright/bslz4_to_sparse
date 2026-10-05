@@ -18,6 +18,10 @@ Usage:
 
   # output somewhere other than src/ (e.g. a staging dir for a wheel)
   python3 tools/build_extension.py --out /tmp/pkg/bslz4_to_sparse
+
+  # extra flags for every compile / the link (gcc-style drivers), e.g. PGO
+  BSLZ4_EXTRA_CFLAGS="-fprofile-generate" BSLZ4_EXTRA_LDFLAGS="-fprofile-generate" \
+    python3 tools/build_extension.py --out ...
 """
 import argparse
 import glob
@@ -70,9 +74,73 @@ def _rel(path):
     return os.path.relpath(path, REPO).replace(os.sep, "/")
 
 
+# (submodule, the one source its patches/<lib>/*.patch apply to)
+_PATCHED = (("lz4", "lz4/lib/lz4.c"),
+            # kcb: function-pointer dispatch on Windows, which has no ifunc
+            ("kcb", "kcb/src/bitshuffle.c"))
+
+
+def _patch_files(lib):
+    """patches/<lib>/*.patch, in order: applied to the submodule's sources at
+    build time (the submodule itself stays at the upstream commit)."""
+    return sorted(glob.glob(os.path.join(REPO, "patches", lib, "*.patch")))
+
+
+def _apply_patches(src, patches, out):
+    """Write `src` with the unified-diff hunks for its basename from `patches`
+    applied to `out`.  Strict: every hunk's context must match exactly (near
+    its stated line), or the build stops -- a submodule bump that no longer
+    takes the patch must be noticed."""
+    # Universal newlines: a CRLF checkout (core.autocrlf on Windows) of the
+    # patch or the source must still match.
+    with open(src, "r") as f:
+        lines = f.read().split("\n")
+    name = os.path.basename(src)
+    for pf in patches:
+        with open(pf, "r") as f:
+            plines = f.read().split("\n")
+        i, active = 0, False
+        while i < len(plines):
+            l = plines[i]
+            if l.startswith("+++ "):
+                active = l[4:].strip().split("/")[-1] == name
+            elif l.startswith("@@") and active:
+                start = int(re.match(r"@@ -(\d+)", l).group(1)) - 1
+                old, new = [], []
+                i += 1
+                while i < len(plines) and not plines[i].startswith(("@@", "diff ", "--- ")) \
+                        and plines[i] != "-- ":                     # format-patch signature
+
+                    h = plines[i]
+                    if h.startswith(" ") or h == "":
+                        old.append(h[1:]); new.append(h[1:])
+                    elif h.startswith("-"):
+                        old.append(h[1:])
+                    elif h.startswith("+"):
+                        new.append(h[1:])
+                    i += 1
+                while old and new and old[-1] == "" and new[-1] == "":     # trailing blank of the patch file
+                    old.pop(); new.pop()
+                hits = [k for k in range(max(0, start - 200), min(len(lines), start + 200))
+                        if lines[k:k + len(old)] == old]
+                if len(hits) != 1:
+                    raise SystemExit("patch %s does not apply to %s (hunk at line %d: %d matches)"
+                                     % (os.path.basename(pf), src, start + 1, len(hits)))
+                k = hits[0]
+                lines[k:k + len(old)] = new
+                continue
+            i += 1
+    with open(out, "w", newline="") as f:
+        f.write("\n".join(lines))
+    return out
+
+
 def _digest_files():
-    """Every compiled source and every header next to one, sorted."""
+    """Every compiled source and every header next to one, sorted (and the
+    patches applied at build time)."""
     files = set(_sources())
+    for lib, _ in _PATCHED:
+        files.update(_patch_files(lib))
     for d in [os.path.join(REPO, "src")] + _include_dirs():
         for pat in ("*.h", "*.hpp"):
             files.update(glob.glob(os.path.join(d, pat)))
@@ -211,18 +279,34 @@ def _build_gcc(srcs, incs, outpath, plat, builddir):
     """gcc- or clang-style driver (CC/CXX from the environment)."""
     cc = os.environ.get("CC") or "gcc"
     cxx = os.environ.get("CXX") or "g++"
-    ppc_flags = ["-maltivec", "-mvsx", "-DNO_WARN_X86_INTRINSICS"] if plat == "linux_ppc64le" else []
+    arch_flags = ["-maltivec", "-mvsx", "-DNO_WARN_X86_INTRINSICS"] if plat == "linux_ppc64le" else []
+    win = plat.startswith("win")
+    if win and "clang" not in _compiler_id(cc).lower():
+        # gcc on Win64 assumes 32/64-byte stack alignment it never sets up
+        # (GCC bug 54412): aligned AVX spills to the stack crash.  Have gas
+        # emit the unaligned moves instead (binutils >= 2.38).  clang (and
+        # zig) realign the stack themselves.
+        arch_flags = ["-Wa,-muse-unaligned-vector-move"]
     objs = []
     for s in srcs:
         obj = os.path.join(builddir, os.path.basename(s) + ".o")
-        cmd = [cc if s.endswith(".c") else cxx, "-O2", "-DZSTD_DISABLE_ASM", "-fPIC"]
+        cmd = [cc if s.endswith(".c") else cxx, "-O2", "-DZSTD_DISABLE_ASM"] + ([] if win else ["-fPIC"])
         cmd += ["-I%s" % i for i in incs]
         cmd += _CXX_FLAGS if s.endswith(".cpp") else []
-        cmd += ppc_flags
+        cmd += arch_flags
+        cmd += os.environ.get("BSLZ4_EXTRA_CFLAGS", "").split()     # e.g. PGO
+        if os.path.basename(s) == "lz4.c" and not plat.startswith("darwin"):
+            # Pin the decoder's code alignment.  Unaligned, its speed moved
+            # with whatever was linked before it: one constant changed in the
+            # driver made LZ4_decompress_safe ~25 % slower on real Eiger blocks
+            # (start at 0x30 vs 0x10 mod 64; EPYC 9454, 2026-10-04).
+            cmd += os.environ.get("BSLZ4_LZ4_CFLAGS",
+                                  "-falign-functions=64 -falign-loops=64").split()
         cmd += ["-c", s, "-o", obj]
         subprocess.check_call(cmd)
         objs.append(obj)
     link = [cc, "-shared", "-o", outpath] + objs + ["-lm"]
+    link += os.environ.get("BSLZ4_EXTRA_LDFLAGS", "").split()
     if not plat.startswith("darwin"):
         link.append("-static-libgcc")
     subprocess.check_call(link)
@@ -235,8 +319,10 @@ def _build_msvc(srcs, incs, outpath, builddir):
     cmd = [cl, "/nologo", "/LD", "/O2", "/DZSTD_DISABLE_ASM", "/std:c++14",
            "/GR-", "/EHs-c-", "/Zc:threadSafeInit-"]
     cmd += ["/I%s" % i for i in incs]
-    cmd += ["/Fe%s" % outpath]
+    cmd += ["/Fe%s" % outpath, "/Fo%s\\" % builddir]     # objects in builddir, not the cwd
     cmd += srcs
+    # the import library and .exp go to builddir, not next to the .pyd
+    cmd += ["/link", "/IMPLIB:%s" % os.path.join(builddir, "_bslz4_to_sparse.lib")]
     subprocess.check_call(cmd)
     # cl honours /Fe, but if it still emitted a .dll, normalise to .pyd.
     if not os.path.exists(outpath):
@@ -268,6 +354,16 @@ def main():
     outpath = os.path.join(outdir, outname)
 
     srcs = _sources()
+    builddir_ = os.path.abspath(args.build_dir or os.path.join(REPO, "build", "build_extension"))
+    os.makedirs(builddir_, exist_ok=True)
+    for lib, rel in _PATCHED:
+        if _patch_files(lib):
+            # the submodule stays at the upstream commit; our patches
+            # (patches/<lib>) go into a copy compiled in its place
+            orig = os.path.join(REPO, rel)
+            patched = _apply_patches(orig, _patch_files(lib),
+                                     os.path.join(builddir_, os.path.basename(rel)))
+            srcs = [patched if s == orig else s for s in srcs]
     incs = _include_dirs()
     builddir = os.path.abspath(args.build_dir or os.path.join(REPO, "build", "build_extension"))
     os.makedirs(builddir, exist_ok=True)

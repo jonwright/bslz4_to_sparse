@@ -31,7 +31,13 @@ typedef int64_t (*bslz4_untranspose_fn)(void *BSLZ4_RESTRICT out, const void *BS
 enum { BSLZ4_LAYOUT_CSC = 0, BSLZ4_LAYOUT_PADDED = 1, BSLZ4_LAYOUT_BSBCSR = 2 };
 
 /* CSC matrix.  data is float* (csc / csc-fused / ...) or uint32_t* for the
- * later fixed-point dot; the element width is implied by the dot id. */
+ * later fixed-point dot; the element width is implied by the dot id.  The
+ * dot id also says what indices holds: one bin per entry (csc, csc-fused),
+ * the first bin per pixel (csc-run: start + length, length from indptr), or
+ * the one bin per pixel with weight 1 (csc-nosplit: data/indptr not read),
+ * or the first of a pixel's two bins b, b+1 with weights 1 and data[p]
+ * (csc-nosplit-moment: data has one entry per pixel, indptr not read).
+ * See the column walkers in kernels_generic.cpp. */
 typedef struct {
     const void *data;
     const uint32_t *indices;
@@ -84,7 +90,7 @@ typedef struct {
 typedef struct bslz4_work {
     int    dtype;                    /* pixel dtype index 0..9 */
     int    route;                    /* 0=dense, 1=sparse */
-    int    collect_id;               /* resolved collect tier 0..5 */
+    int    collect_id;               /* resolved collect tier 0..7 */
     int    dot_id;                   /* resolved dot impl (bslz4_dots[] in bslz4_registry.c) */
     int    no_mask;                  /* BSLZ4_OPT_NO_MASK: skip all mask checks */
     size_t n;                        /* pixels in this block/tail */
@@ -99,6 +105,12 @@ typedef struct bslz4_work {
     int           nout;
     uint32_t      *BSLZ4_RESTRICT tidx;    /* sparse-route compaction scratch */
     void          *BSLZ4_RESTRICT tval;
+    /* 1: the driver already compacted this block's non-zero (unmasked)
+     * pixels into tval/tidx (pre_nz entries) and `block` is not filled; only
+     * set for the sparse route of dots whose sparse route reads just the
+     * list (bslz4_collect_nz_w in kernels_generic.cpp). */
+    int           precompacted;
+    int           pre_nz;
 } bslz4_work;
 
 /* What the dtype-agnostic driver needs to decode: element width, dtype
@@ -109,7 +121,7 @@ typedef struct bslz4_work {
 typedef struct bslz4_stage {
     size_t elem_size;            /* sizeof(pixel dtype) */
     int dtype;                   /* pixel dtype index 0..9 */
-    int collect_id;              /* resolved collect tier 0..5 */
+    int collect_id;              /* resolved collect tier 0..7 */
     int dot_id;                  /* resolved dot impl 0.. */
     int untranspose_id;          /* resolved untranspose backend 0..3 */
     uint16_t options;            /* BSLZ4_OPT_* bitmask */
@@ -145,9 +157,9 @@ int bslz4_driver_sparsify_and_dot(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                                   const uint8_t *BSLZ4_RESTRICT mask, int NIJ,
                                   void *BSLZ4_RESTRICT outpx, uint32_t *BSLZ4_RESTRICT output_adr,
                                   int32_t *BSLZ4_RESTRICT npx_out, int threshold,
-                                  double *BSLZ4_RESTRICT powder, int nout,
-                                  const float *BSLZ4_RESTRICT data,
-                                  const uint32_t *BSLZ4_RESTRICT indices,
+                                  void *BSLZ4_RESTRICT powder, int nout,
+                                  const void *BSLZ4_RESTRICT data,
+                                  const void *BSLZ4_RESTRICT indices,
                                   const uint32_t *BSLZ4_RESTRICT indptr,
                                   double dense_sparse_x,
                                   uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len,
@@ -203,7 +215,7 @@ int bslz4_driver_sparsify_and_dot_bsbcsr(const int64_t *BSLZ4_RESTRICT compresse
 
 /* Counter layout (flat read via bslz4_read_counters). */
 #define BSLZ4_NSTAGES  4
-#define BSLZ4_ID_SLOTS 16
+#define BSLZ4_ID_SLOTS 32   /* >= every stage's id count (dots: checked in bslz4_registry.c) */
 
 /* Resolve dtype + stages (a uint16 array, one entry per stage/option, see
  * BSLZ4_STAGES_N in bslz4_common.h) into a stage table.  Validates, in
@@ -224,8 +236,10 @@ int bslz4_impl_available(int stage, int id);
 
 /* dot-id introspection: layout id (one of BSLZ4_LAYOUT_*), or -1 unknown;
  * and the output element size in bytes of the powder buffer (8: a double,
- * or an int64 for a future fixed-point dot), 0 if unknown. */
+ * or an int64 for the fixed-point dots; 0: the pixel dtype's size, for a
+ * packed output such as csc-permute). */
 int bslz4_dot_layout(int id);
+int bslz4_dot_stream(int id);   /* 1: indices is a headed byte stream (BSLZ4_STREAM_MAGIC) */
 int bslz4_dot_out_size(int id);
 
 /* optional test instrumentation */
@@ -258,8 +272,8 @@ int bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_len
 int bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
                            int nframes, const uint8_t *mask, int NIJ,
                            void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
-                           double *powder, int nout,
-                           const float *weights, const uint32_t *indices, const uint32_t *indptr,
+                           void *powder, int nout,
+                           const void *weights, const void *indices, const uint32_t *indptr,
                            double route_threshold,
                            uint8_t *workspace, size_t workspace_len, int64_t *cursors,
                            int dtype, const uint16_t *stages);
