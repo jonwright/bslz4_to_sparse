@@ -654,7 +654,8 @@ static inline int bslz4_collect_u8_swar(const uint8_t *BSLZ4_RESTRICT v8, const 
 static int bslz4_lowplanes_collect_vsx(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
                                        const uint8_t *BSLZ4_RESTRICT zeros,
                                        const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
-                                       uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
+                                       uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr,
+                                       int branchfree) {
     typedef __vector unsigned char vu8;
     typedef __vector unsigned long long vu64;
     const size_t size = ne / 8;
@@ -688,12 +689,26 @@ static int bslz4_lowplanes_collect_vsx(uint8_t *BSLZ4_RESTRICT raw, size_t ne, s
             uint64_t x;
             memcpy(&x, ub + w, 8);
             if (!x) continue;
-            for (size_t b = w; b < w + 8; b++) {
-                const unsigned v = ub[b];
-                if (v > cut && (!mask || mask[base + b])) {
+            if (branchfree) {
+                /* store every pixel, advance by its selection (the stores past
+                 * the count stay below base + b <= the block's end): no
+                 * mispredicts where the selection is scattered (9 % frames
+                 * -18 %), but a serial chain where nearly every pixel passes
+                 * (dense +89 %), so only for well-compressed blocks */
+                for (size_t b = w; b < w + 8; b++) {
+                    const unsigned v = ub[b];
                     out_vals[npx] = (uint16_t) v;
                     out_adr[npx] = (uint32_t) (base + b);
-                    npx++;
+                    npx += (v > cut) & (!mask || mask[base + b] != 0);
+                }
+            } else {
+                for (size_t b = w; b < w + 8; b++) {
+                    const unsigned v = ub[b];
+                    if (v > cut && (!mask || mask[base + b])) {
+                        out_vals[npx] = (uint16_t) v;
+                        out_adr[npx] = (uint32_t) (base + b);
+                        npx++;
+                    }
                 }
             }
         }
@@ -829,7 +844,8 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     /* the low bytes' collect: fused VSX transpose, or kcb's bytes in scratch */
 #if defined(BSLZ4_HAVE_LOWPLANES_VSX) && BSLZ4_FUSED_VSX
 #define BSLZ4_COLLECT_LOW(cut_, vals_, adr_) (use_vsx \
-        ? bslz4_lowplanes_collect_vsx(raw, block_elems, nz_end, bslz4_zero_plane_vsx, bmask, (size_t) i0, (cut_), (vals_), (adr_)) \
+        ? bslz4_lowplanes_collect_vsx(raw, block_elems, nz_end, bslz4_zero_plane_vsx, bmask, (size_t) i0, (cut_), (vals_), (adr_), \
+                                      (size_t) nbytes * 8 < blocksize) \
         : bslz4_collect_u8_swar(scratch, bmask, (size_t) i0, block_elems, (cut_), (vals_), (adr_)))
 #else
 #define BSLZ4_COLLECT_LOW(cut_, vals_, adr_) \
