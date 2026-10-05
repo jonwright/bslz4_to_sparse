@@ -20,6 +20,19 @@
 #define BSLZ4_NOINLINE __attribute__((noinline))
 #endif
 
+/* AVX-512 VBMI/VBMI2 and GFNI need gcc >= 8 or clang >= 7 (target
+ * attributes, intrinsics, __builtin_cpu_supports names); older compilers
+ * build without those paths and pick the AVX2 ones at run time.
+ * BSLZ4_NO_VBMI_GFNI forces them off (to test the fallback). */
+#ifndef BSLZ4_HAVE_VBMI_GFNI
+#if !defined(BSLZ4_NO_VBMI_GFNI) && \
+    ((defined(__clang__) && __clang_major__ >= 7) || (!defined(__clang__) && defined(__GNUC__) && __GNUC__ >= 8))
+#define BSLZ4_HAVE_VBMI_GFNI 1
+#else
+#define BSLZ4_HAVE_VBMI_GFNI 0
+#endif
+#endif
+
 #ifndef BSLZ4_UNLIKELY
 #if defined(_MSC_VER)
 #define BSLZ4_UNLIKELY(expr) (expr)

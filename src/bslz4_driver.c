@@ -370,6 +370,7 @@ static int bslz4_plane_extract(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t NB
  * each qword holds one 8x8 bit matrix, which gf2p8affineqb transposes.  Here
  * the 64 result bytes are zero-extended and stored as 64 u16 at once, so the
  * low bytes are never stored and widened separately. */
+#if BSLZ4_HAVE_VBMI_GFNI
 __attribute__((target("avx512f,avx512bw,avx512vbmi,gfni")))
 static void bslz4_untrans_lowplanes_u16(uint16_t *BSLZ4_RESTRICT out, const uint8_t *BSLZ4_RESTRICT in,
                                         size_t ne) {
@@ -396,6 +397,11 @@ static void bslz4_untrans_lowplanes_u16(uint16_t *BSLZ4_RESTRICT out, const uint
         _mm512_storeu_si512((void *) (out + 8 * i + 32), _mm512_cvtepu8_epi16(_mm512_extracti64x4_epi64(u, 1)));
     }
 }
+#else
+static void bslz4_untrans_lowplanes_u16(uint16_t *out, const uint8_t *in, size_t ne) {
+    (void) out; (void) in; (void) ne;            /* never called: not capable */
+}
+#endif
 
 /* 1 if p[0..n) are all zero; n a multiple of 64.  512-byte steps. */
 __attribute__((target("avx512f")))
@@ -410,11 +416,15 @@ static int bslz4_all_zero_avx512(const uint8_t *BSLZ4_RESTRICT p, size_t n) {
 }
 
 static int bslz4_lowplanes_u16_capable(void) {
+#if BSLZ4_HAVE_VBMI_GFNI
     static int cached = -1;
     if (cached < 0)
         cached = c2py_amd64_avx512f && c2py_amd64_avx512bw && __builtin_cpu_supports("avx512vbmi") &&
                  __builtin_cpu_supports("gfni");
     return cached;
+#else
+    return 0;
+#endif
 }
 
 /* The low-planes transpose fused with the collect, for u16 blocks whose high
@@ -428,6 +438,7 @@ static int bslz4_lowplanes_u16_capable(void) {
  * cut < 255 (nothing in these blocks exceeds 255).  Full-width stores reach
  * at most 64 entries past this block's count, so they stay below
  * i0 + j + 64 <= i0 + ne (see bslz4_collect_avx512cs_u16). */
+#if BSLZ4_HAVE_VBMI_GFNI
 /* Emit one 64-pixel group: the k-selected bytes of u (widened to u16) and
  * their pixel indices (base + lane), full-width stores, branch-free.
  * Returns the new count. */
@@ -556,15 +567,28 @@ static int bslz4_lowplanes_collect_u16(uint8_t *BSLZ4_RESTRICT raw, size_t ne, s
     return bslz4_lowplanes_collect_body(raw, ne, nz_end, zeros, mask, i0, cut, out_vals, out_adr,
                                         BSLZ4_FUSED_TWOPASS, skip);
 }
+#else
+static int bslz4_lowplanes_collect_u16(uint8_t *raw, size_t ne, size_t nz_end, const uint8_t *zeros,
+                                       const uint8_t *mask, size_t i0, unsigned cut,
+                                       uint16_t *out_vals, uint32_t *out_adr, int skip) {
+    (void) raw; (void) ne; (void) nz_end; (void) zeros; (void) mask; (void) i0; (void) cut;
+    (void) out_vals; (void) out_adr; (void) skip;
+    return 0;                                     /* never called: not capable */
+}
+#endif
 
 static const uint8_t bslz4_zero_plane[1024];      /* planes of up to 8192 pixels */
 
 static int bslz4_lowplanes_collect_capable(void) {
+#if BSLZ4_HAVE_VBMI_GFNI
     static int cached = -1;
     if (cached < 0)
         cached = bslz4_lowplanes_u16_capable() && c2py_amd64_avx512vl &&
                  __builtin_cpu_supports("avx512vbmi2") && __builtin_cpu_supports("popcnt");
     return cached;
+#else
+    return 0;
+#endif
 }
 
 /* 1 if the u16 block's high byte-planes (raw[ne..2ne)) are all zero; zero

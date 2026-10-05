@@ -88,7 +88,7 @@ inline bool bslz4_avx512_collect_capable() {
  * 16-bit compress; c2py_amd64.h has no flag for it, so ask the compiler's
  * cpu probe (gcc/clang, the only compilers this tier is built with). */
 inline bool bslz4_avx512cs_collect_capable() {
-#if BSLZ4_HAVE_AVX512_COLLECT
+#if BSLZ4_HAVE_AVX512_COLLECT && BSLZ4_HAVE_VBMI_GFNI
     return bslz4_avx512_collect_capable() && __builtin_cpu_supports("avx512vbmi2") &&
            __builtin_cpu_supports("popcnt");
 #else
@@ -190,6 +190,7 @@ inline int bslz4_collect_avx512_u16(const uint16_t *BSLZ4_RESTRICT block,
  * which the per-frame output (NIJ entries) and the per-block compaction
  * scratch (block_elems entries) both cover.  The entries past the returned
  * count are scratch the caller never reads. */
+#if BSLZ4_HAVE_VBMI_GFNI
 __attribute__((target("avx512f,avx512bw,avx512vl,avx512vbmi2,popcnt")))
 inline int bslz4_collect_avx512cs_u16(const uint16_t *BSLZ4_RESTRICT block,
                                        const uint8_t *BSLZ4_RESTRICT mask,
@@ -260,6 +261,7 @@ inline int bslz4_collect_avx512cs_u32(const uint32_t *BSLZ4_RESTRICT block,
     }
     return npx;
 }
+#endif
 
 __attribute__((target("avx512f,avx512bw,avx512vl")))
 inline int bslz4_collect_avx512_u32(const uint32_t *BSLZ4_RESTRICT block,
@@ -824,7 +826,9 @@ inline int bslz4_collect_gt<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
                                        size_t i0, size_t n, uint16_t cut, int collect_id,
                                        uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
+#if BSLZ4_HAVE_VBMI_GFNI
     if (collect_id == 6) return bslz4_collect_avx512cs_u16(block, mask, i0, n, cut, out_vals, out_adr);
+#endif
     if (collect_id == 1) return bslz4_collect_avx512_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
@@ -856,7 +860,9 @@ inline int bslz4_collect_gt<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
                                        size_t i0, size_t n, uint32_t cut, int collect_id,
                                        uint32_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
+#if BSLZ4_HAVE_VBMI_GFNI
     if (collect_id == 6) return bslz4_collect_avx512cs_u32(block, mask, i0, n, cut, out_vals, out_adr);
+#endif
     if (collect_id == 1) return bslz4_collect_avx512_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
@@ -888,7 +894,9 @@ inline int bslz4_collect_nz<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
                                        uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
     /* unsigned T: !=0 is exactly >0, so cut==0 reuses the same kernels. */
 #if BSLZ4_HAVE_AVX512_COLLECT
+#if BSLZ4_HAVE_VBMI_GFNI
     if (collect_id == 6) return bslz4_collect_avx512cs_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+#endif
     if (collect_id == 1) return bslz4_collect_avx512_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
@@ -921,7 +929,9 @@ inline int bslz4_collect_nz<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
                                        size_t i0, size_t n, int collect_id,
                                        uint32_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
+#if BSLZ4_HAVE_VBMI_GFNI
     if (collect_id == 6) return bslz4_collect_avx512cs_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+#endif
     if (collect_id == 1) return bslz4_collect_avx512_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
