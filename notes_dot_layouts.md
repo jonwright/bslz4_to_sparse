@@ -630,10 +630,21 @@ WAu0008 -17..-36 %, 0.1 % frames -6..-13 %, dense sparsify -15 %, dense
 rings -17 %.  Its line profile is flat on Intel (~50 cycles/sequence of
 branchy work, no line > 7 %).  Needs confirming on Zen 3/4/5.
 
+## hpc8 (EPYC 9655, Zen 5) check (2026-10-05)
+
+vs last week's build (ce9504c): the zero decoder for every block (6f9d43d)
+made 9 % frames 8-30 % slower here -- stock lz4 is ~2.5x faster on Zen 5
+than on Cascade Lake and wins on 8-24x blocks (many short sequences:
+8-16x 2408 vs 3142 cycles/block).  Fixed by a band (4acc32a): zero decoder
+below 8x and above 24x.  Then group skipping on the AVX-512 fused path
+(c973137, blocks > 48x).  hpc8 now vs ce9504c (medians, node loaded to 45-95):
+WAu0012 sparsify ~0.55 -> 0.42, 0.1 % frames 0.35 -> 0.23, WAu0008
+0.85 -> 0.73, 9 % frames level, dense -2..-12 %.
+
 ## To do (2026-10-04)
 
-- Confirm the cutoff-1 zero decoder and the AVX2 paths on hpc6/7/8 (the
-  compiler-suite one-liner), and that Zen 4/5 did not regress.
+- Confirm the 8x/24x zero-decoder band on hpc6 (Zen 3) and hpc7 (Zen 4);
+  hpc5 measured it as roughly level with "always" in the 8-24x band.
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype
   maximum, enable mask planes for that dataset.
