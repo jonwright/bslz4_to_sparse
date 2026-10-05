@@ -85,11 +85,13 @@ def _apply_patches(src, patches, out):
     applied to `out`.  Strict: every hunk's context must match exactly (near
     its stated line), or the build stops -- a submodule bump that no longer
     takes the patch must be noticed."""
-    with open(src, "r", newline="") as f:
+    # Universal newlines: a CRLF checkout (core.autocrlf on Windows) of the
+    # patch or the source must still match.
+    with open(src, "r") as f:
         lines = f.read().split("\n")
     name = os.path.basename(src)
     for pf in patches:
-        with open(pf, "r", newline="") as f:
+        with open(pf, "r") as f:
             plines = f.read().split("\n")
         i, active = 0, False
         while i < len(plines):
@@ -302,8 +304,10 @@ def _build_msvc(srcs, incs, outpath, builddir):
     cmd = [cl, "/nologo", "/LD", "/O2", "/DZSTD_DISABLE_ASM", "/std:c++14",
            "/GR-", "/EHs-c-", "/Zc:threadSafeInit-"]
     cmd += ["/I%s" % i for i in incs]
-    cmd += ["/Fe%s" % outpath]
+    cmd += ["/Fe%s" % outpath, "/Fo%s\\" % builddir]     # objects in builddir, not the cwd
     cmd += srcs
+    # the import library and .exp go to builddir, not next to the .pyd
+    cmd += ["/link", "/IMPLIB:%s" % os.path.join(builddir, "_bslz4_to_sparse.lib")]
     subprocess.check_call(cmd)
     # cl honours /Fe, but if it still emitted a .dll, normalise to .pyd.
     if not os.path.exists(outpath):

@@ -12,11 +12,12 @@ from bslz4_to_sparse import chunk2sparseCSC
 print("Running from", bslz4_to_sparse.__file__)
 print("Backends:", bslz4_to_sparse.available_backends())
 
+import pytest
+pyFAI = pytest.importorskip("pyFAI")
 try:
     from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # pyFAI >= 2024.10
 except ImportError:
     from pyFAI.azimuthalIntegrator import AzimuthalIntegrator  # older pyFAI
-import pyFAI
 import numpy as np
 import h5py
 import hdf5plugin
