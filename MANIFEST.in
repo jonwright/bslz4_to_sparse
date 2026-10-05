@@ -42,3 +42,6 @@ global-exclude *.py[cod]
 # Patches to the submodules, applied by tools/build_extension.py at build time;
 # without them an sdist build silently compiles the unpatched upstream sources.
 graft patches
+
+# Third-party licences (also declared as license_files in setup.cfg).
+graft licenses
