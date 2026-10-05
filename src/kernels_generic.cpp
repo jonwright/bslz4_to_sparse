@@ -376,6 +376,16 @@ int dense_dot_fused(const bslz4_work *BSLZ4_RESTRICT w) {
     return npx;
 }
 
+/* a read prefetch hint, gcc/clang or MSVC x64 (else nothing) */
+#if defined(__GNUC__) || defined(__clang__)
+#define BSLZ4_PREFETCH(p) __builtin_prefetch(p)
+#elif defined(_MSC_VER) && defined(_M_X64)
+#include <xmmintrin.h>
+#define BSLZ4_PREFETCH(p) _mm_prefetch((const char *) (p), _MM_HINT_T0)
+#else
+#define BSLZ4_PREFETCH(p) ((void) 0)
+#endif
+
 #ifndef BSLZ4_DOT_PREFETCH
 /* sparse CSC route: software prefetch distance in pixels (0 = off) */
 #define BSLZ4_DOT_PREFETCH 8
@@ -434,11 +444,11 @@ int sparse_dot_core(const bslz4_work *BSLZ4_RESTRICT w, const bslz4_mat_csc *BSL
         for (int kk = base; kk < end; kk++) {
 #if BSLZ4_DOT_PREFETCH
             if (kk + 2 * BSLZ4_DOT_PREFETCH < nz)
-                __builtin_prefetch(&indptr[tidx[kk + 2 * BSLZ4_DOT_PREFETCH]]);
+                BSLZ4_PREFETCH(&indptr[tidx[kk + 2 * BSLZ4_DOT_PREFETCH]]);
             if (kk + BSLZ4_DOT_PREFETCH < nz) {
                 const uint32_t kp = indptr[tidx[kk + BSLZ4_DOT_PREFETCH]];
-                __builtin_prefetch(&indices[kp]);
-                __builtin_prefetch(&data[kp]);
+                BSLZ4_PREFETCH(&indices[kp]);
+                BSLZ4_PREFETCH(&data[kp]);
             }
 #endif
             const uint32_t addr = tidx[kk];
@@ -467,11 +477,11 @@ int sparse_dot_core(const bslz4_work *BSLZ4_RESTRICT w, const bslz4_mat_csc *BSL
          * entries one stride ahead (each active pixel lands at a random
          * place in the multi-MB matrix; latency, not arithmetic) */
         if (kk + 2 * BSLZ4_DOT_PREFETCH < nz)
-            __builtin_prefetch(&indptr[tidx[kk + 2 * BSLZ4_DOT_PREFETCH]]);
+            BSLZ4_PREFETCH(&indptr[tidx[kk + 2 * BSLZ4_DOT_PREFETCH]]);
         if (kk + BSLZ4_DOT_PREFETCH < nz) {
             const uint32_t kp = indptr[tidx[kk + BSLZ4_DOT_PREFETCH]];
-            __builtin_prefetch(&indices[kp]);
-            __builtin_prefetch(&data[kp]);
+            BSLZ4_PREFETCH(&indices[kp]);
+            BSLZ4_PREFETCH(&data[kp]);
         }
 #endif
         uint32_t addr = tidx[kk];

@@ -70,8 +70,8 @@ static const bslz4_dot_desc bslz4_dots[] = {
 /* The per-implementation counters (bslz4_counters_bump: no bounds check)
  * need a slot for every dot id.  With 16 slots, dots 16-24 counted past the
  * end of the array and corrupted the static data after it. */
-_Static_assert(sizeof(bslz4_dots) / sizeof(bslz4_dots[0]) <= BSLZ4_ID_SLOTS,
-               "BSLZ4_ID_SLOTS too small for the dot table");
+typedef char bslz4_id_slots_cover_the_dot_table
+    [(sizeof(bslz4_dots) / sizeof(bslz4_dots[0]) <= BSLZ4_ID_SLOTS) ? 1 : -1];   /* compile-time check */
 
 static int bslz4_dot_count(void) {
     return (int) (sizeof(bslz4_dots) / sizeof(bslz4_dots[0]));

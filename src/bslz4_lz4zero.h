@@ -41,6 +41,16 @@
 #define BSLZ4_LZ4ZERO_SSE2 0
 #endif
 
+/* leading zeros of a non-zero value, gcc/clang or MSVC */
+#if defined(_MSC_VER) && !defined(__clang__)
+#include <intrin.h>
+static inline int bslz4_lz_clz64(uint64_t x) { unsigned long i; _BitScanReverse64(&i, x); return 63 - (int) i; }
+static inline int bslz4_lz_clz32(uint32_t x) { unsigned long i; _BitScanReverse(&i, x); return 31 - (int) i; }
+#else
+static inline int bslz4_lz_clz64(uint64_t x) { return __builtin_clzll(x); }
+static inline int bslz4_lz_clz32(uint32_t x) { return __builtin_clz(x); }
+#endif
+
 /* Copy an overlapping match [op - off, ...) of length m (off < m) by
  * doubling: [src, op) repeats with period off, so copying it onto op doubles
  * the periodic region; every copy is non-overlapping. */
@@ -148,7 +158,7 @@ static int bslz4_lz4_decode_zero(const uint8_t *src, size_t srcsize, uint8_t *ds
                 nz |= (uint64_t) (~(uint32_t) _mm_movemask_epi8(_mm_cmpeq_epi8(v, _mm_setzero_si128())) & 0xFFFFu) << c;
             }
             if (mlen < 64) nz &= ((uint64_t) 1 << mlen) - 1;
-            q = nz ? op + (64 - __builtin_clzll(nz)) : op;
+            q = nz ? op + (64 - bslz4_lz_clz64(nz)) : op;
         } else if (off >= mlen && (size_t) (olim - op) >= mlen + 16) {
             /* longer: the same chunks, keeping the last one holding a non-zero
              * byte (a byte scan back over long, mostly zero copies made the
@@ -163,7 +173,7 @@ static int bslz4_lz4_decode_zero(const uint8_t *src, size_t srcsize, uint8_t *ds
                 lastc = m ? c : lastc;
                 lastm = m ? m : lastm;
             }
-            q = lastm ? op + lastc + (32 - __builtin_clz(lastm)) : op;
+            q = lastm ? op + lastc + (32 - bslz4_lz_clz32(lastm)) : op;
         } else
 #endif
         if (off >= mlen) {
