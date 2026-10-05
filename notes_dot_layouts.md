@@ -641,6 +641,26 @@ below 8x and above 24x.  Then group skipping on the AVX-512 fused path
 WAu0012 sparsify ~0.55 -> 0.42, 0.1 % frames 0.35 -> 0.23, WAu0008
 0.85 -> 0.73, 9 % frames level, dense -2..-12 %.
 
+## POWER9 (p9-10, 3.8 GHz) (2026-10-05)
+
+Driven from an x86 session as an extra step of the p9 job (srun --overlap;
+slurmsh's --interactive step is single), tools in /tmp_14_days/wright/
+bslz4_prof (p9run.sh; sampler/ = an LD_PRELOAD SIGPROF PC sampler +
+addr2line report, as py-spy is x86-only and perf is locked).  Before: kcb's
+scalar 16-plane bit transpose + byte transpose ~80 % of sparsify, the
+generic collect 44-60 % of 9 %/dense frames.
+
+1. Byte skip + collect from the low bytes for non-x86 (55548a0): 2-2.4x.
+2. VSX: two vec_perm rounds put one byte of each plane in a doubleword,
+   vgbbd (vec_gb) transposes 8x8 bits per doubleword (1b53e15): ~2x more.
+3. Branch-free emit for blocks > 8x (a68c06c): 9 % frames -18 %.
+4. Zero decoder for every block on non-x86: stock lz4 is slower there and
+   loses in the 8-24x band too (9 % frames -12 %).
+
+p9 ms/frame, before today -> now: WAu0012 sparsify 11.7 -> 2.2, WAu0008
+13.5 -> 3.7, 0.1 % 11.0 -> 3.0, 9 % 26.7 -> 9.3, dense 28.3 -> 8.3; CSC 1D
+WAu0012 12.1 -> 2.8, 9 % 31.1 -> 14.5.
+
 ## To do (2026-10-04)
 
 - Confirm the 8x/24x zero-decoder band on hpc7 (Zen 4).  hpc6 (Zen 3,

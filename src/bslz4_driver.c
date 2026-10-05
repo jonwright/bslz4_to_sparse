@@ -99,7 +99,13 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
  * byte-planes), but blocks of ~8-24x are many short sequences (~90-130 per
  * 8 kB) where stock's loop is faster on Zen 5 (8-16x: 2408 vs 3142 cycles)
  * and level on Cascade Lake (6170 vs 6463). */
+#if defined(__x86_64__) || defined(_M_X64)
 #define BSLZ4_LZ4ZERO_RATIO 24
+#else
+/* POWER9: stock lz4 is slower there and the zero decoder wins in the
+ * 8-24x band too (8-16x: 3781 vs 4812 ns/block, 16-24x: 2831 vs 4618) */
+#define BSLZ4_LZ4ZERO_RATIO 1
+#endif
 #endif
 #ifndef BSLZ4_LZ4ZERO_DENSE
 #define BSLZ4_LZ4ZERO_DENSE 8
