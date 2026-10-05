@@ -643,8 +643,12 @@ WAu0012 sparsify ~0.55 -> 0.42, 0.1 % frames 0.35 -> 0.23, WAu0008
 
 ## To do (2026-10-04)
 
-- Confirm the 8x/24x zero-decoder band on hpc6 (Zen 3) and hpc7 (Zen 4);
-  hpc5 measured it as roughly level with "always" in the 8-24x band.
+- Confirm the 8x/24x zero-decoder band on hpc7 (Zen 4).  hpc6 (Zen 3,
+  2026-10-05, idle node) confirmed it: best or equal everywhere -- vs
+  "always", 9 % frames -4..-15 %; vs 48x, WAu0008 -10..-20 %, dense -8 %.
+  hpc6 now vs ce9504c: WAu0012 sparsify 2.08 -> 0.55, WAu0008 2.58 -> 1.00,
+  9 % 4.38 -> 2.43, 0.1 % 1.67 -> 0.49, dense 6.63 -> 2.15; CSC 1D WAu0012
+  2.65 -> 1.12, rings 2.25 -> 0.70.
 
 - First-frame check (Eiger): if the fixed-masked pixels hold the dtype
   maximum, enable mask planes for that dataset.
