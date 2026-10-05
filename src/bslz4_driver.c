@@ -126,6 +126,17 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
 #define BSLZ4_BYTESKIP_GENERIC 1
 #endif
 
+#ifndef BSLZ4_LOWPLANES_SKIP
+/* 1: the AVX-512 fused collect transposes only the 64-pixel groups holding
+ * data (a bitmap from ORing the planes), for blocks compressed more than
+ * BSLZ4_LOWPLANES_SKIP_RATIO; 0: every group.  hpc8: 0.1 % frames -25 %,
+ * WAu0012 -8 %; at 16x WAu0008 blocks (~44 % of groups busy) gained nothing */
+#define BSLZ4_LOWPLANES_SKIP 1
+#endif
+#ifndef BSLZ4_LOWPLANES_SKIP_RATIO
+#define BSLZ4_LOWPLANES_SKIP_RATIO 48
+#endif
+
 #ifndef BSLZ4_FUSED_TWOPASS
 /* 1: the fused collect takes two passes (record all groups, then emit those
  * with pixels by bit scan); 0: one pass, skipping groups with no pixel */
@@ -429,7 +440,7 @@ static inline int bslz4_lowplanes_collect_body(uint8_t *BSLZ4_RESTRICT raw, size
                                        const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
                                        uint16_t *BSLZ4_RESTRICT out_vals,
                                        uint32_t *BSLZ4_RESTRICT out_adr,
-                                       const int twopass) {
+                                       const int twopass, const int skip) {
     const size_t size = ne / 8;                 /* bytes per plane; a multiple of 8 */
     if (nz_end > ne) nz_end = ne;               /* planes 8..15 are zero (checked by the caller) */
     const size_t np = (nz_end + size - 1) / size;
@@ -452,34 +463,60 @@ static inline int bslz4_lowplanes_collect_body(uint8_t *BSLZ4_RESTRICT raw, size
     _Alignas(64) uint8_t ubuf[8192];
     __mmask64 kv[128];
     uint64_t gm[2] = {0, 0};
-    for (size_t i = 0; i < size; i += 8) {
-        int64_t a1, a3, a5, a7;
-        memcpy(&a1, pl[1] + i, 8);
-        memcpy(&a3, pl[3] + i, 8);
-        memcpy(&a5, pl[5] + i, 8);
-        memcpy(&a7, pl[7] + i, 8);
-        const __m128i u0 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[0] + i)), a1, 1);
-        const __m128i u1 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[2] + i)), a3, 1);
-        const __m128i u2 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[4] + i)), a5, 1);
-        const __m128i u3 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[6] + i)), a7, 1);
-        const __m256i v0 = _mm256_inserti128_si256(_mm256_castsi128_si256(u0), u1, 1);
-        const __m256i v1 = _mm256_inserti128_si256(_mm256_castsi128_si256(u2), u3, 1);
-        __m512i u = _mm512_permutex2var_epi8(_mm512_castsi256_si512(v0), C, _mm512_castsi256_si512(v1));
-        u = _mm512_gf2p8affine_epi64_epi8(I8, u, 0x00);   /* byte j = pixel 8i + j */
-        __mmask64 k = _mm512_cmpgt_epu8_mask(u, vcut);
-        if (mask) {
-            const __m512i m = _mm512_loadu_si512((const void *) (mask + i0 + 8 * i));
-            k &= _mm512_test_epi8_mask(m, m);
+    /* the 64-pixel groups holding any data: the planes ORed 64 bytes (8
+     * groups) at a time, one test per 8 groups; with skip, only those are
+     * transposed (on sparse frames most are empty).  Without skip, a plain
+     * counted loop (the bit-scan loop over every group cost 2-5 % there). */
+    uint64_t gnz[2] = {0, 0};
+    const int use_gnz = skip && size % 64 == 0;
+    if (use_gnz) {
+        for (size_t i = 0; i < size; i += 64) {
+            __m512i acc = _mm512_loadu_si512((const void *) (pl[0] + i));
+            for (size_t p = 1; p < 8; p++)
+                acc = _mm512_or_si512(acc, _mm512_loadu_si512((const void *) (pl[p] + i)));
+            const size_t g = i / 8;
+            gnz[g >> 6] |= (uint64_t) _mm512_test_epi64_mask(acc, acc) << (g & 63);
         }
-        if (twopass) {                  /* record only: no data-dependent branch */
-            _mm512_store_si512((void *) (ubuf + 8 * i), u);
-            kv[i / 8] = k;
-            gm[i / 512] |= (uint64_t) (k != 0) << ((i / 8) & 63);
-            continue;
-        }
-        if (!k) continue;
-        npx = bslz4_lowplanes_emit(u, k, i0 + 8 * i, npx, out_vals, out_adr);
     }
+#define BSLZ4_LOWPLANES_GROUP(i) do { \
+        int64_t a1, a3, a5, a7; \
+        memcpy(&a1, pl[1] + i, 8); \
+        memcpy(&a3, pl[3] + i, 8); \
+        memcpy(&a5, pl[5] + i, 8); \
+        memcpy(&a7, pl[7] + i, 8); \
+        const __m128i u0 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[0] + i)), a1, 1); \
+        const __m128i u1 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[2] + i)), a3, 1); \
+        const __m128i u2 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[4] + i)), a5, 1); \
+        const __m128i u3 = _mm_insert_epi64(_mm_loadl_epi64((const __m128i *) (const void *) (pl[6] + i)), a7, 1); \
+        const __m256i v0 = _mm256_inserti128_si256(_mm256_castsi128_si256(u0), u1, 1); \
+        const __m256i v1 = _mm256_inserti128_si256(_mm256_castsi128_si256(u2), u3, 1); \
+        __m512i u = _mm512_permutex2var_epi8(_mm512_castsi256_si512(v0), C, _mm512_castsi256_si512(v1)); \
+        u = _mm512_gf2p8affine_epi64_epi8(I8, u, 0x00);   /* byte j = pixel 8i + j */ \
+        __mmask64 k = _mm512_cmpgt_epu8_mask(u, vcut); \
+        if (mask) { \
+            const __m512i m = _mm512_loadu_si512((const void *) (mask + i0 + 8 * i)); \
+            k &= _mm512_test_epi8_mask(m, m); \
+        } \
+        if (twopass) {                  /* record only: no data-dependent branch */ \
+            _mm512_store_si512((void *) (ubuf + 8 * i), u); \
+            kv[i / 8] = k; \
+            gm[i / 512] |= (uint64_t) (k != 0) << ((i / 8) & 63); \
+            break; \
+        } \
+        if (!k) break; \
+        npx = bslz4_lowplanes_emit(u, k, i0 + 8 * i, npx, out_vals, out_adr); \
+    } while (0)
+    if (use_gnz) {
+        for (int gw = 0; gw < 2; gw++)
+            for (uint64_t gbits = gnz[gw]; gbits; gbits &= gbits - 1) {
+                const size_t ig = 8 * (size_t) (64 * gw + bslz4_ctz64(gbits));
+                BSLZ4_LOWPLANES_GROUP(ig);
+            }
+    } else {
+        for (size_t ig = 0; ig < size; ig += 8)
+            BSLZ4_LOWPLANES_GROUP(ig);
+    }
+#undef BSLZ4_LOWPLANES_GROUP
     for (int w = 0; w < 2 && twopass; w++) {
         uint64_t bits = gm[w];
         while (bits) {
@@ -497,9 +534,9 @@ static int bslz4_lowplanes_collect_u16(uint8_t *BSLZ4_RESTRICT raw, size_t ne, s
                                        const uint8_t *BSLZ4_RESTRICT zeros,
                                        const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
                                        uint16_t *BSLZ4_RESTRICT out_vals,
-                                       uint32_t *BSLZ4_RESTRICT out_adr) {
+                                       uint32_t *BSLZ4_RESTRICT out_adr, int skip) {
     return bslz4_lowplanes_collect_body(raw, ne, nz_end, zeros, mask, i0, cut, out_vals, out_adr,
-                                        BSLZ4_FUSED_TWOPASS);
+                                        BSLZ4_FUSED_TWOPASS, skip);
 }
 
 static const uint8_t bslz4_zero_plane[1024];      /* planes of up to 8192 pixels */
@@ -808,6 +845,11 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                 bslz4_counters_bump(BSLZ4_STAGE_UNTRANSPOSE, st->untranspose_id);
                 bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
                 const int32_t npx0 = npx_out[f];
+                /* skip empty 64-px groups only in well-compressed blocks (on
+                 * 9 % frames nearly every group holds data) */
+                const int skip_groups = BSLZ4_LOWPLANES_SKIP &&
+                                        (size_t) nbytes * BSLZ4_LOWPLANES_SKIP_RATIO < blocksize;
+                (void) skip_groups;
                 if (!is_dot) {                  /* the >cut pixels straight to the output */
                     if (threshold < 255)
                         npx_out[f] = npx0 + (fused == 1
@@ -815,7 +857,7 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                                   raw, block_elems, nz_end, bslz4_zero_plane, bmask, (size_t) i0,
                                   (unsigned) threshold,
                                   (uint16_t *) (void *) outpx + (size_t) f * NIJ + (size_t) npx0,
-                                  output_adr + (size_t) f * NIJ + npx0)
+                                  output_adr + (size_t) f * NIJ + npx0, skip_groups)
                             : BSLZ4_FUSED_U8 == 2
                             ? bslz4_lowplanes_collect_avx2(
                                   raw, block_elems, nz_end, bmask, (size_t) i0, (unsigned) threshold,
@@ -839,7 +881,8 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                 w.precompacted = 1;
                 w.pre_nz = fused == 1
                     ? bslz4_lowplanes_collect_u16(raw, block_elems, nz_end, bslz4_zero_plane,
-                                                  bmask, (size_t) i0, 0u, (uint16_t *) tval, tidx)
+                                                  bmask, (size_t) i0, 0u, (uint16_t *) tval, tidx,
+                                                  skip_groups)
                     : BSLZ4_FUSED_U8 == 2
                     ? bslz4_lowplanes_collect_avx2(raw, block_elems, nz_end, bmask, (size_t) i0, 0u,
                                                    (uint16_t *) tval, tidx)
