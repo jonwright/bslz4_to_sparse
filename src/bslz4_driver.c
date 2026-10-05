@@ -112,6 +112,13 @@ static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_pt
 #define BSLZ4_EXTRACT_RATIO 24
 #endif
 
+#ifndef BSLZ4_FUSED_GENERIC
+/* 1: on non-x86 builds, u16 blocks with empty high planes take kcb's low
+ * planes as bytes and the portable u8 collect (POWER9: kcb's scalar 16-plane
+ * transpose + byte transpose were ~80 % of sparsify) */
+#define BSLZ4_FUSED_GENERIC 1
+#endif
+
 #ifndef BSLZ4_FUSED_U8
 /* With the generic byte skip, plain sparsify and the sparse dot route
  * collect without a u16 block: 1 = kcb's low planes as bytes into scratch,
@@ -585,7 +592,9 @@ static void bslz4_widen_u8_u16_sse2(uint16_t *BSLZ4_RESTRICT out, const uint8_t 
     }
 }
 
-/* 1 if p[0..n) are all zero; n a multiple of 64.  Plain C, 512-byte steps. */
+#endif
+
+/* 1 if p[0..n) are all zero; n a multiple of 8.  Plain C, 512-byte steps. */
 static int bslz4_all_zero_c(const uint8_t *BSLZ4_RESTRICT p, size_t n) {
     for (size_t i = 0; i < n; i += 512) {
         uint64_t acc = 0;
@@ -598,11 +607,33 @@ static int bslz4_all_zero_c(const uint8_t *BSLZ4_RESTRICT p, size_t n) {
     }
     return 1;
 }
-#endif
 
-#if BSLZ4_HAVE_AVX2_OR
-/* As bslz4_high_planes_zero, without AVX-512; also zero fills raw[nz_end..ne)
- * for kcb, which reads the whole low half. */
+/* The byte-skip collect for any architecture: the pixels > cut (and
+ * unmasked) of a block whose values are all < 256, from its untransposed low
+ * bytes v8[0..n), n a multiple of 8; an all-zero 8-byte word (most of a
+ * sparse frame) is skipped with one test. */
+static inline int bslz4_collect_u8_swar(const uint8_t *BSLZ4_RESTRICT v8, const uint8_t *BSLZ4_RESTRICT mask,
+                                 size_t i0, size_t n, unsigned cut,
+                                 uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
+    int npx = 0;
+    for (size_t j = 0; j < n; j += 8) {
+        uint64_t w;
+        memcpy(&w, v8 + j, 8);
+        if (!w) continue;
+        for (size_t b = j; b < j + 8; b++) {
+            const unsigned v = v8[b];
+            if (v > cut && (!mask || mask[i0 + b])) {
+                out_vals[npx] = (uint16_t) v;
+                out_adr[npx] = (uint32_t) (i0 + b);
+                npx++;
+            }
+        }
+    }
+    return npx;
+}
+
+/* As bslz4_high_planes_zero, without AVX-512 (any architecture); also zero
+ * fills raw[nz_end..ne) for kcb, which reads the whole low half. */
 static int bslz4_high_planes_zero_c(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end) {
     if (nz_end <= ne) {
         memset(raw + nz_end, 0, ne - nz_end);
@@ -611,7 +642,6 @@ static int bslz4_high_planes_zero_c(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size
     if (nz_end < 2 * ne) memset(raw + nz_end, 0, 2 * ne - nz_end);
     return bslz4_all_zero_c(raw + ne, ne);
 }
-#endif
 
 #if BSLZ4_HAVE_AVX2_OR
 /* As bslz4_high_planes_zero_c, leaving raw[nz_end..ne) alone (the fused
@@ -719,6 +749,10 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     /* 1: AVX-512 VBMI + GFNI low-planes collect; 2: without them, kcb's low
      * planes as bytes into scratch, then the AVX2 u8 collect */
     int fused = 0;
+#if !BSLZ4_HAVE_AVX2_OR && BSLZ4_FUSED_GENERIC
+    const int fused_generic = byteskip && NB == 2 && st->dtype == 1 && block_elems % 8 == 0 &&
+                              (!is_dot || st->dot_id != 24);
+#endif
 #if BSLZ4_HAVE_AVX2_OR && BSLZ4_LOWPLANES_FUSED
     if (byteskip && NB == 2 && st->dtype == 1 && block_elems % 64 == 0 &&
         (!is_dot || st->dot_id != 24)) {
@@ -888,6 +922,41 @@ static int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                                                    (uint16_t *) tval, tidx)
                     : bslz4_collect_u8_avx2cs(scratch, bmask, (size_t) i0, block_elems, 0u,
                                               (uint16_t *) tval, tidx);
+                bslz4_counters_bump(BSLZ4_STAGE_DOT, st->dot_id);
+                npx_out[f] = npx0 + bslz4_sparse_dot_dispatch(&w);
+                continue;
+            }
+#endif
+#if !BSLZ4_HAVE_AVX2_OR && BSLZ4_FUSED_GENERIC
+            /* other architectures (ppc64le, aarch64): the byte skip and the
+             * collect from the low bytes, in portable C over kcb */
+            if (fused_generic && (!is_dot || (double) blocksize > dense_sparse_x * (double) nbytes) &&
+                bslz4_high_planes_zero_c(raw, block_elems, nz_end)) {
+                if (bitshuf_decode_block((char *) scratch, (const char *) raw, NULL, block_elems, 1) < 0)
+                    return BSLZ4_ERR_UNTRANSPOSE;
+                bslz4_counters_bump(BSLZ4_STAGE_DECOMPRESS, codec);
+                bslz4_counters_bump(BSLZ4_STAGE_UNTRANSPOSE, st->untranspose_id);
+                bslz4_counters_bump(BSLZ4_STAGE_COLLECT, st->collect_id);
+                const int32_t npx0 = npx_out[f];
+                if (!is_dot) {
+                    if (threshold < 255)
+                        npx_out[f] = npx0 + bslz4_collect_u8_swar(
+                            scratch, bmask, (size_t) i0, block_elems, (unsigned) threshold,
+                            (uint16_t *) (void *) outpx + (size_t) f * NIJ + (size_t) npx0,
+                            output_adr + (size_t) f * NIJ + npx0);
+                    continue;
+                }
+                bslz4_work w = wbase;
+                if (maskplanes) w.no_mask = 1;
+                w.n = block_elems;
+                w.i0 = (size_t) i0;
+                w.out_vals = (uint8_t *) outpx + ((size_t) f * NIJ + (size_t) npx0) * NB;
+                w.out_adr = output_adr + (size_t) f * NIJ + npx0;
+                w.route = 1;
+                w.powder = (uint8_t *) powder + (size_t) f * nout * (size_t) out_size;
+                w.precompacted = 1;
+                w.pre_nz = bslz4_collect_u8_swar(scratch, bmask, (size_t) i0, block_elems, 0u,
+                                                 (uint16_t *) tval, tidx);
                 bslz4_counters_bump(BSLZ4_STAGE_DOT, st->dot_id);
                 npx_out[f] = npx0 + bslz4_sparse_dot_dispatch(&w);
                 continue;
