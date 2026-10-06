@@ -380,7 +380,7 @@ jobs:
             export DEBIAN_FRONTEND=noninteractive
             ${{ matrix.setup }}
             ${{ matrix.py }} -m pip install --quiet dist/*.whl
-            ${{ matrix.py }} -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
+            ${{ matrix.py }} -c "import bslz4_to_sparse as b; print(b.__file__, b.describe(b.chunk2sparse(__import__('numpy').ones((8, 8), 'u1')).pipeline))"
             ${{ matrix.py }} -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py -q
           '
 
@@ -423,7 +423,7 @@ jobs:
               set -e
               pip install --quiet --only-binary :all: '${{ matrix.numpy }}' pytest
               pip install --quiet dist/*.whl
-              python -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
+              python -c "import bslz4_to_sparse as b; print(b.__file__, b.describe(b.chunk2sparse(__import__('numpy').ones((8, 8), 'u1')).pipeline))"
               python -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py -q
             '
 
@@ -455,7 +455,7 @@ jobs:
       - name: SIMD paths active
         # the runners have AVX2: a scalar collect (tier 0) means the wheel lost
         # its SIMD code (e.g. an MSVC build slipped back in)
-        run: python -c "import bslz4_to_sparse as b; t = b._active_collect_tier(); print(b.build_info()['compiler'], 'collect tier', t, b.available_backends()); assert t != 0"
+        run: python -c "import numpy as np, bslz4_to_sparse as b; d = b.describe(b.chunk2sparse(np.ones((8, 8), np.uint8)).pipeline); print(b.build_info()['compiler'], d); assert d['collect'] != 'scalar' and d['untranspose'] != 'scalar'"
       - name: Run decode matrix
         run: python -m pytest test\test_decode_matrix.py test\test_corrupt_chunk.py -q
 
@@ -518,6 +518,6 @@ jobs:
           python -m pip install --quiet dist/*.whl
           python -m pip install --quiet --only-binary :all: numpy pytest
       - name: Smoke test
-        run: python -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
+        run: python -c "import bslz4_to_sparse as b; print(b.__file__, b.describe(b.chunk2sparse(__import__('numpy').ones((8, 8), 'u1')).pipeline))"
       - name: Run decode matrix
         run: python -m pytest test/test_decode_matrix.py -q
