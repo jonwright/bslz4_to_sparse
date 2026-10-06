@@ -67,33 +67,34 @@ def make_chunks(dt):
     return chunks, ary.dtype
 
 h = hashlib.sha256()
-backends = list(bslz4.available_backends())
+# every untranspose value usable here (lowplanes-* only take u16)
+untransposes = [n for _i, n, ok, _need in bslz4.describe()["untranspose"] if ok]
 
 for dt in DTYPES:
     chunks, dtyp = make_chunks(dt)
-    for be in backends:
-        bslz4.set_backend(be)
+    for unt in untransposes:
+        if unt.startswith("lowplanes") and np.dtype(dtyp) != np.uint16:
+            continue
         # plain sparse
-        c2sm = bslz4.chunk2sparseMulti(mask2d, dtype=dtyp)
+        c2sm = bslz4.chunk2sparse(mask2d, dtype=dtyp, pipeline={"untranspose": unt})
         for cut in (0, 16):
-            npx, (vals, adr) = c2sm(chunks, cut)
+            npx, (vals, adr) = c2sm.multi(chunks, cut)
             h.update(np.asarray(npx, np.int32).tobytes())
             for f in range(NF):
                 n = int(npx[f])
                 h.update(np.asarray(vals[f][:n], dtyp).tobytes())
                 h.update(np.asarray(adr[f][:n], np.uint32).tobytes())
-        # CSC / powder
-        c2sc = bslz4.chunk2sparseCSCmulti(mask2d, csc, dtyp)
-        for thr in (0.0, 8.0, 1e9):
-            bslz4.set_dense_sparse_threshold(thr)
+        # CSC / powder, on each route
+        for route in ("sparse", "ratio", "dense"):
+            c2sc = bslz4.chunk2sparseCSC(mask2d, csc, dtyp,
+                                         pipeline={"untranspose": unt, "route": route, "dot": "csc"})
             for cut in (0, 16):
-                npx, (vals, adr), powder = c2sc(chunks, cut)
+                npx, (vals, adr), powder = c2sc.multi(chunks, cut)
                 h.update(np.asarray(npx, np.int32).tobytes())
                 for f in range(NF):
                     n = int(npx[f])
                     h.update(np.asarray(vals[f][:n], dtyp).tobytes())
                     h.update(np.asarray(adr[f][:n], np.uint32).tobytes())
                 h.update(np.array(powder, np.float64).tobytes())
-        bslz4.set_dense_sparse_threshold(8.0)
 
 print("DIGEST", h.hexdigest())

@@ -1,7 +1,8 @@
-"""The zero-aware lz4 block decoder (set_lz4_zero), plane extraction, the
-u16 byte skip and the mask applied in the bitshuffled domain (set_mask_planes)
-must change nothing but speed: sparse output and CSC powder identical to numpy
-for every dtype and every on/off combination -- including masked pixels that
+"""The zero-aware lz4 block decoder (pipeline decode lz4-band / lz4-zero vs
+lz4-stock), the u16 low-planes untranspose (lowplanes-* vs kcb / scalar) and
+the mask applied in the bitshuffled domain (mask planes vs pixel) must change
+nothing but speed: sparse output and CSC powder identical to numpy for every
+dtype and every combination -- including masked pixels that
 hold the dtype maximum (they must never appear) and unmasked saturated pixels
 at the maximum (they must always be collected).
 """
@@ -22,6 +23,7 @@ hdf5plugin = pytest.importorskip("hdf5plugin")
 sp = pytest.importorskip("scipy.sparse")
 
 import bslz4_to_sparse as b
+from bslz4_to_sparse import _pipeline
 
 SHAPE = (99, 209)     # 20691 px: full blocks plus a tail
 # the fixed mask: two module-gap-like columns and a row, plus scattered pixels
@@ -75,14 +77,20 @@ def chunks_of(frames, path):
         return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(ds)
 
 
-@pytest.fixture(autouse=True)
-def restore():
-    saved = (b.get_lz4_zero(), b.get_plane_extract(), b.get_byteskip(), b.get_mask_planes())
-    yield
-    b.set_lz4_zero(saved[0])
-    b.set_plane_extract(saved[1])
-    b.set_byteskip(saved[2])
-    b.set_mask_planes(saved[3])
+DECODES = ("lz4-band", "lz4-zero", "lz4-stock")
+MASKS = ("pixel", "planes")
+
+
+def untransposes(dt):
+    """The untranspose values usable here for this dtype (lowplanes-* are u16 only)."""
+    out = []
+    for i, n in enumerate(_pipeline.NAMES["untranspose"]):
+        if i == 0 or _pipeline.available("untranspose", i) != 1:
+            continue
+        if n.startswith("lowplanes") and np.dtype(dt) != np.uint16:
+            continue
+        out.append(n)
+    return out
 
 
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32, np.int32, np.float32])
@@ -93,18 +101,15 @@ def test_sparse_output_unchanged(tmp_path, dt, kind):
     chunks, codec = chunks_of(frames, tmp_path / "z.h5")
     mask = MASK
     for cut in (0, 5):
-        for zero, ext, skip, mplanes in itertools.product((True, False), repeat=4):
-            b.set_lz4_zero(zero)
-            b.set_plane_extract(ext)
-            b.set_byteskip(skip)
-            b.set_mask_planes(mplanes)
-            integ = b.chunk2sparseMulti(mask, dtype=dt, codec=codec)
-            npx, (vals, adr) = integ(chunks, cut)
+        for dec, unt, msk in itertools.product(DECODES, untransposes(dt), MASKS):
+            integ = b.chunk2sparse(mask, dtype=dt, codec=codec,
+                                   pipeline={"decode": dec, "untranspose": unt, "mask": msk})
+            npx, (vals, adr) = integ.multi(chunks, cut)
             for f in range(len(frames)):
                 flat = frames[f].ravel()
                 want = np.flatnonzero((flat > cut) & (mask.ravel() > 0))
                 n = int(npx[f])
-                tag = (kind, cut, zero, ext, skip, mplanes, f)
+                tag = (kind, cut, dec, unt, msk, f)
                 assert n == want.size, tag
                 assert (adr[f, :n] == want).all(), tag
                 assert (vals[f, :n] == flat[want]).all(), tag
@@ -121,20 +126,31 @@ def test_powder_unchanged(tmp_path, dt, kind, route):
     mask = MASK
     M = sp.random(150, npix, density=0.02, format="csc", random_state=6, dtype=np.float32)
     ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
-    saved = b.get_dense_sparse_threshold()
-    try:
-        b.set_dense_sparse_threshold(1e9 if route == "dense" else 0.0)
-        for zero, skip, mplanes in itertools.product((True, False), repeat=3):
-            b.set_lz4_zero(zero)
-            b.set_byteskip(skip)
-            b.set_mask_planes(mplanes)
-            integ = b.chunk2sparseCSCmulti(mask, M, dtype=dt, codec=codec)
-            npx, (vals, adr), p = integ(chunks, 0)
-            assert np.allclose(p, ref, rtol=1e-9, atol=1e-9), (kind, route, zero, skip, mplanes)
-            for f in range(len(frames)):          # the >cut output: masked never, saturated always
-                flat = frames[f].ravel()
-                want = np.flatnonzero((flat > 0) & (mask.ravel() > 0))
-                n = int(npx[f])
-                assert (adr[f, :n] == want).all(), (kind, route, zero, skip, mplanes, f)
-    finally:
-        b.set_dense_sparse_threshold(saved)
+    for dec, unt, msk in itertools.product(DECODES, untransposes(dt), MASKS):
+        integ = b.chunk2sparseCSC(mask, M, dtype=dt, codec=codec,
+                                  pipeline={"decode": dec, "untranspose": unt, "mask": msk,
+                                            "route": route})
+        npx, (vals, adr), p = integ.multi(chunks, 0)
+        tag = (kind, route, dec, unt, msk)
+        assert np.allclose(p, ref, rtol=1e-9, atol=1e-9), tag
+        for f in range(len(frames)):          # the >cut output: masked never, saturated always
+            flat = frames[f].ravel()
+            want = np.flatnonzero((flat > 0) & (mask.ravel() > 0))
+            n = int(npx[f])
+            assert n == want.size, tag + (f,)
+            assert (adr[f, :n] == want).all(), tag + (f,)
+
+
+def test_bad_values_refused():
+    """lowplanes-* is u16 only; 'none' needs a mask with no zeros; the old
+    option names are not pipeline values."""
+    with pytest.raises(ValueError, match="is for u16 pixels"):
+        b.chunk2sparse(MASK, dtype=np.uint32, pipeline={"untranspose": "lowplanes-c"})
+    with pytest.raises(ValueError, match="masked pixels"):
+        b.chunk2sparse(MASK, dtype=np.uint16, pipeline={"mask": "none"})
+    with pytest.raises(ValueError, match="unknown"):
+        b.chunk2sparse(MASK, dtype=np.uint16, pipeline={"decode": "lz4_zero"})
+    with pytest.raises(ValueError, match="unknown steps"):
+        b.chunk2sparse(MASK, dtype=np.uint16, pipeline={"byteskip": 1})
+    with pytest.raises(ValueError, match="zstd"):
+        b.chunk2sparse(MASK, dtype=np.uint16, codec=b.CODEC_LZ4, pipeline={"decode": "zstd"})

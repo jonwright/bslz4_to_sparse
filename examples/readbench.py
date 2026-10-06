@@ -3,7 +3,7 @@ Record and compare decode timings across machines, builds and pipelines.
 
     times, results = readbench.time_interleaved(runs, repeats=5)
     readbench.record('timings.jsonl', times, nframes=nf, bytes_per_frame=...,
-                     cases={...}, data={...})
+                     cases={...}, data={...}, pipeline_used=integ.pipeline)
     readbench.report('timings.jsonl')
 
     with readbench.pinned() as cpu:   # like `taskset -c cpu` for the timed block
@@ -30,9 +30,6 @@ import numpy as np
 
 import bslz4_to_sparse as b
 
-_DECOMPRESS = {b.CODEC_LZ4: "lz4", b.CODEC_ZSTD: "zstd"}
-_UNTRANSPOSE = dict((v, k) for k, v in b._BACKEND_TO_ID.items())
-_DOT = dict((i, name) for i, (name, _layout) in b._DOT_TABLE.items())
 
 
 @contextlib.contextmanager
@@ -95,19 +92,11 @@ def machine():
     }
 
 
-def pipeline(dtype=np.uint16, codec=b.CODEC_LZ4, dot=0):
-    """The stages a default chunk2sparseCSCmulti(dtype=dtype) runs (no
-    explicit pipeline=), by name."""
-    tier = b._collect_tier_for_suffix(b._suffix_for_dtype(dtype))
-    dec, unt, col, dt, _opt = b._pipeline_for(codec, tier, dot).tolist()
-    return {
-        "dtype": np.dtype(dtype).name,
-        "decompress": _DECOMPRESS.get(dec, dec),
-        "untranspose": _UNTRANSPOSE.get(unt, unt),
-        "collect": b._COLLECT_ID_TO_NAME.get(col, col),
-        "dot": _DOT.get(dt, dt),
-        "dense_sparse_threshold": b.get_dense_sparse_threshold(),
-    }
+def pipeline(p, dtype=np.uint16):
+    """The step names of a resolved pipeline (an object's .pipeline)."""
+    d = {"dtype": np.dtype(dtype).name}
+    d.update((k, v) for k, v in b.describe(p).items() if v is not None)
+    return d
 
 
 def _key(r):
@@ -123,15 +112,20 @@ def load(path):
         return [json.loads(line) for line in f if line.strip()]
 
 
-def record(path, times, nframes, bytes_per_frame, cases, data, batch=25,
-           dtype=np.uint16, codec=b.CODEC_LZ4, dot=0):
+def record(path, times, nframes, bytes_per_frame, cases, data, pipeline_used, batch=25,
+           dtype=np.uint16):
     """Append the timings {(reader, case): best seconds for nframes} of this
     machine to path. cases = {case: description}; data = {"name": ...,
-    anything else describing the frames}; dot = the matrix-dot id (or name)
-    that was timed, recorded in the pipeline. Returns the new records."""
-    m, p = machine(), pipeline(dtype, codec, b._resolve_dot(dot))
+    anything else describing the frames}; pipeline_used = the .pipeline of
+    the object that was timed, or {case: .pipeline} when the cases used
+    different objects; recorded by step name. Returns the new records."""
+    m = machine()
+    if isinstance(pipeline_used, dict):
+        ppc = dict((c, pipeline(p, dtype)) for c, p in pipeline_used.items())
+    else:
+        ppc = dict((c, pipeline(pipeline_used, dtype)) for c in cases)
     when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    new = [{"date_utc": when, "machine": m, "pipeline": p, "data": data,
+    new = [{"date_utc": when, "machine": m, "pipeline": ppc[case], "data": data,
             "bytes_per_frame": float(bytes_per_frame), "nframes": int(nframes),
             "batch": batch, "case": case, "case_desc": cases[case], "reader": reader,
             "ms_per_frame": 1e3 * t / nframes}

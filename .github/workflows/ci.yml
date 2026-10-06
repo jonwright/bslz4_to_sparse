@@ -2,10 +2,11 @@
 #
 # The extension is package data (see setup.py/tools/build_extension.py), so a
 # single wheel per platform serves Python 2.7-3.15 (c2py23 dlsym) and is
-# tested across a Python-version subset.  One Linux worker builds x86_64,
-# aarch64 and ppc64le (gcc 14 in the pypa manylinux_2_28 images, glibc 2.28;
-# the manylinux tag is derived from the binary by tools/elf_check.py);
-# the aarch64/ppc64le wheels are then run under qemu.  Windows is cross-built
+# tested across a Python-version subset.  Linux x86_64, aarch64 and ppc64le
+# are built with gcc 14 in the pypa manylinux_2_28 images (glibc 2.28; the
+# manylinux tag is derived from the binary by tools/elf_check.py), x86_64 and
+# aarch64 on native runners, ppc64le under qemu; the aarch64 wheel is tested
+# on a native arm64 runner, the ppc64le one under qemu.  Windows is cross-built
 # on Linux with mingw-w64 gcc and tested on Windows (MSVC is kept as a build +
 # decode check only); macOS builds for itself.  A published GitHub release uploads to PyPI, but only
 # after every build + test job has passed.
@@ -29,18 +30,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # --- Linux: one worker, three targets, modern gcc on glibc 2.28 ---
+  # --- Linux: one job per target, modern gcc on glibc 2.28 ---
   #
-  # Each target is built natively inside the pypa manylinux_2_28 image for its
-  # arch (aarch64/ppc64le under qemu; only the compile is emulated).  The
-  # image's gcc-toolset gives good code (gcc 7 was measured ~1.8x slower on the
-  # kcb kernel, gcc 10 ~5-15% behind gcc 13) and glibc 2.28 keeps the wheel
-  # loadable on every current distro.  The extension links only libc/libm, so
-  # the floor is set by the image; elf_check.py reads it back from the binary
-  # (and fails if libstdc++/libgcc_s ever return) and the wheel tag is derived
-  # from that.
+  # Each target is built inside the pypa manylinux_2_28 image for its arch:
+  # natively on an x86_64 and an arm64 runner, under qemu only for ppc64le
+  # (no native runner).  The image's gcc-toolset gives good code (gcc 7 was
+  # measured ~1.8x slower on the kcb kernel, gcc 10 ~5-15% behind gcc 13)
+  # and glibc 2.28 keeps the wheel loadable on every current distro.  The
+  # extension links only libc/libm, so the floor is set by the image;
+  # elf_check.py reads it back from the binary (and fails if
+  # libstdc++/libgcc_s ever return) and the wheel tag is derived from that.
   build-linux:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {key: linux_x86_64,  arch: x86_64,  runner: ubuntu-24.04,     platform: linux/amd64}
+          - {key: linux_aarch64, arch: aarch64, runner: ubuntu-24.04-arm, platform: linux/arm64}
+          - {key: linux_ppc64le, arch: ppc64le, runner: ubuntu-24.04,     platform: linux/ppc64le}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,44 +57,32 @@ jobs:
         with:
           python-version: "3.12"
       - uses: docker/setup-qemu-action@v3
+        if: matrix.arch == 'ppc64le'
         with:
-          platforms: arm64,ppc64le
-      - name: Build extensions (x86_64, aarch64, ppc64le) in manylinux_2_28
+          platforms: ppc64le
+      - name: Build extension (${{ matrix.arch }}) in manylinux_2_28
         run: |
           mkdir -p stage
-          build() {  # <key> <docker platform> <image arch>
-            docker run --rm --platform "$2" -v "$PWD:/workspace" -w /workspace \
-              "quay.io/pypa/manylinux_2_28_$3" bash -c "
-                set -e
-                mkdir -p /tmp/b_$1
-                /opt/python/cp312-cp312/bin/python tools/build_extension.py \
-                  --target-platform $1 --out stage --build-dir /tmp/b_$1"
-          }
-          build linux_x86_64  linux/amd64   x86_64 &
-          build linux_aarch64 linux/arm64   aarch64 &
-          build linux_ppc64le linux/ppc64le ppc64le &
-          wait $(jobs -p)
+          docker run --rm --platform ${{ matrix.platform }} -v "$PWD:/workspace" -w /workspace \
+            "quay.io/pypa/manylinux_2_28_${{ matrix.arch }}" bash -c "
+              set -e
+              mkdir -p /tmp/b
+              /opt/python/cp312-cp312/bin/python tools/build_extension.py \
+                --target-platform ${{ matrix.key }} --out stage --build-dir /tmp/b"
           ls -l stage
-      - name: Package one wheel per target
+      - name: Package the wheel
         run: |
           python -m pip install --quiet build
-          for spec in linux_x86_64:x86_64 linux_aarch64:aarch64 linux_ppc64le:ppc64le; do
-            key=${spec%%:*}; arch=${spec##*:}
-            so=stage/_bslz4_to_sparse.c2py23-$key.so
-            tag=$(python tools/elf_check.py "$so" "$arch")
-            echo "$key -> $tag"
-            rm -f src/_bslz4_to_sparse.c2py23-*.so
-            cp "$so" src/
-            BSLZ4_SKIP_NATIVE_BUILD=1 BSLZ4_WHEEL_PLAT=$tag python -m build --wheel
-          done
+          so=stage/_bslz4_to_sparse.c2py23-${{ matrix.key }}.so
+          tag=$(python tools/elf_check.py "$so" ${{ matrix.arch }})
+          echo "${{ matrix.key }} -> $tag"
+          rm -f src/_bslz4_to_sparse.c2py23-*.so
+          cp "$so" src/
+          BSLZ4_SKIP_NATIVE_BUILD=1 BSLZ4_WHEEL_PLAT=$tag python -m build --wheel
           rm -f src/_bslz4_to_sparse.c2py23-*.so
           ls -l dist
       - uses: actions/upload-artifact@v4
-        with: {name: wheel-linux_x86_64, path: "dist/*x86_64.whl"}
-      - uses: actions/upload-artifact@v4
-        with: {name: wheel-linux_aarch64, path: "dist/*aarch64.whl"}
-      - uses: actions/upload-artifact@v4
-        with: {name: wheel-linux_ppc64le, path: "dist/*ppc64le.whl"}
+        with: {name: "wheel-${{ matrix.key }}", path: "dist/*${{ matrix.arch }}.whl"}
 
   # --- Windows x64: cross-compiled on Linux with mingw-w64 gcc ---
   #
@@ -269,7 +265,7 @@ jobs:
   # test.pypi.org for this repo; alternatively set a TEST_PYPI_API_TOKEN
   # secret and pass `password: ${{ secrets.TEST_PYPI_API_TOKEN }}` below.
   publish-testpypi:
-    needs: [build-linux, build-windows, build-macos, sdist, test-linux, test-oldlibc, test-qemu, test-windows, test-py27, test-macos]
+    needs: [build-linux, build-windows, build-macos, sdist, test-linux, test-oldlibc, test-arm, test-qemu, test-windows, test-py27, test-macos]
     if: github.event_name == 'workflow_dispatch' && inputs.publish_testpypi
     runs-on: ubuntu-latest
     environment: testpypi
@@ -293,7 +289,7 @@ jobs:
 
   # --- Real PyPI: only on a published release, only after everything passed ---
   publish-pypi:
-    needs: [build-linux, build-windows, build-macos, sdist, test-linux, test-oldlibc, test-qemu, test-windows, test-py27, test-macos]
+    needs: [build-linux, build-windows, build-macos, sdist, test-linux, test-oldlibc, test-arm, test-qemu, test-windows, test-py27, test-macos]
     if: github.event_name == 'release' && github.event.action == 'published'
     runs-on: ubuntu-latest
     environment: pypi
@@ -380,15 +376,40 @@ jobs:
             export DEBIAN_FRONTEND=noninteractive
             ${{ matrix.setup }}
             ${{ matrix.py }} -m pip install --quiet dist/*.whl
-            ${{ matrix.py }} -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
+            ${{ matrix.py }} -c "import numpy as np, bslz4_to_sparse as b; print(b.__file__, b.describe(b.chunk2sparse(np.ones((8, 8), np.uint8)).pipeline))"
             ${{ matrix.py }} -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py -q
           '
 
-  # --- aarch64 / ppc64le: run the cross-built wheels under qemu ---
+  # --- aarch64: the wheel on a native arm64 runner (NEON paths really run) ---
+  test-arm:
+    needs: [build-linux, fixture]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux_aarch64
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: decode-matrix-fixture
+          path: test/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install wheel + test deps (binary only)
+        run: |
+          python -m pip install --quiet dist/*.whl
+          python -m pip install --quiet --only-binary :all: numpy pytest
+      - name: Pipeline resolved here
+        run: python -c "import numpy as np, bslz4_to_sparse as b; print(b.__file__, b.describe(b.chunk2sparse(np.ones((8, 8), np.uint8)).pipeline))"
+      - name: Run decode matrix
+        run: python -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py -q
+
+  # --- ppc64le: run the wheel under qemu (no native runner) ---
   #
   # Proves the wheel installs, loads and decodes correctly on the target
-  # ISA.  Under emulation the NEON/VSX tiers may report unavailable and fall
-  # back to scalar; real-hardware SIMD coverage stays a manual/bench matter.
+  # ISA.  Real-hardware VSX coverage stays a manual/bench matter.
   test-qemu:
     needs: [build-linux, fixture]
     runs-on: ubuntu-24.04
@@ -396,7 +417,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {arch: aarch64, platform: linux/arm64, numpy: numpy}
           # PyPI has no ppc64le numpy wheel; the silx wheelhouse does. Its index
           # page has broken links (so --find-links cannot work) and an expired
           # TLS certificate, hence a direct URL + trusted-host.
@@ -423,7 +443,7 @@ jobs:
               set -e
               pip install --quiet --only-binary :all: '${{ matrix.numpy }}' pytest
               pip install --quiet dist/*.whl
-              python -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
+              python -c "import numpy as np, bslz4_to_sparse as b; print(b.__file__, b.describe(b.chunk2sparse(np.ones((8, 8), np.uint8)).pipeline))"
               python -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py -q
             '
 
@@ -455,7 +475,7 @@ jobs:
       - name: SIMD paths active
         # the runners have AVX2: a scalar collect (tier 0) means the wheel lost
         # its SIMD code (e.g. an MSVC build slipped back in)
-        run: python -c "import bslz4_to_sparse as b; t = b._active_collect_tier(); print(b.build_info()['compiler'], 'collect tier', t, b.available_backends()); assert t != 0"
+        run: python -c "import numpy as np, bslz4_to_sparse as b; d = b.describe(b.chunk2sparse(np.ones((8, 8), np.uint8)).pipeline); print(b.build_info()['compiler'], d); assert d['collect'] != 'scalar' and d['untranspose'] != 'scalar'"
       - name: Run decode matrix
         run: python -m pytest test\test_decode_matrix.py test\test_corrupt_chunk.py -q
 
@@ -518,6 +538,6 @@ jobs:
           python -m pip install --quiet dist/*.whl
           python -m pip install --quiet --only-binary :all: numpy pytest
       - name: Smoke test
-        run: python -c "import bslz4_to_sparse as b; print(b.__file__, b.available_backends())"
+        run: python -c "import numpy as np, bslz4_to_sparse as b; print(b.__file__, b.describe(b.chunk2sparse(np.ones((8, 8), np.uint8)).pipeline))"
       - name: Run decode matrix
         run: python -m pytest test/test_decode_matrix.py -q

@@ -23,7 +23,7 @@ bitshuffle-LZ4), extended to:
                 Rings, and rings+moment, are built from the 2D bbox matrix and
                 again from the 2D no-split matrix (" no" in the case name).
 
-Every kernel in b.available_dots() is run on every matrix it accepts, on the
+Every dot usable here (b.describe()) is run on every matrix it accepts, on the
 forced-dense route and at the default per-block routing, pinned to one core,
 100 frames (in batches of 25) read into memory once (no I/O in the timing).
 Each kernel is timed on its own: built once, one untimed warmup batch, then
@@ -71,14 +71,10 @@ NFRAMES = {"4M": 100, "16M": 50}   # generated and cached; --frames picks how ma
 DEFAULT_CASES = ("1D no x1", "1D bbox x1", "1D bbox x5",
                  "2D no", "2D bbox",
                  "rings", "rings+mom inter", "rings no", "rings+mom inter no", "fazit")
-FAZIT_DOTS = ("csc-nosplit", "csc-permute", "csc-permute-runs")
-CORE_DOTS = ("csc", "csc-run", "csc-nosplit", "csc-nosplit-moment", "padded-sse2",
-             "bsb-csr", "bsb-csr-nosplit",
-             # experimental CSC-entry dots (src/_csc_variants.py)
-             "csc-nosplit-dump", "csc-nosplit-moment-dump", "csc-run-u16", "csc-nosplit-u16",
-             "csc-run-delta", "csc-nosplit-delta", "csc-nosplit-walk", "csc-tile",
-             "csc-run-moment", "csc-int", "csc-run-int", "csc-run-int16", "csc-permute",
-             "csc-permute-runs")
+FAZIT_DOTS = ("csc-nosplit", "bsb-csr-nosplit", "csc-permute")
+CORE_DOTS = ("csc", "padded", "padded-avx2", "csc-run", "csc-nosplit", "bsb-csr",
+             "bsb-csr-nosplit", "csc-nosplit-moment", "csc-permute", "csc-int", "csc-run-int",
+             "csc-run-int16")
 BATCH = 25
 NAZIM = 360
 NRINGS = 8
@@ -375,8 +371,8 @@ def main():
     ap.add_argument("--out", default=os.path.join(REPO, "examples", "dot_suite.jsonl"))
     a = ap.parse_args()
     BATCH = a.batch
-    dots = list(b.available_dots()) if a.dots == "all" else \
-        [d for d in a.dots.split(",") if d in b.available_dots()]
+    usable = [n for _i, n, ok, _need in b.describe()["dot"] if ok]
+    dots = usable if a.dots == "all" else [d for d in a.dots.split(",") if d in usable]
     which = {"1d", "2d", "rings", "fazit"}
     keep = None if a.cases == "all" else \
         set(DEFAULT_CASES if a.cases == "default" else a.cases.split(","))
@@ -384,8 +380,7 @@ def main():
     mach = machine()
     print("%s | %s | git %s | pinned cpu %d | cache %s" % (mach["host"], mach["cpu"], mach["git"],
                                                          a.cpu, CACHE))
-    routes = (("dense", 1e9), ("default", b.get_dense_sparse_threshold()))
-    saved = b.get_dense_sparse_threshold()
+    routes = (("dense", "dense"), ("default", "ratio"))     # the pipeline's route step
     for det in a.det.split(","):
         for centre in a.centre.split(","):
             ai = make_ai(det, centre)
@@ -424,23 +419,21 @@ def main():
                             times[r][dot] = None
                         continue
                     try:
-                        integ = b.chunk2sparseCSCmulti(valid, M, dtype=np.uint16, dot=dot)
+                        objs = {route: b.chunk2sparseCSC(valid, M, dtype=np.uint16,
+                                                         pipeline={"dot": dot, "route": rv})
+                                for route, rv in routes}
                     except ValueError:
                         for r, _ in routes:
                             times[r][dot] = None
                         continue
-                    v = getattr(integ, "variant", None)
-                    if v is not None and v.note:
-                        notes.append("%s: %s" % (dot, v.note))
                     # exact re-layouts match csc to rounding; fixed-point
-                    # weights and csc-run-moment's own w*q do not, by design
+                    # weights do not, by design
+                    scale = objs["dense"]._layout.scale
                     rtol = 1e-9
-                    if v is not None and v.scale is not None:
-                        rtol = 4 * v.scale * max(1, int(np.diff(M.indptr).max()))
-                    elif dot == "csc-run-moment":
-                        rtol = 1e-6
-                    for route, th in routes:
-                        b.set_dense_sparse_threshold(th)
+                    if scale is not None:
+                        rtol = 4 * scale * max(1, int(np.diff(M.indptr).max()))
+                    for route, _rv in routes:
+                        integ = objs[route].multi
                         t, p = time_dot(integ, chunks)
                         if route not in ref:
                             ref[route] = p
@@ -449,8 +442,7 @@ def main():
                             err = np.abs(p - r0).max() / max(1.0, np.abs(r0).max())
                             assert err < rtol, (det, centre, name, route, dot, err, rtol)
                         times[route][dot] = t
-                    del integ
-                    b.set_dense_sparse_threshold(saved)
+                    del integ, objs
                 for route, _ in routes:
                     tr = times[route]
                     print("  %-8s" % route + "".join("%7s" % ("-" if tr.get(d) is None else "%.2f" % tr[d])
@@ -465,7 +457,6 @@ def main():
                 for note in notes:
                     print("           . %s" % note)
                 sys.stdout.flush()
-            b.set_dense_sparse_threshold(saved)
 
 
 if __name__ == "__main__":

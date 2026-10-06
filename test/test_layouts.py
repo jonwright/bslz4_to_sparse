@@ -1,8 +1,8 @@
-"""Matrix-dot layouts (csc, csc-fused, padded*, bsb-csr) against an
+"""Matrix-dot layouts (csc, padded*, bsb-csr, ...) against an
 independent reference.
 
 The per-layout tests (test_padded.py, test_bsb_csr.py) compare each dot with
-dot="csc", which goes through the same mask-folded matrix, so a mask or tail
+pipeline={"dot": "csc"}, which goes through the same mask-folded matrix, so a mask or tail
 bug common to both would cancel.  Here every available dot is checked
 against numpy `M @ (img * mask)` instead, on both routes, plus the edge cases
 of the frame/layout geometry:
@@ -31,8 +31,15 @@ hdf5plugin = pytest.importorskip("hdf5plugin")
 sp = pytest.importorskip("scipy.sparse")
 
 import bslz4_to_sparse as b
+from bslz4_to_sparse import _pipeline
 
-ROUTES = (("dense", 1e30), ("sparse", 0.0))
+ROUTES = ("dense", "sparse")
+
+
+def available_dots():
+    """The dot names this CPU/build can run."""
+    return [n for i, n in enumerate(_pipeline.NAMES["dot"])
+            if i and _pipeline.available("dot", i) == 1]
 
 
 def write_chunks(path, frames):
@@ -108,34 +115,29 @@ def reference(M, frames, mask):
 def expected(integ, frames, ref):
     """(reference powder, relative tolerance) for this integrator's dot.  The
     fixed-point dots sum exact integers, so they are checked against numpy
-    with the same rounded weights; csc-run-moment multiplies by q itself
-    instead of using the stored float32 w*q, so it agrees to ~1e-7."""
-    v = getattr(integ, "variant", None)
-    if v is not None and v.scale is not None:
+    with the same rounded weights (the layout's data, in the order of the
+    mask-folded matrix)."""
+    lay = integ._layout
+    if lay.scale is not None:
         nm = integ._nm
-        Mq = sp.csc_matrix((v.data.astype(np.float64) * v.scale, nm.indices, nm.indptr),
+        Mq = sp.csc_matrix((lay.args()[0].astype(np.float64) * lay.scale, nm.indices, nm.indptr),
                            shape=nm.shape)
         return np.array([Mq @ f.ravel().astype(np.float64) for f in frames]), 1e-12
-    if integ.dot == "csc-run-moment":
-        return ref, 1e-6
     return ref, 1e-9
 
 
 def run_all_dots(mask, M, frames, chunks, codec, dt):
-    """Yield (dot, route, powder, npx, adr, integ) for every dot that accepts M."""
-    saved = b.get_dense_sparse_threshold()
-    try:
-        for dot in b.available_dots():
-            for route, thr in ROUTES:
-                b.set_dense_sparse_threshold(thr)
-                try:
-                    integ = b.chunk2sparseCSCmulti(mask, M, dtype=dt, codec=codec, dot=dot)
-                except ValueError:      # padded refusing a general matrix
-                    continue
-                npx, (_v, adr), p = integ(chunks, 0)
-                yield dot, route, p.copy(), npx.copy(), adr.copy(), integ
-    finally:
-        b.set_dense_sparse_threshold(saved)
+    """Yield (dot, route, powder, npx, adr, integ) for every dot that accepts M
+    (and the dtype: the integer dots refuse float pixels)."""
+    for dot in available_dots():
+        for route in ROUTES:
+            try:
+                integ = b.chunk2sparseCSC(mask, M, dtype=dt, codec=codec,
+                                          pipeline={"dot": dot, "route": route})
+            except ValueError:      # padded refusing a general matrix
+                continue
+            npx, (_v, adr), p = integ.multi(chunks, 0)
+            yield dot, route, p.copy(), npx.copy(), adr.copy(), integ
 
 
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32, np.int32, np.float32])
@@ -163,6 +165,8 @@ def test_every_dot_matches_numpy_with_masked_big_values(tmp_path, dt, kind):
     assert "bsb-csr" in seen and "csc" in seen
     if kind == "split1d":
         assert "padded" in seen and "csc-run" in seen
+        if "padded-avx2" in available_dots():
+            assert "padded-avx2" in seen
         assert "csc-nosplit" not in seen
     if kind == "general":
         assert "csc-run" not in seen and "csc-nosplit" not in seen
@@ -189,8 +193,9 @@ def test_whole_number_of_blocks(tmp_path):
     for dot, route, p, _npx, _adr, integ in run_all_dots(mask, M, frames, chunks, codec, np.uint16):
         r, tol = expected(integ, frames, ref)
         assert np.abs(p - r).max() < tol * max(np.abs(r).max(), 1.0), (dot, route)
-    integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, dot="bsb-csr")
-    assert len(integ.bsb_csr.blk_ptr) == npix // integ.bsb_csr.block_elems + 1
+    integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, pipeline={"dot": "bsb-csr"})
+    blk_ptr = integ._layout.args()[0]
+    assert len(blk_ptr) == npix // integ._layout.block_elems + 1
 
 
 def test_frame_smaller_than_mask_is_an_error(tmp_path):
@@ -200,15 +205,16 @@ def test_frame_smaller_than_mask_is_an_error(tmp_path):
     npix = shape[0] * shape[1] + 3000
     mask = np.ones((1, npix), np.uint8)
     M = make_split_1d(npix, 150, 8)
-    for dot in b.available_dots():
+    for dot in available_dots():
         try:
-            integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec, dot=dot)
+            integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec,
+                                      pipeline={"dot": dot})
         except ValueError:      # a dot that cannot represent M (csc-nosplit)
             continue
         with pytest.raises(Exception, match="-110"):
-            integ(chunks, 0)
+            integ.multi(chunks, 0)
     with pytest.raises(Exception, match="-110"):
-        b.chunk2sparseMulti(mask, dtype=np.uint16, codec=codec)(chunks, 0)
+        b.chunk2sparse(mask, dtype=np.uint16, codec=codec).multi(chunks, 0)
 
 
 @pytest.mark.parametrize("masked", [False, True])
@@ -235,38 +241,42 @@ def test_malformed_layout_arrays_are_refused(tmp_path):
     mask = np.ones(shape, np.uint8)
     M = make_split_1d(npix, 150, 11)
 
+    names = {"padded": ("base", "weights", "pixels", "rowmap", "row_ptr", "width",
+                        "listed", "block_elems"),
+             "bsb-csr": ("blk_ptr", "bins", "bin_ptr", "idx", "data", "csc_data",
+                         "csc_indices", "csc_indptr", "block_elems")}
+
+    def make(dot):
+        integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec, pipeline={"dot": dot})
+        integ.multi(chunks, 0)                    # allocate buffers
+        return integ
+
+    def args_of(integ):
+        lay = integ._layout
+        return dict(zip(names[lay.entry], lay.args()))
+
     def call_with(integ, **override):
-        integ(chunks, 0)                          # allocate buffers
-        orig = integ._matrix_args
-        names = {"padded": ("base", "weights", "pixels", "rowmap", "row_ptr", "width",
-                            "listed", "block_elems"),
-                 "bsb-csr": ("blk_ptr", "bins", "bin_ptr", "idx", "data", "csc_data",
-                             "csc_indices", "csc_indptr", "block_elems")}[integ.layout]
+        lay = integ._layout
+        args = args_of(integ)
+        args.update(override)
+        lay._args = tuple(args[n] for n in names[lay.entry])
+        return integ.multi(chunks, 0)
 
-        def patched():
-            args = dict(zip(names, orig()))
-            args.update(override)
-            return tuple(args[n] for n in names)
-        integ._matrix_args = patched
-        return integ(chunks, 0)
-
-    padded = lambda: b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec, dot="padded")
-    bsb = lambda: b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec, dot="bsb-csr")
-    p = padded()
+    p = args_of(make("padded"))
     with pytest.raises(ValueError):               # weights.n != base.n * width
-        call_with(padded(), weights=p.padded._weights_flat[:-1])
+        call_with(make("padded"), weights=p["weights"][:-1])
     with pytest.raises(ValueError):
-        call_with(padded(), width=65)
+        call_with(make("padded"), width=65)
     with pytest.raises(ValueError):               # float base passes itemsize, not format
-        call_with(padded(), base=p.padded.base.astype(np.float32))
+        call_with(make("padded"), base=p["base"].astype(np.float32))
     with pytest.raises(Exception, match="-109"):  # row_ptr does not cover every block
-        call_with(padded(), row_ptr=p.padded.row_ptr[:-1])
-    q = bsb()
+        call_with(make("padded"), row_ptr=p["row_ptr"][:-1])
+    q = args_of(make("bsb-csr"))
     with pytest.raises(ValueError):               # bin_ptr.n != bins.n + 1
-        call_with(bsb(), bin_ptr=q.bsb_csr.bin_ptr[:-1])
+        call_with(make("bsb-csr"), bin_ptr=q["bin_ptr"][:-1])
     with pytest.raises(ValueError):               # idx.n != data.n
-        call_with(bsb(), idx=q.bsb_csr.idx[:-1])
+        call_with(make("bsb-csr"), idx=q["idx"][:-1])
     with pytest.raises(ValueError):               # csc_indptr.n != mask.n + 1
-        call_with(bsb(), csc_indptr=q.cscindptr[:-1])
+        call_with(make("bsb-csr"), csc_indptr=q["csc_indptr"][:-1])
     with pytest.raises(Exception, match="-109"):  # blk_ptr does not cover every block
-        call_with(bsb(), blk_ptr=q.bsb_csr.blk_ptr[:-1])
+        call_with(make("bsb-csr"), blk_ptr=q["blk_ptr"][:-1])

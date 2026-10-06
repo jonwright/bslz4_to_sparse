@@ -1,8 +1,9 @@
-"""The byte skip's fused transpose + collect (u16 blocks with the high
-byte-planes empty, bslz4_lowplanes_collect_u16): the plain sparse output and
-the sparse-route CSC powder must equal numpy at every cut -- including cuts at
-and above 255, where nothing in such a block passes -- with and without the
-fixed mask, for sparse and dense-ish blocks, with masked pixels holding values.
+"""The low-planes untranspose's fused transpose + collect (u16 blocks with
+the high byte-planes empty): the plain sparse output and the sparse-route CSC
+powder must equal numpy at every cut -- including cuts at and above 255, where
+nothing in such a block passes -- for every usable lowplanes-* value, with the
+mask applied per pixel and in the planes (and 'none' for an all-ones mask),
+for sparse and dense-ish blocks, with masked pixels holding values.
 """
 
 import os
@@ -20,6 +21,7 @@ hdf5plugin = pytest.importorskip("hdf5plugin")
 sp = pytest.importorskip("scipy.sparse")
 
 import bslz4_to_sparse as b
+from bslz4_to_sparse import _pipeline
 
 SHAPE = (101, 203)     # 20503 px: full blocks and a tail
 
@@ -59,13 +61,8 @@ def masks():
     return {"ones": np.ones(SHAPE, np.uint8), "holes": m}
 
 
-@pytest.fixture(autouse=True)
-def restore():
-    saved = (b.get_byteskip(), b.get_lz4_zero(), b.get_mask_planes())
-    yield
-    b.set_byteskip(saved[0])
-    b.set_lz4_zero(saved[1])
-    b.set_mask_planes(saved[2])
+LOWPLANES = [n for i, n in enumerate(_pipeline.NAMES["untranspose"])
+             if n.startswith("lowplanes") and _pipeline.available("untranspose", i) == 1]
 
 
 @pytest.mark.parametrize("kind", ["very sparse", "clustered", "dense <256", "max 255"])
@@ -74,17 +71,17 @@ def test_sparse(tmp_path, kind, mname):
     frames = make(kind, np.random.default_rng(17))
     chunks, codec = chunks_of(frames, tmp_path / "s.h5")
     mask = masks()[mname]
-    for mp in (False, True):
-        b.set_byteskip(True)
-        b.set_mask_planes(mp)
-        integ = b.chunk2sparseMulti(mask, dtype=np.uint16, codec=codec)
+    mps = ("pixel", "planes") + (("none",) if mname == "ones" else ())
+    for lp, mp in [(lp, mp) for lp in LOWPLANES for mp in mps]:
+        integ = b.chunk2sparse(mask, dtype=np.uint16, codec=codec,
+                               pipeline={"untranspose": lp, "mask": mp})
         for cut in (0, 1, 100, 254, 255, 256, 1000):
-            npx, (vals, adr) = integ(chunks, cut)
+            npx, (vals, adr) = integ.multi(chunks, cut)
             for f in range(len(frames)):
                 flat = frames[f].ravel()
                 want = np.flatnonzero((flat > cut) & (mask.ravel() > 0))
                 n = int(npx[f])
-                tag = (kind, mname, mp, cut, f)
+                tag = (kind, mname, lp, mp, cut, f)
                 assert n == want.size, tag
                 assert (adr[f, :n] == want).all(), tag
                 assert (vals[f, :n] == flat[want]).all(), tag
@@ -99,20 +96,16 @@ def test_csc_sparse_route(tmp_path, kind, mname):
     npix = SHAPE[0] * SHAPE[1]
     M = sp.random(120, npix, density=0.02, format="csc", random_state=9, dtype=np.float32)
     ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
-    saved = b.get_dense_sparse_threshold()
-    try:
-        b.set_dense_sparse_threshold(0.0)          # every block takes the sparse route
-        for skip in (True, False):
-            b.set_byteskip(skip)
-            integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec)
-            for cut in (0, 7, 255):
-                npx, (vals, adr), p = integ(chunks, cut)
-                assert np.allclose(p, ref, rtol=1e-9, atol=1e-9), (kind, mname, skip, cut)
-                for f in range(len(frames)):
-                    flat = frames[f].ravel()
-                    want = np.flatnonzero((flat > cut) & (mask.ravel() > 0))
-                    n = int(npx[f])
-                    assert n == want.size and (adr[f, :n] == want).all(), (kind, mname, skip, cut, f)
-                    assert (vals[f, :n] == flat[want]).all()
-    finally:
-        b.set_dense_sparse_threshold(saved)
+    for skip in LOWPLANES + ["kcb"]:
+        # every block takes the sparse route
+        integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec,
+                                  pipeline={"untranspose": skip, "route": "sparse"})
+        for cut in (0, 7, 255):
+            npx, (vals, adr), p = integ.multi(chunks, cut)
+            assert np.allclose(p, ref, rtol=1e-9, atol=1e-9), (kind, mname, skip, cut)
+            for f in range(len(frames)):
+                flat = frames[f].ravel()
+                want = np.flatnonzero((flat > cut) & (mask.ravel() > 0))
+                n = int(npx[f])
+                assert n == want.size and (adr[f, :n] == want).all(), (kind, mname, skip, cut, f)
+                assert (vals[f, :n] == flat[want]).all()

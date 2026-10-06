@@ -1,8 +1,8 @@
-"""Padded-CSC layout (dot="padded" / "padded-sse2" / "padded-avx2").
+"""Padded-CSC layout (pipeline dot "padded" / "padded-avx2").
 
 Self-contained (no pyFAI): chunks are generated here with h5py + hdf5plugin,
 and every result is checked against the conventional CSC decoder
-(chunk2sparseCSCmulti with dot="csc") fed the same matrix, across dtypes,
+(chunk2sparseCSC with pipeline={"dot": "csc"}) fed the same matrix, across dtypes,
 both routes (dense/sparse) and every padded tier the machine can run.
 """
 
@@ -21,6 +21,7 @@ hdf5plugin = pytest.importorskip("hdf5plugin")
 sp = pytest.importorskip("scipy.sparse")
 
 import bslz4_to_sparse as b
+from bslz4_to_sparse import _pipeline
 
 
 def make_runs(npix, nbins, width_max, seed, empty=0.15):
@@ -67,32 +68,27 @@ def data(tmp_path_factory):
     return out
 
 
-@pytest.fixture
-def restore_state():
-    thr = b.get_dense_sparse_threshold()
-    yield
-    b.set_dense_sparse_threshold(thr)
-
-
 def tiers():
     out = []
-    for name in ("padded-avx512", "padded-avx2", "padded-sse2"):
-        if b.dot_info(name)["available"] == 1:
+    for name in ("padded-avx2",):
+        if _pipeline.available("dot", _pipeline.NAMES["dot"].index(name)) == 1:
             out.append(name)
     out.append("padded")  # scalar always
     return out
 
 
+def integ(mask, csc, dt, dot, route=None):
+    return b.chunk2sparseCSC(mask, csc, dtype=dt, pipeline={"dot": dot, "route": route})
+
+
 def _compare(csc, dt, chunks, cut=1, listed=None):
     """Run every available padded tier and bsb-csr against csc; return True if all match."""
     mask = np.ascontiguousarray(np.random.default_rng(9).random(60 * 80) > 0.1, np.uint8).reshape(60, 80)
-    saved = b.get_dense_sparse_threshold()
     ok = True
-    for route in (1e9, 0.0):
-        b.set_dense_sparse_threshold(route)
-        rc = b.chunk2sparseCSCmulti(mask, csc, dtype=dt, dot="csc")(chunks, cut)
+    for route in ("dense", "sparse"):
+        rc = integ(mask, csc, dt, "csc", route).multi(chunks, cut)
         for dot in tiers():
-            rr = b.chunk2sparseCSCmulti(mask, csc, dtype=dt, dot=dot)(chunks, cut)
+            rr = integ(mask, csc, dt, dot, route).multi(chunks, cut)
             for f in range(len(chunks)):
                 n0, v0, a0, p0 = rc[0][f], rc[1][0][f], rc[1][1][f], rc[2][f]
                 n1, v1, a1, p1 = rr[0][f], rr[1][0][f], rr[1][1][f], rr[2][f]
@@ -100,11 +96,10 @@ def _compare(csc, dt, chunks, cut=1, listed=None):
                     ok = False
                 if not np.allclose(p0, p1, rtol=1e-10, atol=1e-9):
                     ok = False
-        b.set_dense_sparse_threshold(saved)
     return ok
 
 
-def test_padded_matches_csc_every_dtype(data, restore_state):
+def test_padded_matches_csc_every_dtype(data):
     for (dt,), (frames, chunks, codec) in data.items():
         csc = make_runs(60 * 80, 200, 4, seed=10, empty=0.15)
         assert _compare(csc, dt, chunks), dt
@@ -117,17 +112,17 @@ def test_padded_rejects_non_consecutive():
     csc = sp.csc_matrix((np.ones(3, np.float32), np.array([0, 2, 5], np.int32), np.array([0, 1, 3], np.int32)),
                         shape=(10, 2))
     mask = np.ones((1, 2), np.uint8)
-    with pytest.raises(ValueError, match="consecutive"):
-        b.chunk2sparseCSCmulti(mask, csc, dot="padded")
+    for dot in tiers():
+        with pytest.raises(ValueError, match="consecutive"):
+            integ(mask, csc, np.uint16, dot)
 
 
-def test_padded_sparse_output_order(data, restore_state):
+def test_padded_sparse_output_order(data):
     _, chunks, _ = data[(np.dtype(np.uint16),)]
     csc = make_runs(60 * 80, 200, 4, seed=20)
     mask = np.ones((60, 80), np.uint8)
     for dot in tiers():
-        b.set_dense_sparse_threshold(1e9)
-        npx, (outpx, adr), _ = b.chunk2sparseCSCmulti(mask, csc, dtype=np.uint16, dot=dot)(chunks, 1)
+        npx, (outpx, adr), _ = integ(mask, csc, np.uint16, dot, "dense").multi(chunks, 1)
         for f in range(len(chunks)):
             n = int(npx[f])
             if n > 1:
@@ -135,14 +130,15 @@ def test_padded_sparse_output_order(data, restore_state):
 
 
 def test_padded_layout_attributes():
-    nm = b._NormalMatrix
     csc = make_runs(60 * 80, 100, 3, seed=30, empty=0.9)
     mask = np.ones((60, 80), np.uint8)
-    integ = b.chunk2sparseCSCmulti(mask, csc, dtype=np.uint16, dot="padded")
-    assert integ.layout == "padded" and integ.padded is not None
-    assert integ.padded.listed == 1          # sparse matrix -> listed
-    assert integ.padded.block_elems == 4096
-    assert integ.padded.row_ptr[-1] == integ.padded.nrows
+    c = integ(mask, csc, np.uint16, "padded")
+    lay = c._layout
+    assert c.dot == "padded" and lay.entry == "padded"
+    base, _w, _pix, _rowmap, row_ptr, _width, listed, block_elems = lay.args()
+    assert listed == 1                       # sparse matrix -> listed
+    assert block_elems == 4096 and lay.block_elems == 4096
+    assert row_ptr[-1] == base.shape[0]
 
 
 def test_padded_block_elems_mismatch():
@@ -158,10 +154,11 @@ def test_padded_block_elems_mismatch():
     try:
         csc = make_runs(60 * 80, 100, 3, seed=40)
         mask = np.ones((60, 80), np.uint8)
-        a = b.chunk2sparseCSCmulti(mask, csc, dtype=np.uint16, dot="csc")(chunks, 1)
-        pinteg = b.chunk2sparseCSCmulti(mask, csc, dtype=np.uint16, dot="padded")
-        p = pinteg(chunks, 1)
-        assert pinteg.padded.block_elems == 512
+        a = integ(mask, csc, np.uint16, "csc").multi(chunks, 1)
+        pinteg = integ(mask, csc, np.uint16, "padded")
+        p = pinteg.multi(chunks, 1)
+        assert pinteg._layout.block_elems == 512
+        assert pinteg._layout.args()[7] == 512
         for f in range(3):
             assert np.allclose(a[2][f], p[2][f])
     finally:

@@ -46,9 +46,9 @@ def _sources():
         "src/bslz4_to_sparse_wrapper.c",
         os.path.join(C2PY_RUNTIME, "c2py_runtime.c"),
         "src/bslz4_to_sparse.c",
-        "src/bslz4_driver.c",
-        "src/bslz4_registry.c",
-        "src/kernels_generic.cpp",
+        "src/pipeline/driver.c",
+        "src/pipeline/registry.c",
+        "src/steps/kernels.cpp",
         "kcb/src/bitshuffle.c",
         "bitshuffle/src/bitshuffle_core.c",
         "bitshuffle/src/iochain.c",
@@ -141,7 +141,8 @@ def _digest_files():
     files = set(_sources())
     for lib, _ in _PATCHED:
         files.update(_patch_files(lib))
-    for d in [os.path.join(REPO, "src")] + _include_dirs():
+    src = os.path.join(REPO, "src")
+    for d in [src, os.path.join(src, "pipeline"), os.path.join(src, "steps")] + _include_dirs():
         for pat in ("*.h", "*.hpp"):
             files.update(glob.glob(os.path.join(d, pat)))
     return sorted(files, key=_rel)

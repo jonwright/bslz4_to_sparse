@@ -1,5 +1,5 @@
 """
-Time each untranspose backend available_backends() reports, against scal.
+Time each untranspose value this machine can run (describe()), against scalar.
 
 The backends differ only in the bit/byte de-shuffle kernel, so this is the
 measurement that says whether a SIMD one is worth having on this machine:
@@ -52,19 +52,17 @@ def _timed(c2sm):
 def time_backend(name):
     """Best of REPEATS, per frame, in ms. Best rather than mean: the
     interesting number is the kernel, not the scheduler."""
-    bslz4.set_backend(name)
-    c2sm = bslz4.chunk2sparseMulti(mask, dtype=DTYPE)
+    c2sm = bslz4.chunk2sparse(mask, dtype=DTYPE, pipeline={"untranspose": name}).multi
     c2sm(chunks, 0)  # warmup
     return min(_timed(c2sm) for _ in range(REPEATS)) / SHAPE[0] * 1e3
 
 
-try:
-    results = {name: time_backend(name) for name in bslz4.available_backends()}
-finally:
-    bslz4.set_backend(None)
+results = {name: time_backend(name)
+           for _i, name, ok, _need in bslz4.describe()["untranspose"]
+           if ok and (DTYPE == np.uint16 or not name.startswith("lowplanes"))}
 
-base = results.get("scal")
-print("\n%-8s %10s %9s" % ("backend", "ms/frame", "vs scal"))
+base = results.get("scalar")
+print("\n%-8s %10s %9s" % ("backend", "ms/frame", "vs scalar"))
 for name, ms in sorted(results.items(), key=lambda kv: kv[1]):
     speedup = "%.2fx" % (base / ms) if base else "-"
     print("%-8s %10.4f %9s" % (name, ms, speedup))
