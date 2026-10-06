@@ -10,6 +10,9 @@ step, resolved when the object is made (0 / None: the best guess for this
 CPU, data and matrix) and kept in `.pipeline`; describe() names the values.
 Nothing is global, so objects with different pipelines can run in
 different threads.
+
+The GIL is released while decoding. Use one object per thread and do not
+share them: there are no locks.
 """
 import json
 import os
