@@ -1,8 +1,8 @@
-"""Bit-shuffle-block CSR layout (dot="bsb-csr").
+"""Bit-shuffle-block CSR layout (pipeline dot "bsb-csr").
 
 Self-contained (no pyFAI): chunks are generated here with h5py + hdf5plugin,
 and every result is checked against the conventional CSC decoder
-(chunk2sparseCSCmulti with dot="csc") fed the same matrix.  bsb-csr is
+(chunk2sparseCSC with pipeline={"dot": "csc"}) fed the same matrix.  bsb-csr is
 general: it also handles a matrix whose pixels reach non-consecutive bins
 (i.e. one padded must refuse), which is what makes the fallback layout work.
 """
@@ -66,21 +66,17 @@ def data(tmp_path_factory):
     return out
 
 
-@pytest.fixture
-def restore_state():
-    thr = b.get_dense_sparse_threshold()
-    yield
-    b.set_dense_sparse_threshold(thr)
+def integ(mask, csc, dt, dot, route=None):
+    return b.chunk2sparseCSC(mask, csc, dtype=dt, pipeline={"dot": dot, "route": route})
 
 
-def test_bsbcsr_matches_csc_every_dtype(data, restore_state):
+def test_bsbcsr_matches_csc_every_dtype(data):
     for (dt,), (frames, chunks, codec) in data.items():
         csc = make_any(60 * 80, 300, seed=10)
         mask = (np.random.default_rng(9).random(60 * 80) > 0.1).astype(np.uint8).reshape(60, 80)
-        for route in (1e9, 0.0):
-            b.set_dense_sparse_threshold(route)
-            rc = b.chunk2sparseCSCmulti(mask, csc, dtype=dt, dot="csc")(chunks, 1)
-            rr = b.chunk2sparseCSCmulti(mask, csc, dtype=dt, dot="bsb-csr")(chunks, 1)
+        for route in ("dense", "sparse"):
+            rc = integ(mask, csc, dt, "csc", route).multi(chunks, 1)
+            rr = integ(mask, csc, dt, "bsb-csr", route).multi(chunks, 1)
             for f in range(len(chunks)):
                 n0, v0, a0, p0 = rc[0][f], rc[1][0][f], rc[1][1][f], rc[2][f]
                 n1, v1, a1, p1 = rr[0][f], rr[1][0][f], rr[1][1][f], rr[2][f]
@@ -105,10 +101,10 @@ def test_bsbcsr_handles_2d_padded_cannot():
     try:
         # padded must refuse (non-consecutive)
         with pytest.raises(ValueError, match="consecutive"):
-            b.chunk2sparseCSCmulti(mask, csc, dtype=np.uint16, dot="padded")
+            integ(mask, csc, np.uint16, "padded")
         # bsb-csr must produce the same powder as csc
-        a = b.chunk2sparseCSCmulti(mask, csc, dtype=np.uint16, dot="csc")(chunks, 1)
-        r = b.chunk2sparseCSCmulti(mask, csc, dtype=np.uint16, dot="bsb-csr")(chunks, 1)
+        a = integ(mask, csc, np.uint16, "csc").multi(chunks, 1)
+        r = integ(mask, csc, np.uint16, "bsb-csr").multi(chunks, 1)
         assert np.allclose(a[2], r[2])
     finally:
         import os
@@ -116,12 +112,11 @@ def test_bsbcsr_handles_2d_padded_cannot():
             os.remove("_b.h5")
 
 
-def test_bsbcsr_sparse_output_order(data, restore_state):
+def test_bsbcsr_sparse_output_order(data):
     _, chunks, _ = data[(np.dtype(np.uint16),)]
     csc = make_any(60 * 80, 300, seed=20)
     mask = np.ones((60, 80), np.uint8)
-    b.set_dense_sparse_threshold(1e9)
-    npx, (outpx, adr), _ = b.chunk2sparseCSCmulti(mask, csc, dtype=np.uint16, dot="bsb-csr")(chunks, 1)
+    npx, (outpx, adr), _ = integ(mask, csc, np.uint16, "bsb-csr", "dense").multi(chunks, 1)
     for f in range(len(chunks)):
         n = int(npx[f])
         if n > 1:
@@ -131,9 +126,10 @@ def test_bsbcsr_sparse_output_order(data, restore_state):
 def test_bsbcsr_layout_attributes():
     csc = make_any(60 * 80, 100, seed=30)
     mask = np.ones((60, 80), np.uint8)
-    integ = b.chunk2sparseCSCmulti(mask, csc, dtype=np.uint16, dot="bsb-csr")
-    assert integ.layout == "bsb-csr" and integ.bsb_csr is not None
-    q = integ.bsb_csr
-    assert q.block_elems == 4096
-    assert len(q.blk_ptr) == 3            # ceil(4800/4096)+1 blocks
-    assert q.bins.size + 1 == q.bin_ptr.size
+    c = integ(mask, csc, np.uint16, "bsb-csr")
+    lay = c._layout
+    assert c.dot == "bsb-csr" and lay.entry == "bsb-csr"
+    blk_ptr, bins, bin_ptr = lay.args()[:3]
+    assert lay.block_elems == 4096 and lay.args()[-1] == 4096
+    assert len(blk_ptr) == 3              # ceil(4800/4096)+1 blocks
+    assert bins.size + 1 == bin_ptr.size

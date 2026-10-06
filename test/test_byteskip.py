@@ -1,8 +1,8 @@
-"""Untranspose byte skip: when every value in a decode block fits in fewer
-bytes (the high bytes' bit-planes are all zero), the driver untransposes only
-the low bytes' planes and widens.  It must be byte-exact, so every frame is
-reconstructed from the sparse output with the skip on and off, and a CSC
-powder must be identical both ways.  Shapes leave a partial tail block.
+"""Untranspose values: the low-planes untransposes (u16 blocks whose high
+byte-planes are all zero untranspose only the low byte's planes), kcb and
+scalar must all be byte-exact, so every frame is reconstructed from the
+sparse output with every untranspose value usable for its dtype, and a CSC
+powder must be identical for each.  Shapes leave a partial tail block.
 """
 
 import os
@@ -20,6 +20,7 @@ hdf5plugin = pytest.importorskip("hdf5plugin")
 sp = pytest.importorskip("scipy.sparse")
 
 import bslz4_to_sparse as b
+from bslz4_to_sparse import _pipeline
 
 SHAPE = (97, 211)   # 20467 px: several full blocks and a tail for every dtype
 
@@ -76,15 +77,21 @@ def chunks_of(frames, path):
         return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], codec
 
 
-@pytest.fixture(autouse=True)
-def restore_byteskip():
-    saved = b.get_byteskip()
-    yield
-    b.set_byteskip(saved)
+def untransposes(dt):
+    """The untranspose values usable here for pixels of dtype dt (the
+    low-planes ones are for u16 only)."""
+    out = []
+    for i, n in enumerate(_pipeline.NAMES["untranspose"]):
+        if not i or _pipeline.available("untranspose", i) != 1:
+            continue
+        if n.startswith("lowplanes") and np.dtype(dt) != np.uint16:
+            continue
+        out.append(n)
+    return out
 
 
 @pytest.mark.parametrize("kind", KINDS)
-def test_frames_identical_with_and_without_byteskip(tmp_path, kind):
+def test_frames_identical_for_every_untranspose(tmp_path, kind):
     rng = np.random.default_rng(12)
     frames = frames_for(kind, rng)
     chunks, codec = chunks_of(frames, tmp_path / "f.h5")
@@ -92,10 +99,11 @@ def test_frames_identical_with_and_without_byteskip(tmp_path, kind):
     dt = frames.dtype
     cut = 0 if dt.kind in "uf" else np.iinfo(dt).min   # every pixel above the cut
     got = {}
-    for skip in (True, False):
-        b.set_byteskip(skip)
-        integ = b.chunk2sparseMulti(mask, dtype=dt, codec=codec)
-        npx, (vals, adr) = integ(chunks, max(int(cut), 0))
+    names = untransposes(dt)
+    assert "kcb" in names
+    for skip in names:
+        integ = b.chunk2sparse(mask, dtype=dt, codec=codec, pipeline={"untranspose": skip})
+        npx, (vals, adr) = integ.multi(chunks, max(int(cut), 0))
         rec = np.zeros((len(frames), SHAPE[0] * SHAPE[1]), dt)
         for f in range(len(frames)):
             n = int(npx[f])
@@ -104,29 +112,27 @@ def test_frames_identical_with_and_without_byteskip(tmp_path, kind):
     keep = frames.reshape(len(frames), -1).copy()
     if dt.kind in "ui":
         keep[keep <= 0] = 0     # the sparse output holds values > cut (0)
-    assert (got[True] == got[False]).all(), kind
-    assert (got[True] == keep).all(), kind
+    for skip in names:
+        assert (got[skip] == got["kcb"]).all(), (kind, skip)
+        assert (got[skip] == keep).all(), (kind, skip)
 
 
 @pytest.mark.parametrize("kind", ("u16 <256", "u16 mixed", "u32 <256", "u32 <65536"))
 @pytest.mark.parametrize("route", ("dense", "sparse"))
-def test_powder_identical_with_and_without_byteskip(tmp_path, kind, route):
+def test_powder_identical_for_every_untranspose(tmp_path, kind, route):
     rng = np.random.default_rng(13)
     frames = frames_for(kind, rng)
     chunks, codec = chunks_of(frames, tmp_path / "p.h5")
     npix = SHAPE[0] * SHAPE[1]
     mask = (rng.random(npix) > 0.1).astype(np.uint8).reshape(SHAPE)
     M = sp.random(300, npix, density=0.01, format="csc", random_state=4, dtype=np.float32)
-    saved = b.get_dense_sparse_threshold()
-    try:
-        b.set_dense_sparse_threshold(1e9 if route == "dense" else 0.0)
-        out = {}
-        for skip in (True, False):
-            b.set_byteskip(skip)
-            integ = b.chunk2sparseCSCmulti(mask, M, dtype=frames.dtype, codec=codec)
-            out[skip] = integ(chunks, 0)[2].copy()
-    finally:
-        b.set_dense_sparse_threshold(saved)
-    assert (out[True] == out[False]).all()
+    out = {}
+    names = untransposes(frames.dtype)
+    for skip in names:
+        integ = b.chunk2sparseCSC(mask, M, dtype=frames.dtype, codec=codec,
+                                  pipeline={"untranspose": skip, "route": route})
+        out[skip] = integ.multi(chunks, 0)[2].copy()
     ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
-    assert np.allclose(out[True], ref, rtol=1e-9, atol=1e-9)
+    for skip in names:
+        assert (out[skip] == out["kcb"]).all(), skip
+        assert np.allclose(out[skip], ref, rtol=1e-9, atol=1e-9), skip

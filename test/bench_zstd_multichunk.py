@@ -7,7 +7,7 @@ Small benchmark for two design questions from the c2py23 rewrite:
    that compresses less well and exercises more of the untranspose/
    decompress work per frame).
 
-2. chunk2sparseCSC (one call per frame) vs chunk2sparseCSCmulti (one
+2. chunk2sparseCSC (one call per frame) vs chunk2sparseCSC.multi (one
    batched call per group of frames) per-frame time (issue #12), which
    is supposed to win by doing the CSC (indptr/indices/data) lookup for
    each pixel once and applying it across every frame in the batch
@@ -97,7 +97,7 @@ def bench_csc_single(mask, csc, buffers):
 
 
 def bench_csc_multi(mask, csc, buffers, batch_size):
-    c2sm = bslz4.chunk2sparseCSCmulti(mask, csc, dtype=DTYPE)
+    c2sm = bslz4.chunk2sparseCSC(mask, csc, dtype=DTYPE).multi
     c2sm(buffers[:batch_size], 0)  # warmup
     t0 = time.perf_counter()
     for start in range(0, len(buffers), batch_size):
@@ -121,7 +121,7 @@ def main():
                 print(f"{mu:>8} {cname:>6} {dt_ms:>10.4f} {npx:>10.1f}")
 
     print()
-    print("=== chunk2sparseCSC (single) vs chunk2sparseCSCmulti (batched) ===")
+    print("=== chunk2sparseCSC (single) vs chunk2sparseCSC.multi (batched) ===")
     npix = SHAPE[1] * SHAPE[2]
     mask = np.ones((SHAPE[1], SHAPE[2]), np.uint8)
     csc = RadialCSC(SHAPE[1], SHAPE[2], nbins=1000)

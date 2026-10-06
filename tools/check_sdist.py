@@ -45,14 +45,23 @@ _BUILD_FILES = (
     "MANIFEST.in",
     "src/__init__.py",
     "src/c2py_loader.py",
-    "src/_csc_variants.py",
-    "src/bslz4_common.h",
-    "src/bslz4_codec.h",
-    "src/bslz4_untranspose.h",
-    "src/bslz4_collect_caps.h",
-    "src/bslz4_collect_simd.hpp",
-    "src/bslz4_csc_variants.hpp",
-    "src/bslz4_lz4zero.h",
+    "src/_pipeline.py",
+    "src/_matrix.py",
+    "src/_testing.py",
+    "src/pipeline/common.h",
+    "src/pipeline/pipeline.h",
+    "src/steps/caps.h",
+    "src/steps/collect.hpp",
+    "src/steps/decode.h",
+    "src/steps/dot_bsbcsr.hpp",
+    "src/steps/dot_csc.hpp",
+    "src/steps/dot_fixed.hpp",
+    "src/steps/dot_padded.hpp",
+    "src/steps/lowplanes.h",
+    "src/steps/lowplanes_avx2.hpp",
+    "src/steps/lz4zero.h",
+    "src/steps/mask.h",
+    "src/steps/untranspose.h",
     "tools/build_extension.py",
 )
 
@@ -120,7 +129,7 @@ def install_sdist(path):
             [py, "-c",
              "import bslz4_to_sparse as b; "
              "print('installed', b.__file__); "
-             "print('backends', b.available_backends())"])
+             "print('pipeline', b.describe(b.chunk2sparse(__import__('numpy').ones((8, 8), 'u1')).pipeline))"])
         print("install OK: pip installed and imported %s" % os.path.basename(path))
         return True
     finally:

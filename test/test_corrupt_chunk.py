@@ -94,18 +94,20 @@ def _child(name, kind):
     good = _variants()["good"]
     if kind == "batch":       # good, damaged, good in ONE batched call
         held = [_guarded(good), _guarded(_variants()[name]), _guarded(good)]
-        dec = b.chunk2sparseMulti(mask)
+        dec = b.chunk2sparse(mask)
         bufs = [a for _, a in held]
+        run = dec.multi
     else:
         held = [_guarded(_variants()[name])]
         dec = b.chunk2sparse(mask)
         bufs = held[0][1]
+        run = dec
     try:
-        dec(bufs, 0)
+        run(bufs, 0)
         print("returned")
     except Exception as e:
         # a failed batch must not leave plausible-looking partial counts
-        npx = getattr(dec, "_npx_out", None)
+        npx = getattr(dec, "_npx", None)
         zeroed = npx is None or not np.any(npx)
         print("raised", e, "" if zeroed else "| npx_out NOT zeroed")
 
@@ -144,23 +146,30 @@ def test_damaged_chunk_raises_not_crashes(name, kind):
 # --- base-buffer variant: offsets/sizes come from HDF5 metadata -------------
 
 def _base_call(base, offsets, lengths):
-    """Run bslz4_csc_multi_base_u16 over `base`; returns (ret, offsets_after)."""
+    """Run chunk2sparseCSC.decode_offsets over `base`; returns (ret,
+    offsets_after) with ret 0 on success, else the error code from the
+    raised message ("Error decoding ...: <code>: ...")."""
+    import re
     import numpy as np
     import bslz4_to_sparse as b
     npix = NROW * NCOL
     nbins = 4
-    fn = b._BSLZ4_CSC_MULTI_BASE["u16"]
     offsets = np.array(offsets, np.int64)
     lengths = np.array(lengths, np.int32)
-    n = len(offsets)
     indptr = np.arange(npix + 1, dtype=np.uint32)
     indices = (np.arange(npix) % nbins).astype(np.uint32)
     data = np.ones(npix, np.float32)
-    ret = fn(base, offsets, lengths, np.ones(npix, np.uint8),
-             np.empty(n * npix, np.uint16), np.empty(n * npix, np.uint32),
-             np.empty(n, np.int32), 0, np.empty(n * nbins, np.float64),
-             data, indices, indptr, np.empty(b._workspace_bytes_csc(bytes(_good_chunk()), 2), np.uint8),
-             np.empty(n, np.int64), nbins, 2)
+    csc = type("_CSC", (), {"indptr": indptr, "indices": indices, "data": data,
+                            "shape": (nbins, npix)})()
+    dec = b.chunk2sparseCSC(np.ones((NROW, NCOL), np.uint8), csc, dtype=np.uint16,
+                            pipeline={"dot": "csc"})
+    try:
+        dec.decode_offsets(base, offsets, lengths, 0)
+        ret = 0
+    except Exception as e:
+        m = re.match(r"Error decoding \w+: (-?\d+):", str(e))
+        assert m, str(e)
+        ret = int(m.group(1))
     return ret, offsets
 
 

@@ -30,7 +30,8 @@
  * loop.
  */
 
-#include "bslz4_common.h"
+#include "../pipeline/common.h"
+#include "../pipeline/pipeline.h"
 
 #include <string.h>
 
@@ -96,14 +97,6 @@ inline bool bslz4_avx512cs_collect_capable() {
 #endif
 }
 
-inline bool bslz4_avx2_collect_capable() {
-#if BSLZ4_HAVE_AVX2_COLLECT
-    return c2py_amd64_avx2 != 0;
-#else
-    return false;
-#endif
-}
-
 inline bool bslz4_avx2cs_collect_capable() {
 #if BSLZ4_HAVE_AVX2_COLLECT
     return c2py_amd64_avx2 != 0 && __builtin_cpu_supports("popcnt");
@@ -141,42 +134,7 @@ inline bool bslz4_neon_collect_capable() {
 
 #if BSLZ4_HAVE_AVX512_COLLECT
 
-__attribute__((target("avx512f,avx512bw,avx512vl")))
-inline int bslz4_collect_avx512_u16(const uint16_t *BSLZ4_RESTRICT block,
-                                     const uint8_t *BSLZ4_RESTRICT mask,
-                                     size_t i0, size_t block_elems, uint16_t cut,
-                                     uint16_t *BSLZ4_RESTRICT out_vals,
-                                     uint32_t *BSLZ4_RESTRICT out_adr) {
-    int npx = 0;
-    size_t j = 0;
-    const __m512i vcut = _mm512_set1_epi16((short) cut);
-    for (; j + 32 <= block_elems; j += 32) {
-        __mmask32 mnz = mask
-            ? _mm256_cmpneq_epu8_mask(_mm256_loadu_si256((const __m256i *) &mask[j + i0]),
-                                      _mm256_setzero_si256())
-            : (__mmask32) ~(uint32_t) 0;
-        __mmask32 mgt = _mm512_cmpgt_epu16_mask(
-            _mm512_loadu_si512((const void *) &block[j]), vcut);
-        uint32_t bits = (uint32_t) (mnz & mgt);
-        while (bits) {
-            int b = __builtin_ctz(bits);
-            out_vals[npx] = block[j + b];
-            out_adr[npx] = (uint32_t) (j + i0 + b);
-            npx++;
-            bits &= bits - 1;
-        }
-    }
-    for (; j < block_elems; j++) {
-        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
-            out_vals[npx] = block[j];
-            out_adr[npx] = (uint32_t) (j + i0);
-            npx++;
-        }
-    }
-    return npx;
-}
-
-/* Collect id 6, "avx512cs": the same selection as the avx512 tier, but the
+/* Collect id 6, "avx512cs": mask & (value > cut) per 32 pixels, but the
  * selected values and their pixel indices are compressed into registers
  * (vpcompressw / vpcompressd), stored with plain full-width stores, and the
  * output advanced by popcnt -- no per-pixel loop, so no data-dependent
@@ -263,41 +221,6 @@ inline int bslz4_collect_avx512cs_u32(const uint32_t *BSLZ4_RESTRICT block,
 }
 #endif
 
-__attribute__((target("avx512f,avx512bw,avx512vl")))
-inline int bslz4_collect_avx512_u32(const uint32_t *BSLZ4_RESTRICT block,
-                                     const uint8_t *BSLZ4_RESTRICT mask,
-                                     size_t i0, size_t block_elems, uint32_t cut,
-                                     uint32_t *BSLZ4_RESTRICT out_vals,
-                                     uint32_t *BSLZ4_RESTRICT out_adr) {
-    int npx = 0;
-    size_t j = 0;
-    const __m512i vcut = _mm512_set1_epi32((int) cut);
-    for (; j + 16 <= block_elems; j += 16) {
-        __mmask16 mnz = mask
-            ? _mm_cmpneq_epu8_mask(_mm_loadu_si128((const __m128i *) &mask[j + i0]),
-                                   _mm_setzero_si128())
-            : (__mmask16) 0xFFFF;
-        __mmask16 mgt = _mm512_cmpgt_epu32_mask(
-            _mm512_loadu_si512((const void *) &block[j]), vcut);
-        uint32_t bits = (uint32_t) (mnz & mgt);
-        while (bits) {
-            int b = __builtin_ctz(bits);
-            out_vals[npx] = block[j + b];
-            out_adr[npx] = (uint32_t) (j + i0 + b);
-            npx++;
-            bits &= bits - 1;
-        }
-    }
-    for (; j < block_elems; j++) {
-        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
-            out_vals[npx] = block[j];
-            out_adr[npx] = (uint32_t) (j + i0);
-            npx++;
-        }
-    }
-    return npx;
-}
-
 #endif /* BSLZ4_HAVE_AVX512_COLLECT */
 
 #if BSLZ4_HAVE_AVX2_COLLECT
@@ -325,46 +248,6 @@ inline int bslz4_collect_avx512_u32(const uint32_t *BSLZ4_RESTRICT block,
  * identical to the AVX-512 kernels above -- that part isn't ISA-specific
  * at all.
  */
-
-__attribute__((target("avx2")))
-inline int bslz4_collect_avx2_u16(const uint16_t *BSLZ4_RESTRICT block,
-                                   const uint8_t *BSLZ4_RESTRICT mask,
-                                   size_t i0, size_t block_elems, uint16_t cut,
-                                   uint16_t *BSLZ4_RESTRICT out_vals,
-                                   uint32_t *BSLZ4_RESTRICT out_adr) {
-    int npx = 0;
-    size_t j = 0;
-    const __m256i sign_bias = _mm256_set1_epi16((short) 0x8000);
-    const __m256i vcut_b = _mm256_xor_si256(_mm256_set1_epi16((short) cut), sign_bias);
-    for (; j + 16 <= block_elems; j += 16) {
-        uint32_t mnz16 = mask
-            ? (~(uint32_t) _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128((const __m128i *) &mask[j + i0]), _mm_setzero_si128()))) & 0xFFFFu
-            : 0xFFFFu;
-
-        __m256i v = _mm256_loadu_si256((const __m256i *) &block[j]);
-        __m256i vb = _mm256_xor_si256(v, sign_bias);
-        __m256i gt = _mm256_cmpgt_epi16(vb, vcut_b);
-        uint32_t packed = (uint32_t) _mm256_movemask_epi8(_mm256_packs_epi16(gt, gt));
-        uint32_t mgt16 = (packed & 0xFFu) | ((packed >> 8) & 0xFF00u);
-
-        uint32_t bits = mnz16 & mgt16;
-        while (bits) {
-            int b = __builtin_ctz(bits);
-            out_vals[npx] = block[j + b];
-            out_adr[npx] = (uint32_t) (j + i0 + b);
-            npx++;
-            bits &= bits - 1;
-        }
-    }
-    for (; j < block_elems; j++) {
-        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
-            out_vals[npx] = block[j];
-            out_adr[npx] = (uint32_t) (j + i0);
-            npx++;
-        }
-    }
-    return npx;
-}
 
 /* Collect id 7, "avx2cs": the avx2 selection, extracted without a loop per
  * pixel (the avx512cs scheme on AVX2).  For each 8 pixels the selection byte
@@ -456,7 +339,7 @@ inline int bslz4_collect_avx2cs_u16(const uint16_t *BSLZ4_RESTRICT block,
 }
 
 __attribute__((target("avx2")))
-inline int bslz4_collect_avx2_u32(const uint32_t *BSLZ4_RESTRICT block,
+inline int bslz4_collect_avx2cs_u32(const uint32_t *BSLZ4_RESTRICT block,
                                    const uint8_t *BSLZ4_RESTRICT mask,
                                    size_t i0, size_t block_elems, uint32_t cut,
                                    uint32_t *BSLZ4_RESTRICT out_vals,
@@ -778,9 +661,9 @@ inline int bslz4_collect_neon_u32(const uint32_t *BSLZ4_RESTRICT block,
  */
 template<typename T>
 inline int bslz4_collect_gt(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                             size_t i0, size_t n, T cut, int collect_id,
+                             size_t i0, size_t n, T cut, int collect,
                              T *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
-    (void) collect_id;  /* only the scalar tier is valid for non-SIMD dtypes */
+    (void) collect;  /* only the scalar tier is valid for non-SIMD dtypes */
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
         if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (block[j] > cut))) {
@@ -804,9 +687,9 @@ inline int bslz4_collect_gt(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_
  */
 template<typename T>
 inline int bslz4_collect_nz(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                             size_t i0, size_t n, int collect_id,
+                             size_t i0, size_t n, int collect,
                              T *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
-    (void) collect_id;  /* only the scalar tier is valid for non-SIMD dtypes */
+    (void) collect;  /* only the scalar tier is valid for non-SIMD dtypes */
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
         T px = block[j];
@@ -823,26 +706,24 @@ inline int bslz4_collect_nz(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_
 
 template<>
 inline int bslz4_collect_gt<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                                       size_t i0, size_t n, uint16_t cut, int collect_id,
+                                       size_t i0, size_t n, uint16_t cut, int collect,
                                        uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
 #if BSLZ4_HAVE_VBMI_GFNI
-    if (collect_id == 6) return bslz4_collect_avx512cs_u16(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX512CS) return bslz4_collect_avx512cs_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
-    if (collect_id == 1) return bslz4_collect_avx512_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (collect_id == 7) return bslz4_collect_avx2cs_u16(block, mask, i0, n, cut, out_vals, out_adr);
-    if (collect_id == 2) return bslz4_collect_avx2_u16(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX2CS) return bslz4_collect_avx2cs_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
-    if (collect_id == 3) return bslz4_collect_sse2_u16(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_SSE2) return bslz4_collect_sse2_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_VSX_COLLECT
-    if (collect_id == 4) return bslz4_collect_vsx_u16(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_VSX) return bslz4_collect_vsx_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_NEON_COLLECT
-    if (collect_id == 5) return bslz4_collect_neon_u16(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_NEON) return bslz4_collect_neon_u16(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
@@ -857,25 +738,24 @@ inline int bslz4_collect_gt<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
 
 template<>
 inline int bslz4_collect_gt<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                                       size_t i0, size_t n, uint32_t cut, int collect_id,
+                                       size_t i0, size_t n, uint32_t cut, int collect,
                                        uint32_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
 #if BSLZ4_HAVE_VBMI_GFNI
-    if (collect_id == 6) return bslz4_collect_avx512cs_u32(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX512CS) return bslz4_collect_avx512cs_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
-    if (collect_id == 1) return bslz4_collect_avx512_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (collect_id == 2 || collect_id == 7) return bslz4_collect_avx2_u32(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX2CS) return bslz4_collect_avx2cs_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
-    if (collect_id == 3) return bslz4_collect_sse2_u32(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_SSE2) return bslz4_collect_sse2_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_VSX_COLLECT
-    if (collect_id == 4) return bslz4_collect_vsx_u32(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_VSX) return bslz4_collect_vsx_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_NEON_COLLECT
-    if (collect_id == 5) return bslz4_collect_neon_u32(block, mask, i0, n, cut, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_NEON) return bslz4_collect_neon_u32(block, mask, i0, n, cut, out_vals, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
@@ -890,27 +770,25 @@ inline int bslz4_collect_gt<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
 
 template<>
 inline int bslz4_collect_nz<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                                       size_t i0, size_t n, int collect_id,
+                                       size_t i0, size_t n, int collect,
                                        uint16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
     /* unsigned T: !=0 is exactly >0, so cut==0 reuses the same kernels. */
 #if BSLZ4_HAVE_AVX512_COLLECT
 #if BSLZ4_HAVE_VBMI_GFNI
-    if (collect_id == 6) return bslz4_collect_avx512cs_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX512CS) return bslz4_collect_avx512cs_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
-    if (collect_id == 1) return bslz4_collect_avx512_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (collect_id == 7) return bslz4_collect_avx2cs_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
-    if (collect_id == 2) return bslz4_collect_avx2_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX2CS) return bslz4_collect_avx2cs_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
-    if (collect_id == 3) return bslz4_collect_sse2_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_SSE2) return bslz4_collect_sse2_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_VSX_COLLECT
-    if (collect_id == 4) return bslz4_collect_vsx_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_VSX) return bslz4_collect_vsx_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_NEON_COLLECT
-    if (collect_id == 5) return bslz4_collect_neon_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_NEON) return bslz4_collect_neon_u16(block, mask, i0, n, (uint16_t) 0, out_vals, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
@@ -926,25 +804,24 @@ inline int bslz4_collect_nz<uint16_t>(const uint16_t *BSLZ4_RESTRICT block, cons
 
 template<>
 inline int bslz4_collect_nz<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
-                                       size_t i0, size_t n, int collect_id,
+                                       size_t i0, size_t n, int collect,
                                        uint32_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
 #if BSLZ4_HAVE_AVX512_COLLECT
 #if BSLZ4_HAVE_VBMI_GFNI
-    if (collect_id == 6) return bslz4_collect_avx512cs_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX512CS) return bslz4_collect_avx512cs_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
-    if (collect_id == 1) return bslz4_collect_avx512_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (collect_id == 2 || collect_id == 7) return bslz4_collect_avx2_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX2CS) return bslz4_collect_avx2cs_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
-    if (collect_id == 3) return bslz4_collect_sse2_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_SSE2) return bslz4_collect_sse2_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_VSX_COLLECT
-    if (collect_id == 4) return bslz4_collect_vsx_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_VSX) return bslz4_collect_vsx_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
 #if BSLZ4_HAVE_NEON_COLLECT
-    if (collect_id == 5) return bslz4_collect_neon_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
+    if (collect == BSLZ4_COLLECT_NEON) return bslz4_collect_neon_u32(block, mask, i0, n, (uint32_t) 0, out_vals, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {

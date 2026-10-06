@@ -27,8 +27,9 @@ pyFAI = pytest.importorskip("pyFAI")
 from pyFAI.method_registry import IntegrationMethod  # noqa: E402
 
 import bslz4_to_sparse as b  # noqa: E402
+from bslz4_to_sparse import _pipeline, _matrix  # noqa: E402
 
-ROUTES = (("dense", 1e9), ("sparse", 0.0))
+ROUTES = ("dense", "sparse")
 SPLITS = ("no", "bbox", "full")
 BINS_PER_PIXEL = (1, 5)
 
@@ -36,17 +37,26 @@ BINS_PER_PIXEL = (1, 5)
 def expected(integ, frames, ref):
     """(reference powder, relative tolerance) for this integrator's dot.  The
     fixed-point dots sum exact integers, so they are checked against numpy
-    with the same rounded weights; csc-run-moment multiplies by q itself
-    instead of using the stored float32 w*q, so it agrees to ~1e-7."""
-    v = getattr(integ, "variant", None)
-    if v is not None and v.scale is not None:
+    with the same rounded weights (the layout's data, in the order of the
+    mask-folded matrix)."""
+    lay = integ._layout
+    if lay.scale is not None:
         nm = integ._nm
-        Mq = sp.csc_matrix((v.data.astype(np.float64) * v.scale, nm.indices, nm.indptr),
+        Mq = sp.csc_matrix((lay.args()[0].astype(np.float64) * lay.scale, nm.indices, nm.indptr),
                            shape=nm.shape)
         return np.array([Mq @ f.ravel().astype(np.float64) for f in frames]), 1e-12
-    if integ.dot == "csc-run-moment":
-        return ref, 1e-6
     return ref, 1e-9
+
+
+def available_dots():
+    """The dot names this CPU/build can run."""
+    return [n for i, n in enumerate(_pipeline.NAMES["dot"])
+            if i and _pipeline.available("dot", i) == 1]
+
+
+def make_integ(mask, M, codec, dot, route=None):
+    return b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec,
+                             pipeline={"dot": dot, "route": route})
 
 
 def make_ai():
@@ -96,28 +106,20 @@ def test_every_dot_on_pyfai_matrix(setup, split, bpp):
     ref = np.array([M @ (f.ravel().astype(np.float64) * keep) for f in frames])
     scale = max(np.abs(ref).max(), 1.0)
     seen = set()
-    saved = b.get_dense_sparse_threshold()
-    try:
-        for dot in b.available_dots():
-            for route, thr in ROUTES:
-                b.set_dense_sparse_threshold(thr)
-                try:
-                    integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec, dot=dot)
-                except ValueError:
-                    continue
-                _npx, _sparse, p = integ(chunks, 0)
-                seen.add(dot)
-                r, tol = expected(integ, frames * keep.reshape(frames.shape[1:]), ref)
-                err = np.abs(p - r).max() / scale
-                assert err < tol, (dot, route, split, bpp, err)
-    finally:
-        b.set_dense_sparse_threshold(saved)
-    assert "csc-run" in seen
-    for dot in ("csc-run-u16", "csc-run-delta", "csc-int", "csc-run-int", "csc-run-int16"):
+    for dot in available_dots():
+        for route in ROUTES:
+            try:
+                integ = make_integ(mask, M, codec, dot, route)
+            except ValueError:
+                continue
+            _npx, _sparse, p = integ.multi(chunks, 0)
+            seen.add(dot)
+            r, tol = expected(integ, frames * keep.reshape(frames.shape[1:]), ref)
+            err = np.abs(p - r).max() / scale
+            assert err < tol, (dot, route, split, bpp, err)
+    assert "csc-run" in seen                     # 1D: every pixel is one run
+    for dot in ("csc-int", "csc-run-int", "csc-run-int16"):
         assert dot in seen, dot
-    assert "csc-tile" not in seen                # 1D: every pixel is one run
-    for dot in ("csc-nosplit-dump", "csc-nosplit-u16", "csc-nosplit-delta", "csc-nosplit-walk"):
-        assert (dot in seen) == (split == "no"), dot
     assert ("csc-nosplit" in seen) == (split == "no")
     assert ("bsb-csr-nosplit" in seen) == (split == "no")
 
@@ -164,25 +166,18 @@ def test_ring_first_moment(setup, split, order):
     ref = np.array([M @ (f.ravel().astype(np.float64) * keep) for f in frames])
     scale = max(np.abs(ref).max(), 1.0)
     seen = set()
-    saved = b.get_dense_sparse_threshold()
-    try:
-        for dot in b.available_dots():
-            for route, thr in ROUTES:
-                b.set_dense_sparse_threshold(thr)
-                try:
-                    integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec, dot=dot)
-                except ValueError:
-                    continue
-                _npx, _sparse, p = integ(chunks, 0)
-                seen.add(dot)
-                r, tol = expected(integ, frames * keep.reshape(frames.shape[1:]), ref)
-                err = np.abs(p - r).max() / scale
-                assert err < tol, (dot, route, split, order, err)
-    finally:
-        b.set_dense_sparse_threshold(saved)
+    for dot in available_dots():
+        for route in ROUTES:
+            try:
+                integ = make_integ(mask, M, codec, dot, route)
+            except ValueError:
+                continue
+            _npx, _sparse, p = integ.multi(chunks, 0)
+            seen.add(dot)
+            r, tol = expected(integ, frames * keep.reshape(frames.shape[1:]), ref)
+            err = np.abs(p - r).max() / scale
+            assert err < tol, (dot, route, split, order, err)
     assert ("csc-nosplit-moment" in seen) == (split == "no" and order == "inter")
-    assert ("csc-nosplit-moment-dump" in seen) == (split == "no" and order == "inter")
-    assert ("csc-run-moment" in seen) == (order == "inter")
     assert ("csc-run" in seen) == (order == "inter")
     assert "csc-nosplit" not in seen
 
@@ -193,30 +188,24 @@ def run_dots(mask, M, frames, chunks, codec, dots):
     ref = np.array([M @ (f.ravel().astype(np.float64) * keep) for f in frames])
     scale = max(np.abs(ref).max(), 1.0)
     seen = {}
-    saved = b.get_dense_sparse_threshold()
-    try:
-        for dot in dots:
-            for route, thr in ROUTES:
-                b.set_dense_sparse_threshold(thr)
-                try:
-                    integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec, dot=dot)
-                except ValueError:
-                    continue
-                _npx, _sparse, p = integ(chunks, 0)
-                r, tol = expected(integ, frames * mask, ref)
-                err = np.abs(p - r).max() / scale
-                assert err < tol, (dot, route, err)
-                seen[dot] = max(seen.get(dot, 0.0), err)
-    finally:
-        b.set_dense_sparse_threshold(saved)
+    for dot in dots:
+        for route in ROUTES:
+            try:
+                integ = make_integ(mask, M, codec, dot, route)
+            except ValueError:
+                continue
+            _npx, _sparse, p = integ.multi(chunks, 0)
+            r, tol = expected(integ, frames * mask, ref)
+            err = np.abs(p - r).max() / scale
+            assert err < tol, (dot, route, err)
+            seen[dot] = max(seen.get(dot, 0.0), err)
     return seen
 
 
 @pytest.mark.parametrize("split", ["no", "bbox"])
-def test_2d_tile_and_walk(setup, split):
-    """2D (radial x azimuth, radial-major): the walk stream takes the
-    histogram, the tile takes the split (each pixel one rectangle, azimuth
-    wrapping), and both match numpy on both routes."""
+def test_2d_matrix(setup, split):
+    """2D (radial x azimuth, radial-major): every dot that accepts the matrix
+    matches numpy on both routes; the histogram dots take only split='no'."""
     ai, mask, frames, chunks, codec = setup
     na, nr = 72, radial_pixels(ai)
     method = IntegrationMethod.select_one_available((split, "csc", "cython"), dim=2)
@@ -224,25 +213,26 @@ def test_2d_tile_and_walk(setup, split):
     e = ai.engines[method].engine
     M = sp.csc_matrix((np.asarray(e.data, np.float32), np.asarray(e.indices, np.int32),
                        np.asarray(e.indptr, np.int32)), shape=(nr * na, len(e.indptr) - 1))
-    seen = run_dots(mask, M, frames, chunks, codec,
-                    ("csc", "csc-tile", "csc-nosplit-walk", "csc-nosplit-delta", "csc-int"))
-    assert "csc-int" in seen
-    assert ("csc-nosplit-walk" in seen) == (split == "no")
-    assert ("csc-tile" in seen) == (split == "bbox")
+    seen = run_dots(mask, M, frames, chunks, codec, available_dots())
+    assert "csc" in seen and "csc-int" in seen and "bsb-csr" in seen
+    assert ("csc-nosplit" in seen) == (split == "no")
+    assert ("bsb-csr-nosplit" in seen) == (split == "no")
 
 
-def test_stream_built_for_another_block_size_is_refused(setup):
-    """The delta stream has a per-block table: a stream whose header names
-    another block size must give -109, never a wrong powder."""
+@pytest.mark.parametrize("dot", ["padded", "bsb-csr"])
+def test_layout_built_for_another_block_size_is_refused(setup, dot):
+    """padded and bsb-csr have per-block tables: a layout built for another
+    block size must give -109, never a wrong powder."""
     ai, mask, frames, chunks, codec = setup
     M = pyfai_matrix(ai, "bbox", radial_pixels(ai))
-    integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec, dot="csc-run-delta")
-    integ(chunks, 0)
-    h = integ.variant.indices.view(np.uint32)
-    h[2] += 1
-    integ._rebuild_layout = lambda be: None     # keep the corrupted stream
+    integ = make_integ(mask, M, codec, dot)
+    integ.multi(chunks, 0)
+    lay = integ._layout
+    # the C entry gets arrays for 2048-pixel blocks; the Python side still
+    # believes they are for this dataset's block size, so does not rebuild
+    lay._args = _matrix.build(dot, integ._nm, lay.block_elems // 2, np.uint16).args()
     with pytest.raises(Exception, match="-109"):
-        integ(chunks, 0)
+        integ.multi(chunks, 0)
 
 
 def test_fazit_permutation(setup):
@@ -262,10 +252,10 @@ def test_fazit_permutation(setup):
     M = sp.csc_matrix((np.ones(pix.size, np.float32), adr.astype(np.int32), indptr),
                       shape=(pix.size, valid.size))
     seen = run_dots(mask, M, frames, chunks, codec,
-                    ("csc", "csc-nosplit", "csc-permute", "csc-nosplit-delta", "bsb-csr-nosplit"))
+                    ("csc", "csc-nosplit", "csc-permute", "bsb-csr-nosplit"))
     assert "csc-permute" in seen and "csc-nosplit" in seen
-    integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec, dot="csc-permute")
-    _npx, _sparse, p = integ(chunks, 0)
+    integ = make_integ(mask, M, codec, "csc-permute")
+    _npx, _sparse, p = integ.multi(chunks, 0)
     assert p.dtype == np.uint16
     want = np.array([f.ravel()[pix[order]] for f in frames])
     assert (p == want).all()
@@ -274,8 +264,8 @@ def test_fazit_permutation(setup):
 @pytest.mark.parametrize("fast", ["az", "rad"])
 def test_tiled_fazit_runs(setup, fast):
     """Approximate FAZIT: bins of ~4x4 pixels, stable sort, so row segments
-    become runs of consecutive slots; csc-permute-runs copies whole runs and
-    must equal numpy's reordering exactly, as must csc-permute."""
+    become runs of consecutive slots; csc-permute must equal numpy's
+    reordering exactly."""
     ai, mask, frames, chunks, codec = setup
     valid = (mask > 0).ravel()
     r = ai.rArray().ravel() / ai.detector.pixel1
@@ -294,13 +284,7 @@ def test_tiled_fazit_runs(setup, fast):
     M = sp.csc_matrix((np.ones(pix.size, np.float32), adr.astype(np.int32), indptr),
                       shape=(pix.size, valid.size))
     want = np.array([f.ravel()[pix[order]] for f in frames])
-    saved = b.get_dense_sparse_threshold()
-    try:
-        for dot in ("csc-permute", "csc-permute-runs"):
-            for route, thr in ROUTES:
-                b.set_dense_sparse_threshold(thr)
-                integ = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, codec=codec, dot=dot)
-                _npx, _sparse, p = integ(chunks, 0)
-                assert (p == want).all(), (dot, route)
-    finally:
-        b.set_dense_sparse_threshold(saved)
+    for route in ROUTES:
+        integ = make_integ(mask, M, codec, "csc-permute", route)
+        _npx, _sparse, p = integ.multi(chunks, 0)
+        assert (p == want).all(), route

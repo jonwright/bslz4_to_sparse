@@ -7,10 +7,11 @@ if path:
     sys.path.insert(0, path)
 
 import bslz4_to_sparse
-from bslz4_to_sparse import chunk2sparseCSC
+from bslz4_to_sparse import chunk2sparseCSC, _pipeline, _testing
 
 print("Running from", bslz4_to_sparse.__file__)
-print("Backends:", bslz4_to_sparse.available_backends())
+print("Usable here:", {s: [n for (i, n, ok, need) in v if ok]
+                       for s, v in bslz4_to_sparse.describe().items()})
 
 import pytest
 pyFAI = pytest.importorskip("pyFAI")
@@ -48,8 +49,8 @@ with h5py.File('sparsetest.h5','r') as h5f:
                          [ dset.id.read_direct_chunk( (i,0,0) )
                            for i in range(dset.shape[0]) ] )
     testdata = h5f['frm2'][:]
-    
-                                             
+
+
 npt = 1500
 
 
@@ -98,21 +99,19 @@ def testfun( ):
         tavg = np.average(tims)
         j = np.argmax(e)
         print(f'{name} {dt} {tavg*1e3:.3f} ms {1/tavg:.1f} fps/core, max error abs, rel',e)
-        
+
 testfun()
 
 
 # ---------------------------------------------------------------------------
 # Multi-frame batching, dense/sparse routing, and u64/i64 dtype coverage.
 #
-# "single is multi with n==1": chunk2sparse/chunk2sparseCSC
-# are thin wrappers over the same decode path with nframes==1, so these check
-# that the batched and single-frame paths agree with each other and with the
-# pyFAI reference.
+# "single is multi with n==1": c(chunk) is a thin wrapper over c.multi with
+# nframes==1, so these check that the batched and single-frame paths agree
+# with each other and with the pyFAI reference.
 # ---------------------------------------------------------------------------
 
-from bslz4_to_sparse import chunk2sparse, chunk2sparseCSCmulti, chunk2sparseMulti
-from bslz4_to_sparse import set_dense_sparse_threshold, get_dense_sparse_threshold
+from bslz4_to_sparse import chunk2sparse
 
 
 def test_csc_multi_matches_single_and_reference():
@@ -120,9 +119,9 @@ def test_csc_multi_matches_single_and_reference():
         dt, shp, chunklist = chunks[name]
         bufs = [c for (filt, c) in chunklist]
         c2s = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
-        c2sm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
+        c2sm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
 
-        npx_multi, (val_multi, adr_multi), powder_multi = c2sm(bufs, 1)
+        npx_multi, (val_multi, adr_multi), powder_multi = c2sm.multi(bufs, 1)
 
         for i, buf in enumerate(bufs):
             npx1, (val1, adr1), powder1 = c2s(buf, 1)
@@ -135,27 +134,20 @@ def test_csc_multi_matches_single_and_reference():
 
 
 def test_csc_dense_and_sparse_routes_both_match_reference():
-    saved = get_dense_sparse_threshold()
-    try:
-        # bslz4_csc_dense_sparse_threshold() is compared against each
-        # block's own compression RATIO (blocksize/compressed_bytes):
-        # ratio > threshold picks the sparse (compaction) route, so a
-        # huge threshold like 1e9 is virtually never exceeded -- that
-        # forces DENSE -- and 0.0 is virtually always exceeded -- that
-        # forces SPARSE. (Backwards from what the numbers might suggest
-        # at a glance: this bit a benchmark script once already.)
-        for threshold, label in ((1e9, "dense"), (0.0, "sparse")):
-            set_dense_sparse_threshold(threshold)
-            for name in chunks:
-                dt, shp, chunklist = chunks[name]
-                bufs = [c for (filt, c) in chunklist]
-                c2sm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
-                npx, (outpx, adr), powder = c2sm(bufs, 1)
-                for i in range(len(bufs)):
-                    e = R(powder[i], reference_results[i].sum_signal)
-                    assert e[0] < 1e-4, (name, label, i, e)
-    finally:
-        set_dense_sparse_threshold(saved)
+    # the route step forces every block down one route; the counters
+    # confirm only that route ran
+    for label in ("dense", "sparse"):
+        for name in chunks:
+            dt, shp, chunklist = chunks[name]
+            bufs = [c for (filt, c) in chunklist]
+            c2sm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt),
+                                   pipeline={"route": label})
+            _testing.reset_counters()
+            npx, (outpx, adr), powder = c2sm.multi(bufs, 1)
+            assert set(_testing.counters()["route"]) == {label}, (name, label, _testing.counters())
+            for i in range(len(bufs)):
+                e = R(powder[i], reference_results[i].sum_signal)
+                assert e[0] < 1e-4, (name, label, i, e)
 
 
 def test_cut_above_dtype_max_produces_empty_sparse_output():
@@ -163,29 +155,27 @@ def test_cut_above_dtype_max_produces_empty_sparse_output():
     (texture tomography): no pixel can exceed it, so the sparse output must be
     empty and the powder identical.  This guards the wrapped `(T)threshold`
     cast from emitting garbage against a small wrapped cut."""
-    saved = get_dense_sparse_threshold()
-    try:
-        set_dense_sparse_threshold(1e9)  # dense route: the >cut collect runs
-        for name in chunks:
-            dt, shp, chunklist = chunks[name]
-            if np.dtype(dt).kind not in ("u", "i"):
-                continue
-            # the >cut threshold is a C int, so only dtypes whose max it can
-            # exceed are meaningful for this skip
-            if int(np.iinfo(dt).max) >= (1 << 31) - 1:
-                continue
-            cut = int(np.iinfo(dt).max) + 1  # just above the dtype's max
-            bufs = [c for (filt, c) in chunklist]
-            for dot in ("csc", "bsb-csr"):
-                c2sm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine,
-                                            dtype=np.dtype(dt), dot=dot)
-                npx0, (v0, a0), p0 = c2sm(bufs, 0)      # any pixels
-                nxph, (vh, ah), ph = c2sm(bufs, cut)    # > dtype max
-                for i in range(len(bufs)):
-                    assert int(nxph[i]) == 0, (name, dot, i, "expected empty sparse output")
-                    assert np.array_equal(p0[i], ph[i]), (name, dot, i, "powder changed")
-    finally:
-        set_dense_sparse_threshold(saved)
+    for name in chunks:
+        dt, shp, chunklist = chunks[name]
+        if np.dtype(dt).kind not in ("u", "i"):
+            continue
+        # the >cut threshold is a C int, so only dtypes whose max it can
+        # exceed are meaningful for this skip
+        if int(np.iinfo(dt).max) >= (1 << 31) - 1:
+            continue
+        cut = int(np.iinfo(dt).max) + 1  # just above the dtype's max
+        bufs = [c for (filt, c) in chunklist]
+        for dot in ("csc", "bsb-csr"):
+            # dense route: the >cut collect runs
+            c2sm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine,
+                                   dtype=np.dtype(dt),
+                                   pipeline={"route": "dense", "dot": dot})
+            npx0, (v0, a0), p0 = c2sm.multi(bufs, 0)      # any pixels
+            p0 = p0.copy()
+            nxph, (vh, ah), ph = c2sm.multi(bufs, cut)    # > dtype max
+            for i in range(len(bufs)):
+                assert int(nxph[i]) == 0, (name, dot, i, "expected empty sparse output")
+                assert np.array_equal(p0[i], ph[i]), (name, dot, i, "powder changed")
 
 
 def test_plain_multi_matches_single():
@@ -193,9 +183,9 @@ def test_plain_multi_matches_single():
         dt, shp, chunklist = chunks[name]
         bufs = [c for (filt, c) in chunklist]
         c2s = chunk2sparse(1 - ai.mask, dtype=np.dtype(dt))
-        c2sm = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt))
+        c2sm = chunk2sparse(1 - ai.mask, dtype=np.dtype(dt))
 
-        npx_multi, (val_multi, adr_multi) = c2sm(bufs, 0)
+        npx_multi, (val_multi, adr_multi) = c2sm.multi(bufs, 0)
         for i, buf in enumerate(bufs):
             npx1, (val1, adr1) = c2s(buf, 0)
             assert npx1 == npx_multi[i], (name, i)
@@ -204,44 +194,45 @@ def test_plain_multi_matches_single():
             assert s1 == s2, (name, i, "single vs multi sparse set differs")
 
 
-def test_every_available_backend_matches():
-    """Each untranspose backend available_backends() advertises must decode
-    identically -- they differ only in the bit/byte de-shuffle kernel. Also
-    checks a backend it does not advertise is refused rather than silently
-    running upstream bitshuffle's absent-ISA stub."""
-    from bslz4_to_sparse import available_backends, set_backend
+def _usable(step):
+    return [n for (i, n, ok, need) in bslz4_to_sparse.describe()[step] if ok]
 
-    usable = available_backends()
-    assert "kcb" in usable and "scal" in usable, usable
+
+def test_every_available_untranspose_matches():
+    """Each untranspose value usable here must decode identically -- they
+    differ only in the bit/byte de-shuffle kernel (the lowplanes-* values are
+    u16 only). Also checks a value this CPU lacks is refused rather than
+    silently running upstream bitshuffle's absent-ISA stub, and that the
+    removed "sse" backend is an unknown name."""
+    usable = _usable("untranspose")
+    assert "kcb" in usable and "scalar" in usable, usable
     reference = {}
-    try:
-        for name in usable:
-            set_backend(name)
-            for dsname in chunks:
-                dt, shp, chunklist = chunks[dsname]
-                bufs = [c for (filt, c) in chunklist]
-                npx, (val, adr) = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt))(bufs, 0)
-                # Only the first npx[i] entries of each row are written; the
-                # rest of the worst-case-sized buffer is uninitialised.
-                got = (npx.copy(), [(val[i, :npx[i]].copy(), adr[i, :npx[i]].copy())
-                                    for i in range(len(bufs))])
-                ref = reference.setdefault(dsname, got)
-                assert np.array_equal(got[0], ref[0]), (name, dsname, "npx differs")
-                for i, ((v, a), (rv, ra)) in enumerate(zip(got[1], ref[1])):
-                    assert np.array_equal(v, rv), (name, dsname, i, "values differ")
-                    assert np.array_equal(a, ra), (name, dsname, i, "indices differ")
-    finally:
-        set_backend(None)
+    for uname in usable:
+        for dsname in chunks:
+            dt, shp, chunklist = chunks[dsname]
+            if uname.startswith("lowplanes") and np.dtype(dt) != np.uint16:
+                with pytest.raises(ValueError, match="is for u16 pixels"):
+                    chunk2sparse(1 - ai.mask, dtype=np.dtype(dt), pipeline={"untranspose": uname})
+                continue
+            bufs = [c for (filt, c) in chunklist]
+            npx, (val, adr) = chunk2sparse(1 - ai.mask, dtype=np.dtype(dt),
+                                           pipeline={"untranspose": uname}).multi(bufs, 0)
+            # Only the first npx[i] entries of each row are written; the
+            # rest of the worst-case-sized buffer is uninitialised.
+            got = (npx.copy(), [(val[i, :npx[i]].copy(), adr[i, :npx[i]].copy())
+                                for i in range(len(bufs))])
+            ref = reference.setdefault(dsname, got)
+            assert np.array_equal(got[0], ref[0]), (uname, dsname, "npx differs")
+            for i, ((v, a), (rv, ra)) in enumerate(zip(got[1], ref[1])):
+                assert np.array_equal(v, rv), (uname, dsname, i, "values differ")
+                assert np.array_equal(a, ra), (uname, dsname, i, "indices differ")
 
-    for name in ("kcb", "sse", "neon", "scal"):
-        if name not in usable:
-            try:
-                set_backend(name)
-            except ValueError:
-                pass
-            else:
-                set_backend(None)
-                raise AssertionError("set_backend(%r) should have been refused" % name)
+    for uname in _pipeline.NAMES["untranspose"][1:]:
+        if uname not in usable:
+            with pytest.raises(ValueError, match="lacks"):
+                chunk2sparse(1 - ai.mask, dtype=np.uint16, pipeline={"untranspose": uname})
+    with pytest.raises(ValueError, match="unknown"):
+        chunk2sparse(1 - ai.mask, dtype=np.uint16, pipeline={"untranspose": "sse"})
 
 
 def _make_tiny_csc(npix, nbins, seed=1):
@@ -281,29 +272,24 @@ def test_u64_i64_and_signed_negative_values():
             f.create_dataset("i64", data=i64, chunks=(1, NI, NJ),
                               **hdf5plugin.Bitshuffle(nelems=0, cname="lz4", clevel=0))
 
-        saved = get_dense_sparse_threshold()
-        try:
-            for dsname, npdt in (("u64", np.uint64), ("i64", np.int64)):
-                with h5py.File(fname, "r") as f:
-                    ds = f[dsname]
-                    dense = [ds[i].copy() for i in range(3)]
-                    bufs = [np.frombuffer(ds.id.read_direct_chunk((i, 0, 0))[1], np.uint8)
-                            for i in range(3)]
-                assert dsname != "i64" or (dense[0] < 0).any(), "test setup should include negatives"
+        for dsname, npdt in (("u64", np.uint64), ("i64", np.int64)):
+            with h5py.File(fname, "r") as f:
+                ds = f[dsname]
+                dense = [ds[i].copy() for i in range(3)]
+                bufs = [np.frombuffer(ds.id.read_direct_chunk((i, 0, 0))[1], np.uint8)
+                        for i in range(3)]
+            assert dsname != "i64" or (dense[0] < 0).any(), "test setup should include negatives"
 
-                for threshold in (1e9, 0.0):  # sparse route, dense route
-                    set_dense_sparse_threshold(threshold)
-                    c2sm = chunk2sparseCSCmulti(mask2d, csc, dtype=npdt)
-                    npx, (outpx, adr), powder = c2sm(bufs, 0)
-                    for i in range(3):
-                        img = dense[i].ravel().astype(np.int64)
-                        ref_sum = float(img.sum())
-                        ref_sparse = set(zip(np.nonzero(img > 0)[0].tolist(), img[img > 0].tolist()))
-                        got_sparse = set(zip(adr[i, :npx[i]].tolist(), outpx[i, :npx[i]].tolist()))
-                        assert abs(powder[i].sum() - ref_sum) < 1e-6, (dsname, threshold, i, powder[i].sum(), ref_sum)
-                        assert got_sparse == ref_sparse, (dsname, threshold, i, "sparse set differs")
-        finally:
-            set_dense_sparse_threshold(saved)
+            for route in ("dense", "sparse"):
+                c2sm = chunk2sparseCSC(mask2d, csc, dtype=npdt, pipeline={"route": route})
+                npx, (outpx, adr), powder = c2sm.multi(bufs, 0)
+                for i in range(3):
+                    img = dense[i].ravel().astype(np.int64)
+                    ref_sum = float(img.sum())
+                    ref_sparse = set(zip(np.nonzero(img > 0)[0].tolist(), img[img > 0].tolist()))
+                    got_sparse = set(zip(adr[i, :npx[i]].tolist(), outpx[i, :npx[i]].tolist()))
+                    assert abs(powder[i].sum() - ref_sum) < 1e-6, (dsname, route, i, powder[i].sum(), ref_sum)
+                    assert got_sparse == ref_sparse, (dsname, route, i, "sparse set differs")
     finally:
         if os.path.exists(fname):
             os.remove(fname)
@@ -313,57 +299,13 @@ def test_u64_i64_and_signed_negative_values():
 # Ctypes-free chunk feeding (issue #16) and the base+offsets fast path,
 # for callers who already hold the whole HDF5 file as one buffer.
 #
-# note_chunk()/_gather_chunks() are exercised by every test above.
-# harvest_chunk_offsets()/pack_offsets_lengths()/bslz4_csc_multi_base_*
-# have no other coverage, so they are checked here against
-# chunk2sparseCSCmulti reading the very same chunks.
+# _gather_chunks() is exercised by every test above.
+# harvest_chunk_offsets()/pack_offsets_lengths()/decode_offsets have no
+# other coverage, so they are checked here against .multi reading the very
+# same chunks.
 # ---------------------------------------------------------------------------
 
 from bslz4_to_sparse import harvest_chunk_offsets, pack_offsets_lengths
-from bslz4_to_sparse import _BSLZ4_CSC_MULTI_BASE, _suffix_for_dtype, _workspace_bytes_csc
-
-
-def test_csc_multi_base_matches_multi():
-    with open("sparsetest.h5", "rb") as fh:
-        base = fh.read()
-
-    for name in chunks:
-        dt, shp, chunklist = chunks[name]
-        nframes = len(chunklist)
-        frames = list(range(nframes))
-
-        with h5py.File("sparsetest.h5", "r") as h5f:
-            frame_offsets = harvest_chunk_offsets(h5f[name])
-        offsets, lengths = pack_offsets_lengths(frame_offsets, frames)
-
-        csc = ai.engines[method].engine
-        mask = (1 - ai.mask).ravel()
-        npix = mask.size
-        nbins = csc.shape[0] if hasattr(csc, "shape") else csc.bins
-
-        outpx = np.empty((nframes, npix), dt)
-        output_adr = np.empty((nframes, npix), np.uint32)
-        npx_out = np.empty(nframes, np.int32)
-        powder = np.empty((nframes, nbins), np.float64)
-        cursors = np.empty(nframes, np.int64)
-        workspace = np.empty(_workspace_bytes_csc(chunklist[0][1], np.dtype(dt).itemsize), np.uint8)
-
-        fn = _BSLZ4_CSC_MULTI_BASE[_suffix_for_dtype(dt)]
-        ret = fn(base, offsets, lengths, mask, outpx.ravel(), output_adr.ravel(),
-                  npx_out, 1, powder.ravel(), csc.data, csc.indices, csc.indptr,
-                  workspace, cursors, nbins, 2)
-        assert ret >= 0, (name, ret)
-
-        c2sm = chunk2sparseCSCmulti(1 - ai.mask, csc, dtype=np.dtype(dt))
-        bufs = [c for (filt, c) in chunklist]
-        npx_ref, (val_ref, adr_ref), powder_ref = c2sm(bufs, 1)
-
-        for i in range(nframes):
-            assert npx_out[i] == npx_ref[i], (name, i)
-            s1 = set(zip(output_adr[i, :npx_out[i]].tolist(), outpx[i, :npx_out[i]].tolist()))
-            s2 = set(zip(adr_ref[i, :npx_ref[i]].tolist(), val_ref[i, :npx_ref[i]].tolist()))
-            assert s1 == s2, (name, i, "multi_base vs multi sparse set differs")
-            np.testing.assert_allclose(powder[i], powder_ref[i])
 
 
 def test_decode_offsets_matches_call():
@@ -377,19 +319,22 @@ def test_decode_offsets_matches_call():
                 frames = list(range(len(chunklist)))
                 offsets, lengths = pack_offsets_lengths(harvest_chunk_offsets(h5f[name]), frames)
                 saved = offsets.copy()
-                c2sm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine,
-                                            dtype=np.dtype(dt))
+                c2sm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine,
+                                       dtype=np.dtype(dt))
                 # copies: the next call reuses the same output arrays
                 npx, (val, adr), powder = c2sm.decode_offsets(mm, offsets, lengths, 1)
                 npx, val, adr, powder = npx.copy(), val.copy(), adr.copy(), powder.copy()
                 assert np.array_equal(offsets, saved), "caller's offsets were modified"
-                npx_ref, (val_ref, adr_ref), powder_ref = c2sm([c for (filt, c) in chunklist], 1)
+                npx_ref, (val_ref, adr_ref), powder_ref = c2sm.multi([c for (filt, c) in chunklist], 1)
                 assert np.array_equal(npx, npx_ref), name
                 for i in frames:
                     n = npx[i]
                     assert np.array_equal(adr[i, :n], adr_ref[i, :n]), (name, i)
                     assert np.array_equal(val[i, :n], val_ref[i, :n]), (name, i)
                 assert np.array_equal(powder, powder_ref), name
+                for i in frames:
+                    e = R(powder[i], reference_results[i].sum_signal)
+                    assert e[0] < 1e-4, (name, i, "decode_offsets powder vs pyFAI", e)
 
                 bad = offsets.copy()
                 bad[-1] = len(mm) - lengths[-1] + 1        # runs one byte past the end
@@ -415,131 +360,109 @@ def test_sparse_output_order_is_strictly_increasing():
     for name in chunks:
         dt, shp, chunklist = chunks[name]
         bufs = [c for (filt, c) in chunklist]
-        c2sm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
-        p2sm = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt))
-        saved = get_dense_sparse_threshold()
-        try:
-            for threshold in (1e9, 0.0):  # dense, sparse CSC routes
-                set_dense_sparse_threshold(threshold)
-                npx, (outpx, adr), powder = c2sm(bufs, 1)
-                for f in range(len(bufs)):
-                    n = int(npx[f])
-                    if n > 1:
-                        assert np.all(np.diff(adr[f, :n].astype(np.int64)) > 0), \
-                            (name, "csc", threshold, f, "order/repeat")
-            # the plain sparse path (no dot) must be ascending too
-            npx, (outpx, adr) = p2sm(bufs, 1)
+        for route in ("dense", "sparse"):
+            c2sm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt),
+                                   pipeline={"route": route})
+            npx, (outpx, adr), powder = c2sm.multi(bufs, 1)
             for f in range(len(bufs)):
                 n = int(npx[f])
                 if n > 1:
                     assert np.all(np.diff(adr[f, :n].astype(np.int64)) > 0), \
-                        (name, "plain", f, "order/repeat")
-        finally:
-            set_dense_sparse_threshold(saved)
+                        (name, "csc", route, f, "order/repeat")
+        # the plain sparse path (no dot) must be ascending too
+        p2sm = chunk2sparse(1 - ai.mask, dtype=np.dtype(dt))
+        npx, (outpx, adr) = p2sm.multi(bufs, 1)
+        for f in range(len(bufs)):
+            n = int(npx[f])
+            if n > 1:
+                assert np.all(np.diff(adr[f, :n].astype(np.int64)) > 0), \
+                    (name, "plain", f, "order/repeat")
 
 
 # ---------------------------------------------------------------------------
-# SIMD mask+threshold collect tiers (u16/u32 only). A tier this machine
+# SIMD mask+threshold collect values (u16/u32 only). A value this machine
 # cannot run is skipped, not passed. These run under pytest only, and are
 # absent from the call list at the end of this file: pytest.skip() raised
 # outside a pytest run aborts collection of the whole file.
 # ---------------------------------------------------------------------------
 
-from bslz4_to_sparse import (
-    _STAGE_COLLECT, impl_available, pack_pipeline,
-)
+SIMD_COLLECTS = [n for n in _pipeline.NAMES["collect"][1:] if n != "scalar"]
 
 
-def _check_collect_tier_matches_scalar(tier, tier_id):
-    """Shared body for test_{avx512,avx2,sse2,vsx,neon}_collect_matches_scalar:
-    a SIMD collect tier must give byte-identical results to the scalar path
-    (collect id 0) it replaces -- same values, same indices, same order (both
-    visit pixels in ascending index order): the plain threshold-collect, and
-    the CSC sparse-route compaction (the dense route never calls the collect
-    kernel at all, so only checked here for its own pyFAI-vs-reference
-    agreement).
+@pytest.mark.parametrize("collect", SIMD_COLLECTS)
+@pytest.mark.parametrize("untranspose", [None, "kcb"])
+def test_simd_collect_matches_scalar(collect, untranspose):
+    """A SIMD collect value must give byte-identical results to the scalar
+    collect it replaces -- same values, same indices, same order (both visit
+    pixels in ascending index order): the plain threshold-collect, and the
+    CSC dense and sparse routes, with the powder also checked against pyFAI.
+    untranspose None (auto: lowplanes for u16, collect fused) and kcb (the
+    collect kernel runs on its own)."""
+    if _pipeline.available("collect", _pipeline.NAMES["collect"].index(collect)) != 1:
+        pytest.skip("%s not available on this build/CPU" % collect)
 
-    The tier is selected the one way it can be now: via the pipeline's
-    collect id (pack_pipeline(collect=...))."""
-    if impl_available(_STAGE_COLLECT, tier_id) != 1:
-        import pytest  # here, not at module top: a direct `python3
-        # test_dot.py` run must not need pytest installed
-        pytest.skip("%s not available on this build/CPU" % tier)
+    def P(c, **kw):
+        p = {"collect": c, "untranspose": untranspose}
+        p.update(kw)
+        return p
 
-    saved_threshold = get_dense_sparse_threshold()
-    try:
-        for name in ("frm2", "frm4"):
-            dt, shp, chunklist = chunks[name]
-            bufs = [c for (filt, c) in chunklist]
+    for name in ("frm2", "frm4"):
+        dt, shp, chunklist = chunks[name]
+        bufs = [c for (filt, c) in chunklist]
 
-            # scalar reference (collect id 0)
-            c2sm = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt),
-                                     pipeline=pack_pipeline(collect=0))
-            npx_s, (val_s, adr_s) = c2sm(bufs, 0)
-            npx_s, val_s, adr_s = npx_s.copy(), val_s.copy(), adr_s.copy()
+        # scalar reference
+        c2sm = chunk2sparse(1 - ai.mask, dtype=np.dtype(dt), pipeline=P("scalar"))
+        npx_s, (val_s, adr_s) = c2sm.multi(bufs, 0)
 
-            references = {}
-            for threshold in (1e9, 0.0):  # dense route, sparse route (see the
-                                           # comment in the dense/sparse test above)
-                set_dense_sparse_threshold(threshold)
-                c2scm = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine,
-                                             dtype=np.dtype(dt), pipeline=pack_pipeline(collect=0))
-                npx_c, (outpx_c, outadr_c), powder_c = c2scm(bufs, 1)
-                references[threshold] = (npx_c.copy(), outpx_c.copy(), outadr_c.copy(), powder_c.copy())
+        references = {}
+        for route in ("dense", "sparse"):
+            c2scm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine,
+                                    dtype=np.dtype(dt), pipeline=P("scalar", route=route))
+            npx_c, (outpx_c, outadr_c), powder_c = c2scm.multi(bufs, 1)
+            references[route] = (npx_c.copy(), outpx_c.copy(), outadr_c.copy(), powder_c.copy())
 
-            # the tier under test
-            c2sm2 = chunk2sparseMulti(1 - ai.mask, dtype=np.dtype(dt),
-                                      pipeline=pack_pipeline(collect=tier_id))
-            npx_a, (val_a, adr_a) = c2sm2(bufs, 0)
+        # the value under test
+        c2sm2 = chunk2sparse(1 - ai.mask, dtype=np.dtype(dt), pipeline=P(collect))
+        _testing.reset_counters()
+        npx_a, (val_a, adr_a) = c2sm2.multi(bufs, 0)
+        assert set(_testing.counters()["collect"]) == {collect}, _testing.counters()
+        for i in range(len(bufs)):
+            n = npx_s[i]
+            assert npx_a[i] == n, (collect, name, i, "plain npx differs")
+            assert np.array_equal(val_a[i, :n], val_s[i, :n]), (collect, name, i, "plain values differ")
+            assert np.array_equal(adr_a[i, :n], adr_s[i, :n]), (collect, name, i, "plain indices differ")
+
+        for route in ("dense", "sparse"):
+            c2scm2 = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine,
+                                     dtype=np.dtype(dt), pipeline=P(collect, route=route))
+            npx_c2, (outpx_c2, outadr_c2), powder_c2 = c2scm2.multi(bufs, 1)
+            npx_ref, outpx_ref, outadr_ref, powder_ref = references[route]
             for i in range(len(bufs)):
-                n = npx_s[i]
-                assert npx_a[i] == n, (tier, name, i, "plain npx differs")
-                assert np.array_equal(val_a[i, :n], val_s[i, :n]), (tier, name, i, "plain values differ")
-                assert np.array_equal(adr_a[i, :n], adr_s[i, :n]), (tier, name, i, "plain indices differ")
-
-            for threshold, label in ((1e9, "dense"), (0.0, "sparse")):
-                set_dense_sparse_threshold(threshold)
-                c2scm2 = chunk2sparseCSCmulti(1 - ai.mask, ai.engines[method].engine,
-                                              dtype=np.dtype(dt), pipeline=pack_pipeline(collect=tier_id))
-                npx_c2, (outpx_c2, outadr_c2), powder_c2 = c2scm2(bufs, 1)
-                npx_ref, outpx_ref, outadr_ref, powder_ref = references[threshold]
-                for i in range(len(bufs)):
-                    e = R(powder_c2[i], reference_results[i].sum_signal)
-                    assert e[0] < 1e-4, (tier, name, label, i, "powder vs pyFAI", e)
-                    n = npx_c2[i]
-                    assert n == npx_ref[i], (tier, name, label, i, "csc npx differs")
-                    assert np.array_equal(outpx_c2[i, :n], outpx_ref[i, :n]), (tier, name, label, i, "csc values differ")
-                    assert np.array_equal(outadr_c2[i, :n], outadr_ref[i, :n]), (tier, name, label, i, "csc indices differ")
-    finally:
-        set_dense_sparse_threshold(saved_threshold)
+                e = R(powder_c2[i], reference_results[i].sum_signal)
+                assert e[0] < 1e-4, (collect, name, route, i, "powder vs pyFAI", e)
+                n = npx_c2[i]
+                assert n == npx_ref[i], (collect, name, route, i, "csc npx differs")
+                assert np.array_equal(outpx_c2[i, :n], outpx_ref[i, :n]), (collect, name, route, i, "csc values differ")
+                assert np.array_equal(outadr_c2[i, :n], outadr_ref[i, :n]), (collect, name, route, i, "csc indices differ")
 
 
-def test_avx512_collect_matches_scalar():
-    _check_collect_tier_matches_scalar("avx512", 1)
-
-
-def test_avx2_collect_matches_scalar():
-    _check_collect_tier_matches_scalar("avx2", 2)
-
-
-def test_sse2_collect_matches_scalar():
-    _check_collect_tier_matches_scalar("sse2", 3)
-
-
-def test_vsx_collect_matches_scalar():
-    _check_collect_tier_matches_scalar("vsx", 4)
-
-
-def test_neon_collect_matches_scalar():
-    _check_collect_tier_matches_scalar("neon", 5)
+def test_bad_collect_values_refused():
+    # the removed tiers ("avx512", "avx2") are unknown names; a SIMD collect
+    # needs u16/u32 pixels; route/dot need a matrix
+    for bad in ("avx512", "avx2", 7):
+        with pytest.raises(ValueError, match="unknown"):
+            chunk2sparse(1 - ai.mask, dtype=np.uint16, pipeline={"collect": bad})
+    with pytest.raises(ValueError, match="u16/u32"):
+        chunk2sparse(1 - ai.mask, dtype=np.uint8, pipeline={"collect": "sse2"})
+    with pytest.raises(ValueError, match="no matrix"):
+        chunk2sparse(1 - ai.mask, dtype=np.uint16, pipeline={"route": "dense"})
 
 
 test_csc_multi_matches_single_and_reference()
 test_csc_dense_and_sparse_routes_both_match_reference()
 test_plain_multi_matches_single()
 test_u64_i64_and_signed_negative_values()
-test_csc_multi_base_matches_multi()
 test_decode_offsets_matches_call()
-test_every_available_backend_matches()
-print("all multi-frame / dense-sparse-route / u64-i64 / multi_base tests passed")
-print("(SIMD collect tier tests only run under pytest -- see test_*_collect_matches_scalar)")
+test_every_available_untranspose_matches()
+print("all multi-frame / dense-sparse-route / u64-i64 / decode_offsets tests passed")
+print("(SIMD collect tests only run under pytest -- see test_simd_collect_matches_scalar)")
