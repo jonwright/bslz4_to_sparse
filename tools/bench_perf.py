@@ -108,10 +108,10 @@ def cmd_run(a):
     chunks = chunks[:a.frames]
     cut = 70000 if a.cut == "max" else CUT_ON[a.data]
     if a.dot == "none":
-        integ = b.chunk2sparseMulti(valid, dtype=np.uint16)
+        integ = b.chunk2sparse(valid, dtype=np.uint16).multi
     else:
-        integ = b.chunk2sparseCSCmulti(valid, matrix_for(ai, a.det, a.centre, a.case),
-                                       dtype=np.uint16, dot=a.dot)
+        integ = b.chunk2sparseCSC(valid, matrix_for(ai, a.det, a.centre, a.case),
+                                  dtype=np.uint16, pipeline={"dot": a.dot}).multi
     nf = len(chunks)
     integ(chunks[:bs.BATCH], cut)                       # warmup
     ctl = open(a.ctl, "w") if a.ctl else None

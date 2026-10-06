@@ -320,9 +320,10 @@ def child(libdir, secs, cpu, rnd, variant, out):
             ch = [h["data"].id.read_direct_chunk((k, 0, 0))[1] for k in range(100)]
         for name, dot, mat, cut in CASES:
             if dot is None:
-                integ = b.chunk2sparseMulti(mask, dtype=np.uint16)
+                integ = b.chunk2sparse(mask, dtype=np.uint16).multi
             else:
-                integ = b.chunk2sparseCSCmulti(mask, mats[mat], dtype=np.uint16, dot=dot)
+                integ = b.chunk2sparseCSC(mask, mats[mat], dtype=np.uint16,
+                                          pipeline={"dot": dot}).multi
             for s in range(0, 100, 25):                    # warmup pass
                 integ(ch[s:s + 25], cut)
             t0 = time.perf_counter()
