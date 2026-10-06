@@ -131,6 +131,7 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
     "timing": False,
     "functions": [
         {
+            "gil_release": True,
             "py_sig": "sparsify(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, dtype: int, pipeline: buffer) -> int",
             "doc": "Decode nframes bitshuffle-LZ4/zstd chunks from the same dataset into per-frame masked/thresholded sparse (outpx, output_adr, npx_out). dtype is the pixel dtype index (0..9); pipeline is a uint16 array of 6 step values (decode, mask, untranspose, collect, route, dot; route and dot 0), all resolved (src/pipeline/pipeline.h).",
             "checks": [
@@ -150,6 +151,7 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
             ],
         },
         {
+            "gil_release": True,
             "py_sig": "sparsify_and_dot(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, cursors: buffer, nout: int, dtype: int, pipeline: buffer) -> int",
             "doc": "Decode a batch of chunks into per-frame sparse (outpx, output_adr, npx_out) and per-frame CSC powder integrations (powder). The matrix must be mask-folded: masked pixels have empty columns (the dense route makes no mask test; the mask selects the sparse output and the sparse-route pixels). Frames must have exactly mask.n pixels. The dot says what indices holds: a bin per entry (indices.n == data.n), or, for the per-pixel dots (csc-run and its integer forms: the first bin of a run; csc-nosplit, csc-nosplit-moment, csc-permute: the one bin), a bin per pixel (indices.n == mask.n); a per-pixel dot must be given per-pixel indices. The dot also says the element types: data f32, or u32/u16 fixed-point weights with an int64 (q) powder, or (csc-permute) a powder in the pixel dtype. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values (src/pipeline/pipeline.h).",
             "checks": [
@@ -175,6 +177,7 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
             ],
         },
         {
+            "gil_release": True,
             "py_sig": "sparsify_and_dot_padded(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, base: buffer, weights: buffer, pixels: buffer, rowmap: buffer, row_ptr: buffer, workspace: buffer, cursors: buffer, width: int, listed: int, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int",
             "doc": "Decode a batch of chunks into per-frame sparse and a padded-CSC powder integration. base/weights/pixels/rowmap/row_ptr describe the padded layout (see bslz4_mat_padded), built from a mask-folded matrix (masked pixels have zero-weight rows or no row); width and listed are scalars; block_elems is the decode block size in pixels. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values.",
             "checks": [
@@ -207,6 +210,7 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
             ],
         },
         {
+            "gil_release": True,
             "py_sig": "sparsify_and_dot_bsbcsr(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, blk_ptr: buffer, bins: buffer, bin_ptr: buffer, idx: buffer, data: buffer, csc_data: buffer, csc_indices: buffer, csc_indptr: buffer, workspace: buffer, cursors: buffer, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int",
             "doc": "Decode a batch of chunks into per-frame sparse and a bit-shuffle-block CSR powder integration. blk_ptr/bins/bin_ptr/idx/data describe the bsb-csr layout (see bslz4_mat_bsbcsr); csc_data/csc_indices/csc_indptr is the CSC used for the sparse route. Both must be built from a mask-folded matrix (masked pixels have no entries). block_elems is the decode block size in pixels. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values.",
             "checks": [
