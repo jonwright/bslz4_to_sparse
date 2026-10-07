@@ -248,10 +248,28 @@ def _nosplit_moment(nm):
     return q, bins
 
 
+# idx holds a pixel's position within its decode block as uint16
+BSB_CSR_MAX_BLOCK_ELEMS = 65536
+# what an auto-chosen bsb-csr dot becomes on a larger decode block
+BSB_CSR_DOTS = {"bsb-csr": "csc", "bsb-csr-nosplit": "csc-nosplit"}
+
+
 def _bsb_csr_from_csc(nm, block_elems):
     """Build a _BsbCSR from a _NormalMatrix: CSC entries sorted by
     (pixel//block_elems, bin), grouped per (block, bin).  General (works for
-    any matrix, 2D/FAZIT included), unlike padded."""
+    any matrix, 2D/FAZIT included), unlike padded.
+
+    The layout is built at the decode block size, and idx is uint16, so a
+    block of more than BSB_CSR_MAX_BLOCK_ELEMS pixels (a bitshuffle block
+    over 128 kB of u16) is refused.  TODO: when large blocks need bsb-csr,
+    add a second builder at a divisor of the decode block (the dot then
+    walks several layout blocks per decode block, no wider idx); a uint32
+    idx would cost 33 % more memory and dot bandwidth for every block size.
+    """
+    if block_elems > BSB_CSR_MAX_BLOCK_ELEMS:
+        raise ValueError("bsb-csr stores pixel positions as uint16: it needs a decode block of "
+                         "at most %d pixels (block_elems is %d here); use another dot, such as "
+                         "csc or padded" % (BSB_CSR_MAX_BLOCK_ELEMS, block_elems))
     indptr = nm.indptr.astype(np.int64)
     indices = nm.indices.astype(np.uint32)
     data = nm.data.astype(np.float32)

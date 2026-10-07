@@ -254,3 +254,19 @@ explicit instantiations in kernels.cpp; the macro generators
 (BSLZ4_DTYPE_KERNELS, BSLZ4_LOWPLANES_GROUP, BSLZ4_COLLECT_LOW,
 BSLZ4_PADDED_DENSE_CASE, BSLZ4_CUT_ABOVE_MAX, BSLZ4_PREFETCH) became inline
 functions or explicit switches.
+
+### Known limit: bsb-csr and large decode blocks (2026-10-07)
+
+bsb-csr and bsb-csr-nosplit hold each entry's position in its decode block
+as uint16, so they need blocks of at most 65536 pixels.  Larger blocks (256 kB
+and 1 MB bitshuffle blocks were tried) are refused with a ValueError when the
+layout is built for that block size (src/_matrix.py BSB_CSR_MAX_BLOCK_ELEMS),
+and the C entry checks it too.  Every other dot, and every sparsify step, is
+correct at those sizes (test/test_block_sizes.py).  Auto picks bsb-csr and
+bsb-csr-nosplit from the matrix alone, before a block size is known, so on
+such data pass pipeline={"dot": ...} explicitly.
+
+To do, when large blocks need bsb-csr: add a builder at a divisor of the
+decode block (e.g. 65536 pixels), with the dot walking the layout blocks of
+each decode block.  Same memory as today.  A uint32 idx was rejected: +33 %
+memory and dot bandwidth for the default block size too.

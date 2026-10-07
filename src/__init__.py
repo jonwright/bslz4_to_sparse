@@ -350,6 +350,7 @@ class chunk2sparseCSC:
         self._nm = nm
         self.nbins = nm.nbins
         padded_avx2 = _pipeline.available("dot", _pipeline.NAMES["dot"].index("padded-avx2")) == 1
+        self._dot_auto = _pipeline.parse(pipeline)[_pipeline.DOT] == 0
         self.pipeline = _pipeline.resolve(
             pipeline, self.dtype, codec, self.mask, matrix=True,
             dot_auto=lambda: _matrix.auto_dot(_matrix.analyse(nm), padded_avx2))
@@ -363,8 +364,9 @@ class chunk2sparseCSC:
         try:
             return _matrix.build(self.dot, self._nm, block_elems, self.dtype)
         except ValueError as e:
-            raise ValueError("pipeline['dot']=%r cannot represent this matrix: %s (auto picks %r)"
-                             % (self.dot, e, _matrix.auto_dot(_matrix.analyse(self._nm), False)))
+            auto = _matrix.auto_dot(_matrix.analyse(self._nm), False)
+            raise ValueError("pipeline['dot']=%r cannot represent this matrix: %s%s"
+                             % (self.dot, e, "" if auto == self.dot else " (auto picks %r)" % auto))
 
     def _ensure_capacity(self, nframes, cmp):
         lay = self._layout
@@ -380,6 +382,11 @@ class chunk2sparseCSC:
         if lay.block_elems is not None and be != lay.block_elems:
             # a block-dependent layout built at another block size: rebuild
             # (C also refuses a mismatch with -109)
+            if self._dot_auto and self.dot in _matrix.BSB_CSR_DOTS and be > _matrix.BSB_CSR_MAX_BLOCK_ELEMS:
+                # an auto dot never fails on the data: bsb-csr cannot take
+                # blocks this large, use the csc form of the same matrix
+                self.dot = _matrix.BSB_CSR_DOTS[self.dot]
+                self.pipeline[_pipeline.DOT] = _pipeline.NAMES["dot"].index(self.dot)
             self._layout = self._build(be)
         need = 3 * blocksize + be * (4 + self.dtype.itemsize)
         if self._workspace is None or self._workspace.size < need:
