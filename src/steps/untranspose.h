@@ -32,7 +32,8 @@
  *   BSLZ4_UNTRANSPOSE_LOWPLANES_AVX2  needs AVX2 and popcnt.  Fused collect:
  *                      planes ORed into a bitmap of non-empty 64-pixel
  *                      groups, only those transposed (kcb's AVX2 kernel) and
- *                      compacted; block sizes ne <= 8192, ne % 256 == 0.
+ *                      compacted; ne % 256 == 0, any block size (worked in
+ *                      tiles of BSLZ4_LOWPLANES_TILE pixels).
  *                      Dense route: kcb's u8 transpose, widened to u16.
  *   BSLZ4_UNTRANSPOSE_LOWPLANES_VSX  needs POWER8+ (vgbbd).  Fused collect:
  *                      per 64-pixel group two vec_perm rounds and vec_gb give
