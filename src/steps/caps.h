@@ -9,6 +9,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* The fused low-planes collects (lowplanes.h, lowplanes_avx2.hpp) work on a
+ * block in tiles of this many pixels, so their scratch (one byte per pixel
+ * plus a mask word per 64) lives on the stack at a fixed size whatever the
+ * decode block is.  A multiple of 512, at most 8192 (the zero plane). */
+#ifndef BSLZ4_LOWPLANES_TILE
+#define BSLZ4_LOWPLANES_TILE 8192
+#endif
+#if BSLZ4_LOWPLANES_TILE % 512 || BSLZ4_LOWPLANES_TILE > 8192 || BSLZ4_LOWPLANES_TILE < 512
+#error "BSLZ4_LOWPLANES_TILE must be a multiple of 512 in 512..8192"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

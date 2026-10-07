@@ -39,7 +39,7 @@ extern "C" int bslz4_available_avx2_padded(void)      { return bslz4_padded_avx2
 extern "C" int bslz4_lowplanes_collect_avx2(uint8_t *raw, size_t ne, size_t nz_end, const uint8_t *mask,
                                             size_t i0, unsigned cut, uint16_t *out_vals, uint32_t *out_adr) {
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (ne % 256 || ne > 8192) return -1;
+    if (ne % 256) return -1;
     return bslz4_lowplanes_collect_avx2_impl(raw, ne, nz_end, mask, i0, cut, out_vals, out_adr);
 #else
     (void) raw; (void) ne; (void) nz_end; (void) mask; (void) i0; (void) cut; (void) out_vals; (void) out_adr;

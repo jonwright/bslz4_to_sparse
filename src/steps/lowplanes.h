@@ -53,8 +53,8 @@ int bitshuf_decode_block(char *out, const char *in, char *scratch, size_t size, 
  * serial: +89 %) */
 #define BSLZ4_LOWPLANES_BRANCHFREE_RATIO 8
 
-/* planes at or past the decoder's nz_end are read from here (planes of up
- * to 8192 pixels) instead of being zero filled */
+/* planes at or past the decoder's nz_end are read from here (a tile's planes,
+ * BSLZ4_LOWPLANES_TILE / 8 <= 1024 bytes) instead of being zero filled */
 static const uint8_t bslz4_zero_plane[1024];
 
 #if BSLZ4_X86_SIMD
@@ -209,45 +209,53 @@ static int bslz4_lowplanes_collect_u16(uint8_t *BSLZ4_RESTRICT raw, size_t ne, s
     if (nz_end > ne) nz_end = ne;               /* planes 8..15 are zero (checked by the caller) */
     const size_t np = (nz_end + size - 1) / size;
     if (nz_end < np * size) memset(raw + nz_end, 0, np * size - nz_end);
-    const uint8_t *pl[8];
-    for (size_t p = 0; p < 8; p++) pl[p] = p < np ? raw + p * size : zeros;
     const __m512i C = _mm512_set_epi64(0x070f171f474f575f, 0x060e161e464e565e, 0x050d151d454d555d,
                                        0x040c141c444c545c, 0x030b131b434b535b, 0x020a121a424a525a,
                                        0x0109111941495159, 0x0008101840485058);
     const __m512i I8 = _mm512_set1_epi64(0x8040201008040201);
     const __m512i vcut = _mm512_set1_epi8((char) cut);
     int npx = 0;
-    _Alignas(64) uint8_t ubuf[8192];
-    __mmask64 kv[128];
-    uint64_t gm[2] = {0, 0};
-    /* the 64-pixel groups holding any data: the planes ORed 64 bytes (8
-     * groups) at a time, one test per 8 groups; with skip, only those are
-     * transposed (on sparse frames most are empty).  Without skip, a plain
-     * counted loop (the bit-scan loop over every group cost 2-5 % there). */
-    if (skip && size % 64 == 0) {
-        uint64_t gnz[2] = {0, 0};
-        for (size_t i = 0; i < size; i += 64) {
-            __m512i acc = _mm512_loadu_si512((const void *) (pl[0] + i));
-            for (size_t p = 1; p < 8; p++)
-                acc = _mm512_or_si512(acc, _mm512_loadu_si512((const void *) (pl[p] + i)));
-            const size_t g = i / 8;
-            gnz[g >> 6] |= (uint64_t) _mm512_test_epi64_mask(acc, acc) << (g & 63);
+    enum { NG = BSLZ4_LOWPLANES_TILE / 64, NW = (NG + 63) / 64 };
+    _Alignas(64) uint8_t ubuf[BSLZ4_LOWPLANES_TILE];
+    __mmask64 kv[NG];
+    /* tiles of BSLZ4_LOWPLANES_TILE pixels (ne is a multiple of 64, so the
+     * last one is a whole number of groups): the scratch stays small and
+     * fixed however large the block is; the output order is unchanged */
+    for (size_t t = 0; t < ne; t += BSLZ4_LOWPLANES_TILE) {
+        const size_t tsize = (ne - t < BSLZ4_LOWPLANES_TILE ? ne - t : BSLZ4_LOWPLANES_TILE) / 8;
+        const size_t ti0 = i0 + t;
+        const uint8_t *pl[8];
+        for (size_t p = 0; p < 8; p++) pl[p] = p < np ? raw + p * size + t / 8 : zeros;
+        uint64_t gm[NW] = {0};
+        /* the 64-pixel groups holding any data: the planes ORed 64 bytes (8
+         * groups) at a time, one test per 8 groups; with skip, only those are
+         * transposed (on sparse frames most are empty).  Without skip, a plain
+         * counted loop (the bit-scan loop over every group cost 2-5 % there). */
+        if (skip && tsize % 64 == 0) {
+            uint64_t gnz[NW] = {0};
+            for (size_t i = 0; i < tsize; i += 64) {
+                __m512i acc = _mm512_loadu_si512((const void *) (pl[0] + i));
+                for (size_t p = 1; p < 8; p++)
+                    acc = _mm512_or_si512(acc, _mm512_loadu_si512((const void *) (pl[p] + i)));
+                const size_t g = i / 8;
+                gnz[g >> 6] |= (uint64_t) _mm512_test_epi64_mask(acc, acc) << (g & 63);
+            }
+            for (int gw = 0; gw < NW; gw++)
+                for (uint64_t gbits = gnz[gw]; gbits; gbits &= gbits - 1)
+                    bslz4_lowplanes_group(pl, 8 * (size_t) (64 * gw + bslz4_ctz64(gbits)), C, I8, vcut,
+                                          mask, ti0, ubuf, kv, gm);
+        } else {
+            for (size_t i = 0; i < tsize; i += 8)
+                bslz4_lowplanes_group(pl, i, C, I8, vcut, mask, ti0, ubuf, kv, gm);
         }
-        for (int gw = 0; gw < 2; gw++)
-            for (uint64_t gbits = gnz[gw]; gbits; gbits &= gbits - 1)
-                bslz4_lowplanes_group(pl, 8 * (size_t) (64 * gw + bslz4_ctz64(gbits)), C, I8, vcut,
-                                      mask, i0, ubuf, kv, gm);
-    } else {
-        for (size_t i = 0; i < size; i += 8)
-            bslz4_lowplanes_group(pl, i, C, I8, vcut, mask, i0, ubuf, kv, gm);
-    }
-    for (int w = 0; w < 2; w++) {
-        uint64_t bits = gm[w];
-        while (bits) {
-            const size_t g = (size_t) (64 * w + bslz4_ctz64(bits));
-            bits &= bits - 1;
-            npx = bslz4_lowplanes_emit(_mm512_load_si512((const void *) (ubuf + 64 * g)), kv[g],
-                                       i0 + 64 * g, npx, out_vals, out_adr);
+        for (int w = 0; w < NW; w++) {
+            uint64_t bits = gm[w];
+            while (bits) {
+                const size_t g = (size_t) (64 * w + bslz4_ctz64(bits));
+                bits &= bits - 1;
+                npx = bslz4_lowplanes_emit(_mm512_load_si512((const void *) (ubuf + 64 * g)), kv[g],
+                                           ti0 + 64 * g, npx, out_vals, out_adr);
+            }
         }
     }
     return npx;
@@ -483,13 +491,12 @@ static inline int bslz4_lowplanes_list(int value, uint8_t *BSLZ4_RESTRICT raw, s
     switch (value) {
 #if BSLZ4_X86_SIMD
     case BSLZ4_UNTRANSPOSE_LOWPLANES_VBMI:
-        if (ne % 64 || ne / 8 > sizeof(bslz4_zero_plane) || !bslz4_high_planes_zero(raw, ne, nz_end))
-            return -1;
+        if (ne % 64 || !bslz4_high_planes_zero(raw, ne, nz_end)) return -1;
         if (cut >= 255) return 0;
         return bslz4_lowplanes_collect_u16(raw, ne, nz_end, bslz4_zero_plane, mask, i0, cut,
                                            out_vals, out_adr, n * BSLZ4_LOWPLANES_SKIP_RATIO < blocksize);
     case BSLZ4_UNTRANSPOSE_LOWPLANES_AVX2:
-        if (ne % 256 || ne > 8192 || !bslz4_high_planes_zero_c_nofill(raw, ne, nz_end)) return -1;
+        if (ne % 256 || !bslz4_high_planes_zero_c_nofill(raw, ne, nz_end)) return -1;
         if (cut >= 255) return 0;
         return bslz4_lowplanes_collect_avx2(raw, ne, nz_end, mask, i0, cut, out_vals, out_adr);
 #endif
