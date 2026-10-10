@@ -68,6 +68,20 @@ on x86_64/POWER, and the avx512/avx2/sse2 ones on POWER/ARM.
 
 The licences of the bundled upstream code are in `licenses/`.
 
+## Acknowledgements
+
+This package is mostly a regrouping of other people's work, put together
+so that detector frames can be decoded and reduced in one pass. The
+bitshuffle format and its reference implementation come from K. Masui and
+co-authors<sup>1</sup>; the fast SIMD bit-transpose kernels from K. Conley
+at DECTRIS<sup>2</sup>; the LZ4 and Zstandard decompressors from Y. Collet
+and the Zstandard contributors<sup>3,4</sup>. The integration matrices are
+pyFAI's<sup>6</sup>, and the sparse output serves ImageD11<sup>5</sup>.
+The portable Python wrappers come from c2py23<sup>7</sup>: they let one
+compiled module load on every CPython from 2.7 to 3.15, free-threaded
+builds included, without compiling against any Python headers. Our thanks
+to all of these projects; please cite them as well as this one.
+
 ## References
 
 1. bitshuffle, K. Masui et al., https://github.com/kiyo-masui/bitshuffle;

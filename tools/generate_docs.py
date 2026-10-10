@@ -10,6 +10,8 @@ git-ignored; see docs/AGENTS.md):
                                and the decode error codes, read from the module
   docs/gen/pipelines.md        every pipeline step value and what it needs,
                                from src/_pipeline.py
+  docs/gen/acknowledgements.md the Acknowledgements and References of
+                               README.md, and the licences in licenses/
   docs/gen/performance.md      docs/bench/real_data_*.json, one per machine
                                (measured there by tools/bench_docs.py, never here)
 
@@ -317,9 +319,50 @@ def performance_page():
     return "\n".join(p.rstrip("\n") + "\n" for p in parts)
 
 
+# ---------------------------------------------------------------- acknowledgements
+
+def md_section(text, heading):
+    """The body of the '## heading' section of a Markdown text."""
+    m = re.search(r"^## %s\n(.*?)(?=^## |\Z)" % re.escape(heading), text, re.M | re.S)
+    if not m:
+        raise SystemExit("README.md has no '## %s' section" % heading)
+    return m.group(1).strip()
+
+
+def acknowledgements_page():
+    with open(os.path.join(REPO, "README.md")) as fh:
+        readme = fh.read()
+    with open(os.path.join(REPO, "licenses", "README.md")) as fh:
+        lic = fh.read()
+    # the component table of licenses/README.md, its file names linked
+    table = "\n".join(l for l in lic.splitlines() if l.startswith("|"))
+    table = re.sub(r"`([A-Z0-9-]+-LICENSE(?:-[A-Z]+)?)`",
+                   lambda m: "[`%s`](%s/blob/main/licenses/%s)" % (m.group(1), GITHUB, m.group(1)),
+                   table)
+    parts = ["# Acknowledgements and licences",
+             "From `README.md` and `licenses/` in the repository.",
+             "## Acknowledgements", md_section(readme, "Acknowledgements"),
+             "## References", md_section(readme, "References"),
+             "## Licences",
+             "bslz4_to_sparse is MIT licensed.  The compiled extension contains code "
+             "from the projects below, built from the repository's git submodules; "
+             "their licences ship in every wheel and sdist.",
+             table]
+    files = ["LICENSE"] + ["licenses/" + f for f in sorted(os.listdir(os.path.join(REPO, "licenses")))
+                           if f != "README.md"]
+    for rel in files:
+        with open(os.path.join(REPO, rel)) as fh:
+            parts.append("### %s" % ("bslz4_to_sparse (`LICENSE`)" if rel == "LICENSE"
+                                      else "`%s`" % os.path.basename(rel)))
+            parts.append(fence("text", fh.read()))
+    parts.append(provenance())
+    return "\n\n".join(p.rstrip("\n") for p in parts) + "\n"
+
+
 def main():
     write("api.md", api_page())
     write("pipelines.md", pipelines_page())
+    write("acknowledgements.md", acknowledgements_page())
     write("performance.md", performance_page())
     for path in examples():
         name = os.path.splitext(os.path.basename(path))[0]
