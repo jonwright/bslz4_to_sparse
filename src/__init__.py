@@ -425,6 +425,8 @@ class chunk2sparseCSC:
         self._nm = nm
         self.nbins = nm.nbins
         padded_avx2 = _pipeline.available("dot", _pipeline.NAMES["dot"].index("padded-avx2")) == 1
+        self._padded_avx2 = padded_avx2
+        self._dot_is_auto = _pipeline.parse(pipeline)[_pipeline.DOT] == 0
         self.pipeline = _pipeline.resolve(
             pipeline, self.dtype, codec, self.mask, matrix=True,
             dot_auto=lambda: _matrix.auto_dot(_matrix.analyse(nm), padded_avx2))
@@ -455,8 +457,15 @@ class chunk2sparseCSC:
         be = blocksize // self.dtype.itemsize
         if lay.block_elems is not None and be != lay.block_elems:
             # a block-dependent layout built at another block size: rebuild
-            # (C also refuses a mismatch with -109)
+            # (C also refuses a mismatch with -109).  An automatic dot is
+            # chosen again for this block size (bsb-csr takes <= 65536 pixels).
+            if self._dot_is_auto:
+                dot = _matrix.auto_dot(_matrix.analyse(self._nm), self._padded_avx2, be)
+                if dot != self.dot:
+                    self.dot = dot
+                    self.pipeline[_pipeline.DOT] = _pipeline.NAMES["dot"].index(dot)
             self._layout = self._build(be)
+            lay = self._layout
         need = 3 * blocksize + be * (4 + self.dtype.itemsize)
         if self._workspace is None or self._workspace.size < need:
             self._workspace = np.empty(need, np.uint8)

@@ -405,22 +405,28 @@ def analyse(nm):
     return info
 
 
-def auto_dot(info, padded_avx2):
+BSB_MAX_BLOCK_ELEMS = 65536   # bsb-csr's in-block pixel index is uint16
+
+
+def auto_dot(info, padded_avx2, block_elems=None):
     """The best guess (measured on 4M frames, 2026-10-06, Zen 4): a histogram
     -> bsb-csr-nosplit (never slower than csc-nosplit, 2x on dense frames with
     few occupied pixels); moment pairs -> csc-nosplit-moment; one run of <= 8
     bins per pixel -> padded (fastest 1D split: 9 % frames 3.1 vs 3.9 ms csc);
     longer runs -> csc-run; few occupied pixels (rings) -> bsb-csr; else csc.
-    Never csc-permute or the integer dots: they change the output type."""
+    Decode blocks over BSB_MAX_BLOCK_ELEMS pixels rule the bsb-csr dots out
+    (csc-nosplit, csc instead).  Never csc-permute or the integer dots: they
+    change the output type."""
+    bsb = block_elems is None or block_elems <= BSB_MAX_BLOCK_ELEMS
     if info["nosplit"]:
-        return "bsb-csr-nosplit"
+        return "bsb-csr-nosplit" if bsb else "csc-nosplit"
     if info["moment"]:
         return "csc-nosplit-moment"
     if info["runs"] and info["max_bins"] <= 8:
         return "padded-avx2" if padded_avx2 else "padded"
     if info["runs"]:
         return "csc-run"
-    if info["occupancy"] < 0.5:
+    if info["occupancy"] < 0.5 and bsb:
         return "bsb-csr"
     return "csc"
 
@@ -476,6 +482,9 @@ def build(dot, nm, block_elems, dtype):
                                       p.row_ptr, p.width, int(p.listed), p.block_elems),
                       nbins, block_elems=block_elems)
     if dot in ("bsb-csr", "bsb-csr-nosplit"):
+        if block_elems > BSB_MAX_BLOCK_ELEMS:
+            raise ValueError("the decode blocks have %d pixels and bsb-csr takes at most %d "
+                             "(its in-block index is uint16)" % (block_elems, BSB_MAX_BLOCK_ELEMS))
         q = _bsb_csr_from_csc(nm, block_elems)
         if dot == "bsb-csr-nosplit":
             # the sparse route walks the nested csc as csc-nosplit does (one

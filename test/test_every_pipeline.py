@@ -14,8 +14,9 @@ step 'none' runs too).  For each:
     65535 (and blocks the planes take).
 
 Only the documented refusals are accepted: mask 'none' with masked pixels,
-a dot that cannot represent the matrix, and bsb-csr's uint16 in-block index
-(blocks of at most 65536 pixels).  Anything else that is refused fails.
+and a dot that cannot represent the matrix (including bsb-csr's uint16
+in-block index: blocks of at most 65536 pixels).  Anything else that is
+refused, in particular a check failing in C, fails.
 """
 import itertools
 import os
@@ -97,11 +98,13 @@ def matrices():
 
 
 def accepted_refusal(msg, fill):
-    """The documented refusals: mask 'none' with masked pixels, a dot that
-    cannot represent the matrix, bsb-csr's 65536-pixel block limit."""
+    """The documented refusals, raised by the Python layer with the reason:
+    mask 'none' with masked pixels, and a dot that cannot represent the
+    matrix (bsb-csr's 65536-pixel block limit included).  A check failing
+    in C instead means a guard is missing."""
     if "pipeline['mask']='none'" in msg:
         return fill != "valid"
-    return "cannot represent this matrix" in msg or "block_elems" in msg
+    return "cannot represent this matrix" in msg
 
 
 @pytest.fixture(scope="module")
@@ -200,3 +203,22 @@ def test_automatic_mask_from_first_frame(data, variant, fill):
                        pipeline={"mask": "pixel" if fill != "valid" else "none"})
     c.multi(chunks, 0)
     assert b.describe(c.pipeline)["mask"] == ("pixel" if fill != "valid" else "none")
+
+
+@pytest.mark.parametrize("variant", VARIANTS, ids=VARIANT_IDS)
+def test_automatic_dot_any_block_size(data, variant):
+    """The automatic dot works for every block size: bsb-csr's 65536-pixel
+    limit makes it fall back (the block size is only known at the first chunk)."""
+    mask, frames, chunks = data[("max", variant)]
+    codec = b.CODEC_ZSTD if variant[0] == "zstd" else b.CODEC_LZ4
+    masked_frames = frames.reshape(len(frames), -1).astype(np.float64) * (mask.ravel() > 0)
+    for mname, M in matrices().items():
+        if mname == "permute":
+            continue                      # auto never picks csc-permute (it changes the output type)
+        c = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec)
+        npx, (v, i), powder = c.multi(chunks, 0)
+        ref = np.stack([M.astype(np.float64) @ fr for fr in masked_frames])
+        got = np.asarray(powder, np.float64).reshape(ref.shape)
+        assert np.abs(got - ref).max() <= 1e-6 * max(1.0, np.abs(ref).max()), (mname, c.dot)
+        if variant[2] // 2 > 65536:
+            assert not c.dot.startswith("bsb"), (mname, c.dot)
