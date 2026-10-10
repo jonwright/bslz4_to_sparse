@@ -252,10 +252,10 @@ def performance_page():
         % (g["pixel_m"] * 1e6, g["dist_m"], g["wavelength_m"], meth["mask"]))
 
     parts.append("## Machines")
-    parts.append("| machine | host | measured (UTC) | build | compiler | "
-                 "Python, numpy, pyFAI | data |\n|---|---|---|---|---|---|---|\n"
-                 + "".join("| **%s** | %s | %s | %s `%s` | %s | %s, %s, %s | [`%s`](%s/blob/main/%s) |\n"
-                           % (cpu_label(bm["machine"]["cpu"]), bm["machine"]["host"],
+    parts.append("| machine | measured (UTC) | build | compiler | "
+                 "Python, numpy, pyFAI | data |\n|---|---|---|---|---|---|\n"
+                 + "".join("| **%s** | %s | %s `%s` | %s | %s, %s, %s | [`%s`](%s/blob/main/%s) |\n"
+                           % (cpu_label(bm["machine"]["cpu"]),
                               bm["date_utc"], bm["machine"]["version"], bm["machine"]["git"],
                               bm["machine"]["compiler"], bm["machine"]["python"],
                               bm["machine"]["numpy"], bm["machine"]["pyFAI"],
@@ -470,15 +470,27 @@ def kernels_page():
         return "\n\n".join(parts) + "\n"
     here = b.build_info()["src_sha256"]
     here_py = bench_docs_py_sha256()
+    kms = []
     for path in files:
         with open(path) as fh:
-            km = json.load(fh)
+            kms.append((path, json.load(fh)))
+    parts.append("Machines: %s.  Each has its own section below, after the description "
+                 "of the step values."
+                 % ", ".join("[%s](#%s)" % (cpu_label(km["machine"]["cpu"]),
+                                             re.sub(r"[^a-z0-9]+", "-", cpu_label(km["machine"]["cpu"]).lower()).strip("-"))
+                             for _, km in kms))
+    parts.append("## The pipeline steps\n\nWhat each value timed below does, from the "
+                 "comments in the C sources (linked), and what it needs, from "
+                 "`src/_pipeline.py`.")
+    parts.append(step_values_section("###"))
+    for path, km in kms:
         m, d, meth = km["machine"], km["data"], km["method"]
+        parts.append("## %s" % cpu_label(m["cpu"]))
         w = stale_warning(km, here, here_py)
         if w:
             parts.append(w)
         parts.append(
-            "Every pipeline this machine can run, on **one core of %s** (%s, %s UTC, "
+            "Every pipeline this machine can run, on **one core of %s** (%s UTC, "
             "bslz4_to_sparse %s, git `%s`), for one real data set: `%s` (%s, %s %s, "
             "%d masked pixels, cut %d), %d frames spread over the file.  The frames are "
             "re-encoded in memory with each codec and block size below.  Sparsify is "
@@ -489,7 +501,7 @@ def kernels_page():
             "output must be the same, and the powder is compared as max |difference| / "
             "max |powder| (the fixed-point dots round).  Combinations the library "
             "refuses for this data, block size or matrix are listed with the reason."
-            % (cpu_label(m["cpu"]), m["host"], km["date_utc"], m["version"], m["git"],
+            % (cpu_label(m["cpu"]), km["date_utc"], m["version"], m["git"],
                d["key"], d["file"], " x ".join(str(x) for x in d["shape"]), d["dtype"],
                d["masked_pixels"], d["cut"], meth["frames"],
                d.get("no_mask", "not measured"), meth["batch"], meth["repeats"]))
@@ -504,15 +516,12 @@ def kernels_page():
                                % (op, km["ops"][op], " x ".join(str(n) for n in mi["bins_shape"]),
                                   mi["nnz"], pct(mi["pixel_frac"]))
                                for op, mi in km["matrices"].items()))
-        if path == files[0]:
-            parts.append("## The pipeline steps\n\nWhat each value timed below does, from the "
-                         "comments in the C sources (linked), and what it needs, from "
-                         "`src/_pipeline.py`.")
-            parts.append(step_values_section("###"))
         kinds = [k for k in ("sparsify", "sparsify, no mask") if k in km["auto"][km["variants"][0]["key"]]]
-        kinds += [op for op in ("1D", "2D", "2D+rings") if op in km["matrices"]]
+        for r in km["results"]:                   # the matrices in the order measured
+            if r["kind"] in km["matrices"] and r["kind"] not in kinds:
+                kinds.append(r["kind"])
         for v in km["variants"]:
-            parts.append("## %s (compression %.1f)" % (v["key"], v["compression"]))
+            parts.append("### %s (compression %.1f)" % (v["key"], v["compression"]))
             for kind in kinds:
                 rows = [r for r in km["results"] if r["variant"] == v["key"] and r["kind"] == kind]
                 timed = [r for r in rows if "fps" in r]
@@ -520,7 +529,7 @@ def kernels_page():
                 cols = list(SPARSIFY_STEPS) if kind.startswith("sparsify") else ["dot", "route"]
                 auto = km["auto"][v["key"]][kind]
                 auto = {k: auto[k] for k in cols if k in auto}
-                parts.append("### %s, %s" % (v["key"], kind if kind.startswith("sparsify") else kind + " matrix"))
+                parts.append("#### %s, %s" % (v["key"], kind if kind.startswith("sparsify") else kind + " matrix"))
                 if timed:
                     parts.append(kernel_table(timed, cols, auto))
                 if refused:

@@ -6,6 +6,8 @@ Three real ID11 Eiger data sets (CASES below), each through four operations:
   sparsify   chunk2sparse: decode, mask, threshold to (values, indices)
   1D         chunk2sparseCSC with a pyFAI 1D bbox matrix (r_mm, one bin per
              pixel width)
+  1D no-split  the same with pyFAI's no-split 1D matrix: a histogram, every
+             pixel in one bin with weight 1
   2D         chunk2sparseCSC with a pyFAI 2D bbox matrix (q_nm^-1, one radial
              bin per pixel width x NAZIM azimuth)
   2D+rings   8 ring windows x NAZIM azimuth summed from the 2D matrix, the ring
@@ -42,7 +44,6 @@ import datetime
 import json
 import os
 import platform
-import socket
 import sys
 import time
 
@@ -73,11 +74,13 @@ CASES = [
      "file": "/data/id11/jon/hdftest/kevlar.h5",
      "dataset": "/entry/data/data", "cut": 5},
 ]
-OPS = ("sparsify", "1D", "2D", "2D+rings")
+OPS = ("sparsify", "1D", "1D no-split", "2D", "2D+rings")
 NAZIM = 72                     # azimuthal bins of the 2D and ring matrices
 OP_TEXT = {
     "sparsify": "chunk2sparse: decode, mask and threshold to (values, indices)",
     "1D": "chunk2sparseCSC, pyFAI 1D bbox matrix (r_mm, one bin per pixel width)",
+    "1D no-split": "chunk2sparseCSC, pyFAI 1D no-split matrix: a histogram, every pixel "
+                   "in one bin with weight 1 (r_mm, one bin per pixel width)",
     "2D": "chunk2sparseCSC, pyFAI 2D bbox matrix (q_nm^-1, one radial bin per pixel "
           "width x %d azimuthal bins)" % NAZIM,
     "2D+rings": "chunk2sparseCSC, %d LaB6 ring windows x %d azimuthal bins summed from the "
@@ -115,6 +118,7 @@ def matrices(ai, key):
     """{op: csc_matrix} for the three matrix operations, cached per data set."""
     rp = bs.radial_pixels(ai)
     m1 = bs._cached("docs_%s_1d" % key, lambda: bs._engine_csc(ai, "bbox", 1, rp, "r_mm"))
+    m1n = bs._cached("docs_%s_1d_no" % key, lambda: bs._engine_csc(ai, "no", 1, rp, "r_mm"))
     m2 = bs._cached("docs_%s_2d_%d" % (key, NAZIM),
                     lambda: bs._engine_csc(ai, "bbox", 2, rp, "q_nm^-1", NAZIM))
 
@@ -128,7 +132,8 @@ def matrices(ai, key):
         return bs._f32(S @ m2)
 
     mr = bs._cached("docs_%s_rings_%d" % (key, NAZIM), rings)
-    return {"1D": (m1, [rp]), "2D": (m2, [rp, NAZIM]), "2D+rings": (mr, [mr.shape[0] // NAZIM, NAZIM])}
+    return {"1D": (m1, [rp]), "1D no-split": (m1n, [rp]), "2D": (m2, [rp, NAZIM]),
+            "2D+rings": (mr, [mr.shape[0] // NAZIM, NAZIM])}
 
 
 def time_op(fn, chunks):
@@ -155,7 +160,7 @@ def machine():
     except OSError:
         pass
     cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
-    return {"host": socket.gethostname(), "cpu": cpu, "cores_usable": cores,
+    return {"cpu": cpu, "cores_usable": cores,               # no host name: it is published
             "python": platform.python_version(), "numpy": np.__version__,
             "pyFAI": pyFAI.version, "version": b.version, "git": info["git"],
             "src_sha256": info["src_sha256"],
@@ -179,8 +184,8 @@ def main():
                       "geometry": GEOMETRY, "gb": 1e9},
            "cases": [], "results": []}
     m = out["machine"]
-    print("%s | %s | %d core(s) | bslz4_to_sparse %s (%s, src %s)"
-          % (m["host"], m["cpu"], m["cores_usable"], m["version"], m["git"], m["src_sha256"][:12]))
+    print("%s | %d core(s) | bslz4_to_sparse %s (%s, src %s)"
+          % (m["cpu"], m["cores_usable"], m["version"], m["git"], m["src_sha256"][:12]))
     keys = args.cases.split(",")
     for case in [c for c in CASES if c["key"] in keys]:
         chunks, frame0, info = read_case(case, args.frames)

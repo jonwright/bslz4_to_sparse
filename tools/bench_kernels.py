@@ -10,8 +10,10 @@ variant every pipeline this machine can run is timed:
              values (chunk2sparse), on the masked frames (masked pixels at
              65535, with the mask) and on the same frames not masked (masked
              pixels set to 0, no mask: where the mask step 'none' applies)
-  1D, 2D,    every dot x route value (other steps automatic) on the three
-  2D+rings   matrices of tools/bench_docs.py (chunk2sparseCSC)
+  matrices   every dot x route value (other steps automatic) on the matrices
+             of tools/bench_docs.py (chunk2sparseCSC): 1D, 1D no-split (a
+             pyFAI histogram), 2D and 2D+rings.  Each dot's object is built
+             once per encoding and switched between the routes.
 
 A combination the library refuses (the data, the block size or the matrix
 does not allow it) is recorded with the reason, not timed.  Every timed
@@ -145,8 +147,8 @@ def main():
         out["matrices"][op] = {"bins_shape": shape, "nnz": int(M.nnz),
                                "pixel_frac": float(used.sum()) / float(mask.sum())}
     m = out["machine"]
-    print("%s | %s | %d core(s) | %s src %s" % (m["host"], m["cpu"], m["cores_usable"],
-                                                 m["git"], m["src_sha256"][:12]))
+    print("%s | %d core(s) | %s src %s" % (m["cpu"], m["cores_usable"],
+                                           m["git"], m["src_sha256"][:12]))
 
     for cname, clevel, block in VARIANTS:
         vkey = "%s%s %dk" % (cname, "-%d" % clevel if clevel else "", block // 1024)
@@ -207,14 +209,18 @@ def main():
             ref = outputs(auto, chunks, cut)
             out["auto"][vkey][op] = names(auto)
             del auto
-            for dot, route in itertools.product(usable("dot"), usable("route")):
-                p = {"dot": dot, "route": route}
+            routes = usable("route")
+            for dot in usable("dot"):
                 try:
-                    obj = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec, pipeline=p)
+                    obj = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec,
+                                            pipeline={"dot": dot, "route": routes[0]})
                 except ValueError as e:
-                    record(op, p, err=e)
+                    for route in routes:
+                        record(op, {"dot": dot, "route": route}, err=e)
                     continue
-                record(op, p, obj, ref)
+                for route in routes:          # the route is read on every call
+                    obj.pipeline[P.ROUTE] = P.NAMES["route"].index(route)
+                    record(op, {"dot": dot, "route": route}, obj, ref)
                 del obj
 
     tmp = args.out + ".tmp"
