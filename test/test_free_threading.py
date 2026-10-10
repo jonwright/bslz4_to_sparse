@@ -25,13 +25,17 @@ FREE_THREADED = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
 
 @pytest.mark.skipif(not FREE_THREADED, reason="needs a free-threaded (t) Python")
 def test_import_keeps_gil_disabled():
+    import bslz4_to_sparse
     env = dict(os.environ)
     env.pop("PYTHON_GIL", None)          # PYTHON_GIL=0 would hide a missing declaration
+    # import the same package this process did (BSLZ4_TO_SPARSE_PATH or installed)
+    pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(bslz4_to_sparse.__file__)))
+    env["PYTHONPATH"] = os.pathsep.join([pkg_parent] + [p for p in [env.get("PYTHONPATH")] if p])
     code = ("import sys; import bslz4_to_sparse; "
             "sys.exit(1 if sys._is_gil_enabled() else 0)")
     r = subprocess.run([sys.executable, "-c", code], env=env,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    assert r.returncode == 0, "the GIL was re-enabled on import:\n" + r.stdout.decode()
+    assert r.returncode == 0, "the GIL is enabled after import:\n" + r.stdout.decode()
 
 
 @pytest.mark.skipif(_INDEX is None, reason="decode matrix fixture absent")
