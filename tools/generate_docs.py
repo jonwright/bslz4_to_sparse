@@ -411,9 +411,11 @@ def step_values_section(heading="##"):
     parts = []
     for step in _pipeline.STEPS:
         rows = ""
-        for i, (name, needs) in enumerate(_pipeline.VALUES[step]):
+        for i, v in enumerate(_pipeline.VALUES[step]):
             if not i:
                 continue
+            name = _pipeline.NAMES[step][i]
+            needs = v[1] if not isinstance(v, str) and len(v) > 1 else ""
             text, path, line = docs[step].get(name, ("", None, 0))
             src = "[%s:%d](%s/blob/main/%s#L%d)" % (os.path.basename(path), line, GITHUB, path,
                                                     line) if path else ""
