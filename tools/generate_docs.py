@@ -12,6 +12,8 @@ git-ignored; see docs/AGENTS.md):
                                from src/_pipeline.py
   docs/gen/acknowledgements.md the Acknowledgements and References of
                                README.md, and the licences in licenses/
+  docs/gen/kernels.md          docs/bench/kernels_*.json: every pipeline on one
+                               data set (tools/bench_kernels.py, never here)
   docs/gen/performance.md      docs/bench/real_data_*.json, one per machine
                                (measured there by tools/bench_docs.py, never here)
 
@@ -168,16 +170,12 @@ def api_page():
 
 def pipelines_page():
     parts = ["# Pipeline steps and values\n",
-             "Every value of every step, with what it needs, from `VALUES` in "
-             "`src/_pipeline.py`.  Value 0 (`auto`) is resolved when an object is "
-             "made; `describe()` shows which values the running machine can use "
-             "(see the [pipelines example](examples/ex4_pipelines.md)).\n"]
-    for step in _pipeline.STEPS:
-        parts.append("## %s\n" % step)
-        parts.append("| value | name | needs / does |\n|---|---|---|\n"
-                     + "".join("| %d | `%s` | %s |\n" % (i, v[0], v[1])
-                               for i, v in enumerate(_pipeline.VALUES[step]) if i))
-    parts.append("\n" + provenance())
+             "Every value of every step: what it does, from the comments in the C sources "
+             "(linked), and what it needs, from `VALUES` in `src/_pipeline.py`.  Value 0 "
+             "(`auto`) is resolved when an object is made; `describe()` shows which values "
+             "the running machine can use (see the [pipelines example](examples/ex4_pipelines.md)), "
+             "and the [kernel page](kernels.md) times them all.\n",
+             step_values_section("##"), "\n" + provenance()]
     return "\n".join(parts)
 
 
@@ -359,9 +357,178 @@ def acknowledgements_page():
     return "\n\n".join(p.rstrip("\n") for p in parts) + "\n"
 
 
+# ---------------------------------------------------------------- step value docs
+
+C_DOC_DIRS = ("src/steps", "src/pipeline")
+_C_ENTRY = re.compile(r"^ \*   (BSLZ4_([A-Z]+)_[A-Z0-9_]+)( +)(\S.*)$")
+
+
+def c_enum_values():
+    """{enum constant: (step, value name)} from the step enums of pipeline.h."""
+    with open(os.path.join(REPO, "src", "pipeline", "pipeline.h")) as fh:
+        text = fh.read()
+    out = {}
+    for step in _pipeline.STEPS:
+        for const, n in re.findall(r"\b(BSLZ4_%s_[A-Z0-9_]+)\s*=\s*(\d+)" % step.upper(), text):
+            n = int(n)
+            if 0 < n < len(_pipeline.NAMES[step]):
+                out[const] = (step, _pipeline.NAMES[step][n])
+    return out
+
+
+def c_value_docs():
+    """{step: {value name: (text, path, line)}} from the per-value comment blocks
+    (' *   BSLZ4_STEP_VALUE  text', continuation lines indented to the text) in
+    the C sources: the description of every pipeline step value."""
+    consts = c_enum_values()
+    docs = {s: {} for s in _pipeline.STEPS}
+    for d in C_DOC_DIRS:
+        for path in sorted(glob.glob(os.path.join(REPO, d, "*"))):
+            with open(path) as fh:
+                lines = fh.read().splitlines()
+            i = 0
+            while i < len(lines):
+                m = _C_ENTRY.match(lines[i])
+                if not m or m.group(1) not in consts:
+                    i += 1
+                    continue
+                text, start = m.group(4).strip(), i + 1
+                i += 1
+                # continuation: indented deeper than the entry's constant
+                while i < len(lines) and re.match(r"^ \*      +\S", lines[i]) \
+                        and not _C_ENTRY.match(lines[i]):
+                    more = lines[i][2:].strip()
+                    text += more if text.endswith("_") else " " + more   # split identifier
+                    i += 1
+                step, name = consts[m.group(1)]
+                docs[step][name] = (text, os.path.relpath(path, REPO), start)
+    return docs
+
+
+def step_values_section(heading="##"):
+    """Every step value with its description from the C sources."""
+    docs = c_value_docs()
+    parts = []
+    for step in _pipeline.STEPS:
+        rows = ""
+        for i, (name, needs) in enumerate(_pipeline.VALUES[step]):
+            if not i:
+                continue
+            text, path, line = docs[step].get(name, ("", None, 0))
+            src = "[%s:%d](%s/blob/main/%s#L%d)" % (os.path.basename(path), line, GITHUB, path,
+                                                    line) if path else ""
+            rows += "| `%s` | %s | %s | %s |\n" % (name, text.replace("|", "\\|"), needs, src)
+        parts.append("%s %s\n\n| value | what it does | needs | source |\n|---|---|---|---|\n%s"
+                     % (heading, step, rows))
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------- kernels
+
+KERNELS_GLOB = os.path.join(DOCS, "bench", "kernels_*.json")
+SPARSIFY_STEPS = ("decode", "mask", "untranspose", "collect")
+
+
+def kernel_check(r):
+    """The correctness column: sparse output identical, powder difference."""
+    txt = "same" if r["sparse_ok"] else "**differs**"
+    if "powder_rel" in r:
+        txt += "; powder %s" % ("exact" if r["powder_rel"] == 0 else "%.1e" % r["powder_rel"])
+    return txt
+
+
+def kernel_table(rows, cols, auto):
+    head = "| " + " | ".join(cols) + " | frames/s | compressed GB/s | pixels GB/s | vs auto |\n"
+    head += "|" + "---|" * len(cols) + "---:|---:|---:|---|\n"
+    body = ""
+    for r in sorted(rows, key=lambda r: -r["fps"]):
+        is_auto = all(r["pipeline"].get(k) == v for k, v in auto.items())
+        cells = [("**%s**" if is_auto else "%s") % r["pipeline"].get(c, "") for c in cols]
+        body += "| %s | %.1f | %.3f | %.2f | %s |\n" % (
+            " | ".join(cells), r["fps"], r["compressed_gbs"], r["pixel_gbs"],
+            ("**auto**; " if is_auto else "") + kernel_check(r))
+    return head + body
+
+
+def refused_list(rows, cols):
+    by_reason = {}
+    for r in rows:
+        by_reason.setdefault(r["refused"], []).append(
+            "/".join(str(r["pipeline"].get(c)) for c in cols))
+    return "\n".join("- %s: %s" % (reason, ", ".join("`%s`" % n for n in names))
+                      for reason, names in sorted(by_reason.items()))
+
+
+def kernels_page():
+    files = sorted(glob.glob(KERNELS_GLOB))
+    parts = ["# Kernels: every pipeline on one data set"]
+    if not files:
+        parts.append("No measurement committed yet (`docs/bench/kernels_*.json`, "
+                     "written by `tools/bench_kernels.py`).")
+        return "\n\n".join(parts) + "\n"
+    here = b.build_info()["src_sha256"]
+    here_py = bench_docs_py_sha256()
+    for path in files:
+        with open(path) as fh:
+            km = json.load(fh)
+        m, d, meth = km["machine"], km["data"], km["method"]
+        w = stale_warning(km, here, here_py)
+        if w:
+            parts.append(w)
+        parts.append(
+            "Every pipeline this machine can run, on **one core of %s** (%s, %s UTC, "
+            "bslz4_to_sparse %s, git `%s`), for one real data set: `%s` (%s, %s %s, "
+            "%d masked pixels, cut %d), %d frames spread over the file.  The frames are "
+            "re-encoded in memory with each codec and block size below.  Timing as on "
+            "the [performance page](performance.md): frames in memory, one warmup "
+            "batch of %d, best of %d passes.  **Bold** marks the automatic choice.  "
+            "*vs auto* checks each result against the automatic pipeline: the sparse "
+            "output must be the same, and the powder is compared as max |difference| / "
+            "max |powder| (the fixed-point dots round).  Combinations the library "
+            "refuses for this data, block size or matrix are listed with the reason."
+            % (cpu_label(m["cpu"]), m["host"], km["date_utc"], m["version"], m["git"],
+               d["key"], d["file"], " x ".join(str(x) for x in d["shape"]), d["dtype"],
+               d["masked_pixels"], d["cut"], meth["frames"], meth["batch"], meth["repeats"]))
+        parts.append("| encoding | codec | level | block | compression |\n|---|---|---|---:|---:|\n"
+                     + "".join("| %s | %s | %s | %d kB | %.1f |\n"
+                               % (v["key"], v["codec"], v["clevel"] if v["clevel"] else "-",
+                                  v["block_bytes"] // 1024, v["compression"])
+                               for v in km["variants"]))
+        parts.append("| matrix | what | bins | entries | pixels with an entry |\n"
+                     "|---|---|---:|---:|---:|\n"
+                     + "".join("| %s | %s | %s | %d | %s |\n"
+                               % (op, km["ops"][op], " x ".join(str(n) for n in mi["bins_shape"]),
+                                  mi["nnz"], pct(mi["pixel_frac"]))
+                               for op, mi in km["matrices"].items()))
+        if path == files[0]:
+            parts.append("## The pipeline steps\n\nWhat each value timed below does, from the "
+                         "comments in the C sources (linked), and what it needs, from "
+                         "`src/_pipeline.py`.")
+            parts.append(step_values_section("###"))
+        kinds = ["sparsify"] + [op for op in ("1D", "2D", "2D+rings") if op in km["matrices"]]
+        for v in km["variants"]:
+            parts.append("## %s (compression %.1f)" % (v["key"], v["compression"]))
+            for kind in kinds:
+                rows = [r for r in km["results"] if r["variant"] == v["key"] and r["kind"] == kind]
+                timed = [r for r in rows if "fps" in r]
+                refused = [r for r in rows if "refused" in r]
+                cols = list(SPARSIFY_STEPS) if kind == "sparsify" else ["dot", "route"]
+                auto = km["auto"][v["key"]][kind]
+                auto = {k: auto[k] for k in cols if k in auto}
+                parts.append("### %s, %s" % (v["key"], kind if kind == "sparsify" else kind + " matrix"))
+                if timed:
+                    parts.append(kernel_table(timed, cols, auto))
+                if refused:
+                    parts.append("Refused (%d):\n\n%s" % (len(refused), refused_list(refused, cols)))
+        parts.append("Source: `%s`, written by `%s`." % (os.path.relpath(path, REPO), km["tool"]))
+    parts.append(provenance())
+    return "\n\n".join(p.rstrip("\n") for p in parts) + "\n"
+
+
 def main():
     write("api.md", api_page())
     write("pipelines.md", pipelines_page())
+    write("kernels.md", kernels_page())
     write("acknowledgements.md", acknowledgements_page())
     write("performance.md", performance_page())
     for path in examples():

@@ -14,6 +14,7 @@ text, example output or a benchmark number into a Markdown file.
 | Decode error codes | `_DECODE_ERRORS` in `src/__init__.py` | `tools/generate_docs.py` |
 | Acknowledgements, references, licences | the `## Acknowledgements` and `## References` sections of `README.md`, and `licenses/` | `tools/generate_docs.py` |
 | Performance numbers | `docs/bench/real_data_<cpu>.json`, one per machine, measured there by `tools/bench_docs.py` and committed | `tools/generate_docs.py` |
+| Kernel comparison | `docs/bench/kernels_<cpu>.json`, measured by `tools/bench_kernels.py` and committed | `tools/generate_docs.py` |
 
 Generated pages go to `docs/gen/`, which is git-ignored: if a file is not
 in the repository, it cannot be edited by hand.

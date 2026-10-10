@@ -50,7 +50,9 @@ nav:
       - Pipelines: gen/examples/ex4_pipelines.md
       - Threads: gen/examples/ex5_threads.md
       - Your file and a .poni: gen/examples/ex6_file_and_poni.md
-  - Performance: gen/performance.md
+  - Performance:
+      - Three data sets: gen/performance.md
+      - Every pipeline: gen/kernels.md
   - Reference:
       - API: gen/api.md
       - Pipeline steps and values: gen/pipelines.md

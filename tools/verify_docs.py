@@ -144,8 +144,47 @@ def check_bench():
                             % (name, first[0]))
 
 
+def check_value_docs():
+    docs = gd.c_value_docs()
+    for step in gd._pipeline.STEPS:
+        for i, name in enumerate(gd._pipeline.NAMES[step]):
+            if i and name not in docs[step]:
+                problems.append("pipeline value %s=%s has no ' *   BSLZ4_%s_...' description "
+                                "block in the C sources" % (step, name, step.upper()))
+
+
+def check_kernels():
+    for path in sorted(glob.glob(gd.KERNELS_GLOB)):
+        name = os.path.relpath(path, REPO)
+        try:
+            with open(path) as fh:
+                km = json.load(fh)
+        except (OSError, ValueError) as e:
+            problems.append("%s: %s" % (name, e))
+            continue
+        for f in ("cpu", "cores_usable", "git", "src_sha256", "py_sha256"):
+            if f not in km.get("machine", {}):
+                problems.append("%s machine has no %s" % (name, f))
+        variants = [v["key"] for v in km.get("variants", [])]
+        if not variants:
+            problems.append("%s has no variants" % name)
+        for v in variants:
+            for kind in ["sparsify"] + list(km.get("matrices", {})):
+                rows = [r for r in km.get("results", []) if r["variant"] == v and r["kind"] == kind]
+                if not any("fps" in r for r in rows):
+                    problems.append("%s: no timed %s / %s" % (name, v, kind))
+                if kind not in km.get("auto", {}).get(v, {}):
+                    problems.append("%s: no automatic pipeline for %s / %s" % (name, v, kind))
+        for r in km.get("results", []):
+            if "fps" in r and not r.get("sparse_ok"):
+                problems.append("%s: %s / %s %s gives a different sparse output than auto"
+                                % (name, r["variant"], r["kind"], r["pipeline"]))
+
+
 def main():
     check_gen_untracked()
+    check_value_docs()
+    check_kernels()
     check_index()
     check_examples()
     check_docstrings()
