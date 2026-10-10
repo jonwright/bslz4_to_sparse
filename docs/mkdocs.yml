@@ -1,0 +1,55 @@
+site_name: bslz4_to_sparse
+site_description: Bitshuffle-LZ4 Eiger frames straight to sparse pixels and azimuthal integrations
+repo_url: https://github.com/jonwright/bslz4_to_sparse
+repo_name: jonwright/bslz4_to_sparse
+docs_dir: .
+site_dir: ../site
+exclude_docs: |
+  AGENTS.md
+  mkdocs.yml
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.instant
+    - navigation.sections
+    - search.highlight
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+# Every page under gen/ is written by tools/generate_docs.py (docs/AGENTS.md).
+nav:
+  - Home: index.md
+  - Examples:
+      - Quick start: gen/examples/ex1_quickstart.md
+      - Batches and file offsets: gen/examples/ex2_batches_and_offsets.md
+      - Azimuthal integration with pyFAI: gen/examples/ex3_pyfai_integration.md
+      - Pipelines: gen/examples/ex4_pipelines.md
+      - Threads: gen/examples/ex5_threads.md
+  - Performance: gen/performance.md
+  - Reference:
+      - API: gen/api.md
+      - Pipeline steps and values: gen/pipelines.md

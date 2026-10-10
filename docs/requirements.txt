@@ -1,0 +1,12 @@
+# What tools/generate_docs.py and mkdocs need to build the site (CI job
+# "docs"); bslz4_to_sparse itself comes from the CI-built wheel.  mkdocs is
+# pinned: MkDocs 2.0 is an incompatible rewrite that mkdocs-material does
+# not support.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+numpy
+scipy
+h5py
+hdf5plugin
+pyFAI
+pytest

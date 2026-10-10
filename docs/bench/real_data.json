@@ -1,0 +1,314 @@
+{
+ "cases": [
+  {
+   "compression": 94.96601727255963,
+   "cut": 0,
+   "dataset": "/entry_0000/ESRF-ID11/eiger/data",
+   "dtype": "uint32",
+   "file": "/data/id11/jon/hdftest/eiger4m_u32.h5",
+   "frames_in_file": 3620,
+   "frames_timed": 100,
+   "key": "eiger4m_u32",
+   "label": "very sparse, uint32",
+   "masked_pixels": 269029,
+   "shape": [
+    2162,
+    2068
+   ]
+  },
+  {
+   "compression": 36.082810520486426,
+   "cut": 0,
+   "dataset": "/entry_0000/ESRF-ID11/eiger/data",
+   "dtype": "uint16",
+   "file": "/data/id11/nanoscope/blc12454/id11/WAu5um/WAu5um_DT3/scan0001/eiger_0000.h5",
+   "frames_in_file": 1000,
+   "frames_timed": 100,
+   "key": "WAu5um_DT3",
+   "label": "sparse photon counting, uint16",
+   "masked_pixels": 269126,
+   "shape": [
+    2162,
+    2068
+   ]
+  },
+  {
+   "compression": 7.841430973004672,
+   "cut": 5,
+   "dataset": "/entry/data/data",
+   "dtype": "uint16",
+   "file": "/data/id11/jon/hdftest/kevlar.h5",
+   "frames_in_file": 1000,
+   "frames_timed": 100,
+   "key": "kevlar",
+   "label": "dense fibre pattern, uint16",
+   "masked_pixels": 250531,
+   "shape": [
+    2167,
+    2070
+   ]
+  }
+ ],
+ "date_utc": "2026-10-10 14:34",
+ "machine": {
+  "compiler": "x86_64-conda-linux-gnu-cc (conda-forge gcc 13.3.0-2) 13.3.0",
+  "cores_usable": 1,
+  "cpu": "Intel(R) Xeon(R) Gold 6248 CPU @ 2.50GHz",
+  "git": "v0.0.16-123-g34eadd4",
+  "host": "hpc5-0404",
+  "numpy": "1.26.4",
+  "platform": "linux_x86_64",
+  "pyFAI": "2025.3.0",
+  "py_sha256": "5c958f7330f6bd099e2c6781aba6e29c44718a9a3d5d0a9b7481fc1c2d5d0d20",
+  "python": "3.12.9",
+  "src_sha256": "123b0bc78f58d19b4362da822d2456e1a91bb44d53ff7e7505ac6781ba247b34",
+  "version": "0.0.21a1"
+ },
+ "method": {
+  "batch": 25,
+  "frames": 100,
+  "gb": 1000000000.0,
+  "geometry": {
+   "dist_m": 0.25,
+   "pixel_m": 7.5e-05,
+   "poni": "detector centre",
+   "rot_rad": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "wavelength_m": 2.85e-11
+  },
+  "mask": "pixels == 65535 in the first timed frame",
+  "repeats": 3
+ },
+ "results": [
+  {
+   "case": "eiger4m_u32",
+   "compressed_gbs": 0.050114493258866674,
+   "fps": 266.11254759696146,
+   "matrix": null,
+   "op": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 4.759173832427105,
+   "seconds": 0.37578085251152515
+  },
+  {
+   "case": "eiger4m_u32",
+   "compressed_gbs": 0.04719440515811316,
+   "fps": 250.6066124239743,
+   "matrix": {
+    "bins": 1475,
+    "nnz": 9662983
+   },
+   "op": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 4.4818646954135515,
+   "seconds": 0.39903176948428154
+  },
+  {
+   "case": "eiger4m_u32",
+   "compressed_gbs": 0.03837960593167927,
+   "fps": 203.7992214645332,
+   "matrix": {
+    "bins": 531000,
+    "nnz": 10813300
+   },
+   "op": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 3.644758319821885,
+   "seconds": 0.49067900888621807
+  },
+  {
+   "case": "eiger4m_u32",
+   "compressed_gbs": 0.047479036517298345,
+   "fps": 252.1180310015802,
+   "matrix": {
+    "bins": 2880,
+    "nnz": 409620
+   },
+   "op": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 4.508895001986244,
+   "seconds": 0.3966396199539304
+  },
+  {
+   "case": "WAu5um_DT3",
+   "compressed_gbs": 0.07602031022503877,
+   "fps": 306.75650115753,
+   "matrix": null,
+   "op": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.7430264495586707,
+   "seconds": 0.32599146105349064
+  },
+  {
+   "case": "WAu5um_DT3",
+   "compressed_gbs": 0.06157613020320964,
+   "fps": 248.471470322094,
+   "matrix": {
+    "bins": 1475,
+    "nnz": 9662762
+   },
+   "op": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.221839838707215,
+   "seconds": 0.40246069245040417
+  },
+  {
+   "case": "WAu5um_DT3",
+   "compressed_gbs": 0.04539874566715329,
+   "fps": 183.19262755665002,
+   "matrix": {
+    "bins": 531000,
+    "nnz": 10813069
+   },
+   "op": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.6381143377756462,
+   "seconds": 0.5458734957501292
+  },
+  {
+   "case": "WAu5um_DT3",
+   "compressed_gbs": 0.06770624621258636,
+   "fps": 273.20766165253656,
+   "matrix": {
+    "bins": 2880,
+    "nnz": 409588
+   },
+   "op": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.443031653142155,
+   "seconds": 0.36602194607257843
+  },
+  {
+   "case": "kevlar",
+   "compressed_gbs": 0.3449885195367957,
+   "fps": 301.53707260497913,
+   "matrix": null,
+   "op": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.705203662426858,
+   "seconds": 0.3316341806203127
+  },
+  {
+   "case": "kevlar",
+   "compressed_gbs": 0.0778817619872369,
+   "fps": 68.07252180588688,
+   "matrix": {
+    "bins": 1478,
+    "nnz": 9738787
+   },
+   "op": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.6107044606788974,
+   "seconds": 1.4690215280279517
+  },
+  {
+   "case": "kevlar",
+   "compressed_gbs": 0.039471442415707304,
+   "fps": 34.49999789415872,
+   "matrix": {
+    "bins": 532080,
+    "nnz": 10897937
+   },
+   "op": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.30951259110769763,
+   "seconds": 2.8985509015619755
+  },
+  {
+   "case": "kevlar",
+   "compressed_gbs": 0.19569556740812546,
+   "fps": 171.04762963488324,
+   "matrix": {
+    "bins": 2880,
+    "nnz": 419568
+   },
+   "op": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.5345332835537988,
+   "seconds": 0.5846324805170298
+  }
+ ],
+ "schema": 1,
+ "tool": "tools/bench_docs.py"
+}
