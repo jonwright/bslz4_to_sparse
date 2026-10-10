@@ -5,7 +5,8 @@
  * sparse-route compaction (mask>0 & value!=0, called here with cut==0 --
  * identical to !=0 for unsigned T).
  *
- * Five tiers, u16/u32 only: AVX-512 (F+BW+VL), AVX2, SSE2 (x86-64 ABI
+ * Five SIMD collect values, u16/u32 only: avx512cs (AVX-512 F+BW+VL+VBMI2,
+ * compress-store), avx2cs (AVX2, table-driven compaction), sse2 (x86-64 ABI
  * baseline, always present), VSX (POWER8+, probe in
  * tools/bslz4_power9_collect_probe.c) and NEON (AArch64, ASIMD is
  * ARMv8-A baseline, probe in tools/bslz4_neon_collect_probe.c). The x86
@@ -15,19 +16,30 @@
  * baseline, like SSE2 on x86-64). MSVC has none of these, and the
  * BSLZ4_HAVE_*_COLLECT guards below make this file inert there.
  *
- * The tier actually used is chosen by the collect id in the decode stages
- * (see bslz4_resolve / impl_available).  Availability is decided by
+ *   BSLZ4_COLLECT_AVX512CS  AVX-512 F+BW+VL+VBMI2: compress-store of the
+ *                           selected pixels and their addresses; u16/u32.
+ *   BSLZ4_COLLECT_AVX2CS    AVX2: table-driven compaction of the selected
+ *                           lanes; u16/u32.
+ *   BSLZ4_COLLECT_VSX       POWER8+ (needs -maltivec -mvsx); u16/u32.
+ *   BSLZ4_COLLECT_NEON      AArch64 ASIMD (ARMv8-A baseline); u16/u32.
+ *   BSLZ4_COLLECT_SSE2      x86-64 baseline, always present; u16/u32.
+ *   BSLZ4_COLLECT_SCALAR    the plain scalar loop, any dtype; every dtype
+ *                           other than u16/u32 takes it whatever the value.
+ *
+ * The value actually used is pipeline[BSLZ4_STEP_COLLECT], validated by
+ * bslz4_resolve (src/pipeline/registry.c).  Availability is decided by
  * bslz4_<tier>_collect_capable(), which reads c2py23's cpuid-equivalent
  * globals (c2py_amd64_avx512f/bw/vl, c2py_amd64_avx2, c2py_ppc64_vsx,
  * c2py_arm64_asimd; SSE2 needs no check); capable() is the single source of
- * truth, shared with the Python-visible impl_available() query.  AVX-512 can
+ * truth, shared with bslz4_step_available (registry.c), which Python sees as
+ * step_available / _pipeline.available().  AVX-512 can
  * trigger frequency throttling on some chips that outweighs the wider vector
  * for this workload, so it is selectable but not always a win.
  *
  * bslz4_collect_gt<T>/bslz4_collect_nz<T> (bottom of this file) take the
- * collect tier id chosen by the decode stages (bslz4_resolve already
- * validated it) and route straight to that tier, 0 meaning the plain scalar
- * loop.
+ * collect value from the pipeline (bslz4_resolve already validated it) and
+ * route straight to that tier; any value that is not a SIMD tier
+ * (BSLZ4_COLLECT_SCALAR) runs the plain scalar loop.
  */
 
 #include "../pipeline/common.h"
@@ -66,16 +78,19 @@
 
 namespace bslz4 {
 
-/* A NULL mask means BSLZ4_OPT_NO_MASK is set (every pixel is valid, e.g. the
- * data was zeroed at collection), so the per-pixel mask check is skipped. */
+/* A NULL mask means the mask step is none, or the mask was already applied
+ * to the planes (every pixel is valid; src/pipeline/driver.c, and
+ * src/steps/kernels.cpp passes `w->no_mask ? NULL : w->mask`), so the
+ * per-pixel mask check is skipped. */
 static inline bool bslz4_mask_ok(const uint8_t *mask, size_t idx) {
     return mask == NULL || mask[idx] > 0;
 }
 
 /* Single source of truth for "is this tier actually usable" -- shared
  * by the default-enabled logic below and the Python-visible
- * <tier>_collect_available() query (kernels_generic.cpp delegates to
- * these rather than duplicating the cpuid-check logic). */
+ * <tier>_collect_available() query (the bslz4_available_*_collect delegates in
+ * src/steps/kernels.cpp call these rather than duplicating the cpuid-check
+ * logic). */
 
 inline bool bslz4_avx512_collect_capable() {
 #if BSLZ4_HAVE_AVX512_COLLECT
@@ -85,8 +100,8 @@ inline bool bslz4_avx512_collect_capable() {
 #endif
 }
 
-/* The compress-store tier (collect id 6) also needs AVX-512 VBMI2 for the
- * 16-bit compress; c2py_amd64.h has no flag for it, so ask the compiler's
+/* The compress-store tier (collect avx512cs, BSLZ4_COLLECT_AVX512CS) also
+ * needs AVX-512 VBMI2 for the 16-bit compress; c2py_amd64.h has no flag for it, so ask the compiler's
  * cpu probe (gcc/clang, the only compilers this tier is built with). */
 inline bool bslz4_avx512cs_collect_capable() {
 #if BSLZ4_HAVE_AVX512_COLLECT && BSLZ4_HAVE_VBMI_GFNI
@@ -129,13 +144,13 @@ inline bool bslz4_neon_collect_capable() {
 #endif
 }
 
-/* The tiers are chosen at run time by the collect id in the decode stages,
- * not by mutable flags here -- no enabled()-style state lives in this file. */
+/* The tiers are chosen at run time by the pipeline's collect value, not by
+ * mutable flags here. */
 
 #if BSLZ4_HAVE_AVX512_COLLECT
 
-/* Collect id 6, "avx512cs": mask & (value > cut) per 32 pixels, but the
- * selected values and their pixel indices are compressed into registers
+/* Collect avx512cs (BSLZ4_COLLECT_AVX512CS): mask & (value > cut) per 32
+ * pixels, but the selected values and their pixel indices are compressed into registers
  * (vpcompressw / vpcompressd), stored with plain full-width stores, and the
  * output advanced by popcnt -- no per-pixel loop, so no data-dependent
  * branch per selected pixel.  (Compress-to-register then store: the
@@ -186,7 +201,7 @@ inline int bslz4_collect_avx512cs_u16(const uint16_t *BSLZ4_RESTRICT block,
     return npx;
 }
 
-/* u32 version of collect id 6: vpcompressd is plain AVX-512F.  Same store
+/* u32 version of collect avx512cs: vpcompressd is plain AVX-512F.  Same store
  * bound as the u16 one, with 16 entries per group. */
 __attribute__((target("avx512f,avx512bw,avx512vl,popcnt")))
 inline int bslz4_collect_avx512cs_u32(const uint32_t *BSLZ4_RESTRICT block,
@@ -244,20 +259,19 @@ inline int bslz4_collect_avx512cs_u32(const uint32_t *BSLZ4_RESTRICT block,
  * lanes 0-7 and whose byte 2 (bits 16-23) is exactly lanes 8-15,
  * recombined below into one 16-bit mask.
  *
- * Once there's a scalar bitmask, extraction (ctz/bits&=bits-1) is
- * identical to the AVX-512 kernels above -- that part isn't ISA-specific
- * at all.
+ * Once there's a scalar bitmask, the avx2cs kernels below extract the
+ * selected pixels from it (see the comment on avx2cs).
  */
 
-/* Collect id 7, "avx2cs": the avx2 selection, extracted without a loop per
- * pixel (the avx512cs scheme on AVX2).  For each 8 pixels the selection byte
+/* Collect avx2cs (BSLZ4_COLLECT_AVX2CS): the AVX2 selection, extracted
+ * without a loop per pixel (the avx512cs scheme on AVX2).  For each 8 pixels the selection byte
  * m indexes a table of 8 lane numbers (the set bits of m, packed): vpermd
  * packs the 8 pixel indices with it, and pshufb the 8 u16 values (lane k ->
  * bytes 2k, 2k+1).  Both are stored full width and the output advances by
  * popcount(m).  The full-width stores reach 8 entries past the count: as
  * for avx512cs, before group j at most j of this block's pixels were
  * selected, so a store ends before i0 + j + 16 <= i0 + block_elems.  On
- * EPYC 7543 (no AVX-512) the bit loop of the avx2 tier was 27-70 % of
+ * EPYC 7543 (no AVX-512) a bit loop per selected pixel was 27-70 % of
  * sparsify. */
 #ifndef BSLZ4_AVX2CS_SCALAR_MAX
 #define BSLZ4_AVX2CS_SCALAR_MAX 1
@@ -507,7 +521,7 @@ inline int bslz4_collect_sse2_u32(const uint32_t *BSLZ4_RESTRICT block,
  * __vector/__bool, not bare vector/bool: <altivec.h> defines the bare
  * keyword-macros in C mode only, leaving them undefined in C++ so they
  * cannot collide with std::vector and bool. This header is included
- * from kernels_generic.cpp, so it needs the prefixed spelling.
+ * from src/steps/kernels.cpp, so it needs the prefixed spelling.
  */
 
 #define BSLZ4_VSX_WINDOW 128   /* pixels; a multiple of both vector widths */
@@ -711,9 +725,10 @@ inline int bslz4_collect_neon_u32(const uint32_t *BSLZ4_RESTRICT block,
  * bslz4_collect_gt<T>: mask[j+i0]>0 & block[j]>cut, compacted into
  * (out_vals, out_adr). Generic (scalar) for every T; explicitly
  * specialized for uint16_t/uint32_t to dispatch on the pipeline's
- * collect tier id (avx512, avx2, sse2, vsx, neon -- see the top of this
- * file), id 0 meaning the scalar loop. Used by the plain sparse route and
- * the CSC dense route (kernels_generic.cpp).
+ * collect value (avx512cs, avx2cs, sse2, vsx, neon -- see the top of this
+ * file), any other value meaning the scalar loop. Used by the plain sparse
+ * route and the CSC dense route (dense_dot / sparse_dot_core in
+ * src/steps/dot_csc.hpp).
  */
 template<typename T>
 inline int bslz4_collect_gt(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
@@ -733,8 +748,7 @@ inline int bslz4_collect_gt(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_
 
 /*
  * bslz4_collect_nz<T>: mask[j+i0]>0 & block[j]!=0 (T's own domain, not
- * a cast through an unsigned type -- see kernels_generic.cpp's note about
- * what "!=0" should mean for signed sentinel values). Used by the CSC
+ * a cast through an unsigned type). Used by the CSC
  * sparse-route compaction pass. Deliberately NOT implemented in terms of
  * bslz4_collect_gt(..., cut=0): that would be equivalent for unsigned T
  * (this template's own SIMD specializations rely on exactly that

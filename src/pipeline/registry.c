@@ -39,6 +39,52 @@ typedef struct {
 
 static int bslz4_always(void) { return 1; }
 
+/*
+ * Step "dot": each value is a layout of the pixel -> bin matrix (built from
+ * a mask-folded CSC by src/_matrix.py; kernels in src/steps/dot_*.hpp), with
+ * a dense and a sparse route.  Weights are float32 and the powder float64
+ * unless stated.
+ *
+ *   BSLZ4_DOT_CSC  general CSC: any matrix, one (bin, weight) entry per
+ *                      pixel/bin pair.
+ *   BSLZ4_DOT_PADDED  every pixel one ascending run of consecutive bins, at
+ *                      most 64 wide: per row a first bin and a fixed width
+ *                      of weights, zero padded; no index read per entry.
+ *                      Rows are per pixel, or only the pixels with entries
+ *                      when under half have any (listed).
+ *   BSLZ4_DOT_PADDED_AVX2  the padded layout with AVX2+FMA row kernels on
+ *                      the dense route, for widths <= 8 (wider: scalar).
+ *   BSLZ4_DOT_CSC_RUN  CSC where each pixel's bins are one ascending run of
+ *                      consecutive bins: stores only the first bin per pixel
+ *                      beside the weights; any width.
+ *   BSLZ4_DOT_CSC_NOSPLIT  a histogram: at most one bin per pixel, weight
+ *                      exactly 1; stores that bin per pixel, no weights.
+ *   BSLZ4_DOT_BSBCSR  any matrix, for ones where most pixels have no entry
+ *                      (rings): per decode block a CSR of the bins it
+ *                      touches, so the dense route walks only those bins
+ *                      with register accumulators; the sparse route uses
+ *                      the nested CSC.
+ *   BSLZ4_DOT_BSBCSR_NOSPLIT  bsb-csr for a histogram (one bin per pixel,
+ *                      weight 1).
+ *   BSLZ4_DOT_CSC_NOSPLIT_MOMENT  a histogram with a first moment: each
+ *                      pixel reaches no bin or the pair b, b+1 with weights
+ *                      exactly 1 and q; the output interleaves sum I and
+ *                      sum qI.  Stores b and q per pixel.
+ *   BSLZ4_DOT_CSC_PERMUTE  a permutation: each pixel its own bin, weight 1;
+ *                      the pixel value is stored (not added) at its bin, so
+ *                      the output is the re-ordered image, in the pixel
+ *                      dtype rather than a float64 powder.
+ *   BSLZ4_DOT_CSC_INT  general CSC with u32 fixed-point weights
+ *                      round(w * 2**b) (unsigned, so no negative weights),
+ *                      integer pixel dtypes only; exact int64 sums of
+ *                      w * v, rescaled by 2**-b afterwards.
+ *   BSLZ4_DOT_CSC_RUN_INT  csc-run's layout (first bin per pixel) with u32
+ *                      fixed-point weights and an int64 powder, as csc-int.
+ *   BSLZ4_DOT_CSC_RUN_INT16  as csc-run-int with u16 weights.
+ *
+ * The integer values choose b so every sum stays exact in int64 and give each
+ * pixel's weights the rounding residual so they sum to round(sum w * 2**b).
+ */
 static const bslz4_dot_desc bslz4_dots[BSLZ4_DOT_N] = {
     /* 0 (auto)              */ {-1, 0, 0, 0},
     /* csc                   */ {BSLZ4_LAYOUT_CSC,    BSLZ4_ALL_DTYPES, 8, bslz4_always},

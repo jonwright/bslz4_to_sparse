@@ -14,6 +14,42 @@
  * has no NEON code).  The upstream bitshuffle kernels (scalar, NEON) are the
  * two lower-level primitives called here (we supply the workspace slice as
  * the temporary buffer, so nothing is allocated).
+ *
+ * The values (the low-planes ones: src/steps/lowplanes.h, lowplanes_avx2.hpp).
+ * Each low-planes value handles only u16 blocks whose high byte-planes are
+ * all zero (every value < 256), with half the bit transpose and no byte
+ * transpose; any other block, or a block size the kernel does not take, is
+ * untransposed with kcb.  They write the pixel list directly, fused with the
+ * collect (the block is never written), on the sparse route and in plain
+ * sparsify; the dense dot route needs the pixel block, which only the VBMI
+ * and AVX2 values build from the low planes (VSX, C: kcb).
+ *
+ *   BSLZ4_UNTRANSPOSE_LOWPLANES_VBMI  needs AVX-512 F/BW/VL/VBMI/VBMI2, GFNI
+ *                      and popcnt.  Bit transpose by gf2p8affineqb, 64 pixels
+ *                      at a time, stored straight into u16 for the dense
+ *                      route; the fused collect transposes only the 64-pixel
+ *                      groups holding data in well-compressed blocks.
+ *   BSLZ4_UNTRANSPOSE_LOWPLANES_AVX2  needs AVX2 and popcnt.  Fused collect:
+ *                      planes ORed into a bitmap of non-empty 64-pixel
+ *                      groups, only those transposed (kcb's AVX2 kernel) and
+ *                      compacted; block sizes ne <= 8192, ne % 256 == 0.
+ *                      Dense route: kcb's u8 transpose, widened to u16.
+ *   BSLZ4_UNTRANSPOSE_LOWPLANES_VSX  needs POWER8+ (vgbbd).  Fused collect:
+ *                      per 64-pixel group two vec_perm rounds and vec_gb give
+ *                      the pixel bytes; all-zero groups and words are
+ *                      skipped.  The dense route takes kcb.
+ *   BSLZ4_UNTRANSPOSE_LOWPLANES_C  portable C, always available: kcb's u8
+ *                      transpose of the low planes, then a SWAR collect of
+ *                      the pixels > cut.  The dense route takes kcb.
+ *   BSLZ4_UNTRANSPOSE_KCB  kcb, any dtype and block: dispatches SSE2, AVX2
+ *                      or AVX-512 itself (no NEON code); the full bit and
+ *                      byte transpose into the pixel block, collect separate.
+ *   BSLZ4_UNTRANSPOSE_NEON  bitshuffle's NEON kernels (bshuf_trans_byte_
+ *                      bitrow_NEON, then bshuf_shuffle_bit_eightelem_NEON);
+ *                      AArch64 only, any dtype, into the pixel block.
+ *   BSLZ4_UNTRANSPOSE_SCALAR  bitshuffle's scalar kernels (bshuf_trans_byte_
+ *                      bitrow_scal, then bshuf_shuffle_bit_eightelem_scal);
+ *                      any CPU, any dtype, into the pixel block.
  */
 
 #include "../pipeline/common.h"

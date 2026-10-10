@@ -15,7 +15,7 @@
  *
  * Within each step 0 means "auto" (src/_pipeline.py resolves it before C
  * sees the array; C rejects a 0) and the values are numbered best first, by
- * measurement (notes_pipeline_cases.md).  A value that needs an instruction
+ * measurement.  A value that needs an instruction
  * set is its own value (collect avx512cs, untranspose lowplanes-vbmi, ...)
  * and is rejected where the CPU or build lacks it -- never a silent
  * fallback.  The names and the checks are mirrored in src/_pipeline.py.
@@ -133,7 +133,7 @@ typedef struct {
     size_t blk_ptr_n;                 /* entries in blk_ptr (checked >= nblocks+1) */
     const uint32_t *bins;             /* active bin id per (block) entry */
     const uint32_t *bin_ptr;          /* nactive+1 -> into idx/data */
-    const uint16_t *idx;              /* in-block pixel index (block_elems <= 8192) */
+    const uint16_t *idx;              /* in-block pixel index (uint16: block_elems <= 65536) */
     const float *data;                /* weights, as in the (mask-folded) CSC */
     bslz4_mat_csc csc;                /* for the sparse route */
     size_t block_elems;

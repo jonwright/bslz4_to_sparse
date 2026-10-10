@@ -6,17 +6,17 @@ index/value arrays.
 Documentation, with runnable examples and speed on real data:
 https://jonwright.github.io/bslz4_to_sparse/
 
-This repository brings together upstream code from bitshuffle<sup>1</sup>,
-the DECTRIS bitshuffle SIMD kernels<sup>2</sup>, LZ4<sup>3</sup> and
-Zstandard<sup>4</sup> to process detector data as a
+This repository brings together upstream code from bitshuffle [1],
+the DECTRIS bitshuffle SIMD kernels [2], LZ4 [3] and
+Zstandard [4] to process detector data as a
 stream (in cache), rather than writing whole images to RAM and reading them
 back again. Versions before 0.0.16 were mostly written by @jonwright; later
 versions include a large amount of LLM-generated code (DeepSeek and Claude).
 
-It is used in ImageD11<sup>5</sup> to convert images directly to sparse
+It is used in ImageD11 [5] to convert images directly to sparse
 format, and it can also do radial integrations as sparse matrix products
-(for example with pyFAI's<sup>6</sup> integration matrices). The C/C++ core
-is a Python extension through c2py23<sup>7</sup>. Each decoder object has a
+(for example with the integration matrices of pyFAI [6]). The C/C++ core
+is a Python extension through c2py23 [7]. Each decoder object has a
 `pipeline`: one value per processing step (decode, mask, untranspose,
 collect, and for matrix objects route and dot), chosen automatically for the
 CPU, data and matrix unless given; `bslz4_to_sparse.describe()` lists the
@@ -59,31 +59,51 @@ own workspace and output arrays, so the arrays a call returns are
 overwritten by that object's next call, and a call's inputs (chunks, mmap
 base, mask) must not be changed or closed by another thread while it runs.
 Breaking these rules gives wrong results or a crash, not an error.
-`_testing.read_counters()` (test instrumentation) is only exact while one
+`_testing.counters()` (test instrumentation) is only exact while one
 decode runs at a time.
 
-SIMD collect tiers that the machine cannot run are skipped:
-`test_vsx_collect_matches_scalar` on x86_64, `test_neon_collect_matches_scalar`
-on x86_64/POWER, and the avx512/avx2/sse2 ones on POWER/ARM.
+Collect values the machine cannot run (vsx on x86_64, neon on x86_64/POWER,
+avx512cs/avx2cs/sse2 on POWER/ARM) are skipped by
+`test_simd_collect_matches_scalar`.
 
 The licences of the bundled upstream code are in `licenses/`.
 
+## Acknowledgements
+
+This package is mostly a regrouping of other people's work, put together
+so that detector frames can be decoded and reduced in one pass. The
+bitshuffle format and its reference implementation come from K. Masui and
+co-authors [1]; the fast SIMD bit-transpose kernels from K. Conley
+at DECTRIS [2]; the LZ4 and Zstandard decompressors from Y. Collet
+and the Zstandard contributors [3], [4]. The integration matrices are
+pyFAI's [6], and the sparse output serves ImageD11 [5].
+The portable Python wrappers come from c2py23 [7]: they let one
+compiled module load on every CPython from 2.7 to 3.15, free-threaded
+builds included, without compiling against any Python headers. Our thanks
+to all of these projects; please cite them as well as this one.
+
 ## References
 
-1. bitshuffle, K. Masui et al., https://github.com/kiyo-masui/bitshuffle;
+[1] bitshuffle, K. Masui et al., https://github.com/kiyo-masui/bitshuffle;
    K. Masui et al., "A compression scheme for radio data in high performance
    computing", Astronomy and Computing 12, 181-190 (2015),
    https://doi.org/10.1016/j.ascom.2015.07.002
-2. bitshuffle SIMD bit-transpose kernels ("kcb"), K. Conley (DECTRIS),
+
+[2] bitshuffle SIMD bit-transpose kernels ("kcb"), K. Conley (DECTRIS),
    https://github.com/kalcutter/bitshuffle
-3. LZ4, Y. Collet, https://github.com/lz4/lz4
-4. Zstandard, Y. Collet and Meta Platforms, https://github.com/facebook/zstd;
+
+[3] LZ4, Y. Collet, https://github.com/lz4/lz4
+
+[4] Zstandard, Y. Collet and Meta Platforms, https://github.com/facebook/zstd;
    Y. Collet and M. Kucherawy (ed.), "Zstandard Compression and the
    'application/zstd' Media Type", RFC 8878 (2021),
    https://doi.org/10.17487/RFC8878
-5. ImageD11, https://github.com/FABLE-3DXRD/ImageD11
-6. pyFAI, https://github.com/silx-kit/pyFAI; G. Ashiotis, A. Deschildre,
+
+[5] ImageD11, https://github.com/FABLE-3DXRD/ImageD11
+
+[6] pyFAI, https://github.com/silx-kit/pyFAI; G. Ashiotis, A. Deschildre,
    Z. Nawaz, J. P. Wright, D. Karkoulis, F. E. Picca and J. Kieffer, "The
    fast azimuthal integration Python library: pyFAI", J. Appl. Cryst. 48,
    510-519 (2015), https://doi.org/10.1107/S1600576715004306
-7. c2py23, https://github.com/jonwright/c2py23
+
+[7] c2py23, https://github.com/jonwright/c2py23

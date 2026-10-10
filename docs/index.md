@@ -39,7 +39,9 @@ shared between threads: use one per thread.
   output of running it when the site was built.
 - **Performance**: speed on three real data sets, measured on a stated
   machine and recorded in the repository.
-- **Reference**: the API, read from the docstrings, and every pipeline step
-  value.
+- **Reference**: the API, read from the docstrings, every pipeline step
+  value, and the acknowledgements and licences.  This package is mostly a
+  regrouping of other people's work: bitshuffle, LZ4, Zstandard, pyFAI's
+  matrices and the c2py23 wrappers; please cite them too.
 
 The source is on [GitHub](https://github.com/jonwright/bslz4_to_sparse).

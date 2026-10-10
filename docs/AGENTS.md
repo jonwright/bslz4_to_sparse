@@ -12,7 +12,9 @@ text, example output or a benchmark number into a Markdown file.
 | API reference | docstrings and signatures in `src/` | `tools/generate_docs.py` (introspection) |
 | Pipeline step values | `VALUES` in `src/_pipeline.py` | `tools/generate_docs.py` |
 | Decode error codes | `_DECODE_ERRORS` in `src/__init__.py` | `tools/generate_docs.py` |
+| Acknowledgements, references, licences | the `## Acknowledgements` and `## References` sections of `README.md`, and `licenses/` | `tools/generate_docs.py` |
 | Performance numbers | `docs/bench/real_data_<cpu>.json`, one per machine, measured there by `tools/bench_docs.py` and committed | `tools/generate_docs.py` |
+| Kernel comparison | `docs/bench/kernels_<cpu>.json`, measured by `tools/bench_kernels.py` and committed | `tools/generate_docs.py` |
 
 Generated pages go to `docs/gen/`, which is git-ignored: if a file is not
 in the repository, it cannot be edited by hand.
@@ -31,7 +33,7 @@ in the repository, it cannot be edited by hand.
    `tools/bench_docs.py --out docs/bench/real_data_<cpu>.json` on the machine
    the numbers are for, on one core, and commit the JSON; every file is
    shown, side by side, so all must measure the same cases.  The JSON records the
-   C sources' sha256 and a hash of `_pipeline.py` + `_matrix.py`; when either
+   C sources' sha256 and a hash of `_pipeline.py`, `_matrix.py` and `__init__.py`; when either
    differs from the code the site is built from, the performance page says
    so in a warning box.
 4. **`docs/index.md` is conceptual.**  No code blocks, no signatures, no

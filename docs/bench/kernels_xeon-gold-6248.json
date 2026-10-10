@@ -1,0 +1,6310 @@
+{
+ "auto": {
+  "WAu5um_DT3": {
+   "lz4 256k": {
+    "sparsify": {
+     "collect": "avx2cs",
+     "decode": "lz4-band",
+     "mask": "pixel",
+     "untranspose": "lowplanes-avx2"
+    },
+    "sparsify, no mask": {
+     "collect": "avx2cs",
+     "decode": "lz4-band",
+     "mask": "none",
+     "untranspose": "lowplanes-avx2"
+    }
+   },
+   "lz4 8k": {
+    "1D": {
+     "dot": "padded-avx2",
+     "route": "ratio"
+    },
+    "1D fine": {
+     "dot": "padded-avx2",
+     "route": "ratio"
+    },
+    "1D no-split": {
+     "dot": "bsb-csr-nosplit",
+     "route": "ratio"
+    },
+    "2D": {
+     "dot": "csc",
+     "route": "ratio"
+    },
+    "2D+rings": {
+     "dot": "padded-avx2",
+     "route": "ratio"
+    },
+    "sparsify": {
+     "collect": "avx2cs",
+     "decode": "lz4-band",
+     "mask": "planes",
+     "untranspose": "lowplanes-avx2"
+    },
+    "sparsify, no mask": {
+     "collect": "avx2cs",
+     "decode": "lz4-band",
+     "mask": "none",
+     "untranspose": "lowplanes-avx2"
+    }
+   },
+   "zstd-2 256k": {
+    "1D": {
+     "dot": "padded-avx2",
+     "route": "ratio"
+    },
+    "1D fine": {
+     "dot": "padded-avx2",
+     "route": "ratio"
+    },
+    "1D no-split": {
+     "dot": "csc-nosplit",
+     "route": "ratio"
+    },
+    "2D": {
+     "dot": "csc",
+     "route": "ratio"
+    },
+    "2D+rings": {
+     "dot": "padded-avx2",
+     "route": "ratio"
+    },
+    "sparsify": {
+     "collect": "avx2cs",
+     "decode": "zstd",
+     "mask": "pixel",
+     "untranspose": "lowplanes-avx2"
+    },
+    "sparsify, no mask": {
+     "collect": "avx2cs",
+     "decode": "zstd",
+     "mask": "none",
+     "untranspose": "lowplanes-avx2"
+    }
+   },
+   "zstd-2 8k": {
+    "sparsify": {
+     "collect": "avx2cs",
+     "decode": "zstd",
+     "mask": "planes",
+     "untranspose": "lowplanes-avx2"
+    },
+    "sparsify, no mask": {
+     "collect": "avx2cs",
+     "decode": "zstd",
+     "mask": "none",
+     "untranspose": "lowplanes-avx2"
+    }
+   }
+  },
+  "kevlar": {
+   "lz4 8k": {
+    "1D": {
+     "dot": "padded-avx2",
+     "route": "ratio"
+    },
+    "1D fine": {
+     "dot": "padded-avx2",
+     "route": "ratio"
+    },
+    "1D no-split": {
+     "dot": "bsb-csr-nosplit",
+     "route": "ratio"
+    },
+    "2D": {
+     "dot": "csc",
+     "route": "ratio"
+    },
+    "2D+rings": {
+     "dot": "padded-avx2",
+     "route": "ratio"
+    },
+    "sparsify": {
+     "collect": "avx2cs",
+     "decode": "lz4-band",
+     "mask": "planes",
+     "untranspose": "lowplanes-avx2"
+    },
+    "sparsify, no mask": {
+     "collect": "avx2cs",
+     "decode": "lz4-band",
+     "mask": "none",
+     "untranspose": "lowplanes-avx2"
+    }
+   },
+   "zstd-2 256k": {
+    "sparsify": {
+     "collect": "avx2cs",
+     "decode": "zstd",
+     "mask": "pixel",
+     "untranspose": "lowplanes-avx2"
+    },
+    "sparsify, no mask": {
+     "collect": "avx2cs",
+     "decode": "zstd",
+     "mask": "none",
+     "untranspose": "lowplanes-avx2"
+    }
+   }
+  }
+ },
+ "datasets": [
+  {
+   "cut": 0,
+   "dataset": "/entry_0000/ESRF-ID11/eiger/data",
+   "dtype": "uint16",
+   "encodings": [
+    {
+     "block_bytes": 8192,
+     "clevel": null,
+     "codec": "lz4",
+     "compression": 36.02595277466528,
+     "key": "lz4 8k"
+    },
+    {
+     "block_bytes": 262144,
+     "clevel": null,
+     "codec": "lz4",
+     "compression": 51.86467393813521,
+     "key": "lz4 256k"
+    },
+    {
+     "block_bytes": 8192,
+     "clevel": 2,
+     "codec": "zstd",
+     "compression": 37.16015946480253,
+     "key": "zstd-2 8k"
+    },
+    {
+     "block_bytes": 262144,
+     "clevel": 2,
+     "codec": "zstd",
+     "compression": 104.38631061668718,
+     "key": "zstd-2 256k"
+    }
+   ],
+   "file": "/data/id11/nanoscope/blc12454/id11/WAu5um/WAu5um_DT3/scan0001/eiger_0000.h5",
+   "frames_in_file": 1000,
+   "key": "WAu5um_DT3",
+   "label": "sparse photon counting, uint16",
+   "masked_pixels": 269126,
+   "matrix_encodings": [
+    "lz4 8k",
+    "zstd-2 256k"
+   ],
+   "shape": [
+    2162,
+    2068
+   ],
+   "sparsify_encodings": [
+    "lz4 8k",
+    "lz4 256k",
+    "zstd-2 8k",
+    "zstd-2 256k"
+   ]
+  },
+  {
+   "cut": 5,
+   "dataset": "/entry/data/data",
+   "dtype": "uint16",
+   "encodings": [
+    {
+     "block_bytes": 8192,
+     "clevel": null,
+     "codec": "lz4",
+     "compression": 8.099829837151791,
+     "key": "lz4 8k"
+    },
+    {
+     "block_bytes": 262144,
+     "clevel": 2,
+     "codec": "zstd",
+     "compression": 10.732267865309392,
+     "key": "zstd-2 256k"
+    }
+   ],
+   "file": "/data/id11/jon/hdftest/kevlar.h5",
+   "frames_in_file": 1000,
+   "key": "kevlar",
+   "label": "dense fibre pattern, uint16",
+   "masked_pixels": 250246,
+   "matrix_encodings": [
+    "lz4 8k"
+   ],
+   "shape": [
+    2167,
+    2070
+   ],
+   "sparsify_encodings": [
+    "lz4 8k",
+    "zstd-2 256k"
+   ]
+  }
+ ],
+ "date_utc": "2026-10-10 18:19",
+ "machine": {
+  "compiler": "x86_64-conda-linux-gnu-cc (conda-forge gcc 13.3.0-2) 13.3.0",
+  "cores_usable": 1,
+  "cpu": "Intel(R) Xeon(R) Gold 6248 CPU @ 2.50GHz",
+  "git": "v0.0.16-139-g4fa7213",
+  "numpy": "1.26.4",
+  "platform": "linux_x86_64",
+  "pyFAI": "2025.3.0",
+  "py_sha256": "4acc085000a6c627a1b7306a2b5fe34ca0316e03391c3a0a723916ea1075f62b",
+  "python": "3.12.9",
+  "src_sha256": "3ffc93197f60097d3937fc70dd71cbcab04dba76e451fdd4e67eceef00f86ac2",
+  "version": "0.0.21a1"
+ },
+ "matrices": {
+  "1D": {
+   "bins": 1475,
+   "bins_per_pixel_max": 3,
+   "bins_per_pixel_mean": 2.299622788792662,
+   "bins_shape": [
+    1475
+   ],
+   "nnz": 9662762,
+   "pixel_frac": 1.0
+  },
+  "1D fine": {
+   "bins": 6000,
+   "bins_per_pixel_max": 7,
+   "bins_per_pixel_mean": 6.286169081056382,
+   "bins_shape": [
+    6000
+   ],
+   "nnz": 26413791,
+   "pixel_frac": 1.0
+  },
+  "1D no-split": {
+   "bins": 1475,
+   "bins_per_pixel_max": 1,
+   "bins_per_pixel_mean": 1.0,
+   "bins_shape": [
+    1475
+   ],
+   "nnz": 4201890,
+   "pixel_frac": 1.0
+  },
+  "2D": {
+   "bins": 106200,
+   "bins_per_pixel_max": 6,
+   "bins_per_pixel_mean": 2.3506110345582583,
+   "bins_shape": [
+    1475,
+    72
+   ],
+   "nnz": 9877009,
+   "pixel_frac": 1.0
+  },
+  "2D+rings": {
+   "bins": 576,
+   "bins_per_pixel_max": 2,
+   "bins_per_pixel_mean": 1.0189998447462671,
+   "bins_shape": [
+    8,
+    72
+   ],
+   "nnz": 380680,
+   "pixel_frac": 0.08890808659912564
+  }
+ },
+ "method": {
+  "batch": 25,
+  "frames": 25,
+  "gb": 1000000000.0,
+  "geometry": {
+   "dist_m": 0.25,
+   "pixel_m": 7.5e-05,
+   "poni": "detector centre",
+   "rot_rad": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "wavelength_m": 2.85e-11
+  },
+  "mask": "pixels == 65535 in the first frame",
+  "no_mask": "the same frames with the masked pixels set to 0 and an all-valid mask",
+  "repeats": 2,
+  "seconds": 454,
+  "shape": [
+   2162,
+   2068
+  ]
+ },
+ "ops": {
+  "1D": "chunk2sparseCSC, pyFAI 1D bbox matrix (r_mm, one bin per pixel width)",
+  "1D fine": "chunk2sparseCSC, pyFAI 1D bbox matrix with 6000 bins (r_mm): a fine split, several bins per pixel",
+  "1D no-split": "chunk2sparseCSC, pyFAI 1D no-split matrix: a histogram, every pixel in one bin with weight 1 (r_mm, one bin per pixel width)",
+  "2D": "chunk2sparseCSC, pyFAI 2D bbox matrix (q_nm^-1, one radial bin per pixel width x 72 azimuthal bins)",
+  "2D+rings": "chunk2sparseCSC, 8 LaB6 ring windows x 72 azimuthal bins summed from the 2D matrix, the windows sized to hold ~8 % of the unmasked pixels",
+  "sparsify": "chunk2sparse: decode, mask and threshold to (values, indices)"
+ },
+ "results": [
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.09743117557616053,
+   "data": "WAu5um_DT3",
+   "fps": 392.53392630297907,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.5100509300868805,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.09677066427029618,
+   "data": "WAu5um_DT3",
+   "fps": 389.8728366186432,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-zero",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.4862553809746797,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.10109787977880512,
+   "data": "WAu5um_DT3",
+   "fps": 407.3064648538521,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-stock",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.642147442530021,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.07636262728152421,
+   "data": "WAu5um_DT3",
+   "fps": 307.65226563644126,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.7510364041935578,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.09773229868904967,
+   "data": "WAu5um_DT3",
+   "fps": 393.7471010091649,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.5208991771311853,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "data": "WAu5um_DT3",
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "refused": "pipeline['mask']='none': the mask has 269126 masked pixels (use 'pixel' or 'planes')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.09779372514051307,
+   "data": "WAu5um_DT3",
+   "fps": 393.99457791816457,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.523112123570721,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.072748724115685,
+   "data": "WAu5um_DT3",
+   "fps": 293.0924536401593,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 2.620842099408821,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.0749384570722931,
+   "data": "WAu5um_DT3",
+   "fps": 301.9145218327012,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.699729315492713,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.01442446507976521,
+   "data": "WAu5um_DT3",
+   "fps": 58.11375957538845,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.5196550977634299,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.07482722750736183,
+   "data": "WAu5um_DT3",
+   "fps": 301.4663965013044,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.695722164439352,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.07065483681885983,
+   "data": "WAu5um_DT3",
+   "fps": 284.6565315957185,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.5454078145379255,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.0420647110361785,
+   "data": "WAu5um_DT3",
+   "fps": 169.4716920347979,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.515421293269308,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.12064184497304108,
+   "data": "WAu5um_DT3",
+   "fps": 700.1557275567717,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 6.2608149207959345,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.12110434517789832,
+   "data": "WAu5um_DT3",
+   "fps": 702.8398888235307,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-zero",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 6.284816776736454,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.059520904770936224,
+   "data": "WAu5um_DT3",
+   "fps": 345.4348894783956,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-stock",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.0888898356322767,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.11477134729284792,
+   "data": "WAu5um_DT3",
+   "fps": 666.0857696966738,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 5.956160267372287,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.10614009846624088,
+   "data": "WAu5um_DT3",
+   "fps": 615.9935458644951,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 5.5082339989137825,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.1207742388194722,
+   "data": "WAu5um_DT3",
+   "fps": 700.9240870749202,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 6.267685616194722,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.1206546155568093,
+   "data": "WAu5um_DT3",
+   "fps": 700.2298427808182,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 6.261477661501046,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.06942832128742657,
+   "data": "WAu5um_DT3",
+   "fps": 402.9334665339884,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 3.603043951617853,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.06580949088310772,
+   "data": "WAu5um_DT3",
+   "fps": 381.93126091282403,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 3.415241556882822,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.012157951790846017,
+   "data": "WAu5um_DT3",
+   "fps": 70.5597596225602,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.6309476284572412,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.06588706252420812,
+   "data": "WAu5um_DT3",
+   "fps": 382.3814548635595,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 3.4192672055965048,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.061312022067368424,
+   "data": "WAu5um_DT3",
+   "fps": 355.82979875803437,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 3.1818414470479035,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.033105471864781764,
+   "data": "WAu5um_DT3",
+   "fps": 192.13056419003,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.7180376531653023,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.08030121537677168,
+   "data": "WAu5um_DT3",
+   "fps": 323.5201789606436,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.892927792911802,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.013658280806236624,
+   "data": "WAu5um_DT3",
+   "fps": 55.02693116157467,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.4920525793085979,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.08036537531085919,
+   "data": "WAu5um_DT3",
+   "fps": 323.77866861438923,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.895239215667264,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.07917302732305927,
+   "data": "WAu5um_DT3",
+   "fps": 318.97489780486325,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.852283743367817,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08168491735653412,
+   "data": "WAu5um_DT3",
+   "fps": 329.09488302982305,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.9427769750889343,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08175704130030662,
+   "data": "WAu5um_DT3",
+   "fps": 329.3854583478571,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.945375308881205,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.07988314588037333,
+   "data": "WAu5um_DT3",
+   "fps": 321.8358468162524,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.877866440978027,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.07881907530544581,
+   "data": "WAu5um_DT3",
+   "fps": 317.5488842688974,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.839532284696777,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 1258982 pixels do not reach exactly 0 or 2 bins (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.07660754295639909,
+   "data": "WAu5um_DT3",
+   "fps": 308.638989966752,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.7598597247303753,
+   "powder_rel": 2.9925372710744683e-12,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08051180104014923,
+   "data": "WAu5um_DT3",
+   "fps": 324.3685934109454,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.9005143420756627,
+   "powder_rel": 2.9925372710744683e-12,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08208426601850269,
+   "data": "WAu5um_DT3",
+   "fps": 330.703792060422,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int16",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.9571638911256395,
+   "powder_rel": 4.20371286587098e-06,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.0896046712625028,
+   "data": "WAu5um_DT3",
+   "fps": 361.00224817942194,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr-nosplit",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.228093655292333,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.03227825282755002,
+   "data": "WAu5um_DT3",
+   "fps": 130.04368716350191,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr-nosplit",
+    "mask": "planes",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.1628548120140234,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.08968248903064656,
+   "data": "WAu5um_DT3",
+   "fps": 361.31576296444814,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr-nosplit",
+    "mask": "planes",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.2308971145325103,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08420251556837122,
+   "data": "WAu5um_DT3",
+   "fps": 339.23786555160615,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.0334758493741596,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08626240847118537,
+   "data": "WAu5um_DT3",
+   "fps": 347.53682986281086,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.1076854538118104,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08592543232355042,
+   "data": "WAu5um_DT3",
+   "fps": 346.17920927043485,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.095545567030925,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08285677041691672,
+   "data": "WAu5um_DT3",
+   "fps": 333.81608320134893,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.984994098101125,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.0900687327240149,
+   "data": "WAu5um_DT3",
+   "fps": 362.8718742663089,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-nosplit",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.2448119115893106,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08405559854875694,
+   "data": "WAu5um_DT3",
+   "fps": 338.64596142842487,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.028183023763741,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08957545862219682,
+   "data": "WAu5um_DT3",
+   "fps": 360.8845553328647,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr-nosplit",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.227041242092247,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D no-split",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 4201890 pixels do not reach exactly 0 or 2 bins (auto picks 'bsb-csr-nosplit')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D no-split",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4200415 bins are reached by more than one pixel (auto picks 'bsb-csr-nosplit')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08325365988927347,
+   "data": "WAu5um_DT3",
+   "fps": 335.415084567916,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.9992924194890107,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.0837747390537595,
+   "data": "WAu5um_DT3",
+   "fps": 337.5144254528106,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.0180647928606468,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.0856579917049774,
+   "data": "WAu5um_DT3",
+   "fps": 345.1017357057307,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int16",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.0859107639361865,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.06908514803840328,
+   "data": "WAu5um_DT3",
+   "fps": 278.3325177836845,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.488858280662276,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.012453160815921195,
+   "data": "WAu5um_DT3",
+   "fps": 50.17170408802934,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.4486369834496891,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.06858039844638698,
+   "data": "WAu5um_DT3",
+   "fps": 276.2989660177089,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.4706741956972658,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.06473438425498118,
+   "data": "WAu5um_DT3",
+   "fps": 260.8040174836086,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.332117870066988,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.0689907948195018,
+   "data": "WAu5um_DT3",
+   "fps": 277.95238443051795,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.485459116053993,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.06914740382902386,
+   "data": "WAu5um_DT3",
+   "fps": 278.58333596157144,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.4911011048351224,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.06606850222019163,
+   "data": "WAu5um_DT3",
+   "fps": 266.178955843313,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.380180740877492,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.06444368238968753,
+   "data": "WAu5um_DT3",
+   "fps": 259.63282824266474,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.321645058396412,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 4201890 pixels do not reach exactly 0 or 2 bins (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.05765067716106816,
+   "data": "WAu5um_DT3",
+   "fps": 232.26494524198927,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.076920572832116,
+   "powder_rel": 2.4619655653569345e-12,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.06557460932388032,
+   "data": "WAu5um_DT3",
+   "fps": 264.18914389025196,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.362387778719238,
+   "powder_rel": 2.4619655653569345e-12,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.07101213578590301,
+   "data": "WAu5um_DT3",
+   "fps": 286.09602943168403,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int16",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.5582798502510604,
+   "powder_rel": 1.6908648198041274e-05,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.06540772796000116,
+   "data": "WAu5um_DT3",
+   "fps": 263.51680675993504,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.3563757185851553,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.00954703300542959,
+   "data": "WAu5um_DT3",
+   "fps": 38.463400733946955,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.34394096019177717,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.06612747338116166,
+   "data": "WAu5um_DT3",
+   "fps": 266.41654079717733,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.3823052331376653,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.0654698586325629,
+   "data": "WAu5um_DT3",
+   "fps": 263.7671208580693,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.358614035260723,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "padded",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='padded' cannot represent this matrix: 4201690 of 4201696 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "padded-avx2",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='padded-avx2' cannot represent this matrix: 4201690 of 4201696 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-run",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-run' cannot represent this matrix: 4201690 of 4201696 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 4201696 pixels reach more than one bin (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.06839956768622611,
+   "data": "WAu5um_DT3",
+   "fps": 275.57042910062313,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.4641595952715036,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 4201696 pixels reach more than one bin (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 1308594 pixels do not reach exactly 0 or 2 bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4201696 pixels reach more than one bin (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.061004889649994315,
+   "data": "WAu5um_DT3",
+   "fps": 245.7785068935519,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.197759273554362,
+   "powder_rel": 6.195295105779696e-11,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-run-int",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-run-int' cannot represent this matrix: 4201690 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-run-int16",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-run-int16' cannot represent this matrix: 4201690 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.08975283545019581,
+   "data": "WAu5um_DT3",
+   "fps": 361.59917693439905,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.2334314113210585,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.059115920157077104,
+   "data": "WAu5um_DT3",
+   "fps": 238.1681644406711,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.129707347809743,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.08967054001829765,
+   "data": "WAu5um_DT3",
+   "fps": 361.26762239029387,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.2304666399779243,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08900569876895693,
+   "data": "WAu5um_DT3",
+   "fps": 358.58908808719605,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.2065151005265258,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08945619194015957,
+   "data": "WAu5um_DT3",
+   "fps": 360.404049799596,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.2227445462375814,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.0896454441862193,
+   "data": "WAu5um_DT3",
+   "fps": 361.16651547619466,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.2295625387166282,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08870087021288132,
+   "data": "WAu5um_DT3",
+   "fps": 357.3609847695666,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.195533361360977,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 7098 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08824957537127928,
+   "data": "WAu5um_DT3",
+   "fps": 355.54279326108116,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.179275034709972,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 7098 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 366484 pixels do not reach exactly 0 or 2 bins (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 7098 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.09034181986734867,
+   "data": "WAu5um_DT3",
+   "fps": 363.97209673577777,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.254650136118421,
+   "powder_rel": 1.5244888212331416e-11,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08899415050366377,
+   "data": "WAu5um_DT3",
+   "fps": 358.5425620559673,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.2060990632664454,
+   "powder_rel": 1.5244888212331416e-11,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08964699530232409,
+   "data": "WAu5um_DT3",
+   "fps": 361.1727646637999,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int16",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.229618419152168,
+   "powder_rel": 5.491520407351895e-06,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.05724662100463526,
+   "data": "WAu5um_DT3",
+   "fps": 332.0360889410159,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.9690773324654103,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.0572575228805794,
+   "data": "WAu5um_DT3",
+   "fps": 332.09932090452895,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-zero",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.969642754706567,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.059159436263251895,
+   "data": "WAu5um_DT3",
+   "fps": 343.1306074679057,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-stock",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.068284872157452,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.05723352130017961,
+   "data": "WAu5um_DT3",
+   "fps": 331.9601093537948,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.968397920565132,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.057211631760563424,
+   "data": "WAu5um_DT3",
+   "fps": 331.8331478494242,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.967262626730282,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "mask",
+   "data": "WAu5um_DT3",
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "refused": "pipeline['mask']='none': the mask has 269126 masked pixels (use 'pixel' or 'planes')",
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.057296054414142185,
+   "data": "WAu5um_DT3",
+   "fps": 332.3228076270737,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.9716411801311375,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.05729672898972297,
+   "data": "WAu5um_DT3",
+   "fps": 332.3267202324573,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 2.971676166773681,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.057313328835990385,
+   "data": "WAu5um_DT3",
+   "fps": 332.4230009899052,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.972537112387764,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.01191088155451394,
+   "data": "WAu5um_DT3",
+   "fps": 69.08429629200774,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.6177539881406146,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.05727864153427471,
+   "data": "WAu5um_DT3",
+   "fps": 332.22181119397544,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.9707380667944867,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.056567895941617555,
+   "data": "WAu5um_DT3",
+   "fps": 328.0994161481816,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.933875478378357,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.031045751121348535,
+   "data": "WAu5um_DT3",
+   "fps": 180.0684407160741,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.6101777590732373,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.06142971981424048,
+   "data": "WAu5um_DT3",
+   "fps": 433.65089704122437,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.877720198171333,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.061471018745823176,
+   "data": "WAu5um_DT3",
+   "fps": 433.94243864001135,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-zero",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.880327172477018,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.035757262400072716,
+   "data": "WAu5um_DT3",
+   "fps": 252.4212866739362,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-stock",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.2571592229195114,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.05905596524320645,
+   "data": "WAu5um_DT3",
+   "fps": 416.8938484628262,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.727878133557743,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.05905519483127347,
+   "data": "WAu5um_DT3",
+   "fps": 416.88840989291515,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.7278295016915637,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.06152318541554109,
+   "data": "WAu5um_DT3",
+   "fps": 434.310698876054,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.883620167292039,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.061521201638966266,
+   "data": "WAu5um_DT3",
+   "fps": 434.29669479962644,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.883494942392493,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.062207368193567744,
+   "data": "WAu5um_DT3",
+   "fps": 439.14055120695514,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 3.9268088613902314,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.05342927961675883,
+   "data": "WAu5um_DT3",
+   "fps": 377.1733796627661,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 3.3726964304926037,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.010016574795760116,
+   "data": "WAu5um_DT3",
+   "fps": 70.71001884099344,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.6322912511967662,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.053410062733835896,
+   "data": "WAu5um_DT3",
+   "fps": 377.037721897387,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 3.371483374413535,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.05093388297319497,
+   "data": "WAu5um_DT3",
+   "fps": 359.5576230513503,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 3.2151757711691116,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.027633429301727085,
+   "data": "WAu5um_DT3",
+   "fps": 195.07270163783616,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.7443463403719832,
+   "sparse_ok": true,
+   "variant": "lz4 256k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.03518619479353659,
+   "data": "WAu5um_DT3",
+   "fps": 146.22231384180063,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.3075246094874244,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.0312186201029042,
+   "data": "WAu5um_DT3",
+   "fps": 129.7343714823443,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.1600889012950102,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.03517468017653818,
+   "data": "WAu5um_DT3",
+   "fps": 146.1744628607443,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.307096724483587,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "mask",
+   "data": "WAu5um_DT3",
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "refused": "pipeline['mask']='none': the mask has 269126 masked pixels (use 'pixel' or 'planes')",
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.035139586219619046,
+   "data": "WAu5um_DT3",
+   "fps": 146.02862385733144,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.305792627448221,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.031024992265226002,
+   "data": "WAu5um_DT3",
+   "fps": 128.92971753736325,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 1.1528936599700634,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.031199305663419292,
+   "data": "WAu5um_DT3",
+   "fps": 129.65410699086937,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.1593711736437775,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.011210966335575398,
+   "data": "WAu5um_DT3",
+   "fps": 46.58910824570016,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.41660129678451474,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.031182717077395155,
+   "data": "WAu5um_DT3",
+   "fps": 129.58517025457135,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.1587547391418251,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.03038429459450282,
+   "data": "WAu5um_DT3",
+   "fps": 126.26718763221407,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.1290852323572624,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.023377189107979916,
+   "data": "WAu5um_DT3",
+   "fps": 97.14794971561034,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 0.8687000750913786,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.029682659074888124,
+   "data": "WAu5um_DT3",
+   "fps": 250.0884589703625,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.2362990029436682,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.028880135818306694,
+   "data": "WAu5um_DT3",
+   "fps": 243.32687457120323,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.1758366988756856,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.02568762639263005,
+   "data": "WAu5um_DT3",
+   "fps": 216.42868595200056,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.9353122355007393,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.029433681194847565,
+   "data": "WAu5um_DT3",
+   "fps": 247.9907192031821,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.2175409468178686,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.029428862756942446,
+   "data": "WAu5um_DT3",
+   "fps": 247.950121906717,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.2171779244937646,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.02168240212454085,
+   "data": "WAu5um_DT3",
+   "fps": 182.68304468347478,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 1.633557631417061,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.02182869543981822,
+   "data": "WAu5um_DT3",
+   "fps": 183.91562528493222,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.644579406597873,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.007068518401748869,
+   "data": "WAu5um_DT3",
+   "fps": 59.555138568854346,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.5325439548471298,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.021758738677120033,
+   "data": "WAu5um_DT3",
+   "fps": 183.32621114472315,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.639308846494871,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.021003871651920702,
+   "data": "WAu5um_DT3",
+   "fps": 176.96614985158396,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.5824369748896592,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.014802177193627903,
+   "data": "WAu5um_DT3",
+   "fps": 124.71435508594506,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.1151997540378835,
+   "sparse_ok": true,
+   "variant": "zstd-2 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.02459786134469077,
+   "data": "WAu5um_DT3",
+   "fps": 287.1472608052726,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.5676799948330933,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.024685922413385256,
+   "data": "WAu5um_DT3",
+   "fps": 288.17525646330427,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.5768723649030734,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.02465991317406206,
+   "data": "WAu5um_DT3",
+   "fps": 287.87163324490206,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.5741573563681786,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "data": "WAu5um_DT3",
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "refused": "pipeline['mask']='none': the mask has 269126 masked pixels (use 'pixel' or 'planes')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.024669238446674555,
+   "data": "WAu5um_DT3",
+   "fps": 287.980493379099,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.5751307871716915,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.024693653920284324,
+   "data": "WAu5um_DT3",
+   "fps": 288.26551150608435,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 2.577679428383775,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.02472802878556175,
+   "data": "WAu5um_DT3",
+   "fps": 288.6667922624333,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.581267693748031,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.005851556824631825,
+   "data": "WAu5um_DT3",
+   "fps": 68.30913021639974,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.6108224282872133,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.02469047431024135,
+   "data": "WAu5um_DT3",
+   "fps": 288.2283937948543,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.5773475206221885,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.024470079923168034,
+   "data": "WAu5um_DT3",
+   "fps": 285.65558294523873,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.5543413636749785,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.014267490417633623,
+   "data": "WAu5um_DT3",
+   "fps": 166.55394282370173,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.4893306864557114,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.01627861672533827,
+   "data": "WAu5um_DT3",
+   "fps": 280.57872945186443,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.508943977277914,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.015730685212509452,
+   "data": "WAu5um_DT3",
+   "fps": 271.13456535057145,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.4244939596709014,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.015740213330941152,
+   "data": "WAu5um_DT3",
+   "fps": 271.2987922875858,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.425962482196945,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.016273176461325367,
+   "data": "WAu5um_DT3",
+   "fps": 280.4849608970555,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.508105495860219,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.016281570897991288,
+   "data": "WAu5um_DT3",
+   "fps": 280.62964766092057,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.5093992895326767,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.01627914131518849,
+   "data": "WAu5um_DT3",
+   "fps": 280.58777129836415,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 2.5090248297586535,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.01575675476856449,
+   "data": "WAu5um_DT3",
+   "fps": 271.5839010059721,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.428511933480235,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.003919632576572781,
+   "data": "WAu5um_DT3",
+   "fps": 67.55890545301081,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.6041138944457971,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.015753183392625752,
+   "data": "WAu5um_DT3",
+   "fps": 271.5223446624453,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.427961494686615,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.015211871566984331,
+   "data": "WAu5um_DT3",
+   "fps": 262.19227768941244,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.344531737251612,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.009420421378738176,
+   "data": "WAu5um_DT3",
+   "fps": 162.3706673573404,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.4519237033706935,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.020587391043577402,
+   "data": "WAu5um_DT3",
+   "fps": 240.33036297142243,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.1490417962620745,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.00465757837098562,
+   "data": "WAu5um_DT3",
+   "fps": 54.37102244269186,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.48618742255526876,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.020584109214275982,
+   "data": "WAu5um_DT3",
+   "fps": 240.29205198653116,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.148699218209225,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.02023784977859403,
+   "data": "WAu5um_DT3",
+   "fps": 236.24993437757442,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.1125544732021706,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.020799587534244,
+   "data": "WAu5um_DT3",
+   "fps": 242.80747430210144,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.171192205048569,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.02075354222476834,
+   "data": "WAu5um_DT3",
+   "fps": 242.26995665763678,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.166385705071201,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.019801376219545492,
+   "data": "WAu5um_DT3",
+   "fps": 231.15468706568691,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.066992608691358,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "bsb-csr",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr' cannot represent this matrix: the decode blocks have 131072 pixels and bsb-csr takes at most 65536 (its in-block index is uint16) (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 1258982 pixels do not reach exactly 0 or 2 bins (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.019112110387341934,
+   "data": "WAu5um_DT3",
+   "fps": 223.10842674612311,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-int",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.995042691433489,
+   "powder_rel": 2.9925372710744683e-12,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.02004408788934958,
+   "data": "WAu5um_DT3",
+   "fps": 233.98802245908124,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run-int",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.0923283844458234,
+   "powder_rel": 2.9925372710744683e-12,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.02038866869670643,
+   "data": "WAu5um_DT3",
+   "fps": 238.01054431868772,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run-int16",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.128297903635124,
+   "powder_rel": 4.20371286587098e-06,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.02389378939074704,
+   "data": "WAu5um_DT3",
+   "fps": 278.92815873978367,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-nosplit",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.494184521152225,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.010398284788805388,
+   "data": "WAu5um_DT3",
+   "fps": 121.38612183953408,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-nosplit",
+    "mask": "pixel",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.0854385858450126,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.023921787153067888,
+   "data": "WAu5um_DT3",
+   "fps": 279.2549953149823,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-nosplit",
+    "mask": "pixel",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.4971071042664215,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.02171678855880926,
+   "data": "WAu5um_DT3",
+   "fps": 253.51457432681764,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.266935436096782,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.022240061192422556,
+   "data": "WAu5um_DT3",
+   "fps": 259.62308519655835,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.321557935766351,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.022260512713893538,
+   "data": "WAu5um_DT3",
+   "fps": 259.86182946328137,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.323692794639205,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.020979523401642733,
+   "data": "WAu5um_DT3",
+   "fps": 244.90798583520342,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.189975046393936,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.02391278853490965,
+   "data": "WAu5um_DT3",
+   "fps": 279.1499484363548,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-nosplit",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.4961677717162343,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D no-split",
+   "pipeline": {
+    "dot": "bsb-csr",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr' cannot represent this matrix: the decode blocks have 131072 pixels and bsb-csr takes at most 65536 (its in-block index is uint16) (auto picks 'bsb-csr-nosplit')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D no-split",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: the decode blocks have 131072 pixels and bsb-csr takes at most 65536 (its in-block index is uint16) (auto picks 'bsb-csr-nosplit')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D no-split",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 4201890 pixels do not reach exactly 0 or 2 bins (auto picks 'bsb-csr-nosplit')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D no-split",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4200415 bins are reached by more than one pixel (auto picks 'bsb-csr-nosplit')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.02069204211818731,
+   "data": "WAu5um_DT3",
+   "fps": 241.55202484655328,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-int",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.1599659358426746,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.021206192219591934,
+   "data": "WAu5um_DT3",
+   "fps": 247.5540423062117,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run-int",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.213636168031499,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.02153957937204033,
+   "data": "WAu5um_DT3",
+   "fps": 251.44589315746012,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run-int16",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.2484372228825893,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.018348974176652703,
+   "data": "WAu5um_DT3",
+   "fps": 214.1998281712301,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.915381717901641,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.003912158149504867,
+   "data": "WAu5um_DT3",
+   "fps": 45.669234439758114,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.40837575577581914,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.01843169774747636,
+   "data": "WAu5um_DT3",
+   "fps": 215.16551565247815,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.9240169262609605,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.018626567160077094,
+   "data": "WAu5um_DT3",
+   "fps": 217.44035643066277,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.9443586252943923,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.018405932940824155,
+   "data": "WAu5um_DT3",
+   "fps": 214.8647458598655,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.921327433150785,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.018168006519378933,
+   "data": "WAu5um_DT3",
+   "fps": 212.0872718659346,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.8964911718178872,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.016851126414172524,
+   "data": "WAu5um_DT3",
+   "fps": 196.71445104545307,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.759026916110875,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "bsb-csr",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr' cannot represent this matrix: the decode blocks have 131072 pixels and bsb-csr takes at most 65536 (its in-block index is uint16) (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 4201890 pixels do not reach exactly 0 or 2 bins (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4201890 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.015342511699846576,
+   "data": "WAu5um_DT3",
+   "fps": 179.10338410110162,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-int",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.601548191940342,
+   "powder_rel": 2.4619655653569345e-12,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.01704744251161948,
+   "data": "WAu5um_DT3",
+   "fps": 199.00617994187772,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run-int",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.7795196292380284,
+   "powder_rel": 2.4619655653569345e-12,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.01787084964628842,
+   "data": "WAu5um_DT3",
+   "fps": 208.61836125855703,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run-int16",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.8654720621615772,
+   "powder_rel": 1.6908648198041274e-05,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.018159956894812944,
+   "data": "WAu5um_DT3",
+   "fps": 211.9933032232041,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.8956509012075942,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.00315479378689152,
+   "data": "WAu5um_DT3",
+   "fps": 36.828014501631515,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc",
+    "mask": "pixel",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.32931728417005307,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.018186825963073465,
+   "data": "WAu5um_DT3",
+   "fps": 212.3069637989461,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc",
+    "mask": "pixel",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.8984556641130175,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.018214726005992155,
+   "data": "WAu5um_DT3",
+   "fps": 212.63265963031074,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.9013680466593468,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "padded",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='padded' cannot represent this matrix: 4201690 of 4201696 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "padded-avx2",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='padded-avx2' cannot represent this matrix: 4201690 of 4201696 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-run",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-run' cannot represent this matrix: 4201690 of 4201696 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 4201696 pixels reach more than one bin (auto picks 'csc')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "bsb-csr",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr' cannot represent this matrix: the decode blocks have 131072 pixels and bsb-csr takes at most 65536 (its in-block index is uint16) (auto picks 'csc')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 4201696 pixels reach more than one bin (auto picks 'csc')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 1308594 pixels do not reach exactly 0 or 2 bins (auto picks 'csc')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4201696 pixels reach more than one bin (auto picks 'csc')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.0168448654217645,
+   "data": "WAu5um_DT3",
+   "fps": 196.64136230026938,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-int",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.7583733542126023,
+   "powder_rel": 6.195295105779696e-11,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-run-int",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-run-int' cannot represent this matrix: 4201690 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-run-int16",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-run-int16' cannot represent this matrix: 4201690 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.02389731197581776,
+   "data": "WAu5um_DT3",
+   "fps": 278.9692802275357,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.4945522308115917,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.019732527359380195,
+   "data": "WAu5um_DT3",
+   "fps": 230.35096834685217,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.0598057301885393,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.02395650337856471,
+   "data": "WAu5um_DT3",
+   "fps": 279.66026099711695,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.5007310029645717,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.023694018794544514,
+   "data": "WAu5um_DT3",
+   "fps": 276.5961031726287,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.4733312056449477,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.02399601972608573,
+   "data": "WAu5um_DT3",
+   "fps": 280.1215617089424,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.504855968691338,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.023932194514970813,
+   "data": "WAu5um_DT3",
+   "fps": 279.3764874000362,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "padded-avx2",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.4981934903787204,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.022795006487963718,
+   "data": "WAu5um_DT3",
+   "fps": 266.10133219854055,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.37948662776198,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 7098 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "bsb-csr",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr' cannot represent this matrix: the decode blocks have 131072 pixels and bsb-csr takes at most 65536 (its in-block index is uint16) (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 7098 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 366484 pixels do not reach exactly 0 or 2 bins (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "data": "WAu5um_DT3",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 7098 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.023728297701886097,
+   "data": "WAu5um_DT3",
+   "fps": 276.99626374791615,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-int",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.476909454314306,
+   "powder_rel": 1.5244888212331416e-11,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.0227920713160159,
+   "data": "WAu5um_DT3",
+   "fps": 266.06706797641993,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run-int",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.3791802359913223,
+   "powder_rel": 1.5244888212331416e-11,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.022804084297543683,
+   "data": "WAu5um_DT3",
+   "fps": 266.20730353151424,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "dot": "csc-run-int16",
+    "mask": "pixel",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.3804342268125134,
+   "powder_rel": 5.491520407351895e-06,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.3499589768501164,
+   "data": "kevlar",
+   "fps": 316.9982127630147,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.834608162469686,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.32228426242489616,
+   "data": "kevlar",
+   "fps": 291.930031656522,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-zero",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.6104476848336327,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.3777443353627378,
+   "data": "kevlar",
+   "fps": 342.16661698215535,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-stock",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.0596648383861766,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.34118512853615707,
+   "data": "kevlar",
+   "fps": 309.05072629013563,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.763541484109634,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.34945872272025,
+   "data": "kevlar",
+   "fps": 316.54507489376414,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.8305561891424356,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "data": "kevlar",
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "refused": "pipeline['mask']='none': the mask has 250246 masked pixels (use 'pixel' or 'planes')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.34996379564680985,
+   "data": "kevlar",
+   "fps": 317.0025777030236,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.834647193902923,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.1379176855565296,
+   "data": "kevlar",
+   "fps": 124.92795648032767,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 1.1171097845416973,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.33776123559506566,
+   "data": "kevlar",
+   "fps": 305.9493115106464,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.7358085339061686,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.06540184010438299,
+   "data": "kevlar",
+   "fps": 59.241990621607265,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.5297437758821121,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.3376478942299802,
+   "data": "kevlar",
+   "fps": 305.8466451624716,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.7348904881354663,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.291711119098091,
+   "data": "kevlar",
+   "fps": 264.2364091628902,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.3628104262996574,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.1714649407858653,
+   "data": "kevlar",
+   "fps": 155.31557518501577,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.388836843402817,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.39647599609376283,
+   "data": "kevlar",
+   "fps": 368.96521195962896,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.2992987322297846,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.45645160813442875,
+   "data": "kevlar",
+   "fps": 424.7792199374524,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-zero",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.7983893776157376,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.3243599833686369,
+   "data": "kevlar",
+   "fps": 301.8532047184219,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-stock",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.69918101589468,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.3777165395565992,
+   "data": "kevlar",
+   "fps": 351.50744168935734,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.1431907918243676,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.35184252120604637,
+   "data": "kevlar",
+   "fps": 327.4287767537344,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.927878599452749,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.395625218233322,
+   "data": "kevlar",
+   "fps": 368.1734681045133,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.292218933341537,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.3960644850132912,
+   "data": "kevlar",
+   "fps": 368.58225492181117,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 3.295874318142993,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.13593891839219205,
+   "data": "kevlar",
+   "fps": 126.50635179002425,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 1.1312238459096542,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.3307575805238651,
+   "data": "kevlar",
+   "fps": 307.8068836641023,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.7524190035446803,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.07331140786355723,
+   "data": "kevlar",
+   "fps": 68.22445597700015,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.6100652685289266,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.33060235380443115,
+   "data": "kevlar",
+   "fps": 307.6624278584494,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.751127275107946,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.28362157123624654,
+   "data": "kevlar",
+   "fps": 263.9415605951509,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.3601738809717783,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.16677385220678193,
+   "data": "kevlar",
+   "fps": 155.20170283965183,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "lz4-band",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.3878185932466574,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.08378699864483793,
+   "data": "kevlar",
+   "fps": 75.89554942197198,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.678660431588855,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.061246460494608475,
+   "data": "kevlar",
+   "fps": 55.477983990011246,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.49608590813416825,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.07635713890116394,
+   "data": "kevlar",
+   "fps": 69.16546842498343,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.6184798319511914,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.0666046208151491,
+   "data": "kevlar",
+   "fps": 60.33148785094103,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.539486094970726,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.06846527667298782,
+   "data": "kevlar",
+   "fps": 62.01689848624109,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.5545570908047194,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.08373505336531299,
+   "data": "kevlar",
+   "fps": 75.84849659046844,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.6782396836638597,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.0686207384548191,
+   "data": "kevlar",
+   "fps": 62.157718154412,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.5558163047837331,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 4189414 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.07748058429918922,
+   "data": "kevlar",
+   "fps": 70.18310251031616,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.6275795485065275,
+   "powder_rel": 5.618990040136655e-17,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 4189414 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 1255835 pixels do not reach exactly 0 or 2 bins (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "1D",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4189414 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.06765798827546296,
+   "data": "kevlar",
+   "fps": 61.28564426466612,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.5480181921552609,
+   "powder_rel": 6.307653459455804e-12,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.07955926789692358,
+   "data": "kevlar",
+   "fps": 72.06600601892885,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.6444165319334544,
+   "powder_rel": 6.307653459455804e-12,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.07999996237368155,
+   "data": "kevlar",
+   "fps": 72.46519384021065,
+   "kind": "1D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int16",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.6479860822053665,
+   "powder_rel": 3.9356446248745684e-06,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.14994795250126336,
+   "data": "kevlar",
+   "fps": 135.82515693184195,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr-nosplit",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.2145528996895525,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.14457094195531714,
+   "data": "kevlar",
+   "fps": 130.95457824740703,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr-nosplit",
+    "mask": "planes",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.1710000292348175,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.11224751412587321,
+   "data": "kevlar",
+   "fps": 101.67552118610905,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr-nosplit",
+    "mask": "planes",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.909185764062865,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.10160737987885174,
+   "data": "kevlar",
+   "fps": 92.03752426937635,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.82300248721754,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.09401298801253258,
+   "data": "kevlar",
+   "fps": 85.15840755028668,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.7614892053837051,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.12190806342831798,
+   "data": "kevlar",
+   "fps": 110.4261950243617,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.9874345695460831,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.10937336367702177,
+   "data": "kevlar",
+   "fps": 99.07207159410692,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.885905634500795,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.14078965562193022,
+   "data": "kevlar",
+   "fps": 127.52943104753324,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-nosplit",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.1403722533688356,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.11393337339048752,
+   "data": "kevlar",
+   "fps": 103.2025983843076,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.9228409372356268,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.14969656648885854,
+   "data": "kevlar",
+   "fps": 135.59744762327327,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr-nosplit",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.2125167157656336,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "1D no-split",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 4189414 pixels do not reach exactly 0 or 2 bins (auto picks 'bsb-csr-nosplit')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "1D no-split",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4187939 bins are reached by more than one pixel (auto picks 'bsb-csr-nosplit')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.11406179091796091,
+   "data": "kevlar",
+   "fps": 103.31892095177797,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.9238810973562691,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.12331380513493537,
+   "data": "kevlar",
+   "fps": 111.69953743899276,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.9988208381646713,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.1237896995745872,
+   "data": "kevlar",
+   "fps": 112.13060992694925,
+   "kind": "1D no-split",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int16",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.0026755021462979,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.07172722260170245,
+   "data": "kevlar",
+   "fps": 64.97161917618925,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.5809782977652979,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.05562237822974683,
+   "data": "kevlar",
+   "fps": 50.38360395027055,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.4505317987986457,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.05576376157446697,
+   "data": "kevlar",
+   "fps": 50.51167115401579,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.4516769798326861,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.036103061793292895,
+   "data": "kevlar",
+   "fps": 32.702707519482,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.29242865712584865,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.04578231007885296,
+   "data": "kevlar",
+   "fps": 41.47031918365182,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.37082892119042843,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.07146305589131559,
+   "data": "kevlar",
+   "fps": 64.73233291521706,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.5788385923625241,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.039573551701165936,
+   "data": "kevlar",
+   "fps": 35.84633054670045,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.3205390348311729,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 4189414 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.040507099156502684,
+   "data": "kevlar",
+   "fps": 36.691952160795964,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.3281006103643067,
+   "powder_rel": 2.283953083128367e-16,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 4189414 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 4189414 pixels do not reach exactly 0 or 2 bins (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "1D fine",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4189414 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.04002252260338387,
+   "data": "kevlar",
+   "fps": 36.253015281199026,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.32417562274097067,
+   "powder_rel": 3.800497930325602e-12,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.04694609899760212,
+   "data": "kevlar",
+   "fps": 42.524497049290304,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.3802554133986595,
+   "powder_rel": 3.800497930325602e-12,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.04737535606252272,
+   "data": "kevlar",
+   "fps": 42.913324687376594,
+   "kind": "1D fine",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int16",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.3837323225809115,
+   "powder_rel": 5.379656741024538e-06,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.0547747208606968,
+   "data": "kevlar",
+   "fps": 49.61578289466338,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.4436659183491326,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.043159079465148006,
+   "data": "kevlar",
+   "fps": 39.094156629702404,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.3495811995958111,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.04692604457660765,
+   "data": "kevlar",
+   "fps": 42.50633144693753,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.3800929760011217,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.05483940302944202,
+   "data": "kevlar",
+   "fps": 49.6743729959216,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.44418983290946684,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "padded",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='padded' cannot represent this matrix: 4189218 of 4189224 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "padded-avx2",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='padded-avx2' cannot represent this matrix: 4189218 of 4189224 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-run",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-run' cannot represent this matrix: 4189218 of 4189224 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 4189224 pixels reach more than one bin (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.057124393131184587,
+   "data": "kevlar",
+   "fps": 51.74415210247042,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.4626978639131578,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 4189224 pixels reach more than one bin (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 1305050 pixels do not reach exactly 0 or 2 bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 4189224 pixels reach more than one bin (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.05646206714225447,
+   "data": "kevlar",
+   "fps": 51.14420705563351,
+   "kind": "2D",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 0.4573331361061006,
+   "powder_rel": 1.5295486335899636e-11,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-run-int",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-run-int' cannot represent this matrix: 4189218 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D",
+   "pipeline": {
+    "dot": "csc-run-int16",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-run-int16' cannot represent this matrix: 4189218 pixels with several bins reach bins that are not one ascending run of consecutive bins (auto picks 'csc')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.21401736446063305,
+   "data": "kevlar",
+   "fps": 193.86021368821147,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.733504234326825,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.26458096808106213,
+   "data": "kevlar",
+   "fps": 239.6615019500593,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "dense",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.1430608196054926,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "route",
+   "compressed_gbs": 0.12889090123428662,
+   "data": "kevlar",
+   "fps": 116.75135668882189,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "sparse",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.0439943675548593,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.14937949618123106,
+   "data": "kevlar",
+   "fps": 135.31024047190138,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.2099485002274373,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.2045605674813235,
+   "data": "kevlar",
+   "fps": 185.29410183165604,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.6569057879899267,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.21414090309745024,
+   "data": "kevlar",
+   "fps": 193.9721168816392,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "padded-avx2",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.7345048762633581,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.136939297556118,
+   "data": "kevlar",
+   "fps": 124.04171761224431,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.109185008223652,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "csc-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit' cannot represent this matrix: 7069 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.19330746889254224,
+   "data": "kevlar",
+   "fps": 175.10087240574688,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "bsb-csr",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.5657576042801056,
+   "powder_rel": 0.0,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "bsb-csr-nosplit",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='bsb-csr-nosplit' cannot represent this matrix: 7069 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "csc-nosplit-moment",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-nosplit-moment' cannot represent this matrix: 365689 pixels do not reach exactly 0 or 2 bins (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "data": "kevlar",
+   "kind": "2D+rings",
+   "pipeline": {
+    "dot": "csc-permute",
+    "route": "ratio"
+   },
+   "refused": "pipeline['dot']='csc-permute' cannot represent this matrix: 7069 pixels reach more than one bin (auto picks 'padded')",
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.14405481909641346,
+   "data": "kevlar",
+   "fps": 130.48706623982486,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.1668195219026336,
+   "powder_rel": 1.33992410978896e-13,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.1528882469670898,
+   "data": "kevlar",
+   "fps": 138.48852078966684,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.238368784533866,
+   "powder_rel": 1.33992410978896e-13,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "dot",
+   "compressed_gbs": 0.15010874628096713,
+   "data": "kevlar",
+   "fps": 135.9708064055268,
+   "kind": "2D+rings",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "lz4-band",
+    "dot": "csc-run-int16",
+    "mask": "planes",
+    "route": "ratio",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 1.2158553019440255,
+   "powder_rel": 4.792247415515088e-07,
+   "sparse_ok": true,
+   "variant": "lz4 8k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.19814964174042834,
+   "data": "kevlar",
+   "fps": 237.82010985572046,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.126595032573368,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.19816233836367245,
+   "data": "kevlar",
+   "fps": 237.83534840123679,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.1267312961350084,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.1980901409825843,
+   "data": "kevlar",
+   "fps": 237.74869677294788,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.125956454501997,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "data": "kevlar",
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "refused": "pipeline['mask']='none': the mask has 250246 masked pixels (use 'pixel' or 'planes')",
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.198200576753937,
+   "data": "kevlar",
+   "fps": 237.8812422928106,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.127141680782066,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.19816323203409195,
+   "data": "kevlar",
+   "fps": 237.83642098857774,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 2.1267408872453335,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.19833045151851716,
+   "data": "kevlar",
+   "fps": 238.0371185816025,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.1285355315444843,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.05444554571585384,
+   "data": "kevlar",
+   "fps": 65.34579396444697,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.5843241806954915,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.19841939945352996,
+   "data": "kevlar",
+   "fps": 238.1438743016249,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.1294901446091075,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.17991470620111102,
+   "data": "kevlar",
+   "fps": 215.93445649252476,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.9308928198587643,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.11411908539550628,
+   "data": "kevlar",
+   "fps": 136.96625028949688,
+   "kind": "sparsify",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.2247565930086903,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "decode",
+   "compressed_gbs": 0.18995290399597956,
+   "data": "kevlar",
+   "fps": 233.47133516814318,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.0877081501562618,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.18470871668238265,
+   "data": "kevlar",
+   "fps": 227.02569844335153,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "pixel",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.0300710603027996,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.1842954317869617,
+   "data": "kevlar",
+   "fps": 226.51772949784495,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "planes",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.0255287857370736,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "mask",
+   "compressed_gbs": 0.18949756568176443,
+   "data": "kevlar",
+   "fps": 232.91167831669927,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.082703680681631,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.18966378885939802,
+   "data": "kevlar",
+   "fps": 233.11598341760381,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-avx2"
+   },
+   "pixel_gbs": 2.084530583431683,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.095522265369137,
+   "data": "kevlar",
+   "fps": 117.4065274331901,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "lowplanes-c"
+   },
+   "pixel_gbs": 1.049852925316464,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.1862903268982923,
+   "data": "kevlar",
+   "fps": 228.9696573987346,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.0474540034885216,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "untranspose",
+   "compressed_gbs": 0.05271176733773313,
+   "data": "kevlar",
+   "fps": 64.78809452512267,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "scalar"
+   },
+   "pixel_gbs": 0.5793372144626717,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.1867541383767149,
+   "data": "kevlar",
+   "fps": 229.53972862615805,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "avx2cs",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 2.052551598646421,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.16769856384375376,
+   "data": "kevlar",
+   "fps": 206.11849981093198,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "sse2",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.8431182211013477,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  },
+  {
+   "axis": "collect",
+   "compressed_gbs": 0.10851973029256576,
+   "data": "kevlar",
+   "fps": 133.3817266833066,
+   "kind": "sparsify, no mask",
+   "pipeline": {
+    "collect": "scalar",
+    "decode": "zstd",
+    "mask": "none",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.1927036682173815,
+   "sparse_ok": true,
+   "variant": "zstd-2 256k"
+  }
+ ],
+ "schema": 2,
+ "tool": "tools/bench_kernels.py"
+}

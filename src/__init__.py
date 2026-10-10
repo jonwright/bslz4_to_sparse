@@ -8,6 +8,9 @@ integration) in the same pass.
 Each object has a `pipeline` (src/_pipeline.py): one value per processing
 step, resolved when the object is made (0 / None: the best guess for this
 CPU, data and matrix) and kept in `.pipeline`; describe() names the values.
+An automatic mask step on uint16 data with masked pixels is settled by the
+first frame decoded: 'planes' when most masked pixels hold 65535 there,
+'pixel' otherwise.
 Nothing is global, so objects with different pipelines can run in
 different threads.
 
@@ -230,6 +233,43 @@ def _unravel(indices, nfast, row, col):
     col[:] = t
 
 
+# An automatic mask step on uint16 data is settled on the first frame decoded:
+# 'planes' (the mask ANDed into the bit-planes) wins only where masked pixels
+# hold the maximum, which stops the byte skip of the high byte-planes; on
+# zero-filled masked pixels it is pure overhead (src/steps/mask.h).
+_MASK_PLANES_FRACTION = 0.5     # of the masked pixels at 65535 in the first frame
+
+
+def _mask_auto_pending(pipeline, dtype, mask):
+    """True when the mask step was left automatic and the first frame decides it."""
+    return (_pipeline.parse(pipeline)[_pipeline.MASK] == 0 and np.dtype(dtype) == np.uint16
+            and not bool((mask != 0).all()))
+
+
+def _settle_mask(obj, pointers, lengths, cmp):
+    """Decode the first chunk once with no mask and keep only the pixels at
+    65535: if most masked pixels hold it, switch obj's mask step to 'planes'."""
+    obj._mask_pending = False
+    block_elems = _blocksize_bytes(cmp) // 2
+    if block_elems > 8192 or block_elems % 64:      # BSLZ4_MASKPLANE_MAX_ELEMS: no planes
+        return
+    p = obj.pipeline.copy()
+    p[_pipeline.MASK] = _pipeline.NAMES["mask"].index("none")
+    p[_pipeline.ROUTE] = p[_pipeline.DOT] = 0
+    values = np.empty(obj.npix, np.uint16)
+    adr = np.empty(obj.npix, np.uint32)
+    npx = np.empty(1, np.int32)
+    ret = _ext.sparsify(pointers[:1], lengths[:1], np.ones(obj.npix, np.uint8), values, adr,
+                        npx, 65534, np.empty(3 * _blocksize_bytes(cmp), np.uint8),
+                        np.empty(1, np.int64), obj._di, p)
+    if ret < 0:
+        return                      # the real decode reports the error
+    masked = obj.mask == 0
+    at_max = int(np.count_nonzero(masked[adr[:int(npx[0])]]))
+    if at_max >= _MASK_PLANES_FRACTION * int(np.count_nonzero(masked)):
+        obj.pipeline[_pipeline.MASK] = _pipeline.NAMES["mask"].index("planes")
+
+
 class chunk2sparse:
     """
     Decode bitshuffle-lz4/zstd chunks of (ni, nj) frames into the pixels
@@ -252,6 +292,7 @@ class chunk2sparse:
         self.dtype = np.dtype(dtype)
         self.codec = codec
         self.pipeline = _pipeline.resolve(pipeline, self.dtype, codec, self.mask)
+        self._mask_pending = _mask_auto_pending(pipeline, self.dtype, self.mask)
         self._di = _pipeline.DTYPE_INDEX[_pipeline.dtype_suffix(self.dtype)]
         self._nframes = 0
         self._workspace = None
@@ -268,6 +309,8 @@ class chunk2sparse:
             self._workspace = np.empty(need, np.uint8)
 
     def _run(self, pointers, lengths, cmp, cut):
+        if self._mask_pending:
+            _settle_mask(self, pointers, lengths, cmp)
         self._ensure_capacity(len(pointers), cmp)
         ret = _ext.sparsify(pointers, lengths, self.mask, self._values.ravel(),
                             self._indices.ravel(), self._npx, cut, self._workspace,
@@ -382,9 +425,13 @@ class chunk2sparseCSC:
         self._nm = nm
         self.nbins = nm.nbins
         padded_avx2 = _pipeline.available("dot", _pipeline.NAMES["dot"].index("padded-avx2")) == 1
+        self._padded_avx2 = padded_avx2
+        self._dot_is_auto = _pipeline.parse(pipeline)[_pipeline.DOT] == 0
         self.pipeline = _pipeline.resolve(
             pipeline, self.dtype, codec, self.mask, matrix=True,
-            dot_auto=lambda: _matrix.auto_dot(_matrix.analyse(nm), padded_avx2))
+            dot_auto=lambda: _matrix.auto_dot(_matrix.analyse(nm), padded_avx2,
+                                              DEFAULT_BLOCK_BYTES // self.dtype.itemsize))
+        self._mask_pending = _mask_auto_pending(pipeline, self.dtype, self.mask)
         self.dot = _pipeline.NAMES["dot"][self.pipeline[_pipeline.DOT]]
         self._di = _pipeline.DTYPE_INDEX[_pipeline.dtype_suffix(self.dtype)]
         self._layout = self._build(DEFAULT_BLOCK_BYTES // self.dtype.itemsize)
@@ -411,13 +458,22 @@ class chunk2sparseCSC:
         be = blocksize // self.dtype.itemsize
         if lay.block_elems is not None and be != lay.block_elems:
             # a block-dependent layout built at another block size: rebuild
-            # (C also refuses a mismatch with -109)
+            # (C also refuses a mismatch with -109).  An automatic dot is
+            # chosen again for this block size (bsb-csr takes <= 65536 pixels).
+            if self._dot_is_auto:
+                dot = _matrix.auto_dot(_matrix.analyse(self._nm), self._padded_avx2, be)
+                if dot != self.dot:
+                    self.dot = dot
+                    self.pipeline[_pipeline.DOT] = _pipeline.NAMES["dot"].index(dot)
             self._layout = self._build(be)
+            lay = self._layout
         need = 3 * blocksize + be * (4 + self.dtype.itemsize)
         if self._workspace is None or self._workspace.size < need:
             self._workspace = np.empty(need, np.uint8)
 
     def _run(self, pointers, lengths, cmp, cut):
+        if self._mask_pending:
+            _settle_mask(self, pointers, lengths, cmp)
         self._ensure_capacity(len(pointers), cmp)
         lay = self._layout
         a = lay.args()

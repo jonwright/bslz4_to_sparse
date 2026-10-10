@@ -3,8 +3,9 @@ Time each untranspose value this machine can run (describe()), against scalar.
 
 The backends differ only in the bit/byte de-shuffle kernel, so this is the
 measurement that says whether a SIMD one is worth having on this machine:
-kcb is x86-only internally, sse is upstream bitshuffle's SSE2 (reached on
-POWER through GCC's VSX-backed x86-intrinsic headers), neon is aarch64.
+the values are b._pipeline.NAMES["untranspose"]: lowplanes-vbmi, -avx2, -vsx
+and -c (the low-planes kernels), kcb (x86-only internally), neon (aarch64)
+and scalar.
 
 Run directly: python3 bench_backends.py
 """

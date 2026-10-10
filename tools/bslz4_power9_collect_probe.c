@@ -1,8 +1,9 @@
 /*
  * Standalone (no project build system, no Python, no dependencies)
  * correctness + rough-speed probe for a candidate POWER9/VSX
- * mask+threshold collect kernel, BEFORE it's wired into
- * bslz4_collect_simd.hpp. This is a first draft, unverified: I have no
+ * mask+threshold collect kernel: the standalone prototype of the vsx
+ * collect in src/steps/collect.hpp (historical; kept for testing on
+ * hardware). This is a first draft, unverified: I have no
  * POWER9 hardware or compiler to check it against, so treat any part
  * of the VSX kernel below with suspicion -- especially the mask
  * extraction, which uses vec_extract (scalar per-lane reads) rather
@@ -65,7 +66,7 @@
 #include <time.h>
 
 /* ---- scalar reference: identical logic to the generic (scalar)
- * bslz4_collect_gt<uint16_t> in bslz4_collect_simd.hpp (the thing every
+ * bslz4_collect_gt<uint16_t> in src/steps/collect.hpp (the thing every
  * tier, x86 or POWER, must match). ---- */
 
 static int collect_scalar_u16(const uint16_t *block, const uint8_t *mask,

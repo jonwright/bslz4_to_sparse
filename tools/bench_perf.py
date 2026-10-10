@@ -15,7 +15,7 @@ the counters cover the timed decode+dot loop and nothing else.
   cut "max"  : threshold above the dtype maximum -> no sparse output (powder only)
   cut "on"   : the sparse output at a level that makes sense for the data
                (sparse: every non-zero pixel; medium: > 4; dense: > 200)
-  dot "none" : the plain sparsify (no matrix) -- decompress + untranspose
+  dot "none" : the plain sparsify (no matrix) -- decode + untranspose
                (+ the collect when cut is "on")
 
 Usage:

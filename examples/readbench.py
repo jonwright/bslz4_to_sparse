@@ -138,17 +138,23 @@ def record(path, times, nframes, bytes_per_frame, cases, data, pipeline_used, ba
     return new
 
 
+def _steps(p):
+    """'decode lz4-band, mask none, ...' from the steps present in p (old
+    records say decompress for decode and carry a dense_sparse_threshold)."""
+    q = dict(("decode" if k == "decompress" else k, v) for k, v in p.items())
+    order = ["decode", "mask", "untranspose", "collect", "route", "dot"]
+    return ", ".join("%s %s" % (k, q[k]) for k in order if q.get(k) is not None)
+
+
 def _caption(r):
     m, p = r["machine"], r["pipeline"]
     return ("%s, %s, one core (%d visible)\n"
             "  bslz4_to_sparse %s, git %s, sources %s, %s\n"
-            "  pipeline %s: %s decompress, %s untranspose, %s collect, %s dot, "
-            "dense/sparse threshold %g\n"
+            "  pipeline %s: %s\n"
             "  data %s, %.0f kB/frame compressed, batches of %d, %d frames"
             % (m["host"], m["cpu"], m["cores_visible"],
                m["version"], m["git"], m["src_sha256"][:12], m["compiler"],
-               p["dtype"], p["decompress"], p["untranspose"], p["collect"], p["dot"],
-               p["dense_sparse_threshold"],
+               p["dtype"], _steps(p),
                r["data"]["name"], r["bytes_per_frame"] / 1e3, r["batch"], r["nframes"]))
 
 

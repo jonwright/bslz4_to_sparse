@@ -95,7 +95,7 @@ class _PaddedLayout(object):
     """A pixel -> bin matrix as one first bin plus a fixed number of weights
     per row (the padding the name refers to).  row == pixel when listed==0,
     else a row per pixel in `pixels`.  `row_ptr` splits the rows by decode
-    block (nblocks+1), replacing the pre-refactor per-block cursor."""
+    block (nblocks+1)."""
 
     def __init__(self, base, weights, pixels, rowmap, row_ptr, width, listed,
                  block_elems, nbins, npix):
@@ -188,7 +188,7 @@ def _padded_from_csc(nm, block_elems):
 
 
 def _run_starts(nm):
-    """indices for dot='csc-run' (start + length): the first bin of each
+    """indices for the csc-run dot (start + length): the first bin of each
     pixel (npix entries; 0 for an empty column).  The pixel's entries stay
     data[indptr[p]:indptr[p+1]], for the consecutive bins start, start+1, ...
     Raises ValueError if some pixel's bins are not one ascending run."""
@@ -209,7 +209,7 @@ def _run_starts(nm):
 
 
 def _nosplit_bins(nm):
-    """indices for dot='csc-nosplit' (a histogram): the one bin of each pixel
+    """indices for the csc-nosplit dot (a histogram): the one bin of each pixel
     (npix entries, _NO_BIN for an empty column).  data and indptr are not
     read, so every weight must be exactly 1.  Raises ValueError otherwise."""
     n = np.diff(nm.indptr.astype(np.int64))
@@ -223,7 +223,7 @@ def _nosplit_bins(nm):
 
 
 def _nosplit_moment(nm):
-    """(data, indices) for dot='csc-nosplit-moment': a histogram with a first
+    """(data, indices) for the csc-nosplit-moment dot: a histogram with a first
     moment beside each output, i.e. every pixel reaches either no bin or the
     pair b, b+1 with weights exactly 1 (sum I) and q (sum qI) -- the
     interleaved [I, qI, I, qI, ...] order.  indices[p] = b (_NO_BIN for none),
@@ -405,23 +405,31 @@ def analyse(nm):
     return info
 
 
-def auto_dot(info, padded_avx2):
-    """The best guess (measured on 4M frames, 2026-10-06, Zen 4): a histogram
-    -> bsb-csr-nosplit (never slower than csc-nosplit, 2x on dense frames with
-    few occupied pixels); moment pairs -> csc-nosplit-moment; one run of <= 8
-    bins per pixel -> padded (fastest 1D split: 9 % frames 3.1 vs 3.9 ms csc);
-    longer runs -> csc-run; few occupied pixels (rings) -> bsb-csr; else csc.
-    Never csc-permute or the integer dots: they change the output type."""
+BSB_MAX_BLOCK_ELEMS = 65536   # bsb-csr's in-block pixel index is uint16
+
+
+def auto_dot(info, padded_avx2, block_elems=None):
+    """The best measured choice (tools/bench_kernels.py, Xeon Gold 6248 and
+    EPYC 9655, 2026-10-10): a histogram -> bsb-csr-nosplit; moment pairs ->
+    csc-nosplit-moment; few occupied pixels (rings) -> bsb-csr; one run of <= 8
+    bins per pixel -> padded-avx2 (1.4-1.9x on dense frames, the AVX2 rows) or
+    padded; runs of 9-64 bins -> padded for decode blocks of <= 8192 pixels,
+    csc for larger ones (csc-run was never the best); else csc.  Decode blocks
+    over BSB_MAX_BLOCK_ELEMS pixels rule the bsb-csr dots out (csc-nosplit,
+    csc instead).  Never csc-permute or the integer dots: they change the
+    output type."""
+    bsb = block_elems is None or block_elems <= BSB_MAX_BLOCK_ELEMS
     if info["nosplit"]:
-        return "bsb-csr-nosplit"
+        return "bsb-csr-nosplit" if bsb else "csc-nosplit"
     if info["moment"]:
         return "csc-nosplit-moment"
     if info["runs"] and info["max_bins"] <= 8:
         return "padded-avx2" if padded_avx2 else "padded"
-    if info["runs"]:
-        return "csc-run"
-    if info["occupancy"] < 0.5:
+    if info["occupancy"] < 0.5 and bsb:
         return "bsb-csr"
+    if info["runs"] and info["max_bins"] <= _PADDED_MAX_WIDTH and \
+            (block_elems is None or block_elems <= 8192):
+        return "padded"
     return "csc"
 
 
@@ -476,6 +484,9 @@ def build(dot, nm, block_elems, dtype):
                                       p.row_ptr, p.width, int(p.listed), p.block_elems),
                       nbins, block_elems=block_elems)
     if dot in ("bsb-csr", "bsb-csr-nosplit"):
+        if block_elems > BSB_MAX_BLOCK_ELEMS:
+            raise ValueError("the decode blocks have %d pixels and bsb-csr takes at most %d "
+                             "(its in-block index is uint16)" % (block_elems, BSB_MAX_BLOCK_ELEMS))
         q = _bsb_csr_from_csc(nm, block_elems)
         if dot == "bsb-csr-nosplit":
             # the sparse route walks the nested csc as csc-nosplit does (one

@@ -12,6 +12,21 @@
  * Per block, route decides whether a dot object takes the dense route (dot
  * over the whole block) or the sparse one (dot over the list of non-zero
  * pixels).  The per-block counters record which step values ran.
+ *
+ * Step "route" (dot objects only; a plain sparsify always takes the list):
+ *
+ *   BSLZ4_ROUTE_RATIO_RULE  per block: the sparse route when the block is
+ *                      compressed more than BSLZ4_ROUTE_RATIO (8) times
+ *                      (blocksize > 8 * compressed bytes), the dense route
+ *                      otherwise.  Well-compressed blocks are mostly zero,
+ *                      so a list of the few non-zero pixels is cheaper than
+ *                      a pass over the block.
+ *   BSLZ4_ROUTE_DENSE  every block untransposed to the pixel block and the
+ *                      dot taken over every pixel of it.
+ *   BSLZ4_ROUTE_SPARSE  every block reduced to the list of its non-zero
+ *                      pixels (mask applied), the dot taken over the list;
+ *                      for u16 blocks < 256 the untranspose is fused with
+ *                      the list's collect.
  */
 
 #include "pipeline.h"
