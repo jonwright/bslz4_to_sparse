@@ -16,9 +16,8 @@ _TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
 
 
 def _so_path():
-    d = os.path.dirname(b.__file__)
-    return [os.path.join(d, f) for f in os.listdir(d)
-            if f.startswith("_bslz4_to_sparse.") and f.endswith((".so", ".pyd"))][0]
+    # the file actually loaded: a shared lib/ holds one per platform
+    return b._ext.__file__
 
 
 def test_build_info_fields():

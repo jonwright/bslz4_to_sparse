@@ -11,8 +11,17 @@ CPU, data and matrix) and kept in `.pipeline`; describe() names the values.
 Nothing is global, so objects with different pipelines can run in
 different threads.
 
-The GIL is released while decoding. Use one object per thread and do not
-share them: there are no locks.
+Threads: the GIL is released while decoding, and on free-threaded Python
+(3.14t, 3.15t) the module runs without a GIL.  There are no locks, so:
+  * use one chunk2sparse / chunk2sparseCSC object per thread; an object
+    keeps its workspace and output arrays and reuses them on every call;
+  * the arrays a call returns are those buffers (except coo(), which
+    copies): the next call on the same object overwrites them;
+  * leave a call's inputs alone until it returns: do not modify, resize or
+    close the chunks, the decode_offsets base buffer (e.g. an mmap) or the
+    mask from another thread meanwhile.
+Sharing an object between threads, or breaking these rules, gives wrong
+results or a crash rather than an error.
 """
 import json
 import os
@@ -146,6 +155,14 @@ def _offset_pointers(base, offsets, lengths):
 
 
 def harvest_chunk_offsets(ds):
+    """
+    Where each frame's compressed chunk lies in the HDF5 file: a dict
+    {frame: (byte_offset, byte_size)} for a (nframes, ni, nj) dataset chunked
+    one frame per chunk.  With pack_offsets_lengths, it lets decode_offsets
+    read the chunks from one buffer holding the file (e.g. an np.memmap)
+    with no h5py call per frame.  Raises ValueError for other chunk shapes,
+    and for a chunk stored with the bitshuffle filter skipped.
+    """
     chunks = tuple(ds.chunks) if ds.chunks is not None else None
     if chunks is None or len(chunks) != 3 or chunks[0] != 1:
         raise ValueError(
@@ -177,6 +194,10 @@ def harvest_chunk_offsets(ds):
 
 
 def pack_offsets_lengths(frame_offsets, frames):
+    """
+    The (offsets int64, lengths int32) arrays decode_offsets takes, for the
+    given frame numbers, from harvest_chunk_offsets' {frame: (offset, size)}.
+    """
     n = len(frames)
     offsets = np.empty(n, dtype=np.int64)
     lengths = np.empty(n, dtype=np.int32)
@@ -272,11 +293,22 @@ class chunk2sparse:
         return self._run(pointers, lengths, cmp, cut)
 
     def __call__(self, buffer, cut):
+        """
+        Decode one compressed chunk (one frame): returns npixels, (values,
+        indices).  values and indices are full-frame-size views of this
+        object's buffers: the first npixels entries are the pixels above
+        cut (and not masked), in pixel order, and the next call overwrites
+        them.
+        """
         npx, (values, indices) = self.multi([buffer], cut)
         return int(npx[0]), (values[0], indices[0])
 
     def coo(self, buffer, cut):
-        """Computes i,j indices and MAKES COPIES"""
+        """
+        Decode one chunk to (npixels, row, col, values): uint16 row and
+        column of each pixel above cut, and its value.  These are new arrays
+        (copies), unlike the buffers __call__ returns.
+        """
         npixels, (values, indices) = self.__call__(buffer, cut)
         row = np.empty(npixels, np.uint16)
         col = np.empty(npixels, np.uint16)
@@ -435,7 +467,11 @@ class chunk2sparseCSC:
         return int(npx[0]), (values[0], indices[0]), powder[0]
 
     def coo(self, buffer, cut):
-        """Computes i,j indices and MAKES COPIES"""
+        """
+        Decode one chunk to (npixels, row, col, values, powder): as
+        chunk2sparse.coo, plus the frame's powder.  All are new arrays
+        (copies), unlike the buffers __call__ returns.
+        """
         npixels, (values, indices), powder = self.__call__(buffer, cut)
         row = np.empty(npixels, np.uint16)
         col = np.empty(npixels, np.uint16)

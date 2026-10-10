@@ -1,7 +1,13 @@
 
 from __future__ import print_function
-import hdf5plugin
-import h5py
+try:
+    import hdf5plugin
+    import h5py
+except ImportError:
+    if __name__ == "__main__":
+        raise
+    import pytest
+    pytest.skip("needs h5py and hdf5plugin", allow_module_level=True)
 import numpy as np
 import sys, os, subprocess
 

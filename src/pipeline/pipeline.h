@@ -222,7 +222,10 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 #endif
 
 /* A tiny inlined store (no call, no bounds check: callers pass a valid
- * (step, value)); the array lives in registry.c. */
+ * (step, value)); the array lives in registry.c.  Deliberately a plain,
+ * unsynchronised increment (an atomic one is a locked RMW per block): the
+ * counters are test instrumentation and only exact while one decode runs at
+ * a time; concurrent decodes may lose counts, never corrupt the output. */
 extern uint64_t bslz4_counters[BSLZ4_NSTEPS][BSLZ4_VALUE_SLOTS];
 static inline void bslz4_counters_bump(int step, int value) {
     bslz4_counters[(unsigned) step][(unsigned) value]++;
