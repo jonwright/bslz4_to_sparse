@@ -33,7 +33,7 @@ in the repository, it cannot be edited by hand.
    `tools/bench_docs.py --out docs/bench/real_data_<cpu>.json` on the machine
    the numbers are for, on one core, and commit the JSON; every file is
    shown, side by side, so all must measure the same cases.  The JSON records the
-   C sources' sha256 and a hash of `_pipeline.py` + `_matrix.py`; when either
+   C sources' sha256 and a hash of `_pipeline.py`, `_matrix.py` and `__init__.py`; when either
    differs from the code the site is built from, the performance page says
    so in a warning box.
 4. **`docs/index.md` is conceptual.**  No code blocks, no signatures, no

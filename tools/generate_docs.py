@@ -481,7 +481,8 @@ def kernels_page():
             "Every pipeline this machine can run, on **one core of %s** (%s, %s UTC, "
             "bslz4_to_sparse %s, git `%s`), for one real data set: `%s` (%s, %s %s, "
             "%d masked pixels, cut %d), %d frames spread over the file.  The frames are "
-            "re-encoded in memory with each codec and block size below.  Timing as on "
+            "re-encoded in memory with each codec and block size below.  Sparsify is "
+            "timed on the frames as they are, with the mask, and *no mask*: %s.  Timing as on "
             "the [performance page](performance.md): frames in memory, one warmup "
             "batch of %d, best of %d passes.  **Bold** marks the automatic choice.  "
             "*vs auto* checks each result against the automatic pipeline: the sparse "
@@ -490,7 +491,8 @@ def kernels_page():
             "refuses for this data, block size or matrix are listed with the reason."
             % (cpu_label(m["cpu"]), m["host"], km["date_utc"], m["version"], m["git"],
                d["key"], d["file"], " x ".join(str(x) for x in d["shape"]), d["dtype"],
-               d["masked_pixels"], d["cut"], meth["frames"], meth["batch"], meth["repeats"]))
+               d["masked_pixels"], d["cut"], meth["frames"],
+               d.get("no_mask", "not measured"), meth["batch"], meth["repeats"]))
         parts.append("| encoding | codec | level | block | compression |\n|---|---|---|---:|---:|\n"
                      + "".join("| %s | %s | %s | %d kB | %.1f |\n"
                                % (v["key"], v["codec"], v["clevel"] if v["clevel"] else "-",
@@ -507,17 +509,18 @@ def kernels_page():
                          "comments in the C sources (linked), and what it needs, from "
                          "`src/_pipeline.py`.")
             parts.append(step_values_section("###"))
-        kinds = ["sparsify"] + [op for op in ("1D", "2D", "2D+rings") if op in km["matrices"]]
+        kinds = [k for k in ("sparsify", "sparsify, no mask") if k in km["auto"][km["variants"][0]["key"]]]
+        kinds += [op for op in ("1D", "2D", "2D+rings") if op in km["matrices"]]
         for v in km["variants"]:
             parts.append("## %s (compression %.1f)" % (v["key"], v["compression"]))
             for kind in kinds:
                 rows = [r for r in km["results"] if r["variant"] == v["key"] and r["kind"] == kind]
                 timed = [r for r in rows if "fps" in r]
                 refused = [r for r in rows if "refused" in r]
-                cols = list(SPARSIFY_STEPS) if kind == "sparsify" else ["dot", "route"]
+                cols = list(SPARSIFY_STEPS) if kind.startswith("sparsify") else ["dot", "route"]
                 auto = km["auto"][v["key"]][kind]
                 auto = {k: auto[k] for k in cols if k in auto}
-                parts.append("### %s, %s" % (v["key"], kind if kind == "sparsify" else kind + " matrix"))
+                parts.append("### %s, %s" % (v["key"], kind if kind.startswith("sparsify") else kind + " matrix"))
                 if timed:
                     parts.append(kernel_table(timed, cols, auto))
                 if refused:

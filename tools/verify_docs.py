@@ -169,7 +169,7 @@ def check_kernels():
         if not variants:
             problems.append("%s has no variants" % name)
         for v in variants:
-            for kind in ["sparsify"] + list(km.get("matrices", {})):
+            for kind in ["sparsify", "sparsify, no mask"] + list(km.get("matrices", {})):
                 rows = [r for r in km.get("results", []) if r["variant"] == v and r["kind"] == kind]
                 if not any("fps" in r for r in rows):
                     problems.append("%s: no timed %s / %s" % (name, v, kind))

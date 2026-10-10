@@ -7,7 +7,9 @@ bitshuffle-zstd level 2, each with 8 kB and 256 kB blocks.  For each
 variant every pipeline this machine can run is timed:
 
   sparsify   every combination of the decode, mask, untranspose and collect
-             values (chunk2sparse)
+             values (chunk2sparse), on the masked frames (masked pixels at
+             65535, with the mask) and on the same frames not masked (masked
+             pixels set to 0, no mask: where the mask step 'none' applies)
   1D, 2D,    every dot x route value (other steps automatic) on the three
   2D+rings   matrices of tools/bench_docs.py (chunk2sparseCSC)
 
@@ -116,6 +118,9 @@ def main():
         frames_in_file = int(ds.shape[0])
     masked = frames[0] == bd.MASK_VALUE
     mask = (~masked).astype(np.uint8)
+    ones = np.ones_like(mask)
+    frames_nomask = frames.copy()
+    frames_nomask[:, masked] = 0            # as a detector writing 0 there, no mask
     dtype, cut = frames.dtype, case["cut"]
     npix = int(mask.size)
     pbytes = len(frames) * npix * dtype.itemsize
@@ -130,7 +135,9 @@ def main():
                       "mask": "pixels == %d in the first frame" % bd.MASK_VALUE},
            "data": {"key": CASE, "file": case["file"], "dataset": case["dataset"],
                     "frames_in_file": frames_in_file, "shape": list(frames.shape[1:]),
-                    "dtype": str(dtype), "cut": cut, "masked_pixels": int(masked.sum())},
+                    "dtype": str(dtype), "cut": cut, "masked_pixels": int(masked.sum()),
+                    "no_mask": "the same frames with the masked pixels set to 0 and an "
+                               "all-valid mask"},
            "ops": {k: bd.OP_TEXT[k] for k in bd.OPS},
            "matrices": {}, "variants": [], "results": []}
     for op, (M, shape) in mats.items():
@@ -145,26 +152,29 @@ def main():
         vkey = "%s%s %dk" % (cname, "-%d" % clevel if clevel else "", block // 1024)
         codec = b.CODEC_ZSTD if cname == "zstd" else b.CODEC_LZ4
         chunks = encode(frames, cname, clevel, block)
+        chunks_nomask = encode(frames_nomask, cname, clevel, block)
         cbytes = sum(len(c) for c in chunks)
         out["variants"].append({"key": vkey, "codec": cname, "clevel": clevel,
                                 "block_bytes": block, "compression": pbytes / cbytes})
         print("\n== %s: compression %.1f" % (vkey, pbytes / cbytes))
 
-        def record(kind, pipeline, obj=None, ref=None, err=None):
+        def record(kind, pipeline, obj=None, ref=None, err=None, use=None):
+            use = chunks if use is None else use
             rec = {"variant": vkey, "kind": kind, "pipeline": pipeline}
             if err is not None:
                 rec["refused"] = str(err)
                 out["results"].append(rec)
                 return
             try:
-                got_sparse, got_powder = outputs(obj, chunks, cut)
-                t = best_time(obj, chunks, cut)
+                got_sparse, got_powder = outputs(obj, use, cut)
+                t = best_time(obj, use, cut)
             except Exception as e:                       # a decode error from C
                 rec["refused"] = str(e)
                 out["results"].append(rec)
                 return
-            rec.update({"pipeline": names(obj), "fps": len(chunks) / t,
-                        "compressed_gbs": cbytes / t / 1e9, "pixel_gbs": pbytes / t / 1e9,
+            ubytes = sum(len(c) for c in use)
+            rec.update({"pipeline": names(obj), "fps": len(use) / t,
+                        "compressed_gbs": ubytes / t / 1e9, "pixel_gbs": pbytes / t / 1e9,
                         "sparse_ok": same_sparse(got_sparse, ref[0])})
             if got_powder is not None:
                 scale = float(np.abs(ref[1]).max()) or 1.0
@@ -173,21 +183,23 @@ def main():
             print("  %-9s %-60s %8.1f fps%s" % (kind, " ".join(rec["pipeline"].values()),
                                                  rec["fps"], "" if rec["sparse_ok"] else "  SPARSE DIFFERS"))
 
-        # sparsify: every decode x mask x untranspose x collect
-        auto = b.chunk2sparse(mask, dtype=dtype, codec=codec)
-        ref = outputs(auto, chunks, cut)
-        out.setdefault("auto", {}).setdefault(vkey, {})["sparsify"] = names(auto)
+        # sparsify: every decode x mask x untranspose x collect, masked and not
         decodes = [d for d in usable("decode") if (d == "zstd") == (cname == "zstd")]
-        for combo in itertools.product(decodes, usable("mask"), usable("untranspose"),
-                                       usable("collect")):
-            p = dict(zip(("decode", "mask", "untranspose", "collect"), combo))
-            try:
-                obj = b.chunk2sparse(mask, dtype=dtype, codec=codec, pipeline=p)
-            except ValueError as e:
-                record("sparsify", p, err=e)
-                continue
-            record("sparsify", p, obj, ref)
-            del obj
+        for kind, kmask, kchunks in (("sparsify", mask, chunks),
+                                     ("sparsify, no mask", ones, chunks_nomask)):
+            auto = b.chunk2sparse(kmask, dtype=dtype, codec=codec)
+            ref = outputs(auto, kchunks, cut)
+            out.setdefault("auto", {}).setdefault(vkey, {})[kind] = names(auto)
+            for combo in itertools.product(decodes, usable("mask"), usable("untranspose"),
+                                           usable("collect")):
+                p = dict(zip(("decode", "mask", "untranspose", "collect"), combo))
+                try:
+                    obj = b.chunk2sparse(kmask, dtype=dtype, codec=codec, pipeline=p)
+                except ValueError as e:
+                    record(kind, p, err=e, use=kchunks)
+                    continue
+                record(kind, p, obj, ref, use=kchunks)
+                del obj
 
         # matrix dots: every dot x route, the other steps automatic
         for op, (M, _shape) in mats.items():
