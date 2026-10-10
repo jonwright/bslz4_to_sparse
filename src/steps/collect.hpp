@@ -493,11 +493,33 @@ inline int bslz4_collect_sse2_u32(const uint32_t *BSLZ4_RESTRICT block,
  * When the gate does not fire, per-lane extraction is vec_extract in a
  * small fixed-trip loop (8 iterations for u16, 4 for u32).
  *
+ * Dense data defeats the gate: with pixels above the cut placed at random
+ * the vector loop is slower than the scalar one from ~2% (u16) / ~3% (u32)
+ * of pixels kept, up to 1.75x slower (POWER9, 2026-10-10).  So the block is
+ * walked in windows of BSLZ4_VSX_WINDOW pixels, each running the vector or
+ * the scalar loop by the pixels the previous window kept, with hysteresis
+ * (bslz4_vsx_next_dense: to scalar above 5%, back to vector below 2%):
+ * sparse stretches keep the gate, dense ones (rings, a low cut) go scalar,
+ * at one compare per window.  The mode restarts as vector every block, so
+ * the window is kept short (a 512 window left dense data ~10% slower than
+ * scalar).
+ *
  * __vector/__bool, not bare vector/bool: <altivec.h> defines the bare
  * keyword-macros in C mode only, leaving them undefined in C++ so they
  * cannot collide with std::vector and bool. This header is included
  * from kernels_generic.cpp, so it needs the prefixed spelling.
  */
+
+#define BSLZ4_VSX_WINDOW 128   /* pixels; a multiple of both vector widths */
+#define BSLZ4_VSX_TO_DENSE 20  /* sparse -> dense when a window keeps > 1/20 (5%) */
+#define BSLZ4_VSX_TO_SPARSE 50 /* dense -> sparse when a window keeps < 1/50 (2%) */
+
+/* Hysteresis: the mode only changes on a clear signal, so a density near
+ * the crossover does not flip the loop every window. */
+static inline int bslz4_vsx_next_dense(int dense, int kept) {
+    return dense ? (size_t) kept * BSLZ4_VSX_TO_SPARSE >= BSLZ4_VSX_WINDOW
+                 : (size_t) kept * BSLZ4_VSX_TO_DENSE > BSLZ4_VSX_WINDOW;
+}
 
 inline int bslz4_collect_vsx_u16(const uint16_t *BSLZ4_RESTRICT block,
                                   const uint8_t *BSLZ4_RESTRICT mask,
@@ -506,19 +528,36 @@ inline int bslz4_collect_vsx_u16(const uint16_t *BSLZ4_RESTRICT block,
                                   uint32_t *BSLZ4_RESTRICT out_adr) {
     int npx = 0;
     size_t j = 0;
+    const size_t nv = n & ~(size_t) 7;
+    int dense = 0;
     __vector unsigned short vcut = vec_splats(cut);
-    for (; j + 8 <= n; j += 8) {
-        __vector unsigned short v;
-        memcpy(&v, &block[j], sizeof(v));
-        if (!vec_any_gt(v, vcut)) continue;
-        __vector __bool short gt = vec_cmpgt(v, vcut);
-        for (int lane = 0; lane < 8; lane++) {
-            if (bslz4_mask_ok(mask, j + i0 + lane) && vec_extract((__vector unsigned short) gt, lane)) {
-                out_vals[npx] = vec_extract(v, lane);
-                out_adr[npx] = (uint32_t) (j + i0 + lane);
-                npx++;
+    while (j < nv) {
+        const size_t end = j + BSLZ4_VSX_WINDOW < nv ? j + BSLZ4_VSX_WINDOW : nv;
+        const int start = npx;
+        if (dense) {
+            for (; j < end; j++) {
+                if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
+                    out_vals[npx] = block[j];
+                    out_adr[npx] = (uint32_t) (j + i0);
+                    npx++;
+                }
+            }
+        } else {
+            for (; j < end; j += 8) {
+                __vector unsigned short v;
+                memcpy(&v, &block[j], sizeof(v));
+                if (!vec_any_gt(v, vcut)) continue;
+                __vector __bool short gt = vec_cmpgt(v, vcut);
+                for (int lane = 0; lane < 8; lane++) {
+                    if (bslz4_mask_ok(mask, j + i0 + lane) && vec_extract((__vector unsigned short) gt, lane)) {
+                        out_vals[npx] = vec_extract(v, lane);
+                        out_adr[npx] = (uint32_t) (j + i0 + lane);
+                        npx++;
+                    }
+                }
             }
         }
+        dense = bslz4_vsx_next_dense(dense, npx - start);
     }
     for (; j < n; j++) {
         if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
@@ -537,19 +576,36 @@ inline int bslz4_collect_vsx_u32(const uint32_t *BSLZ4_RESTRICT block,
                                   uint32_t *BSLZ4_RESTRICT out_adr) {
     int npx = 0;
     size_t j = 0;
+    const size_t nv = n & ~(size_t) 3;
+    int dense = 0;
     __vector unsigned int vcut = vec_splats(cut);
-    for (; j + 4 <= n; j += 4) {
-        __vector unsigned int v;
-        memcpy(&v, &block[j], sizeof(v));
-        if (!vec_any_gt(v, vcut)) continue;
-        __vector __bool int gt = vec_cmpgt(v, vcut);
-        for (int lane = 0; lane < 4; lane++) {
-            if (bslz4_mask_ok(mask, j + i0 + lane) && vec_extract((__vector unsigned int) gt, lane)) {
-                out_vals[npx] = vec_extract(v, lane);
-                out_adr[npx] = (uint32_t) (j + i0 + lane);
-                npx++;
+    while (j < nv) {
+        const size_t end = j + BSLZ4_VSX_WINDOW < nv ? j + BSLZ4_VSX_WINDOW : nv;
+        const int start = npx;
+        if (dense) {
+            for (; j < end; j++) {
+                if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
+                    out_vals[npx] = block[j];
+                    out_adr[npx] = (uint32_t) (j + i0);
+                    npx++;
+                }
+            }
+        } else {
+            for (; j < end; j += 4) {
+                __vector unsigned int v;
+                memcpy(&v, &block[j], sizeof(v));
+                if (!vec_any_gt(v, vcut)) continue;
+                __vector __bool int gt = vec_cmpgt(v, vcut);
+                for (int lane = 0; lane < 4; lane++) {
+                    if (bslz4_mask_ok(mask, j + i0 + lane) && vec_extract((__vector unsigned int) gt, lane)) {
+                        out_vals[npx] = vec_extract(v, lane);
+                        out_adr[npx] = (uint32_t) (j + i0 + lane);
+                        npx++;
+                    }
+                }
             }
         }
+        dense = bslz4_vsx_next_dense(dense, npx - start);
     }
     for (; j < n; j++) {
         if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
