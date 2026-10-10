@@ -11,8 +11,17 @@ CPU, data and matrix) and kept in `.pipeline`; describe() names the values.
 Nothing is global, so objects with different pipelines can run in
 different threads.
 
-The GIL is released while decoding. Use one object per thread and do not
-share them: there are no locks.
+Threads: the GIL is released while decoding, and on free-threaded Python
+(3.14t, 3.15t) the module runs without a GIL.  There are no locks, so:
+  * use one chunk2sparse / chunk2sparseCSC object per thread; an object
+    keeps its workspace and output arrays and reuses them on every call;
+  * the arrays a call returns are those buffers (except coo(), which
+    copies): the next call on the same object overwrites them;
+  * leave a call's inputs alone until it returns: do not modify, resize or
+    close the chunks, the decode_offsets base buffer (e.g. an mmap) or the
+    mask from another thread meanwhile.
+Sharing an object between threads, or breaking these rules, gives wrong
+results or a crash rather than an error.
 """
 import json
 import os

@@ -2701,7 +2701,7 @@ static const char _doc_step_available[] = "step_available(step, value)\n--\n\nst
 static const char _doc_reset_counters[] = "reset_counters()\n--\n\nreset_counters() -> void\n\nZero the per step value block counters (test instrumentation).\n\nOverloads\n---------\n  bslz4_reset_counters() -> void";
 static const char _doc_read_counters[] = "read_counters(out)\n--\n\nread_counters(out: buffer) -> int\n\nFill out (uint64 array) with the flattened [step][value] block counters; returns the number of entries written.\n\nParameters\n----------\nout : buffer\n    Writable\n\nOverloads\n---------\n  bslz4_read_counters(uint64_t *out, int n) -> int\n    Map: out = out.ptr (uint64_t *)\n         n = out.n (int)";
 static const char _doc_build_info[] = "build_info(out)\n--\n\nbuild_info(out: buffer) -> int\n\nCopy the JSON build description (version, git describe, source sha256, compiler, platform, time) into out (uint8 array); returns its full length in bytes, which may exceed out.len.\n\nParameters\n----------\nout : buffer\n    Type: uint8 (format 'B')\n    Writable\n\nChecks\n------\n  out.format == 'B'  [ValueError]\n\nOverloads\n---------\n  bslz4_build_info(char *out, int n) -> int\n    Map: out = out.ptr (char *)\n         n = out.len (int)";
-static const char _module_doc[] = "Module: _bslz4_to_sparse\nSource: ['bslz4_to_sparse.c']\nHeaders: ['c2py_amd64.h', 'c2py_arm64.h', 'c2py_ppc64.h']\nTiming: no\nFree-threading: no (GIL re-enabled on 3.14t)\nGIL release: sparsify, sparsify_and_dot, sparsify_and_dot_padded, sparsify_and_dot_bsbcsr";
+static const char _module_doc[] = "Module: _bslz4_to_sparse\nSource: ['bslz4_to_sparse.c']\nHeaders: ['c2py_amd64.h', 'c2py_arm64.h', 'c2py_ppc64.h']\nTiming: no\nFree-threading: yes (Py_MOD_GIL_NOT_USED)\nGIL release: sparsify, sparsify_and_dot, sparsify_and_dot_padded, sparsify_and_dot_bsbcsr";
 
 static PyMethodDef _methods_varargs[] = {
     {"sparsify", (PyCFunction)_sparsify_wrapper, METH_VARARGS, _doc_sparsify},
@@ -2784,6 +2784,9 @@ C2PY_EXPORT PyObject* PyInit__bslz4_to_sparse(void) {
             PyLong_FromVoidPtr(&_gil_release_sparsify_and_dot_padded));
         c2py_set_module_attr(module, "_c2py_gil_release_sparsify_and_dot_bsbcsr",
             PyLong_FromVoidPtr(&_gil_release_sparsify_and_dot_bsbcsr));
+        if (C2PY.Unstable_Module_SetGIL != NULL) {
+            C2PY.Unstable_Module_SetGIL(module, (void*)1);  /* Py_MOD_GIL_NOT_USED */
+        }
     }
     return module;
 }

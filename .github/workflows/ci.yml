@@ -315,7 +315,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.11", "3.13", "3.14", "3.14t", "3.15"]
+        python-version: ["3.9", "3.11", "3.13", "3.14", "3.14t", "3.15", "3.15t"]
     steps:
       # Tests only use test/ and the installed wheel: no submodules needed.
       - uses: actions/checkout@v4
@@ -336,7 +336,7 @@ jobs:
           python -m pip install --quiet dist/*.whl
           python -m pip install --quiet --only-binary :all: numpy pytest
       - name: Run decode matrix
-        run: python -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py -q
+        run: python -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py test/test_free_threading.py -q
 
   # --- Old glibc: the x86_64 wheel on the oldest distros we claim to support ---
   # (Python 2.7 / Ubuntu 18.04 is covered separately by test-py27.)
@@ -404,7 +404,7 @@ jobs:
       - name: Pipeline resolved here
         run: python -c "import numpy as np, bslz4_to_sparse as b; print(b.__file__, b.describe(b.chunk2sparse(np.ones((8, 8), np.uint8)).pipeline))"
       - name: Run decode matrix
-        run: python -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py -q
+        run: python -m pytest test/test_decode_matrix.py test/test_corrupt_chunk.py test/test_free_threading.py -q
 
   # --- ppc64le: run the wheel under qemu (no native runner) ---
   #

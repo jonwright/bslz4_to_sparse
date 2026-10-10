@@ -129,6 +129,7 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
     "source": ["bslz4_to_sparse.c"],
     "headers": ["c2py_amd64.h", "c2py_arm64.h", "c2py_ppc64.h"],
     "timing": False,
+    "free_threading": True,
     "functions": [
         {
             "gil_release": True,

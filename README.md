@@ -37,6 +37,17 @@ API at runtime, so one binary serves any Python version. Run the build
 once per machine: a single `lib/` on a shared filesystem holds all of
 them. `C2PY_TRACE=1` reports which file the loader picks.
 
+Threads and free-threaded Python (3.14t, 3.15t): the decode entry points
+release the GIL, and the extension declares itself free-threading safe, so
+importing it does not re-enable the GIL. Nothing is locked; the rule is one
+`chunk2sparse` / `chunk2sparseCSC` object per thread. Each object reuses its
+own workspace and output arrays, so the arrays a call returns are
+overwritten by that object's next call, and a call's inputs (chunks, mmap
+base, mask) must not be changed or closed by another thread while it runs.
+Breaking these rules gives wrong results or a crash, not an error.
+`_testing.read_counters()` (test instrumentation) is only exact while one
+decode runs at a time.
+
 SIMD collect tiers the machine cannot run are skipped:
 `test_vsx_collect_matches_scalar` on x86_64, `test_neon_collect_matches_scalar`
 on x86_64/POWER, the avx512/avx2/sse2 ones on POWER/ARM.
