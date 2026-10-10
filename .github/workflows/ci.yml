@@ -87,8 +87,8 @@ jobs:
   # --- Windows x64: cross-compiled on Linux with mingw-w64 gcc ---
   #
   # MSVC gets none of the SIMD paths (they are written for gcc/clang, and kcb
-  # has no MSVC dispatch): the gcc build was 2.1x faster on an i7-8700
-  # (notes_dot_layouts.md).  build_extension.py adds what gcc needs for Win64
+  # has no MSVC dispatch): the gcc build was 2.1x faster on an i7-8700.
+  # build_extension.py adds what gcc needs for Win64
   # (-Wa,-muse-unaligned-vector-move, binutils >= 2.38) and patches/kcb gives
   # kcb its runtime dispatch without ifunc.  The .pyd imports only KERNEL32
   # and msvcrt; c2py23 finds Python at runtime as on the other platforms.
@@ -523,8 +523,8 @@ jobs:
           for /f %%f in ('dir /b /s dist\*.whl') do python -m pip install --quiet "%%f"
           python -m pip install --quiet --only-binary :all: numpy pytest
       - name: SIMD paths active
-        # the runners have AVX2: a scalar collect (tier 0) means the wheel lost
-        # its SIMD code (e.g. an MSVC build slipped back in)
+        # the runners have AVX2: a 'scalar' collect or untranspose value means the wheel
+        # lost its SIMD code (e.g. an MSVC build slipped back in)
         run: python -c "import numpy as np, bslz4_to_sparse as b; d = b.describe(b.chunk2sparse(np.ones((8, 8), np.uint8)).pipeline); print(b.build_info()['compiler'], d); assert d['collect'] != 'scalar' and d['untranspose'] != 'scalar'"
       - name: Run decode matrix
         run: python -m pytest test\test_decode_matrix.py test\test_corrupt_chunk.py -q

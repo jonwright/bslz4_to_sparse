@@ -27,11 +27,12 @@ with h5py.File(fn, "r") as h:
     ch = [h["data"].id.read_direct_chunk((k, 0, 0))[1] for k in range(100)]
 a, c = case.split(":")
 if a == "sparsify":
-    integ, cut = b.chunk2sparseMulti(mask, dtype=np.uint16), int(c)
+    integ, cut = b.chunk2sparse(mask, dtype=np.uint16).multi, int(c)
 else:
     z = np.load(os.path.join(D, c + ".npz"))
     M = sp.csc_matrix((z["data"], z["indices"], z["indptr"]), shape=tuple(z["shape"]))
-    integ, cut = b.chunk2sparseCSCmulti(mask, M, dtype=np.uint16, dot=a), 0
+    assert a in b._pipeline.NAMES["dot"], "dot must be one of %s" % (b._pipeline.NAMES["dot"],)
+    integ, cut = b.chunk2sparseCSC(mask, M, dtype=np.uint16, pipeline={"dot": a}).multi, 0
 for s in range(0, 100, 25): integ(ch[s:s + 25], cut)
 t0 = time.perf_counter(); n = 0
 while time.perf_counter() - t0 < secs:

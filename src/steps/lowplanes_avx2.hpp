@@ -8,12 +8,12 @@
 #include "collect.hpp"
 
 /* The byte-skip transpose fused with the collect on AVX2 (no VBMI/GFNI):
- * pass 1 untransposes the 8 low bit-planes 64 pixels at a time -- kcb's
+ * pass A untransposes the 8 low bit-planes 64 pixels at a time -- kcb's
  * bitshuf_untrans_bit_avx2 (Copyright (c) 2023 Kal Conley, MIT /
  * Apache-2.0), reading planes at or past nz_end from `zeros` instead of
  * zero-filling them.  First the planes are ORed 32 bytes at a time into a
  * bitmap of the 64-pixel groups holding any data (no branch); pass A
- * transposes and compares (> cut, unmasked) only those groups, recording
+ * then transposes and compares (> cut, unmasked) only those groups, recording
  * bytes and selection with no branch; pass B packs only the groups with
  * selected pixels, with the avx2cs lane table (a group with one pixel: the
  * bit loop).  On sparse frames most groups are never touched; on 9 %-

@@ -14,7 +14,7 @@ Vendored (not a build or runtime dependency on the `c2py23` PyPI package)
 so that building this project does not require c2py23 to be installed at
 all. c2py23 is still needed as a developer tool to *regenerate*
 `src/bslz4_to_sparse_wrapper.c` after a change to the `.c2py` spec
-embedded in `src/bslz4_to_sparse.cpp` -- see the C2PY_BEGIN block there
+embedded in `src/bslz4_to_sparse.c` -- see the C2PY_BEGIN block there
 and `tools/regenerate_wrapper.py`.
 
 Source: https://github.com/jonwright/c2py23, `v0.5.8`,

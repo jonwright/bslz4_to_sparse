@@ -1,8 +1,9 @@
 /*
  * Standalone (no project build system, no Python, no dependencies)
  * correctness + rough-speed probe for a candidate ARM NEON mask+
- * threshold collect kernel, BEFORE it's wired into
- * bslz4_collect_simd.hpp. Completely unverified -- zero iterations on
+ * threshold collect kernel: the standalone prototype of the neon
+ * collect in src/steps/collect.hpp (historical; kept for testing on
+ * hardware). Completely unverified -- zero iterations on
  * real hardware yet, unlike the POWER9 version this is modeled on
  * (tools/bslz4_power9_collect_probe.c, which took three rounds on real
  * hardware to get right: v1 vectorized the compare but paid an
@@ -41,7 +42,7 @@
 #include <time.h>
 
 /* ---- scalar reference: identical logic to the generic (scalar)
- * bslz4_collect_gt<uint16_t> in bslz4_collect_simd.hpp (the thing every
+ * bslz4_collect_gt<uint16_t> in src/steps/collect.hpp (the thing every
  * tier, x86/POWER/ARM, must match). ---- */
 
 static int collect_scalar_u16(const uint16_t *block, const uint8_t *mask,

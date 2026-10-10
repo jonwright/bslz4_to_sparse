@@ -95,7 +95,7 @@ class _PaddedLayout(object):
     """A pixel -> bin matrix as one first bin plus a fixed number of weights
     per row (the padding the name refers to).  row == pixel when listed==0,
     else a row per pixel in `pixels`.  `row_ptr` splits the rows by decode
-    block (nblocks+1), replacing the pre-refactor per-block cursor."""
+    block (nblocks+1)."""
 
     def __init__(self, base, weights, pixels, rowmap, row_ptr, width, listed,
                  block_elems, nbins, npix):
@@ -188,7 +188,7 @@ def _padded_from_csc(nm, block_elems):
 
 
 def _run_starts(nm):
-    """indices for dot='csc-run' (start + length): the first bin of each
+    """indices for the csc-run dot (start + length): the first bin of each
     pixel (npix entries; 0 for an empty column).  The pixel's entries stay
     data[indptr[p]:indptr[p+1]], for the consecutive bins start, start+1, ...
     Raises ValueError if some pixel's bins are not one ascending run."""
@@ -209,7 +209,7 @@ def _run_starts(nm):
 
 
 def _nosplit_bins(nm):
-    """indices for dot='csc-nosplit' (a histogram): the one bin of each pixel
+    """indices for the csc-nosplit dot (a histogram): the one bin of each pixel
     (npix entries, _NO_BIN for an empty column).  data and indptr are not
     read, so every weight must be exactly 1.  Raises ValueError otherwise."""
     n = np.diff(nm.indptr.astype(np.int64))
@@ -223,7 +223,7 @@ def _nosplit_bins(nm):
 
 
 def _nosplit_moment(nm):
-    """(data, indices) for dot='csc-nosplit-moment': a histogram with a first
+    """(data, indices) for the csc-nosplit-moment dot: a histogram with a first
     moment beside each output, i.e. every pixel reaches either no bin or the
     pair b, b+1 with weights exactly 1 (sum I) and q (sum qI) -- the
     interleaved [I, qI, I, qI, ...] order.  indices[p] = b (_NO_BIN for none),

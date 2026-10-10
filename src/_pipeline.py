@@ -12,7 +12,7 @@ A pipeline is six step values, in this order:
     dot          matrix objects: the layout of the matrix
 
 Within each step 0 means "auto" and the values are numbered best first, by
-measurement (notes_pipeline_cases.md).  A value needing an instruction set
+measurement.  A value needing an instruction set
 is its own value and is refused, with the reason, on a CPU without it.
 
 The C side (src/pipeline/pipeline.h, registry.c) mirrors these tables and

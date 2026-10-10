@@ -40,7 +40,7 @@ Generated frames and pyFAI matrices are cached in $BSLZ4_BENCH_DIR (default
 
 Usage:
   python3 tools/bench_suite.py [--det 4M,16M] [--centre mid,corner]
-        [--cases 1d,2d,rings] [--dots csc,csc-run,...|all] [--frames 25] [--cpu 7]
+        [--cases default|all|"1D bbox x1,rings"] [--dots csc,csc-run,...|all] [--frames 25] [--cpu 7]
         [--out examples/dot_suite.jsonl]
 """
 import argparse
