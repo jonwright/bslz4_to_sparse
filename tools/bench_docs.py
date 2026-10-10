@@ -7,9 +7,12 @@ Three real ID11 Eiger data sets (CASES below), each through four operations:
   1D         chunk2sparseCSC with a pyFAI 1D bbox matrix (r_mm, one bin per
              pixel width)
   2D         chunk2sparseCSC with a pyFAI 2D bbox matrix (q_nm^-1, one radial
-             bin per pixel width x 360 azimuth)
-  2D+rings   8 ring windows x 360 azimuth summed from the 2D matrix, the ring
+             bin per pixel width x NAZIM azimuth)
+  2D+rings   8 ring windows x NAZIM azimuth summed from the 2D matrix, the ring
              widths chosen so the rings hold ~8 % of the unmasked pixels
+
+The descriptions written into the JSON (OP_TEXT) are what the documentation
+shows, so they are built from the same constants as the matrices.
 
 The files carry no calibration, so every case uses one stated generic
 geometry (GEOMETRY below, beam at the detector centre); the matrices
@@ -68,6 +71,16 @@ CASES = [
      "dataset": "/entry/data/data", "cut": 5},
 ]
 OPS = ("sparsify", "1D", "2D", "2D+rings")
+NAZIM = 72                     # azimuthal bins of the 2D and ring matrices
+OP_TEXT = {
+    "sparsify": "chunk2sparse: decode, mask and threshold to (values, indices)",
+    "1D": "chunk2sparseCSC, pyFAI 1D bbox matrix (r_mm, one bin per pixel width)",
+    "2D": "chunk2sparseCSC, pyFAI 2D bbox matrix (q_nm^-1, one radial bin per pixel "
+          "width x %d azimuthal bins)" % NAZIM,
+    "2D+rings": "chunk2sparseCSC, %d LaB6 ring windows x %d azimuthal bins summed from the "
+                "2D matrix, the windows sized to hold ~%d %% of the unmasked pixels"
+                % (bs.NRINGS, NAZIM, round(100 * bs.RING_FRACTION)),
+}
 MASK_VALUE = 65535
 GEOMETRY = {"pixel_m": 75e-6, "dist_m": 0.25, "wavelength_m": 2.85e-11,
             "poni": "detector centre", "rot_rad": [0.0, 0.0, 0.0]}
@@ -99,20 +112,20 @@ def matrices(ai, key):
     """{op: csc_matrix} for the three matrix operations, cached per data set."""
     rp = bs.radial_pixels(ai)
     m1 = bs._cached("docs_%s_1d" % key, lambda: bs._engine_csc(ai, "bbox", 1, rp, "r_mm"))
-    m2 = bs._cached("docs_%s_2d" % key,
-                    lambda: bs._engine_csc(ai, "bbox", 2, rp, "q_nm^-1", bs.NAZIM))
+    m2 = bs._cached("docs_%s_2d_%d" % (key, NAZIM),
+                    lambda: bs._engine_csc(ai, "bbox", 2, rp, "q_nm^-1", NAZIM))
 
     def rings():
         method = bs.IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=2)
-        qc = ai.integrate2d(np.ones(ai.detector.shape, np.float32), rp, bs.NAZIM,
+        qc = ai.integrate2d(np.ones(ai.detector.shape, np.float32), rp, NAZIM,
                             unit="q_nm^-1", method=method).radial
         pick, h = bs.ring_windows(ai)
         W = np.array([np.abs(qc - p) < h for p in pick], dtype=np.float64)
-        S = sp.kron(sp.csr_matrix(W), sp.identity(bs.NAZIM), format="csr")
+        S = sp.kron(sp.csr_matrix(W), sp.identity(NAZIM), format="csr")
         return bs._f32(S @ m2)
 
-    mr = bs._cached("docs_%s_rings" % key, rings)
-    return {"1D": m1, "2D": m2, "2D+rings": mr}
+    mr = bs._cached("docs_%s_rings_%d" % (key, NAZIM), rings)
+    return {"1D": (m1, [rp]), "2D": (m2, [rp, NAZIM]), "2D+rings": (mr, [mr.shape[0] // NAZIM, NAZIM])}
 
 
 def time_op(fn, chunks):
@@ -157,6 +170,7 @@ def main():
     out = {"schema": 1, "tool": "tools/bench_docs.py",
            "date_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M"),
            "machine": machine(),
+           "ops": OP_TEXT,
            "method": {"frames": args.frames, "batch": BATCH, "repeats": REPEATS,
                       "mask": "pixels == %d in the first timed frame" % MASK_VALUE,
                       "geometry": GEOMETRY, "gb": 1e9},
@@ -181,6 +195,10 @@ def main():
         print("\n%s: %s %s, %d frames timed, compression %.1f, %d masked, cut %d"
               % (case["key"], info["dtype"], info["shape"], len(chunks), crec["compression"],
                  masked.sum(), case["cut"]))
+        unmasked = float(mask.sum())
+        npx, _ = b.chunk2sparse(mask, dtype=dtype, codec=codec).multi(chunks, case["cut"])
+        crec["kept_frac"] = float(np.asarray(npx, np.float64).mean()) / unmasked
+        print("  pixels above the cut: %.4f %% of the unmasked pixels" % (100 * crec["kept_frac"]))
         ai = make_ai(info["shape"], masked)
         mats = matrices(ai, case["key"])
         for op in OPS:
@@ -188,9 +206,11 @@ def main():
                 obj = b.chunk2sparse(mask, dtype=dtype, codec=codec)
                 mat = None
             else:
-                M = mats[op]
+                M, bins_shape = mats[op]
                 obj = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec)
-                mat = {"bins": int(M.shape[0]), "nnz": int(M.nnz)}
+                used = np.diff(M.indptr) > 0             # pixels with an entry
+                mat = {"bins": int(M.shape[0]), "bins_shape": bins_shape, "nnz": int(M.nnz),
+                       "pixel_frac": float(used.sum()) / unmasked}
             cut = case["cut"]
             t = time_op(lambda ch: obj.multi(ch, cut), chunks)
             rec = {"case": case["key"], "op": op, "matrix": mat,

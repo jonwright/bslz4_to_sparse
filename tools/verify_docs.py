@@ -115,6 +115,16 @@ def check_bench():
             if not isinstance(r.get(f), (int, float)) or r[f] <= 0:
                 problems.append("docs/bench/real_data.json %s / %s: bad %s"
                                 % (r.get("case"), r.get("op"), f))
+    if set(bench.get("ops", {})) != set(ops):
+        problems.append("docs/bench/real_data.json ops descriptions %s != %s"
+                        % (sorted(bench.get("ops", {})), sorted(ops)))
+    for c in bench.get("cases", []):
+        if not 0 <= c.get("kept_frac", -1) <= 1:
+            problems.append("docs/bench/real_data.json case %s: no kept_frac" % c.get("key"))
+    for r in bench.get("results", []):
+        if r.get("op") != "sparsify" and not (r.get("matrix") or {}).get("bins_shape"):
+            problems.append("docs/bench/real_data.json %s / %s: no matrix bins_shape"
+                            % (r.get("case"), r.get("op")))
     for f in ("cpu", "cores_usable", "git", "src_sha256", "py_sha256"):
         if f not in bench.get("machine", {}):
             problems.append("docs/bench/real_data.json machine has no %s" % f)

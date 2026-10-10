@@ -180,16 +180,6 @@ def pipelines_page():
 
 # ---------------------------------------------------------------- performance
 
-OP_TEXT = {
-    "sparsify": "`chunk2sparse`: decode, mask and threshold to (values, indices)",
-    "1D": "`chunk2sparseCSC`, pyFAI 1D bbox matrix (r_mm, one bin per pixel width)",
-    "2D": "`chunk2sparseCSC`, pyFAI 2D bbox matrix (q_nm^-1, one radial bin per "
-          "pixel width x 360 azimuth)",
-    "2D+rings": "`chunk2sparseCSC`, 8 ring windows x 360 azimuth summed from the 2D "
-                "matrix (the rings hold ~8 % of the pixels)",
-}
-
-
 def bench_docs_py_sha256():
     """The hash tools/bench_docs.py records, of the module being documented."""
     sys.path.insert(0, os.path.join(REPO, "tools"))
@@ -198,6 +188,12 @@ def bench_docs_py_sha256():
     finally:
         sys.path.pop(0)
     return py_sha256(os.path.dirname(b.__file__))
+
+
+def pct(frac):
+    """A fraction as a percentage: two significant figures, whole numbers from 10 %."""
+    p = 100 * frac
+    return ("%.0f %%" % p) if p >= 10 else ("%.2g %%" % p)
 
 
 def performance_page():
@@ -235,25 +231,35 @@ def performance_page():
         "wavelength %g m, no tilts.  They set the size and shape of the work, not a "
         "fit to these samples.  Masked pixels: %s.\n"
         % (g["pixel_m"] * 1e6, g["dist_m"], g["wavelength_m"], meth["mask"]))
+    op_order = []                                   # as measured (the JSON keys are sorted)
+    for r in bench["results"]:
+        if r["op"] not in op_order:
+            op_order.append(r["op"])
     parts.append("## Operations\n\n| operation | what is timed |\n|---|---|\n"
-                 + "".join("| %s | %s |\n" % (k, v) for k, v in OP_TEXT.items()))
+                 + "".join("| %s | %s |\n" % (op, bench["ops"][op]) for op in op_order))
     for case in bench["cases"]:
         rows = [r for r in bench["results"] if r["case"] == case["key"]]
         parts.append("## %s: %s\n" % (case["key"], case["label"]))
         parts.append("`%s`, dataset `%s`: %d frames of %s %s; compression %.1f; "
-                     "%d masked pixels; cut %d (pixels above it go to the sparse output).\n"
+                     "%d masked pixels.  Sparse cut %d: %s of the unmasked pixels are "
+                     "above it and go to the sparse output (mean over the timed frames).\n"
                      % (case["file"], case["dataset"], case["frames_in_file"],
                         " x ".join(str(s) for s in case["shape"]), case["dtype"],
-                        case["compression"], case["masked_pixels"], case["cut"]))
+                        case["compression"], case["masked_pixels"], case["cut"],
+                        pct(case["kept_frac"])))
         parts.append("| operation | frames/s | compressed GB/s | pixels GB/s |\n"
                      "|---|---:|---:|---:|\n"
                      + "".join("| %s | %.1f | %.3f | %.2f |\n"
                                % (r["op"], r["fps"], r["compressed_gbs"], r["pixel_gbs"])
                                for r in rows))
-        mats = ["%s %d bins, %d entries" % (r["op"], r["matrix"]["bins"], r["matrix"]["nnz"])
-                for r in rows if r["matrix"]]
+        mats = [r for r in rows if r["matrix"]]
         if mats:
-            parts.append("\nMatrices: %s.\n" % "; ".join(mats))
+            parts.append("\n| matrix | bins | entries | pixels with an entry |\n"
+                         "|---|---:|---:|---:|\n"
+                         + "".join("| %s | %s | %d | %s |\n"
+                                   % (r["op"], " x ".join(str(n) for n in r["matrix"]["bins_shape"]),
+                                      r["matrix"]["nnz"], pct(r["matrix"]["pixel_frac"]))
+                                   for r in mats))
     parts.append("\nSource: [`docs/bench/real_data.json`](%s/blob/main/docs/bench/real_data.json), "
                  "written by `%s`.\n\n" % (GITHUB, bench["tool"]) + provenance())
     return "\n".join(parts)
