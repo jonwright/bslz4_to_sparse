@@ -133,6 +133,8 @@ def check_bench():
         for f in ("cpu", "cores_usable", "git", "src_sha256", "py_sha256"):
             if f not in bench.get("machine", {}):
                 problems.append("%s machine has no %s" % (name, f))
+        if "host" in bench.get("machine", {}):
+            problems.append("%s records a host name (it is published)" % name)
         # the page puts machines side by side: same data, cuts, method and operations
         same = {k: bench.get(k) for k in ("ops", "method")}
         same["cases"] = [{k: c.get(k) for k in ("key", "file", "dataset", "cut")}
@@ -162,23 +164,32 @@ def check_kernels():
         except (OSError, ValueError) as e:
             problems.append("%s: %s" % (name, e))
             continue
+        if km.get("schema") != 2:
+            problems.append("%s: schema %r, expected 2 (re-run tools/bench_kernels.py)"
+                            % (name, km.get("schema")))
+            continue
         for f in ("cpu", "cores_usable", "git", "src_sha256", "py_sha256"):
             if f not in km.get("machine", {}):
                 problems.append("%s machine has no %s" % (name, f))
-        variants = [v["key"] for v in km.get("variants", [])]
-        if not variants:
-            problems.append("%s has no variants" % name)
-        for v in variants:
-            for kind in ["sparsify", "sparsify, no mask"] + list(km.get("matrices", {})):
-                rows = [r for r in km.get("results", []) if r["variant"] == v and r["kind"] == kind]
-                if not any("fps" in r for r in rows):
-                    problems.append("%s: no timed %s / %s" % (name, v, kind))
-                if kind not in km.get("auto", {}).get(v, {}):
-                    problems.append("%s: no automatic pipeline for %s / %s" % (name, v, kind))
+        if "host" in km.get("machine", {}):
+            problems.append("%s records a host name (it is published)" % name)
+        for ds in km.get("datasets", []):
+            for e in ds.get("encodings", []):
+                kinds = ["sparsify", "sparsify, no mask"]
+                if e["key"] in ds.get("matrix_encodings", []):
+                    kinds += list(km.get("matrices", {}))
+                for kind in kinds:
+                    rows = [r for r in km["results"] if r["data"] == ds["key"]
+                            and r["variant"] == e["key"] and r["kind"] == kind]
+                    if not any("fps" in r for r in rows):
+                        problems.append("%s: no timed %s / %s / %s" % (name, ds["key"], e["key"], kind))
+                    if kind not in km.get("auto", {}).get(ds["key"], {}).get(e["key"], {}):
+                        problems.append("%s: no automatic pipeline for %s / %s / %s"
+                                        % (name, ds["key"], e["key"], kind))
         for r in km.get("results", []):
             if "fps" in r and not r.get("sparse_ok"):
-                problems.append("%s: %s / %s %s gives a different sparse output than auto"
-                                % (name, r["variant"], r["kind"], r["pipeline"]))
+                problems.append("%s: %s / %s / %s %s gives a different sparse output than auto"
+                                % (name, r["data"], r["variant"], r["kind"], r["pipeline"]))
 
 
 def main():

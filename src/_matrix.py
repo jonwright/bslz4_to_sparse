@@ -409,14 +409,15 @@ BSB_MAX_BLOCK_ELEMS = 65536   # bsb-csr's in-block pixel index is uint16
 
 
 def auto_dot(info, padded_avx2, block_elems=None):
-    """The best guess (measured on 4M frames, 2026-10-06, Zen 4): a histogram
-    -> bsb-csr-nosplit (never slower than csc-nosplit, 2x on dense frames with
-    few occupied pixels); moment pairs -> csc-nosplit-moment; one run of <= 8
-    bins per pixel -> padded (fastest 1D split: 9 % frames 3.1 vs 3.9 ms csc);
-    longer runs -> csc-run; few occupied pixels (rings) -> bsb-csr; else csc.
-    Decode blocks over BSB_MAX_BLOCK_ELEMS pixels rule the bsb-csr dots out
-    (csc-nosplit, csc instead).  Never csc-permute or the integer dots: they
-    change the output type."""
+    """The best measured choice (tools/bench_kernels.py, Xeon Gold 6248 and
+    EPYC 9655, 2026-10-10): a histogram -> bsb-csr-nosplit; moment pairs ->
+    csc-nosplit-moment; few occupied pixels (rings) -> bsb-csr; one run of <= 8
+    bins per pixel -> padded-avx2 (1.4-1.9x on dense frames, the AVX2 rows) or
+    padded; runs of 9-64 bins -> padded for decode blocks of <= 8192 pixels,
+    csc for larger ones (csc-run was never the best); else csc.  Decode blocks
+    over BSB_MAX_BLOCK_ELEMS pixels rule the bsb-csr dots out (csc-nosplit,
+    csc instead).  Never csc-permute or the integer dots: they change the
+    output type."""
     bsb = block_elems is None or block_elems <= BSB_MAX_BLOCK_ELEMS
     if info["nosplit"]:
         return "bsb-csr-nosplit" if bsb else "csc-nosplit"
@@ -424,10 +425,11 @@ def auto_dot(info, padded_avx2, block_elems=None):
         return "csc-nosplit-moment"
     if info["runs"] and info["max_bins"] <= 8:
         return "padded-avx2" if padded_avx2 else "padded"
-    if info["runs"]:
-        return "csc-run"
     if info["occupancy"] < 0.5 and bsb:
         return "bsb-csr"
+    if info["runs"] and info["max_bins"] <= _PADDED_MAX_WIDTH and \
+            (block_elems is None or block_elems <= 8192):
+        return "padded"
     return "csc"
 
 

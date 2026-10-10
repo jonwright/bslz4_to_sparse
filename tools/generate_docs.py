@@ -12,8 +12,8 @@ git-ignored; see docs/AGENTS.md):
                                from src/_pipeline.py
   docs/gen/acknowledgements.md the Acknowledgements and References of
                                README.md, and the licences in licenses/
-  docs/gen/kernels.md          docs/bench/kernels_*.json: every pipeline on one
-                               data set (tools/bench_kernels.py, never here)
+  docs/gen/kernels.md          docs/bench/kernels_*.json: each pipeline step on
+                               real data (tools/bench_kernels.py, never here)
   docs/gen/performance.md      docs/bench/real_data_*.json, one per machine
                                (measured there by tools/bench_docs.py, never here)
 
@@ -446,9 +446,36 @@ def kernel_check(r):
     return txt
 
 
+def axis_tables(rows, base, note):
+    """The automatic pipeline line and one table per step varied."""
+    parts = ["Automatic pipeline: %s.  Each table varies one step, the others held "
+             "there%s." % (", ".join("%s `%s`" % (k, base[k]) for k in _pipeline.STEPS if k in base),
+                           note)]
+    axes = []
+    for r in rows:
+        if r["axis"] not in axes:
+            axes.append(r["axis"])
+    for axis in axes:
+        arows = [r for r in rows if r["axis"] == axis]
+        table = ("| %s | frames/s | compressed GB/s | pixels GB/s | vs auto |\n"
+                 "|---|---:|---:|---:|---|\n" % axis)
+        for r in sorted([r for r in arows if "fps" in r], key=lambda r: -r["fps"]):
+            is_auto = all(r["pipeline"].get(k) == base[k] for k in base)
+            table += "| %s | %.1f | %.3f | %.2f | %s |\n" % (
+                ("**`%s`**" if is_auto else "`%s`") % r["pipeline"].get(axis), r["fps"],
+                r["compressed_gbs"], r["pixel_gbs"],
+                ("**auto**; " if is_auto else "") + kernel_check(r))
+        for r in arows:
+            if "refused" in r:
+                table += "| `%s` | refused: %s | | | |\n" % (
+                    r["pipeline"].get(axis), r["refused"].replace("|", "\\|"))
+        parts.append(table)
+    return parts
+
+
 def kernels_page():
     files = sorted(glob.glob(KERNELS_GLOB))
-    parts = ["# Kernels: every pipeline on one data set"]
+    parts = ["# Kernels: each pipeline step on real data"]
     if not files:
         parts.append("No measurement committed yet (`docs/bench/kernels_*.json`, "
                      "written by `tools/bench_kernels.py`).")
@@ -459,88 +486,76 @@ def kernels_page():
     for path in files:
         with open(path) as fh:
             kms.append((path, json.load(fh)))
-    parts.append("Machines: %s.  Each has its own section below, after the description "
-                 "of the step values."
-                 % ", ".join("[%s](#%s)" % (cpu_label(km["machine"]["cpu"]),
-                                             re.sub(r"[^a-z0-9]+", "-", cpu_label(km["machine"]["cpu"]).lower()).strip("-"))
-                             for _, km in kms))
+    anchor = lambda t: re.sub(r"[^a-z0-9]+", "-", t.lower()).strip("-")
+    parts.append(
+        "The C code composes a pipeline at run time (a switch per step per decode "
+        "block; templates only over the pixel type), so each step is timed on its own: "
+        "starting from the automatic pipeline, each value of one step with the others "
+        "held there.  Machines: %s; each has its own section after the description of "
+        "the step values."
+        % ", ".join("[%s](#%s)" % (cpu_label(km["machine"]["cpu"]),
+                                    anchor(cpu_label(km["machine"]["cpu"]))) for _, km in kms))
     parts.append("## The pipeline steps\n\nWhat each value timed below does, from the "
                  "comments in the C sources (linked), and what it needs, from "
                  "`src/_pipeline.py`.")
     parts.append(step_values_section("###"))
     for path, km in kms:
-        m, d, meth = km["machine"], km["data"], km["method"]
+        m, meth = km["machine"], km["method"]
         parts.append("## %s" % cpu_label(m["cpu"]))
         w = stale_warning(km, here, here_py)
         if w:
             parts.append(w)
         parts.append(
-            "Every pipeline this machine can run, on **one core of %s** (%s UTC, "
-            "bslz4_to_sparse %s, git `%s`), for one real data set: `%s` (%s, %s %s, "
-            "%d masked pixels, cut %d), %d frames spread over the file.  The frames are "
-            "re-encoded in memory with each codec and block size below.  The C code "
-            "composes a pipeline at run time, so each step is timed on its own, the other "
-            "steps held at the automatic choice.  Sparsify is "
-            "timed on the frames as they are, with the mask, and *no mask*: %s.  Timing as on "
-            "the [performance page](performance.md): frames in memory, one warmup "
-            "batch of %d, best of %d passes.  **Bold** marks the automatic choice.  "
-            "*vs auto* checks each result against the automatic pipeline: the sparse "
-            "output must be the same, and the powder is compared as max |difference| / "
-            "max |powder| (the fixed-point dots round).  Combinations the library "
-            "refuses for this data, block size or matrix are listed with the reason."
+            "**One core of %s**, %s UTC, bslz4_to_sparse %s (git `%s`); the whole run took "
+            "%s s.  %d frames spread over each file, re-encoded in memory with each codec "
+            "and block size listed; one pass over all frames checks the result against the "
+            "automatic pipeline and warms up, then the best of %d timed passes (batches of "
+            "%d, no file I/O).  Sparsify is also timed *no mask*: %s.  **Bold** marks the "
+            "automatic choice; *vs auto*: the sparse output must be the same, the powder is "
+            "compared as max |difference| / max |powder| (the fixed-point dots round).  "
+            "Values the library refuses for the data, block size or matrix are listed with "
+            "the reason."
             % (cpu_label(m["cpu"]), km["date_utc"], m["version"], m["git"],
-               d["key"], d["file"], " x ".join(str(x) for x in d["shape"]), d["dtype"],
-               d["masked_pixels"], d["cut"], meth["frames"],
-               d.get("no_mask", "not measured"), meth["batch"], meth["repeats"]))
-        parts.append("| encoding | codec | level | block | compression |\n|---|---|---|---:|---:|\n"
-                     + "".join("| %s | %s | %s | %d kB | %.1f |\n"
-                               % (v["key"], v["codec"], v["clevel"] if v["clevel"] else "-",
-                                  v["block_bytes"] // 1024, v["compression"])
-                               for v in km["variants"]))
-        parts.append("| matrix | what | bins | entries | pixels with an entry | bins per pixel (mean, max) |\n"
-                     "|---|---|---:|---:|---:|---:|\n"
-                     + "".join("| %s | %s | %s | %d | %s | %s |\n"
-                               % (op, km["ops"][op], " x ".join(str(n) for n in mi["bins_shape"]),
-                                  mi["nnz"], pct(mi["pixel_frac"]), bins_per_pixel(mi))
-                               for op, mi in km["matrices"].items()))
-        kinds = [k for k in ("sparsify", "sparsify, no mask") if k in km["auto"][km["variants"][0]["key"]]]
-        for r in km["results"]:                   # the matrices in the order measured
-            if r["kind"] in km["matrices"] and r["kind"] not in kinds:
-                kinds.append(r["kind"])
-        for v in km["variants"]:
-            parts.append("### %s (compression %.1f)" % (v["key"], v["compression"]))
-            for kind in kinds:
-                rows = [r for r in km["results"] if r["variant"] == v["key"] and r["kind"] == kind]
-                base = km["auto"][v["key"]][kind]
-                parts.append("#### %s, %s" % (v["key"], kind if kind.startswith("sparsify")
-                                               else kind + " matrix"))
-                parts.append("Automatic pipeline: %s.  Each table varies one step, the others "
-                             "held there%s." % (
-                                 ", ".join("%s `%s`" % (k, base[k])
-                                           for k in _pipeline.STEPS if k in base),
-                                 " (the collect table holds untranspose `kcb`: the low-planes "
-                                 "values fuse the collect)" if kind.startswith("sparsify") else ""))
-                axes = []
-                for r in rows:
-                    if r["axis"] not in axes:
-                        axes.append(r["axis"])
-                for axis in axes:
-                    arows = [r for r in rows if r["axis"] == axis]
-                    timed = sorted([r for r in arows if "fps" in r], key=lambda r: -r["fps"])
-                    table = ("| %s | frames/s | compressed GB/s | pixels GB/s | vs auto |\n"
-                             "|---|---:|---:|---:|---|\n" % axis)
-                    for r in timed:
-                        val = r["pipeline"].get(axis)
-                        is_auto = all(r["pipeline"].get(k) == base[k] for k in base)
-                        table += "| %s | %.1f | %.3f | %.2f | %s |\n" % (
-                            ("**`%s`**" if is_auto else "`%s`") % val, r["fps"],
-                            r["compressed_gbs"], r["pixel_gbs"],
-                            ("**auto**; " if is_auto else "") + kernel_check(r))
-                    for r in arows:
-                        if "refused" in r:
-                            table += "| `%s` | refused: %s | | | |\n" % (
-                                r["pipeline"].get(axis), r["refused"].replace("|", "\\|"))
-                    parts.append(table)
+               meth.get("seconds", "?"), meth["frames"], meth["repeats"], meth["batch"],
+               meth["no_mask"]))
+        parts.append(
+            "The matrices (one generic geometry, %s pixels; the kevlar frames are cropped "
+            "to it, and every object folds its own data set's mask):\n\n"
+            "| matrix | what | bins | entries | pixels with an entry | bins per pixel (mean, max) |\n"
+            "|---|---|---:|---:|---:|---:|\n" % " x ".join(str(x) for x in meth["shape"])
+            + "".join("| %s | %s | %s | %d | %s | %s |\n"
+                      % (op, km["ops"][op], " x ".join(str(n) for n in mi["bins_shape"]),
+                         mi["nnz"], pct(mi["pixel_frac"]), bins_per_pixel(mi))
+                      for op, mi in km["matrices"].items()))
+        for ds in km["datasets"]:
+            parts.append("### %s: %s" % (ds["key"], ds["label"]))
+            parts.append(
+                "`%s` (%s, %s %s, %d masked pixels, cut %d).  Encodings:\n\n"
+                "| encoding | codec | level | block | compression | tables |\n"
+                "|---|---|---|---:|---:|---|\n"
+                % (ds["file"], ds["dataset"], " x ".join(str(x) for x in ds["shape"]),
+                   ds["dtype"], ds["masked_pixels"], ds["cut"])
+                + "".join("| %s | %s | %s | %d kB | %.1f | %s |\n"
+                          % (e["key"], e["codec"], e["clevel"] if e["clevel"] else "-",
+                             e["block_bytes"] // 1024, e["compression"],
+                             "sparsify, matrices" if e["key"] in ds["matrix_encodings"]
+                             else "sparsify")
+                          for e in ds["encodings"]))
+            for e in ds["encodings"]:
+                auto = km["auto"][ds["key"]][e["key"]]
+                kinds = []
+                for r in km["results"]:            # in the order measured
+                    if r["data"] == ds["key"] and r["variant"] == e["key"] and r["kind"] not in kinds:
+                        kinds.append(r["kind"])
+                for kind in kinds:
+                    rows = [r for r in km["results"] if r["data"] == ds["key"]
+                            and r["variant"] == e["key"] and r["kind"] == kind]
+                    sp = kind.startswith("sparsify")
+                    parts.append("#### %s, %s, %s" % (ds["key"], e["key"],
+                                                      kind if sp else kind + " matrix"))
+                    parts += axis_tables(rows, auto[kind],
+                                         " (the collect table holds untranspose `kcb`: the "
+                                         "low-planes values fuse the collect)" if sp else "")
         parts.append("Source: `%s`, written by `%s`." % (os.path.relpath(path, REPO), km["tool"]))
     parts.append(provenance())
     return "\n\n".join(p.rstrip("\n") for p in parts) + "\n"

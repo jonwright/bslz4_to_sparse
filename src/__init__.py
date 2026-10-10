@@ -429,7 +429,8 @@ class chunk2sparseCSC:
         self._dot_is_auto = _pipeline.parse(pipeline)[_pipeline.DOT] == 0
         self.pipeline = _pipeline.resolve(
             pipeline, self.dtype, codec, self.mask, matrix=True,
-            dot_auto=lambda: _matrix.auto_dot(_matrix.analyse(nm), padded_avx2))
+            dot_auto=lambda: _matrix.auto_dot(_matrix.analyse(nm), padded_avx2,
+                                              DEFAULT_BLOCK_BYTES // self.dtype.itemsize))
         self._mask_pending = _mask_auto_pending(pipeline, self.dtype, self.mask)
         self.dot = _pipeline.NAMES["dot"][self.pipeline[_pipeline.DOT]]
         self._di = _pipeline.DTYPE_INDEX[_pipeline.dtype_suffix(self.dtype)]

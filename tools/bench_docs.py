@@ -8,7 +8,7 @@ Three real ID11 Eiger data sets (CASES below), each through four operations:
              pixel width)
   1D no-split  the same with pyFAI's no-split 1D matrix: a histogram, every
              pixel in one bin with weight 1
-  1D fine    pyFAI 1D bbox with NFINE (10000) bins: a fine split, several
+  1D fine    pyFAI 1D bbox with NFINE (6000) bins: a fine split, several
              bins per pixel (the padded rows the AVX2 kernels vectorise)
   2D         chunk2sparseCSC with a pyFAI 2D bbox matrix (q_nm^-1, one radial
              bin per pixel width x NAZIM azimuth)
@@ -77,7 +77,7 @@ CASES = [
      "dataset": "/entry/data/data", "cut": 5},
 ]
 OPS = ("sparsify", "1D", "1D no-split", "1D fine", "2D", "2D+rings")
-NFINE = 10000                  # 1D bins of the fine split
+NFINE = 6000                   # 1D bins of the fine split (rows <= 8 bins here)
 NAZIM = 72                     # azimuthal bins of the 2D and ring matrices
 OP_TEXT = {
     "sparsify": "chunk2sparse: decode, mask and threshold to (values, indices)",
