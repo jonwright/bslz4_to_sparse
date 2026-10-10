@@ -439,28 +439,6 @@ def kernel_check(r):
     return txt
 
 
-def kernel_table(rows, cols, auto):
-    head = "| " + " | ".join(cols) + " | frames/s | compressed GB/s | pixels GB/s | vs auto |\n"
-    head += "|" + "---|" * len(cols) + "---:|---:|---:|---|\n"
-    body = ""
-    for r in sorted(rows, key=lambda r: -r["fps"]):
-        is_auto = all(r["pipeline"].get(k) == v for k, v in auto.items())
-        cells = [("**%s**" if is_auto else "%s") % r["pipeline"].get(c, "") for c in cols]
-        body += "| %s | %.1f | %.3f | %.2f | %s |\n" % (
-            " | ".join(cells), r["fps"], r["compressed_gbs"], r["pixel_gbs"],
-            ("**auto**; " if is_auto else "") + kernel_check(r))
-    return head + body
-
-
-def refused_list(rows, cols):
-    by_reason = {}
-    for r in rows:
-        by_reason.setdefault(r["refused"], []).append(
-            "/".join(str(r["pipeline"].get(c)) for c in cols))
-    return "\n".join("- %s: %s" % (reason, ", ".join("`%s`" % n for n in names))
-                      for reason, names in sorted(by_reason.items()))
-
-
 def kernels_page():
     files = sorted(glob.glob(KERNELS_GLOB))
     parts = ["# Kernels: every pipeline on one data set"]
@@ -493,7 +471,9 @@ def kernels_page():
             "Every pipeline this machine can run, on **one core of %s** (%s UTC, "
             "bslz4_to_sparse %s, git `%s`), for one real data set: `%s` (%s, %s %s, "
             "%d masked pixels, cut %d), %d frames spread over the file.  The frames are "
-            "re-encoded in memory with each codec and block size below.  Sparsify is "
+            "re-encoded in memory with each codec and block size below.  The C code "
+            "composes a pipeline at run time, so each step is timed on its own, the other "
+            "steps held at the automatic choice.  Sparsify is "
             "timed on the frames as they are, with the mask, and *no mask*: %s.  Timing as on "
             "the [performance page](performance.md): frames in memory, one warmup "
             "batch of %d, best of %d passes.  **Bold** marks the automatic choice.  "
@@ -524,16 +504,36 @@ def kernels_page():
             parts.append("### %s (compression %.1f)" % (v["key"], v["compression"]))
             for kind in kinds:
                 rows = [r for r in km["results"] if r["variant"] == v["key"] and r["kind"] == kind]
-                timed = [r for r in rows if "fps" in r]
-                refused = [r for r in rows if "refused" in r]
-                cols = list(SPARSIFY_STEPS) if kind.startswith("sparsify") else ["dot", "route"]
-                auto = km["auto"][v["key"]][kind]
-                auto = {k: auto[k] for k in cols if k in auto}
-                parts.append("#### %s, %s" % (v["key"], kind if kind.startswith("sparsify") else kind + " matrix"))
-                if timed:
-                    parts.append(kernel_table(timed, cols, auto))
-                if refused:
-                    parts.append("Refused (%d):\n\n%s" % (len(refused), refused_list(refused, cols)))
+                base = km["auto"][v["key"]][kind]
+                parts.append("#### %s, %s" % (v["key"], kind if kind.startswith("sparsify")
+                                               else kind + " matrix"))
+                parts.append("Automatic pipeline: %s.  Each table varies one step, the others "
+                             "held there%s." % (
+                                 ", ".join("%s `%s`" % (k, base[k])
+                                           for k in _pipeline.STEPS if k in base),
+                                 " (the collect table holds untranspose `kcb`: the low-planes "
+                                 "values fuse the collect)" if kind.startswith("sparsify") else ""))
+                axes = []
+                for r in rows:
+                    if r["axis"] not in axes:
+                        axes.append(r["axis"])
+                for axis in axes:
+                    arows = [r for r in rows if r["axis"] == axis]
+                    timed = sorted([r for r in arows if "fps" in r], key=lambda r: -r["fps"])
+                    table = ("| %s | frames/s | compressed GB/s | pixels GB/s | vs auto |\n"
+                             "|---|---:|---:|---:|---|\n" % axis)
+                    for r in timed:
+                        val = r["pipeline"].get(axis)
+                        is_auto = all(r["pipeline"].get(k) == base[k] for k in base)
+                        table += "| %s | %.1f | %.3f | %.2f | %s |\n" % (
+                            ("**`%s`**" if is_auto else "`%s`") % val, r["fps"],
+                            r["compressed_gbs"], r["pixel_gbs"],
+                            ("**auto**; " if is_auto else "") + kernel_check(r))
+                    for r in arows:
+                        if "refused" in r:
+                            table += "| `%s` | refused: %s | | | |\n" % (
+                                r["pipeline"].get(axis), r["refused"].replace("|", "\\|"))
+                    parts.append(table)
         parts.append("Source: `%s`, written by `%s`." % (os.path.relpath(path, REPO), km["tool"]))
     parts.append(provenance())
     return "\n\n".join(p.rstrip("\n") for p in parts) + "\n"

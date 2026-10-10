@@ -1,27 +1,31 @@
 #!/usr/bin/env python3
-"""Every pipeline on one real data set, for the documentation's kernel page.
+"""Each pipeline step on one real data set, one step at a time.
 
 The WAu5um_DT3 data set of tools/bench_docs.py: FRAMES frames are decoded
 and re-encoded in memory four ways (VARIANTS): bitshuffle-LZ4 and
-bitshuffle-zstd level 2, each with 8 kB and 256 kB blocks.  For each
-variant every pipeline this machine can run is timed:
+bitshuffle-zstd level 2, each with 8 kB and 256 kB blocks.  The C code
+composes a pipeline at run time (a switch per step per block, templates
+only over the pixel dtype), so the steps are scanned one at a time, not as
+a product: starting from the automatic pipeline, each step's values are
+timed with the other steps held there.
 
-  sparsify   every combination of the decode, mask, untranspose and collect
-             values (chunk2sparse), on the masked frames (masked pixels at
-             65535, with the mask) and on the same frames not masked (masked
-             pixels set to 0, no mask: where the mask step 'none' applies)
-  matrices   every dot x route value (other steps automatic) on the matrices
-             of tools/bench_docs.py (chunk2sparseCSC): 1D, 1D no-split (a
-             pyFAI histogram), 2D and 2D+rings.  Each dot's object is built
-             once per encoding and switched between the routes.
+  sparsify   the decode, mask, untranspose and collect axes (chunk2sparse),
+             on the masked frames (masked pixels at 65535, with the mask)
+             and on the same frames not masked (masked pixels set to 0, no
+             mask: where the mask step 'none' applies).  The collect axis
+             holds untranspose at kcb: the low-planes values fuse the
+             collect, so beside them the collect value is not used.
+  matrices   the dot axis (route automatic) and the route axis (dot
+             automatic) on the matrices of tools/bench_docs.py: 1D, 1D
+             no-split (a pyFAI histogram), 2D and 2D+rings.
 
-A combination the library refuses (the data, the block size or the matrix
-does not allow it) is recorded with the reason, not timed.  Every timed
-result is checked against the automatic pipeline: the sparse output must
-be identical, the powder is compared as max |difference| / max |powder|
-(the fixed-point dots round).  Timing as tools/bench_docs.py: frames in
-memory, one warmup batch, best of REPEATS passes over all frames.  Run on
-one core of the machine the numbers are for and commit the JSON:
+A value the library refuses (the data, the block size or the matrix does
+not allow it) is recorded with the reason, not timed.  Every timed result
+is checked against the automatic pipeline: the sparse output must be
+identical, the powder is compared as max |difference| / max |powder| (the
+fixed-point dots round).  Timing as tools/bench_docs.py: frames in memory,
+one warmup batch, best of REPEATS passes over all frames.  Run on one core
+of the machine the numbers are for and commit the JSON:
 
     BSLZ4_TO_SPARSE_PATH=lib taskset -c N python3 tools/bench_kernels.py \\
         --out docs/bench/kernels_<cpu>.json
@@ -30,7 +34,6 @@ Never run in CI.  tools/generate_docs.py renders docs/bench/kernels_*.json.
 """
 import argparse
 import datetime
-import itertools
 import json
 import os
 import sys
@@ -53,6 +56,7 @@ VARIANTS = [  # (codec name, zstd level, block bytes)
     ("zstd", 2, 8192),
     ("zstd", 2, 262144),
 ]
+SPARSIFY_STEPS = ("decode", "mask", "untranspose", "collect")
 FRAMES = 50
 BATCH = 25
 REPEATS = 3
@@ -160,9 +164,9 @@ def main():
                                 "block_bytes": block, "compression": pbytes / cbytes})
         print("\n== %s: compression %.1f" % (vkey, pbytes / cbytes))
 
-        def record(kind, pipeline, obj=None, ref=None, err=None, use=None):
+        def record(kind, axis, pipeline, obj=None, ref=None, err=None, use=None):
             use = chunks if use is None else use
-            rec = {"variant": vkey, "kind": kind, "pipeline": pipeline}
+            rec = {"variant": vkey, "kind": kind, "axis": axis, "pipeline": pipeline}
             if err is not None:
                 rec["refused"] = str(err)
                 out["results"].append(rec)
@@ -185,42 +189,45 @@ def main():
             print("  %-9s %-60s %8.1f fps%s" % (kind, " ".join(rec["pipeline"].values()),
                                                  rec["fps"], "" if rec["sparse_ok"] else "  SPARSE DIFFERS"))
 
-        # sparsify: every decode x mask x untranspose x collect, masked and not
+        # sparsify: one step at a time from the automatic pipeline, masked and not
         decodes = [d for d in usable("decode") if (d == "zstd") == (cname == "zstd")]
         for kind, kmask, kchunks in (("sparsify", mask, chunks),
                                      ("sparsify, no mask", ones, chunks_nomask)):
             auto = b.chunk2sparse(kmask, dtype=dtype, codec=codec)
-            ref = outputs(auto, kchunks, cut)
-            out.setdefault("auto", {}).setdefault(vkey, {})[kind] = names(auto)
-            for combo in itertools.product(decodes, usable("mask"), usable("untranspose"),
-                                           usable("collect")):
-                p = dict(zip(("decode", "mask", "untranspose", "collect"), combo))
-                try:
-                    obj = b.chunk2sparse(kmask, dtype=dtype, codec=codec, pipeline=p)
-                except ValueError as e:
-                    record(kind, p, err=e, use=kchunks)
-                    continue
-                record(kind, p, obj, ref, use=kchunks)
-                del obj
+            ref = outputs(auto, kchunks, cut)       # the first frame settles an auto mask
+            base = {k: names(auto)[k] for k in SPARSIFY_STEPS}
+            out.setdefault("auto", {}).setdefault(vkey, {})[kind] = dict(base)
+            del auto
+            for axis in SPARSIFY_STEPS:
+                held = dict(base, untranspose="kcb") if axis == "collect" else base
+                for val in (decodes if axis == "decode" else usable(axis)):
+                    p = dict(held, **{axis: val})
+                    try:
+                        obj = b.chunk2sparse(kmask, dtype=dtype, codec=codec, pipeline=p)
+                    except ValueError as e:
+                        record(kind, axis, p, err=e, use=kchunks)
+                        continue
+                    record(kind, axis, p, obj, ref, use=kchunks)
+                    del obj
 
-        # matrix dots: every dot x route, the other steps automatic
+        # matrices: the dot axis (route automatic), the route axis (dot automatic)
         for op, (M, _shape) in mats.items():
             auto = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec)
-            ref = outputs(auto, chunks, cut)
-            out["auto"][vkey][op] = names(auto)
+            ref = outputs(auto, chunks, cut)        # settles the dot for this block size
+            base = {k: names(auto)[k] for k in ("dot", "route")}
+            out["auto"][vkey][op] = dict(base)
+            for route in usable("route"):           # the route is read on every call
+                auto.pipeline[P.ROUTE] = P.NAMES["route"].index(route)
+                record(op, "route", dict(base, route=route), auto, ref)
             del auto
-            routes = usable("route")
             for dot in usable("dot"):
+                p = dict(base, dot=dot)
                 try:
-                    obj = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec,
-                                            pipeline={"dot": dot, "route": routes[0]})
+                    obj = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec, pipeline=p)
                 except ValueError as e:
-                    for route in routes:
-                        record(op, {"dot": dot, "route": route}, err=e)
+                    record(op, "dot", p, err=e)
                     continue
-                for route in routes:          # the route is read on every call
-                    obj.pipeline[P.ROUTE] = P.NAMES["route"].index(route)
-                    record(op, {"dot": dot, "route": route}, obj, ref)
+                record(op, "dot", p, obj, ref)
                 del obj
 
     tmp = args.out + ".tmp"
