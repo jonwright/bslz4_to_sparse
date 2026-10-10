@@ -26,8 +26,11 @@ graft tools
 
 recursive-include zstd/lib *.c *.h
 
-# Don't let build leftovers leak into the sdist.
+# Don't let build leftovers leak into the sdist: compiled extensions left in
+# src/ by a local build match package_data and would otherwise ship, stale,
+# inside the source tarball (CI builds from a clean checkout either way).
 global-exclude *.py[cod]
+global-exclude *.so *.pyd
 
 # Patches to the submodules, applied by tools/build_extension.py at build time;
 # without them an sdist build silently compiles the unpatched upstream sources.
