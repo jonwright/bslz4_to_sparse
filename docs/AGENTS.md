@@ -12,7 +12,7 @@ text, example output or a benchmark number into a Markdown file.
 | API reference | docstrings and signatures in `src/` | `tools/generate_docs.py` (introspection) |
 | Pipeline step values | `VALUES` in `src/_pipeline.py` | `tools/generate_docs.py` |
 | Decode error codes | `_DECODE_ERRORS` in `src/__init__.py` | `tools/generate_docs.py` |
-| Performance numbers | `docs/bench/real_data.json`, measured by `tools/bench_docs.py` on a real machine and committed | `tools/generate_docs.py` |
+| Performance numbers | `docs/bench/real_data_<cpu>.json`, one per machine, measured there by `tools/bench_docs.py` and committed | `tools/generate_docs.py` |
 
 Generated pages go to `docs/gen/`, which is git-ignored: if a file is not
 in the repository, it cannot be edited by hand.
@@ -28,8 +28,9 @@ in the repository, it cannot be edited by hand.
    add it to the nav in `docs/mkdocs.yml`.  `test/test_doc_examples.py` runs
    every example, so a broken one fails the tests.
 3. **Benchmarks are measured, never typed and never run in CI.**  Run
-   `tools/bench_docs.py --out docs/bench/real_data.json` on the machine the
-   numbers are for, on one core, and commit the JSON.  The JSON records the
+   `tools/bench_docs.py --out docs/bench/real_data_<cpu>.json` on the machine
+   the numbers are for, on one core, and commit the JSON; every file is
+   shown, side by side, so all must measure the same cases.  The JSON records the
    C sources' sha256 and a hash of `_pipeline.py` + `_matrix.py`; when either
    differs from the code the site is built from, the performance page says
    so in a warning box.

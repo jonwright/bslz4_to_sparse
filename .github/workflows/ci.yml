@@ -342,7 +342,7 @@ jobs:
   #
   # docs/AGENTS.md: every page under docs/gen/ is written by
   # tools/generate_docs.py (examples run, API from the docstrings, numbers from
-  # the committed docs/bench/real_data.json -- benchmarks never run here).  Any
+  # the committed docs/bench/real_data_*.json -- benchmarks never run here).  Any
   # example that fails, rule verify_docs.py finds broken or mkdocs --strict
   # warning stops the job, so a site that no longer matches the code is never
   # deployed.  Runs on every push and PR; deploy-docs publishes only main.

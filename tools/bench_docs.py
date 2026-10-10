@@ -26,12 +26,15 @@ batch, then timed over all frames in batches of BATCH; the best of REPEATS
 passes is kept.  Reported: frames/s, compressed GB/s (the bitshuffle-LZ4
 bytes consumed) and pixel GB/s (frames x pixels x bytes per pixel), GB =
 1e9 bytes.  Run it on the machine the numbers are for, on one core
-(`taskset -c N` or a one-core job), and commit the JSON:
+(`taskset -c N` or a one-core job), and commit the JSON, one per machine
+(docs/bench/real_data_<cpu>.json; the documentation shows them side by
+side):
 
-    BSLZ4_TO_SPARSE_PATH=lib python3 tools/bench_docs.py --out docs/bench/real_data.json
+    BSLZ4_TO_SPARSE_PATH=lib python3 tools/bench_docs.py \\
+        --out docs/bench/real_data_xeon-gold-6248.json
 
 Never run it in CI: shared runners give meaningless timings.
-tools/generate_docs.py renders the JSON; it is the only source of the
+tools/generate_docs.py renders the JSONs; they are the only source of the
 numbers on the site.  pyFAI matrices are cached in $BSLZ4_BENCH_DIR.
 """
 import argparse
@@ -162,7 +165,7 @@ def machine():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--out", required=True, help="JSON file to write (docs/bench/real_data.json)")
+    ap.add_argument("--out", required=True, help="JSON file to write (docs/bench/real_data_<cpu>.json)")
     ap.add_argument("--frames", type=int, default=FRAMES)
     ap.add_argument("--cases", default=",".join(c["key"] for c in CASES))
     args = ap.parse_args()

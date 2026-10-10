@@ -10,8 +10,8 @@ git-ignored; see docs/AGENTS.md):
                                and the decode error codes, read from the module
   docs/gen/pipelines.md        every pipeline step value and what it needs,
                                from src/_pipeline.py
-  docs/gen/performance.md      docs/bench/real_data.json (measured on a real
-                               machine by tools/bench_docs.py, never here)
+  docs/gen/performance.md      docs/bench/real_data_*.json, one per machine
+                               (measured there by tools/bench_docs.py, never here)
 
 An example that raises or exits non-zero stops the build: the site cannot
 show an example that does not run.  The bslz4_to_sparse that is imported
@@ -24,6 +24,7 @@ import glob
 import inspect
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -31,7 +32,7 @@ import textwrap
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(REPO, "docs")
 GEN = os.path.join(DOCS, "gen")
-BENCH = os.path.join(DOCS, "bench", "real_data.json")
+BENCH_GLOB = os.path.join(DOCS, "bench", "real_data_*.json")
 _path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
 if _path:
     sys.path.insert(0, _path)
@@ -196,33 +197,51 @@ def pct(frac):
     return ("%.0f %%" % p) if p >= 10 else ("%.2g %%" % p)
 
 
+def bench_files():
+    """The committed measurements, one JSON per machine (tools/bench_docs.py)."""
+    return sorted(glob.glob(BENCH_GLOB))
+
+
+def cpu_label(cpu):
+    """'Intel(R) Xeon(R) Gold 6248 CPU @ 2.50GHz' -> 'Intel Xeon Gold 6248'."""
+    for junk in ("(R)", "(TM)", "CPU", "Processor"):
+        cpu = cpu.replace(junk, " ")
+    cpu = re.sub(r"@.*$|\b\d+-Core\b", " ", cpu)
+    return " ".join(cpu.split())
+
+
+def stale_warning(bench, here, here_py):
+    m = bench["machine"]
+    if m["src_sha256"] == here and m.get("py_sha256") == here_py:
+        return ""
+    return ('!!! warning "%s: measured on older code"\n'
+            "    Measured at git `%s` (C sources sha256 `%s`, kernel-choice modules `%s`); "
+            "this site was built from `%s` / `%s`.  The code changed since, so these "
+            "numbers may no longer describe it.  Re-run `tools/bench_docs.py` on that "
+            "machine and commit its JSON.\n"
+            % (cpu_label(m["cpu"]), m["git"], m["src_sha256"][:12],
+               str(m.get("py_sha256"))[:12], here[:12], here_py[:12]))
+
+
 def performance_page():
-    with open(BENCH) as fh:
-        bench = json.load(fh)
-    m, meth = bench["machine"], bench["method"]
+    benches = []
+    for path in bench_files():
+        with open(path) as fh:
+            benches.append((os.path.relpath(path, REPO), json.load(fh)))
+    ref = benches[0][1]                 # data, cases, method: the same in every file
+    meth = ref["method"]
     here = b.build_info()["src_sha256"]
     here_py = bench_docs_py_sha256()
-    parts = ["# Performance on real data\n"]
-    if m["src_sha256"] != here or m.get("py_sha256") != here_py:
-        parts.append('!!! warning "Measured on older code"\n'
-                     "    These numbers were measured at git `%s` (C sources sha256 `%s`, "
-                     "kernel-choice modules `%s`); this site was built from `%s` / `%s`.  "
-                     "The code changed since, so they may no longer describe it.  Re-run "
-                     "`tools/bench_docs.py` and commit `docs/bench/real_data.json`.\n"
-                     % (m["git"], m["src_sha256"][:12], str(m.get("py_sha256"))[:12],
-                        here[:12], here_py[:12]))
+    parts = ["# Performance on real data"]
+    parts += [w for w in (stale_warning(bm, here, here_py) for _, bm in benches) if w]
     parts.append(
-        "Measured on **%s**, %d core usable, %s UTC, with bslz4_to_sparse %s (git `%s`, "
-        "sources sha256 `%s`), %s, Python %s, numpy %s, pyFAI %s.\n"
-        % (m["cpu"], m["cores_usable"], bench["date_utc"], m["version"], m["git"],
-           m["src_sha256"][:12], m["compiler"], m["python"], m["numpy"], m["pyFAI"]))
-    parts.append(
-        "%d frames spread over each file were read into memory first (no file I/O "
-        "is timed), then decoded in batches of %d after one warmup batch; the best "
+        "Three real ID11 Eiger data sets, each decoded on **one core** of each machine "
+        "below.  %d frames spread over each file were read into memory first (no file "
+        "I/O is timed), then decoded in batches of %d after one warmup batch; the best "
         "of %d passes is shown.  GB = 10^9 bytes.  *Compressed* GB/s counts the "
-        "bitshuffle-LZ4 bytes consumed, *pixels* GB/s the decompressed frame "
-        "(pixels x bytes per pixel): their ratio is the compression ratio.  "
-        "Pipelines are the automatic choice.\n"
+        "bitshuffle-LZ4 bytes consumed, *pixels* GB/s the decompressed frame (pixels x "
+        "bytes per pixel): their ratio is the compression ratio.  Pipelines are the "
+        "automatic choice on each machine, from the same build.\n"
         % (meth["frames"], meth["batch"], meth["repeats"]))
     g = meth["geometry"]
     parts.append(
@@ -231,14 +250,43 @@ def performance_page():
         "wavelength %g m, no tilts.  They set the size and shape of the work, not a "
         "fit to these samples.  Masked pixels: %s.\n"
         % (g["pixel_m"] * 1e6, g["dist_m"], g["wavelength_m"], meth["mask"]))
+
+    parts.append("## Machines")
+    parts.append("| machine | host | measured (UTC) | build | compiler | "
+                 "Python, numpy, pyFAI | data |\n|---|---|---|---|---|---|---|\n"
+                 + "".join("| **%s** | %s | %s | %s `%s` | %s | %s, %s, %s | [`%s`](%s/blob/main/%s) |\n"
+                           % (cpu_label(bm["machine"]["cpu"]), bm["machine"]["host"],
+                              bm["date_utc"], bm["machine"]["version"], bm["machine"]["git"],
+                              bm["machine"]["compiler"], bm["machine"]["python"],
+                              bm["machine"]["numpy"], bm["machine"]["pyFAI"],
+                              os.path.basename(path), GITHUB, path)
+                           for path, bm in benches))
+
+    parts.append("## Frames per second")
+    table = ("| data set | operation | "
+             + " | ".join(cpu_label(bm["machine"]["cpu"]) for _, bm in benches)
+             + " |\n|---|---|" + "---:|" * len(benches) + "\n")
     op_order = []                                   # as measured (the JSON keys are sorted)
-    for r in bench["results"]:
+    for r in ref["results"]:
         if r["op"] not in op_order:
             op_order.append(r["op"])
-    parts.append("## Operations\n\n| operation | what is timed |\n|---|---|\n"
-                 + "".join("| %s | %s |\n" % (op, bench["ops"][op]) for op in op_order))
-    for case in bench["cases"]:
-        rows = [r for r in bench["results"] if r["case"] == case["key"]]
+    fps = {}
+    for _, bm in benches:
+        for r in bm["results"]:
+            fps[(id(bm), r["case"], r["op"])] = r
+    for case in ref["cases"]:
+        for op in op_order:
+            table += "| %s | %s | %s |\n" % (
+                case["key"], op, " | ".join("%.1f" % fps[(id(bm), case["key"], op)]["fps"]
+                                            for _, bm in benches))
+    parts.append(table)
+
+    parts.append("## Operations")
+    parts.append("| operation | what is timed |\n|---|---|\n"
+                 + "".join("| %s | %s |\n" % (op, ref["ops"][op]) for op in op_order))
+
+    for case in ref["cases"]:
+        rows = [r for r in ref["results"] if r["case"] == case["key"]]
         parts.append("## %s: %s\n" % (case["key"], case["label"]))
         parts.append("`%s`, dataset `%s`: %d frames of %s %s; compression %.1f; "
                      "%d masked pixels.  Sparse cut %d: %s of the unmasked pixels are "
@@ -247,22 +295,26 @@ def performance_page():
                         " x ".join(str(s) for s in case["shape"]), case["dtype"],
                         case["compression"], case["masked_pixels"], case["cut"],
                         pct(case["kept_frac"])))
-        parts.append("| operation | frames/s | compressed GB/s | pixels GB/s |\n"
-                     "|---|---:|---:|---:|\n"
-                     + "".join("| %s | %.1f | %.3f | %.2f |\n"
-                               % (r["op"], r["fps"], r["compressed_gbs"], r["pixel_gbs"])
-                               for r in rows))
         mats = [r for r in rows if r["matrix"]]
         if mats:
-            parts.append("\n| matrix | bins | entries | pixels with an entry |\n"
+            parts.append("| matrix | bins | entries | pixels with an entry |\n"
                          "|---|---:|---:|---:|\n"
                          + "".join("| %s | %s | %d | %s |\n"
                                    % (r["op"], " x ".join(str(n) for n in r["matrix"]["bins_shape"]),
                                       r["matrix"]["nnz"], pct(r["matrix"]["pixel_frac"]))
                                    for r in mats))
-    parts.append("\nSource: [`docs/bench/real_data.json`](%s/blob/main/docs/bench/real_data.json), "
-                 "written by `%s`.\n\n" % (GITHUB, bench["tool"]) + provenance())
-    return "\n".join(parts)
+        table = ("| operation | machine | frames/s | compressed GB/s | pixels GB/s |\n"
+                 "|---|---|---:|---:|---:|\n")
+        for op in op_order:
+            for _, bm in benches:
+                r = fps[(id(bm), case["key"], op)]
+                table += ("| %s | %s | %.1f | %.3f | %.2f |\n"
+                          % (op, cpu_label(bm["machine"]["cpu"]), r["fps"],
+                             r["compressed_gbs"], r["pixel_gbs"]))
+        parts.append(table)
+    parts.append("Written by `%s`; one JSON per machine in `docs/bench/`.\n\n"
+                 % ref["tool"] + provenance())
+    return "\n".join(p.rstrip("\n") + "\n" for p in parts)
 
 
 def main():

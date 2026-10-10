@@ -6,8 +6,9 @@
   3. every examples/ex*.py has a title docstring and is in the mkdocs nav,
      and every example page in the nav has its script
   4. every public function, class and method has a docstring
-  5. docs/bench/real_data.json covers every case and operation of
-     tools/bench_docs.py, with every figure present
+  5. every docs/bench/real_data_*.json (one per machine) covers every case
+     and operation of tools/bench_docs.py, with every figure present, and
+     all of them measured the same data, cuts and method
 
 Exits non-zero listing every problem found.
 
@@ -98,36 +99,49 @@ def _bench_spec():
 
 
 def check_bench():
-    try:
-        with open(gd.BENCH) as fh:
-            bench = json.load(fh)
-    except (OSError, ValueError) as e:
-        problems.append("docs/bench/real_data.json: %s" % e)
-        return
+    files = gd.bench_files()
+    if not files:
+        problems.append("no docs/bench/real_data_*.json: measure with tools/bench_docs.py")
     keys, ops = _bench_spec()
-    have = {(r["case"], r["op"]) for r in bench.get("results", [])}
-    for k in keys:
-        for op in ops:
-            if (k, op) not in have:
-                problems.append("docs/bench/real_data.json has no %s / %s" % (k, op))
-    for r in bench.get("results", []):
-        for f in ("fps", "compressed_gbs", "pixel_gbs"):
-            if not isinstance(r.get(f), (int, float)) or r[f] <= 0:
-                problems.append("docs/bench/real_data.json %s / %s: bad %s"
-                                % (r.get("case"), r.get("op"), f))
-    if set(bench.get("ops", {})) != set(ops):
-        problems.append("docs/bench/real_data.json ops descriptions %s != %s"
-                        % (sorted(bench.get("ops", {})), sorted(ops)))
-    for c in bench.get("cases", []):
-        if not 0 <= c.get("kept_frac", -1) <= 1:
-            problems.append("docs/bench/real_data.json case %s: no kept_frac" % c.get("key"))
-    for r in bench.get("results", []):
-        if r.get("op") != "sparsify" and not (r.get("matrix") or {}).get("bins_shape"):
-            problems.append("docs/bench/real_data.json %s / %s: no matrix bins_shape"
-                            % (r.get("case"), r.get("op")))
-    for f in ("cpu", "cores_usable", "git", "src_sha256", "py_sha256"):
-        if f not in bench.get("machine", {}):
-            problems.append("docs/bench/real_data.json machine has no %s" % f)
+    first = None
+    for path in files:
+        name = os.path.relpath(path, REPO)
+        try:
+            with open(path) as fh:
+                bench = json.load(fh)
+        except (OSError, ValueError) as e:
+            problems.append("%s: %s" % (name, e))
+            continue
+        have = {(r["case"], r["op"]) for r in bench.get("results", [])}
+        for k in keys:
+            for op in ops:
+                if (k, op) not in have:
+                    problems.append("%s has no %s / %s" % (name, k, op))
+        for r in bench.get("results", []):
+            for f in ("fps", "compressed_gbs", "pixel_gbs"):
+                if not isinstance(r.get(f), (int, float)) or r[f] <= 0:
+                    problems.append("%s %s / %s: bad %s" % (name, r.get("case"), r.get("op"), f))
+            if r.get("op") != "sparsify" and not (r.get("matrix") or {}).get("bins_shape"):
+                problems.append("%s %s / %s: no matrix bins_shape"
+                                % (name, r.get("case"), r.get("op")))
+        if set(bench.get("ops", {})) != set(ops):
+            problems.append("%s ops descriptions %s != %s"
+                            % (name, sorted(bench.get("ops", {})), sorted(ops)))
+        for c in bench.get("cases", []):
+            if not 0 <= c.get("kept_frac", -1) <= 1:
+                problems.append("%s case %s: no kept_frac" % (name, c.get("key")))
+        for f in ("cpu", "cores_usable", "git", "src_sha256", "py_sha256"):
+            if f not in bench.get("machine", {}):
+                problems.append("%s machine has no %s" % (name, f))
+        # the page puts machines side by side: same data, cuts, method and operations
+        same = {k: bench.get(k) for k in ("ops", "method")}
+        same["cases"] = [{k: c.get(k) for k in ("key", "file", "dataset", "cut")}
+                         for c in bench.get("cases", [])]
+        if first is None:
+            first = (name, same)
+        elif same != first[1]:
+            problems.append("%s measured different cases, cuts or method than %s"
+                            % (name, first[0]))
 
 
 def main():
