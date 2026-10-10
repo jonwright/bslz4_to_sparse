@@ -191,6 +191,12 @@ def bench_docs_py_sha256():
     return py_sha256(os.path.dirname(b.__file__))
 
 
+def bins_per_pixel(mi):
+    if "bins_per_pixel_mean" not in mi:
+        return ""
+    return "%.2f, %d" % (mi["bins_per_pixel_mean"], mi["bins_per_pixel_max"])
+
+
 def pct(frac):
     """A fraction as a percentage: two significant figures, whole numbers from 10 %."""
     p = 100 * frac
@@ -297,11 +303,12 @@ def performance_page():
                         pct(case["kept_frac"])))
         mats = [r for r in rows if r["matrix"]]
         if mats:
-            parts.append("| matrix | bins | entries | pixels with an entry |\n"
-                         "|---|---:|---:|---:|\n"
-                         + "".join("| %s | %s | %d | %s |\n"
+            parts.append("| matrix | bins | entries | pixels with an entry | bins per pixel (mean, max) |\n"
+                         "|---|---:|---:|---:|---:|\n"
+                         + "".join("| %s | %s | %d | %s | %s |\n"
                                    % (r["op"], " x ".join(str(n) for n in r["matrix"]["bins_shape"]),
-                                      r["matrix"]["nnz"], pct(r["matrix"]["pixel_frac"]))
+                                      r["matrix"]["nnz"], pct(r["matrix"]["pixel_frac"]),
+                                      bins_per_pixel(r["matrix"]))
                                    for r in mats))
         table = ("| operation | machine | frames/s | compressed GB/s | pixels GB/s |\n"
                  "|---|---|---:|---:|---:|\n")
@@ -490,11 +497,11 @@ def kernels_page():
                                % (v["key"], v["codec"], v["clevel"] if v["clevel"] else "-",
                                   v["block_bytes"] // 1024, v["compression"])
                                for v in km["variants"]))
-        parts.append("| matrix | what | bins | entries | pixels with an entry |\n"
-                     "|---|---|---:|---:|---:|\n"
-                     + "".join("| %s | %s | %s | %d | %s |\n"
+        parts.append("| matrix | what | bins | entries | pixels with an entry | bins per pixel (mean, max) |\n"
+                     "|---|---|---:|---:|---:|---:|\n"
+                     + "".join("| %s | %s | %s | %d | %s | %s |\n"
                                % (op, km["ops"][op], " x ".join(str(n) for n in mi["bins_shape"]),
-                                  mi["nnz"], pct(mi["pixel_frac"]))
+                                  mi["nnz"], pct(mi["pixel_frac"]), bins_per_pixel(mi))
                                for op, mi in km["matrices"].items()))
         kinds = [k for k in ("sparsify", "sparsify, no mask") if k in km["auto"][km["variants"][0]["key"]]]
         for r in km["results"]:                   # the matrices in the order measured

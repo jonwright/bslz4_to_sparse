@@ -17,7 +17,8 @@ timed with the other steps held there.
              collect, so beside them the collect value is not used.
   matrices   the dot axis (route automatic) and the route axis (dot
              automatic) on the matrices of tools/bench_docs.py: 1D, 1D
-             no-split (a pyFAI histogram), 2D and 2D+rings.
+             no-split (a pyFAI histogram), 1D fine (10000 bins), 2D and
+             2D+rings.
 
 A value the library refuses (the data, the block size or the matrix does
 not allow it) is recorded with the reason, not timed.  Every timed result
@@ -147,9 +148,7 @@ def main():
            "ops": {k: bd.OP_TEXT[k] for k in bd.OPS},
            "matrices": {}, "variants": [], "results": []}
     for op, (M, shape) in mats.items():
-        used = np.diff(M.indptr) > 0
-        out["matrices"][op] = {"bins_shape": shape, "nnz": int(M.nnz),
-                               "pixel_frac": float(used.sum()) / float(mask.sum())}
+        out["matrices"][op] = bd.matrix_info(M, shape, float(mask.sum()))
     m = out["machine"]
     print("%s | %d core(s) | %s src %s" % (m["cpu"], m["cores_usable"],
                                            m["git"], m["src_sha256"][:12]))

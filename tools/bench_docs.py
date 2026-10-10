@@ -8,6 +8,8 @@ Three real ID11 Eiger data sets (CASES below), each through four operations:
              pixel width)
   1D no-split  the same with pyFAI's no-split 1D matrix: a histogram, every
              pixel in one bin with weight 1
+  1D fine    pyFAI 1D bbox with NFINE (10000) bins: a fine split, several
+             bins per pixel (the padded rows the AVX2 kernels vectorise)
   2D         chunk2sparseCSC with a pyFAI 2D bbox matrix (q_nm^-1, one radial
              bin per pixel width x NAZIM azimuth)
   2D+rings   8 ring windows x NAZIM azimuth summed from the 2D matrix, the ring
@@ -74,13 +76,16 @@ CASES = [
      "file": "/data/id11/jon/hdftest/kevlar.h5",
      "dataset": "/entry/data/data", "cut": 5},
 ]
-OPS = ("sparsify", "1D", "1D no-split", "2D", "2D+rings")
+OPS = ("sparsify", "1D", "1D no-split", "1D fine", "2D", "2D+rings")
+NFINE = 10000                  # 1D bins of the fine split
 NAZIM = 72                     # azimuthal bins of the 2D and ring matrices
 OP_TEXT = {
     "sparsify": "chunk2sparse: decode, mask and threshold to (values, indices)",
     "1D": "chunk2sparseCSC, pyFAI 1D bbox matrix (r_mm, one bin per pixel width)",
     "1D no-split": "chunk2sparseCSC, pyFAI 1D no-split matrix: a histogram, every pixel "
                    "in one bin with weight 1 (r_mm, one bin per pixel width)",
+    "1D fine": "chunk2sparseCSC, pyFAI 1D bbox matrix with %d bins (r_mm): a fine split, "
+               "several bins per pixel" % NFINE,
     "2D": "chunk2sparseCSC, pyFAI 2D bbox matrix (q_nm^-1, one radial bin per pixel "
           "width x %d azimuthal bins)" % NAZIM,
     "2D+rings": "chunk2sparseCSC, %d LaB6 ring windows x %d azimuthal bins summed from the "
@@ -119,6 +124,8 @@ def matrices(ai, key):
     rp = bs.radial_pixels(ai)
     m1 = bs._cached("docs_%s_1d" % key, lambda: bs._engine_csc(ai, "bbox", 1, rp, "r_mm"))
     m1n = bs._cached("docs_%s_1d_no" % key, lambda: bs._engine_csc(ai, "no", 1, rp, "r_mm"))
+    m1f = bs._cached("docs_%s_1d_fine%d" % (key, NFINE),
+                     lambda: bs._engine_csc(ai, "bbox", 1, NFINE, "r_mm"))
     m2 = bs._cached("docs_%s_2d_%d" % (key, NAZIM),
                     lambda: bs._engine_csc(ai, "bbox", 2, rp, "q_nm^-1", NAZIM))
 
@@ -132,8 +139,20 @@ def matrices(ai, key):
         return bs._f32(S @ m2)
 
     mr = bs._cached("docs_%s_rings_%d" % (key, NAZIM), rings)
-    return {"1D": (m1, [rp]), "1D no-split": (m1n, [rp]), "2D": (m2, [rp, NAZIM]),
+    return {"1D": (m1, [rp]), "1D no-split": (m1n, [rp]), "1D fine": (m1f, [NFINE]),
+            "2D": (m2, [rp, NAZIM]),
             "2D+rings": (mr, [mr.shape[0] // NAZIM, NAZIM])}
+
+
+def matrix_info(M, bins_shape, unmasked):
+    """Size and shape of a matrix: bins, entries, the fraction of unmasked
+    pixels with an entry, and bins per pixel (mean over those, maximum)."""
+    n = np.diff(M.indptr)
+    used = n > 0
+    return {"bins": int(M.shape[0]), "bins_shape": bins_shape, "nnz": int(M.nnz),
+            "pixel_frac": float(used.sum()) / unmasked,
+            "bins_per_pixel_mean": float(n[used].mean()) if used.any() else 0.0,
+            "bins_per_pixel_max": int(n.max()) if n.size else 0}
 
 
 def time_op(fn, chunks):
@@ -216,9 +235,7 @@ def main():
             else:
                 M, bins_shape = mats[op]
                 obj = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec)
-                used = np.diff(M.indptr) > 0             # pixels with an entry
-                mat = {"bins": int(M.shape[0]), "bins_shape": bins_shape, "nnz": int(M.nnz),
-                       "pixel_frac": float(used.sum()) / unmasked}
+                mat = matrix_info(M, bins_shape, unmasked)
             cut = case["cut"]
             t = time_op(lambda ch: obj.multi(ch, cut), chunks)
             rec = {"case": case["key"], "op": op, "matrix": mat,
