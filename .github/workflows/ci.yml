@@ -68,7 +68,7 @@ jobs:
             "quay.io/pypa/manylinux_2_28_${{ matrix.arch }}" bash -c "
               set -e
               # root in the container, the checkout owned by the runner: without
-              # this git refuses it ("dubious ownership") and build_info has no git
+              # this git refuses it (dubious ownership) and build_info has no git
               if command -v git >/dev/null; then git config --global --add safe.directory '*'; fi
               mkdir -p /tmp/b
               /opt/python/cp312-cp312/bin/python tools/build_extension.py \
