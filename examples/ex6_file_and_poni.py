@@ -68,7 +68,10 @@ def process(h5name, dataset, poni, cut=0, nframes=None, npt=1000):
 def make_standin(folder):
     """An Eiger 1M stand-in: 20 frames of LaB6-like rings and its .poni."""
     from pyFAI.calibrant import get_calibrant
-    from pyFAI.integrator.azimuthal import AzimuthalIntegrator
+    try:
+        from pyFAI.integrator.azimuthal import AzimuthalIntegrator
+    except ImportError:                                   # older pyFAI
+        from pyFAI.azimuthalIntegrator import AzimuthalIntegrator
     ai = AzimuthalIntegrator(dist=0.12, poni1=0.040, poni2=0.039, wavelength=3e-11,
                              detector=pyFAI.detector_factory("Eiger1M"))
     poni = os.path.join(folder, "calib.poni")
