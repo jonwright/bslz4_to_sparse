@@ -1,15 +1,20 @@
-"""The conveyor engine: readers -> slots -> workers -> sinks.
+"""The conveyor engine: a queue of units, and workers that each own two buffers and a reader.
 
-    main      builds the units, the slots and the queues, starts the readers and the workers
-    readers   take a unit and a free slot, read the unit into the slot with large preadv calls in
-              file order, and give (slot, unit) to the worker that owns the slot
-    workers   each owns S slots in one anonymous shared mmap (first touched by the worker, after it
-              is pinned, so the pages sit near its CPU) and one decoder; decode every frame of a
-              unit straight from the slot (no copy) and give the sink the result
+    todo       the units (whole files by default), in file order, all queued before the run
+    reader k   whenever worker k has a free buffer, takes the next unit from todo and reads it into
+               that buffer with large preadv calls in file order, while the worker decodes the
+               previous one
+    worker k   decodes the unit its reader delivered straight from the buffer and gives the sink
+               the result
 
-Queues carry one small message per unit, never per frame.  A worker that finishes sooner frees its
-slots sooner and so receives more units: the load balances itself.  The slots are one anonymous
-mmap, not SharedMemory and not a file, so the same code runs with threads or forked processes.
+Pulling is the load balance: a worker that decodes faster frees its buffers sooner and so takes more
+units, and reading is demand driven, each worker reading only as fast as it consumes.  Workers touch
+the shared queue once per unit (a unit is seconds of work), and each worker and its reader meet once
+per unit through two blocking queues; nobody polls or spins.  The buffers are one anonymous mmap,
+cut per worker and first touched by that worker after it is pinned (near its CPU); not a file, not
+SharedMemory.  Workers are threads or forked processes around the same code.
+
+Memory: workers x slots x the largest unit.
 """
 
 import mmap
@@ -23,7 +28,7 @@ import numpy as np
 
 from ._sinks import NullSink
 
-_STOP = None
+_DONE = None
 
 
 class _ThreadContext(object):
@@ -64,27 +69,22 @@ def numa_nodes(allowed=None):
     return out or [sorted(allowed)]
 
 
-def _reader(k, todo, free_q, ready_qs, buf, slot_bytes, S, cpus, io_bytes, go, stop, res_q):
+def _reader(k, todo, ready_q, free_q, buf, slot_bytes, cpus, io_bytes, go, stop, res_q):
     st = dict(role="reader", k=k, bytes=0, read_s=0.0, wait_s=0.0, error=None)
     try:
         if cpus:
             os.sched_setaffinity(0, cpus)
         go.wait()
         view = memoryview(buf)
-        while not stop.is_set():
-            u = todo.get()
-            if u is _STOP:
-                break
+        while True:
             t = time.perf_counter()
-            slot = None
-            while slot is None and not stop.is_set():
-                try:
-                    slot = free_q.get(timeout=0.5)
-                except queue.Empty:
-                    pass
-            if slot is None:
-                break
+            slot = free_q.get()  # blocks until the worker is done with a buffer
             st["wait_s"] += time.perf_counter() - t
+            if stop.is_set():
+                break
+            u = todo.get()  # the next unit, whoever asks first; _DONE when there are no more
+            if u is _DONE:
+                break
             base = slot * slot_bytes
             t = time.perf_counter()
             fd = os.open(u.path, os.O_RDONLY)
@@ -100,10 +100,12 @@ def _reader(k, todo, free_q, ready_qs, buf, slot_bytes, S, cpus, io_bytes, go, s
                 os.close(fd)
             st["read_s"] += time.perf_counter() - t
             st["bytes"] += u.span
-            ready_qs[slot // S].put((slot, u))
-    except BaseException as e:  # noqa: BLE001 (report it, and stop the others)
+            ready_q.put((slot, u))
+        ready_q.put(_DONE)
+    except BaseException as e:  # noqa: BLE001 (report it, and unblock the worker)
         st["error"] = repr(e)
         stop.set()
+        ready_q.put(_DONE)
     res_q.put(st)
 
 
@@ -125,6 +127,7 @@ def _worker(
     res_q,
 ):
     st = dict(role="worker", k=k, frames=0, decode_s=0.0, write_s=0.0, idle_s=0.0, error=None)
+    t_first = t_last = None
     try:
         if cpu is not None:
             os.sched_setaffinity(0, [cpu])
@@ -138,17 +141,15 @@ def _worker(
         barrier.wait()
         go.wait()
         c0, t0 = time.thread_time(), time.perf_counter()
-        while not stop.is_set():
+        while True:
             t = time.perf_counter()
-            try:
-                item = ready_q.get(timeout=0.5)
-            except queue.Empty:
-                st["idle_s"] += time.perf_counter() - t
-                continue
+            item = ready_q.get()  # blocks until the reader has a whole unit in
             st["idle_s"] += time.perf_counter() - t
-            if item is _STOP:
+            if item is _DONE or stop.is_set():
                 break
             slot, u = item
+            if t_first is None:
+                t_first = time.perf_counter()
             base = slot * slot_bytes
             data = buf[base : base + u.span]
             for f0 in range(0, u.n, batch):
@@ -162,16 +163,20 @@ def _worker(
                 st["decode_s"] += t1 - t
                 st["write_s"] += time.perf_counter() - t1
                 st["frames"] += n
+            t_last = time.perf_counter()
             free_q.put(slot)
         st["sink"] = sink.end()
         st["wall_s"], st["cpu_s"] = time.perf_counter() - t0, time.thread_time() - c0
-    except BaseException as e:  # noqa: BLE001 (report it, and stop the others)
+        st["active_s"] = (t_last - t_first) if t_first is not None and t_last is not None else 0.0
+    except BaseException as e:  # noqa: BLE001 (report it, and unblock the reader)
         st["error"] = repr(e)
         stop.set()
         try:
             barrier.abort()
         except Exception:  # noqa: BLE001
             pass
+        for _ in range(S + 1):  # the reader may be waiting for a free buffer
+            free_q.put(0)
     res_q.put(st)
 
 
@@ -179,7 +184,6 @@ def run(
     units,
     backend,
     workers,
-    readers=2,
     sink=None,
     mode="threads",
     batch=16,
@@ -192,14 +196,13 @@ def run(
 ):
     """Run the units through the conveyor; returns a dict of what it took.
 
-    units         from make_units
+    units         from make_units; handed out in order to whichever worker is ready for one
     backend       CpuBackend or GpuBackend (anything with make_worker())
-    workers       decoders, each in its own thread or process
-    readers       reader threads or processes
+    workers       decoders; each has its own reader thread (or process, in "processes" mode)
     sink          factory k -> Sink, called in each worker (default: NullSink)
     mode          "threads" (default) or "processes" (forked): the same code, to compare
     batch         frames per decoder call
-    slots_per_worker  buffers per worker: more lets the readers run further ahead
+    slots_per_worker  buffers per worker (2: one decoding while the next is read)
     worker_cpus   list: worker k is pinned to worker_cpus[k % len]; None leaves it to the OS
     reader_cpus   list: every reader may run on any of these; None leaves it to the OS
     io_bytes      size of each read call (0: the whole unit in one call)
@@ -215,8 +218,9 @@ def run(
     slot_bytes = (max(u.span for u in units) + 4095) // 4096 * 4096
     mm = mmap.mmap(-1, workers * S * slot_bytes, flags=mmap.MAP_SHARED | mmap.MAP_ANONYMOUS)
     buf = np.frombuffer(mm, np.uint8)
-    todo, free_q, res_q = ctx.Queue(), ctx.Queue(), ctx.Queue()
+    res_q, todo = ctx.Queue(), ctx.Queue()
     ready_qs = [ctx.Queue() for _ in range(workers)]
+    free_qs = [ctx.Queue() for _ in range(workers)]
     barrier, go, stop = ctx.Barrier(workers + 1), ctx.Event(), ctx.Event()
     ws = [
         ctx.Worker(
@@ -227,7 +231,7 @@ def run(
                 sink,
                 meta or {},
                 ready_qs[k],
-                free_q,
+                free_qs[k],
                 buf,
                 slot_bytes,
                 S,
@@ -244,39 +248,40 @@ def run(
     rs = [
         ctx.Worker(
             _reader,
-            (k, todo, free_q, ready_qs, buf, slot_bytes, S, reader_cpus, io_bytes, go, stop, res_q),
+            (
+                k,
+                todo,
+                ready_qs[k],
+                free_qs[k],
+                buf,
+                slot_bytes,
+                reader_cpus,
+                io_bytes,
+                go,
+                stop,
+                res_q,
+            ),
         )
-        for k in range(readers)
+        for k in range(workers)
     ]
     for p in ws + rs:
         p.start()
-    errors = []
-
-    def collect(n):
-        out = []
-        for _ in range(n):
-            out.append(res_q.get())
-        return out
-
     try:
-        barrier.wait(timeout=start_timeout)  # every worker pinned, its slots touched, decoder built
+        barrier.wait(
+            timeout=start_timeout
+        )  # every worker pinned, its buffers touched, decoder built
     except Exception:  # noqa: BLE001
         stop.set()
         go.set()
-        errors = [s["error"] for s in collect(workers) if s.get("error")]
-        raise RuntimeError("a worker failed to start: %r" % (errors,))
+        errs = [s["error"] for s in [res_q.get() for _ in range(workers)] if s.get("error")]
+        raise RuntimeError("a worker failed to start: %r" % (errs,))
     for u in units:
         todo.put(u)
-    for _ in range(readers):
-        todo.put(_STOP)
+    for _ in range(workers):
+        todo.put(_DONE)
     t0 = time.perf_counter()
     go.set()
-    got = []
-    while len(got) < readers:  # readers finish when the units are all read
-        got.append(res_q.get())
-    for q in ready_qs:
-        q.put(_STOP)
-    got += collect(workers)
+    got = [res_q.get() for _ in range(2 * workers)]
     wall = time.perf_counter() - t0
     for p in ws + rs:
         p.join()
@@ -286,24 +291,27 @@ def run(
     wk = sorted((s for s in got if s["role"] == "worker"), key=lambda s: s["k"])
     rd = [s for s in got if s["role"] == "reader"]
     frames = sum(s["frames"] for s in wk)
+    busy = [s for s in wk if s["active_s"] > 0]
     return dict(
         mode=mode,
         workers=workers,
-        readers=readers,
         frames=frames,
         wall_s=round(wall, 3),
         fps=round(frames / wall, 1),
+        # steady state: every worker over the time between its first and last unit (the start,
+        # while the first files arrive, and the end, while the slowest worker finishes, left out)
+        steady_fps=round(sum(s["frames"] / s["active_s"] for s in busy), 1),
         read_gbs=round(sum(u.span for u in units) / wall / 1e9, 3),
         slot_mb=round(slot_bytes / 1e6),
+        memory_gb=round(workers * S * slot_bytes / 1e9, 2),
         worker_cpu_cores=round(sum(s["cpu_s"] for s in wk) / wall, 2),
         fps_per_worker_mean=round(float(np.mean([s["frames"] / s["wall_s"] for s in wk])), 1),
-        fps_per_worker_min=round(min(s["frames"] / s["wall_s"] for s in wk), 1),
         busy_frac=dict(
             decode=round(sum(s["decode_s"] for s in wk) / wall / workers, 3),
             write=round(sum(s["write_s"] for s in wk) / wall / workers, 3),
             idle=round(sum(s["idle_s"] for s in wk) / wall / workers, 3),
-            read=round(sum(s["read_s"] for s in rd) / wall / readers, 3),
-            read_wait_for_slot=round(sum(s["wait_s"] for s in rd) / wall / readers, 3),
+            read=round(sum(s["read_s"] for s in rd) / wall / workers, 3),
+            read_wait_for_buffer=round(sum(s["wait_s"] for s in rd) / wall / workers, 3),
         ),
         sink=[s.get("sink") for s in wk][:1],
     )

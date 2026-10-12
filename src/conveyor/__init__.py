@@ -5,9 +5,11 @@ of steps one decoder runs on every block.  The conveyor moves work to the decode
 
     units     consecutive frames of a file, one large contiguous read each (make_units), seconds of
               work, so workers synchronise with the rest about once a second
-    slots     preallocated buffers, one set per worker, first touched by the worker that owns them
-    readers   take a unit and a free slot, read the unit into the slot in file order, hand it over
-    workers   decode all the frames of a unit straight from the slot, give the sink the result
+    workers   each owns two buffers it first touches itself and a reader; decodes all the frames of
+              a unit straight from a buffer, gives the sink the result
+    readers   one per worker: when a buffer is free, take the next unit from the shared queue and
+              read it with large preadv calls, in file order, while the worker decodes the previous
+              one (a worker that decodes faster takes more units: the load balances itself)
     sinks     where results go (a file format is the sink's business: see Sink)
 
 Workers are threads or forked processes (run(mode=...)) around the same code; the decoders release

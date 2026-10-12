@@ -88,7 +88,6 @@ def test_every_frame_once_and_equal_to_a_direct_decode(tmp_path, unit_bytes):
         units,
         cv.CpuBackend(mask, dtype),
         workers=3,
-        readers=2,
         sink=lambda k: Collect(),
         batch=8,
         io_bytes=1000,
@@ -115,7 +114,6 @@ def test_processes_count_the_same_frames(tmp_path):
         units,
         cv.CpuBackend(np.ones(SHAPE, np.uint8), dtype),
         workers=2,
-        readers=1,
         sink=lambda k: Count(),
         mode="processes",
     )
@@ -141,7 +139,6 @@ def test_with_a_matrix_and_howmany(tmp_path):
         units,
         cv.CpuBackend(np.ones(SHAPE, np.uint8), dtype, csc=csc, howmany=30),
         workers=1,
-        readers=1,
         sink=lambda k: Check(),
     )
     assert seen and all(s[0][1] == 7 and s[1] <= 30 for s in seen)
@@ -161,7 +158,6 @@ def test_a_failing_sink_raises_and_does_not_hang(tmp_path, mode):
             units,
             cv.CpuBackend(np.ones(SHAPE, np.uint8), dtype),
             workers=2,
-            readers=1,
             sink=lambda k: Bad(),
             mode=mode,
         )
@@ -237,7 +233,7 @@ def test_reading_and_decoding_need_no_hdf5(tmp_path, monkeypatch):
         import h5py  # noqa: F401
     units, shape, dtype = cv.make_units(paths, DSET, max_bytes=3000)
     Collect.out = {}
-    cv.run(units, cv.CpuBackend(mask, dtype), workers=2, readers=1, sink=lambda k: Collect())
+    cv.run(units, cv.CpuBackend(mask, dtype), workers=2, sink=lambda k: Collect())
     assert Collect.out == ref
 
 
@@ -273,3 +269,27 @@ def test_an_acquisition_that_stopped_early(tmp_path):
         ds[5] = 1  # a hole in the middle
     with pytest.raises(ValueError, match="not all at the end"):
         cv.harvest(q, DSET)
+
+
+def test_a_faster_worker_takes_more_units(tmp_path):
+    """Pulling from the shared queue is the load balance: with one slow worker the others decode more."""
+    import time
+
+    paths = make_files(tmp_path, nfiles=4, nframes=60)
+    units, shape, dtype = cv.make_units(paths, DSET, max_bytes=5000)
+    assert len(units) > 40
+    done = {}
+
+    class Counting(cv.Sink):
+        def __init__(self, k):
+            self.k = k
+            done[k] = 0
+
+        def write(self, file, frame0, npx, values, indices, powder):
+            done[self.k] += len(npx)
+            if self.k == 0:
+                time.sleep(0.02)  # worker 0 is slow
+
+    cv.run(units, cv.CpuBackend(np.ones(SHAPE, np.uint8), dtype), workers=3, sink=Counting, batch=4)
+    assert sum(done.values()) == 4 * 60
+    assert done[0] < min(done[1], done[2]) / 2, done

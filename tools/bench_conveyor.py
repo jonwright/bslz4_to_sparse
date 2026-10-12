@@ -2,14 +2,13 @@
 """Time the conveyor (src/conveyor) on real files: reading, decoding, and the cores they take.
 
     BSLZ4_TO_SPARSE_PATH=lib python3 tools/bench_conveyor.py --files 'GLOB' --skip 3300 --index-dir tmp/idx \
-        --points 2:8,3:17,4:36 --mode threads --layout interleave --tag xeon
+        --points 8,16,32 --mode threads --layout interleave --tag xeon
 
---points   readers:workers pairs, one measurement each; the total (readers + workers) is the number
-           of pinned threads.  Every point reads its own files that no other point read (the first
-           call warms the file system cache for everything after it), then the list wraps.
---layout   free (the OS places threads), interleave (readers on the first CPUs of the list that
-           alternates between NUMA nodes, workers on the next ones) or pack (a node is filled before
-           the next one starts; readers first).
+--points   numbers of workers, one measurement each; every worker has its own reader thread.
+           Every point reads its own files that no other point read (the first call warms the file
+           system cache for everything after it), then the list wraps.
+--layout   free (the OS places threads), interleave (workers on the CPUs of the list that
+           alternates between NUMA nodes) or pack (a node is filled before the next one starts).
 --op       sparsify, or 1d (a synthetic radial matrix, 2000 bins).
 One JSON line per point, prefixed RESULT.  Never run it in CI."""
 
@@ -32,10 +31,11 @@ from bslz4_to_sparse import conveyor  # noqa: E402
 DSET = "/entry_0000/ESRF-ID11/eiger/data"
 
 
-def layout(name, readers, workers):
-    """(reader_cpus, worker_cpus) for a layout name, from the CPUs this process may use."""
+def layout(name, workers):
+    """worker_cpus for a layout name, from the CPUs this process may use (the readers stay
+    unpinned: they wait for the file system nearly all the time)."""
     if name == "free":
-        return None, None
+        return None
     nodes = conveyor.numa_nodes()
     if name == "interleave":
         cpus = [n[i] for i in range(max(map(len, nodes))) for n in nodes if i < len(n)]
@@ -43,12 +43,9 @@ def layout(name, readers, workers):
         cpus = [c for n in nodes for c in n]
     else:
         raise ValueError(name)
-    if len(cpus) < readers + workers:
-        raise ValueError(
-            "%d threads need %d CPUs, %d allowed"
-            % (readers + workers, readers + workers, len(cpus))
-        )
-    return cpus[:readers], cpus[readers : readers + workers]
+    if len(cpus) < workers:
+        raise ValueError("%d workers need %d CPUs, %d allowed" % (workers, workers, len(cpus)))
+    return cpus[:workers]
 
 
 def radial_matrix(shape, nbins=2000):
@@ -71,7 +68,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--files", required=True)
     ap.add_argument("--skip", type=int, default=0)
-    ap.add_argument("--points", default="2:8", help="readers:workers[,readers:workers...]")
+    ap.add_argument("--points", default="8", help="numbers of workers, comma separated")
     ap.add_argument("--files-per-worker", type=float, default=4)
     ap.add_argument("--mode", default="threads", choices=["threads", "processes"])
     ap.add_argument("--layout", default="interleave")
@@ -92,7 +89,7 @@ def main():
     allfiles = sorted(glob.glob(a.files))[a.skip :]
     pos = 0
     for point in a.points.split(","):
-        nr, nw = [int(x) for x in point.split(":")]
+        nw = int(point)
         nf = max(1, int(round(a.files_per_worker * nw)))
         files = [allfiles[(pos + k) % len(allfiles)] for k in range(nf)]
         pos += nf
@@ -105,17 +102,15 @@ def main():
         mask = (f0 != np.iinfo(dtype).max).astype(np.uint8).reshape(shape)
         csc = radial_matrix(shape) if a.op == "1d" else None
         be = conveyor.CpuBackend(mask, dtype, csc=csc, cut=a.cut)
-        rcpu, wcpu = layout(a.layout, nr, nw)
+        wcpu = layout(a.layout, nw)
         r = conveyor.run(
             units,
             be,
             nw,
-            readers=nr,
             mode=a.mode,
             batch=a.batch,
             slots_per_worker=a.slots,
             worker_cpus=wcpu,
-            reader_cpus=rcpu,
             io_bytes=a.io_mb << 20,
         )
         r.update(
@@ -123,8 +118,7 @@ def main():
             tag=a.tag,
             layout=a.layout,
             op=a.op,
-            threads=nr + nw,
-            fps_per_thread=round(r["fps"] / (nr + nw), 1),
+            fps_per_worker_total=round(r["fps"] / nw, 1),
             nfiles=len(files),
             unit_mb=a.unit_mb,
             io_mb=a.io_mb,
