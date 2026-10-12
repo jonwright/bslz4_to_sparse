@@ -26,8 +26,8 @@ import hashlib
 import os
 import threading
 import numpy as np
-import cupy as cp
 
+from . import _backend as cu
 from .. import _matrix, _toppix
 from .._pipeline import CODEC_LZ4, CODEC_ZSTD
 
@@ -58,9 +58,9 @@ def _shared(dev, kind, arrays):
     key = (dev, kind, _digest(arrays))
     with _shared_lock:
         if key not in _shared_dev:
-            with cp.cuda.Device(dev):
-                _shared_dev[key] = tuple(cp.asarray(np.ascontiguousarray(a)) for a in arrays)
-                cp.cuda.Device(dev).synchronize()
+            with cu.device(dev):
+                _shared_dev[key] = tuple(cu.asarray(np.ascontiguousarray(a)) for a in arrays)
+                cu.synchronize(dev)
         return _shared_dev[key]
 
 
@@ -87,17 +87,7 @@ def _module(dtype, acc=None):
         names = ["count_above<%s>" % _ctype(dtype), "collect_write<%s>" % _ctype(dtype)]
         if acc is not None:
             names += [_csr_name(dtype, acc, F) for F in sorted({1, FRAMES_PER_READ})]
-        err = None
-        for opts in (("--std=c++17",), ("--std=c++14",), ()):          # older NVRTC versions know fewer standards
-            try:
-                m = cp.RawModule(code=src, options=opts, name_expressions=names)
-                m.get_function("unblock")                               # compiles now
-                _mods[key] = m
-                break
-            except Exception as e:                                      # noqa: BLE001 (cupy CompileException)
-                err = e
-        else:
-            raise err
+        _mods[key] = cu.build_module(src, names)
     return _mods[key]
 
 
@@ -132,8 +122,8 @@ class chunk2sparse(object):
     """Decode bitshuffle-lz4 chunks of (ni, nj) frames into the pixels above a cut (and not masked)."""
 
     def __init__(self, mask, dtype=np.uint16, codec=None, pipeline=None, batch=16, howmany=None, thresholds=None):
-        self._dev = cp.cuda.Device().id
-        cp.cuda.Device(self._dev).use()          # another library (pyopencl, pycuda) may have made its own context current
+        self._dev = cu.device_id()
+        cu.use_device(self._dev)                 # another library may have made its own context current
         if codec is not None and codec != CODEC_LZ4:
             raise ValueError("the GPU decoder does lz4 only")
         self._codec_pending = codec is None
@@ -155,7 +145,7 @@ class chunk2sparse(object):
         self.nstored = nfull + ((part - self.tocopy) > 0)     # blocks with an lz4 stream
         self.ntot = nfull + (part > 0)                        # blocks of pixels
         self.batch = int(batch)
-        self.stream = cp.cuda.Stream(non_blocking=True)
+        self.stream = cu.Stream()
         self.mod = _module(self.dtype, self._acc())
         self.k_unblock = self.mod.get_function("unblock")
         self.k_decompress = self.mod.get_function("decompress")
@@ -168,8 +158,8 @@ class chunk2sparse(object):
         self.cap = self.nbytes // (4 + self.bpp)      # pixels a frame's list may hold: indices + values <= frame bytes
         self._cap = 0
         self._nframes = 0
-        self.d_thr_i = cp.zeros(MAXTHR, np.int64)
-        self.d_thr_f = cp.zeros(MAXTHR, np.float32)
+        self.d_thr_i = cu.zeros(MAXTHR, np.int64)
+        self.d_thr_f = cu.zeros(MAXTHR, np.float32)
         self.last_host = 0
         self.set_top_pixels(howmany, thresholds)
 
@@ -193,26 +183,26 @@ class chunk2sparse(object):
             self._cap = max(self._cap, B)
             self._slab_cap = max(getattr(self, "_slab_cap", 0), int(slab_bytes * 1.25) + 64)
             n, npx = self._cap, self.npix
-            self.h_slab = cp.cuda.alloc_pinned_memory(self._slab_cap)
-            self.d_slab = cp.empty(self._slab_cap, np.uint8)
-            self.d_off = cp.empty(n, np.int64)
-            self.d_end = cp.empty(n, np.int64)
-            self.d_err = cp.empty(n, np.int32)
-            self.d_starts = cp.empty((n, max(self.nstored, 1)), np.uint32)
+            self.h_slab = cu.pinned(self._slab_cap)
+            self.d_slab = cu.empty(self._slab_cap, np.uint8)
+            self.d_off = cu.empty(n, np.int64)
+            self.d_end = cu.empty(n, np.int64)
+            self.d_err = cu.empty(n, np.int32)
+            self.d_starts = cu.empty((n, max(self.nstored, 1)), np.uint32)
             if getattr(self, "d_dense", None) is None or self.d_dense.size < n * self.stride:
-                self.d_dense = cp.empty(n * self.stride, np.uint8)
+                self.d_dense = cu.empty(n * self.stride, np.uint8)
             lv = self._ndev_thr + 1                  # levels: the cut, then each threshold
-            self.d_counts = cp.empty((lv * n, self.ntot), np.uint32)
-            self.d_offs = cp.empty((lv * n, self.ntot), np.uint32)
-            self.d_npxl = cp.empty(lv * n, np.int32)
-            self.d_level = cp.empty(n, np.int32)
-            self.d_npx = cp.empty(n, np.int32)
-            self.d_imgoff = cp.empty(n, np.uint32)
+            self.d_counts = cu.empty((lv * n, self.ntot), np.uint32)
+            self.d_offs = cu.empty((lv * n, self.ntot), np.uint32)
+            self.d_npxl = cu.empty(lv * n, np.int32)
+            self.d_level = cu.empty(n, np.int32)
+            self.d_npx = cu.empty(n, np.int32)
+            self.d_imgoff = cu.empty(n, np.uint32)
             nl = max(n * self._hm, 1)                # lists of n frames: at most n * nbytes bytes
-            self.d_outv = cp.empty(nl, self.dtype)
-            self.d_outi = cp.empty(nl, np.uint32)
-            self.h_outv = np.frombuffer(cp.cuda.alloc_pinned_memory(nl * self.bpp), self.dtype, nl)
-            self.h_outi = np.frombuffer(cp.cuda.alloc_pinned_memory(nl * 4), np.uint32, nl)
+            self.d_outv = cu.empty(nl, self.dtype)
+            self.d_outi = cu.empty(nl, np.uint32)
+            self.h_outv = np.frombuffer(cu.pinned(nl * self.bpp), self.dtype, nl)
+            self.h_outi = np.frombuffer(cu.pinned(nl * 4), np.uint32, nl)
             self._on_resize(n)
         if self._nframes < nframes:              # host results keep the largest size seen; views are returned
             self._values_buf = np.empty((nframes, self.npix), self.dtype)
@@ -336,7 +326,7 @@ class chunk2sparse(object):
     def _run(self, views, cut):
         if len(views) == 0:
             raise Exception("Error decoding batch: -105: no chunks were given")
-        cp.cuda.Device(self._dev).use()          # another library (pyopencl, pycuda) may have made its own context current
+        cu.use_device(self._dev)                 # another library may have made its own context current
         self._check(views)
         nf = len(views)
         self._ensure(nf, max(sum(len(v) for v in views[i:i + self.batch]) for i in range(0, nf, self.batch)))
@@ -427,8 +417,8 @@ class chunk2sparseCSC(chunk2sparse):
 
     def _on_resize(self, n):
         shape, dt = (n, max(self.nbins, 1)), np.dtype(_fixed_np(self.acc))
-        self.d_powder = cp.zeros(shape, dt)
-        self.h_powder = np.frombuffer(cp.cuda.alloc_pinned_memory(shape[0] * shape[1] * dt.itemsize), dt,
+        self.d_powder = cu.zeros(shape, dt)
+        self.h_powder = np.frombuffer(cu.pinned(shape[0] * shape[1] * dt.itemsize), dt,
                                       shape[0] * shape[1]).reshape(shape)
 
     def _dot(self, n):
