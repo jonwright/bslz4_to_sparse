@@ -21,7 +21,8 @@ sparse pixels.
 ## How it is organised
 
 Each processor object fixes what it is given when it is made: the detector
-mask, the pixel type, the codec, and for integration the matrix.  It then
+mask, the pixel type, and for integration the matrix (the codec, lz4 or
+zstd, is found from the first chunk decoded unless it is given).  It then
 decodes one frame, or a batch of frames, per call.  Inside, decoding is a
 pipeline of steps: decompress, apply the mask, undo the bit shuffle, collect
 the pixels above the cut, and for integration route each block to a dense

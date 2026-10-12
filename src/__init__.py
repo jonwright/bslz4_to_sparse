@@ -95,6 +95,27 @@ def detect_codec(ds):
     return CODEC_LZ4
 
 
+_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+
+
+def _codec_of_chunk(cmp):
+    """
+    The block codec of one compressed bitshuffle chunk, from its bytes: an 8
+    byte uncompressed size, a 4 byte block size, then blocks of (4 byte
+    compressed size, data).  A zstd block is a zstd frame and starts with
+    the zstd magic number; anything else is taken as lz4.
+    """
+    return CODEC_ZSTD if bytes(memoryview(cmp)[16:20]) == _ZSTD_MAGIC else CODEC_LZ4
+
+
+def _codec_from_pipeline(pipeline):
+    """CODEC_LZ4 / CODEC_ZSTD if the pipeline names a decode step, else None (automatic)"""
+    name = _pipeline.NAMES["decode"][_pipeline.parse(pipeline)[_pipeline.DECODE]]
+    if name == "zstd":
+        return CODEC_ZSTD
+    return None if name == "auto" else CODEC_LZ4
+
+
 def _blocksize_bytes(cmp):
     if len(cmp) < 12:
         return DEFAULT_BLOCK_BYTES
@@ -154,7 +175,7 @@ def _offset_pointers(base, offsets, lengths):
     if rc < 0:
         raise _decode_error(rc)
     o = int(offsets[0])
-    return pointers, lengths, bytes(memoryview(base)[o:o + 12])
+    return pointers, lengths, bytes(memoryview(base)[o:o + 20])
 
 
 def harvest_chunk_offsets(ds):
@@ -277,7 +298,10 @@ class chunk2sparse:
 
     mask = detector mask, (ni, nj) uint8, active pixels > 0
     dtype = the pixel dtype of the dataset
-    codec = CODEC_LZ4 or CODEC_ZSTD (detect_codec(dataset))
+    codec = None (default): found from the first chunk decoded, or CODEC_LZ4 /
+            CODEC_ZSTD (detect_codec(dataset) reads it from the HDF5 file).
+            Until then .codec is CODEC_LZ4 and .pipeline is resolved for lz4;
+            it is resolved again if the first chunk is zstd.
     pipeline = None (best guess), or step values: see describe()
 
     c(chunk, cut) -> npixels, (values, indices) for one frame (the arrays
@@ -285,17 +309,32 @@ class chunk2sparse:
     frame for a batch, npixels an array and the arrays (nframes, ni*nj).
     """
 
-    def __init__(self, mask, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None):
+    def __init__(self, mask, dtype=np.uint16, codec=None, pipeline=None):
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
         self.npix = mask.size
         self.dtype = np.dtype(dtype)
-        self.codec = codec
-        self.pipeline = _pipeline.resolve(pipeline, self.dtype, codec, self.mask)
+        if codec is None:
+            codec = _codec_from_pipeline(pipeline)
+        self._codec_pending = codec is None
+        self.codec = CODEC_LZ4 if codec is None else codec
+        self._pipeline_arg = pipeline
+        self.pipeline = self._resolve()
         self._mask_pending = _mask_auto_pending(pipeline, self.dtype, self.mask)
         self._di = _pipeline.DTYPE_INDEX[_pipeline.dtype_suffix(self.dtype)]
         self._nframes = 0
         self._workspace = None
+
+    def _resolve(self):
+        return _pipeline.resolve(self._pipeline_arg, self.dtype, self.codec, self.mask)
+
+    def _settle_codec(self, cmp):
+        """The first chunk decides the codec when it was not given"""
+        self._codec_pending = False
+        codec = _codec_of_chunk(cmp)
+        if codec != self.codec:
+            self.codec = codec
+            self.pipeline = self._resolve()
 
     def _ensure_capacity(self, nframes, cmp):
         if self._nframes != nframes:
@@ -309,6 +348,8 @@ class chunk2sparse:
             self._workspace = np.empty(need, np.uint8)
 
     def _run(self, pointers, lengths, cmp, cut):
+        if self._codec_pending:
+            self._settle_codec(cmp)
         if self._mask_pending:
             _settle_mask(self, pointers, lengths, cmp)
         self._ensure_capacity(len(pointers), cmp)
@@ -415,28 +456,45 @@ class chunk2sparseCSC:
     powder; c.multi(chunks, cut) -> the same per frame for a batch.
     """
 
-    def __init__(self, mask, csc, dtype=np.uint16, codec=CODEC_LZ4, pipeline=None):
+    def __init__(self, mask, csc, dtype=np.uint16, codec=None, pipeline=None):
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
         self.npix = mask.size
         self.dtype = np.dtype(dtype)
-        self.codec = codec
+        if codec is None:
+            codec = _codec_from_pipeline(pipeline)
+        self._codec_pending = codec is None
+        self.codec = CODEC_LZ4 if codec is None else codec
+        self._pipeline_arg = pipeline
         nm = _matrix._fold_mask(_matrix.normalise_matrix(csc, npix=self.npix), self.mask)
         self._nm = nm
         self.nbins = nm.nbins
         padded_avx2 = _pipeline.available("dot", _pipeline.NAMES["dot"].index("padded-avx2")) == 1
         self._padded_avx2 = padded_avx2
         self._dot_is_auto = _pipeline.parse(pipeline)[_pipeline.DOT] == 0
-        self.pipeline = _pipeline.resolve(
-            pipeline, self.dtype, codec, self.mask, matrix=True,
-            dot_auto=lambda: _matrix.auto_dot(_matrix.analyse(nm), padded_avx2,
-                                              DEFAULT_BLOCK_BYTES // self.dtype.itemsize))
+        self.pipeline = self._resolve()
         self._mask_pending = _mask_auto_pending(pipeline, self.dtype, self.mask)
         self.dot = _pipeline.NAMES["dot"][self.pipeline[_pipeline.DOT]]
         self._di = _pipeline.DTYPE_INDEX[_pipeline.dtype_suffix(self.dtype)]
         self._layout = self._build(DEFAULT_BLOCK_BYTES // self.dtype.itemsize)
         self._nframes = 0
         self._workspace = None
+
+    def _resolve(self):
+        nm, padded_avx2 = self._nm, self._padded_avx2
+        return _pipeline.resolve(
+            self._pipeline_arg, self.dtype, self.codec, self.mask, matrix=True,
+            dot_auto=lambda: _matrix.auto_dot(_matrix.analyse(nm), padded_avx2,
+                                              DEFAULT_BLOCK_BYTES // self.dtype.itemsize))
+
+    def _settle_codec(self, cmp):
+        """The first chunk decides the codec when it was not given (the codec
+        does not change the dot step, so the matrix layout stands)"""
+        self._codec_pending = False
+        codec = _codec_of_chunk(cmp)
+        if codec != self.codec:
+            self.codec = codec
+            self.pipeline = self._resolve()
 
     def _build(self, block_elems):
         try:
@@ -472,6 +530,8 @@ class chunk2sparseCSC:
             self._workspace = np.empty(need, np.uint8)
 
     def _run(self, pointers, lengths, cmp, cut):
+        if self._codec_pending:
+            self._settle_codec(cmp)
         if self._mask_pending:
             _settle_mask(self, pointers, lengths, cmp)
         self._ensure_capacity(len(pointers), cmp)
