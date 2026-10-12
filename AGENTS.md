@@ -104,8 +104,16 @@ below 2: no infix `@`, f-strings, `yield from`, keyword-only arguments or
   queues; no `--exclusive`. One GPU of one type is enough, no need to sweep all
   cards. `--constraint=a40` etc. picks the type; `sinfo` shows what is idle.
 - Python: `module load jupyter-slurm` is the working environment (numpy, scipy, h5py,
-  hdf5plugin, pyFAI, pytest, cupy). Do not build new environments. On p9 (ppc64le)
-  use `module load p9imaged11` from `/data/id11/jon/p9env/modulefiles`.
+  hdf5plugin, pyFAI, pytest, cupy). Do not build new environments.
+- p9 (ppc64le, V100, `low-p9gpu`): use the apptainer image as the base. Inside an
+  `srun`, the x86 environment leaks in and `module load` is unreliable: run with
+  `env -i HOME=<tmp> PATH=/data/id11/jon/p9env/wrappers/p9imaged11:/usr/bin:/bin
+  P9IMAGED11_IMAGE=/data/id11/jon/p9env/sif/p9imaged11.sif ...`; `python3` is then
+  the image's (3.14, numpy 2, cupy 14). Build the extension in the image with
+  `CC=powerpc64le-conda-linux-gnu-gcc CXX=powerpc64le-conda-linux-gnu-g++ python3
+  tools/build_extension.py --out <dir>/bslz4_to_sparse` (it needs the `src/*.py`
+  copied beside the `.so`). The image also has its own `bslz4_to_sparse`: use
+  `PYTHONPATH` as below.
 - That environment already has an old `bslz4_to_sparse` (0.0.15) installed.
   `BSLZ4_TO_SPARSE_PATH` is read only by the tests, so anything else (the GPU
   code imports `bslz4_to_sparse._matrix`) silently gets the old one. Put the build
