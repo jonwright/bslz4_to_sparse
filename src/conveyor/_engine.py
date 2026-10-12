@@ -21,6 +21,7 @@ import mmap
 import multiprocessing as mp
 import os
 import queue
+import resource
 import threading
 import time
 
@@ -69,12 +70,18 @@ def numa_nodes(allowed=None):
     return out or [sorted(allowed)]
 
 
+def _faults():
+    """minor page faults of the calling thread so far"""
+    return resource.getrusage(resource.RUSAGE_THREAD).ru_minflt
+
+
 def _reader(k, todo, ready_q, free_q, buf, slot_bytes, cpus, io_bytes, go, stop, res_q):
-    st = dict(role="reader", k=k, bytes=0, read_s=0.0, wait_s=0.0, error=None)
+    st = dict(role="reader", k=k, bytes=0, read_s=0.0, wait_s=0.0, error=None, minflt=0)
     try:
         if cpus:
             os.sched_setaffinity(0, cpus)
         go.wait()
+        flt0 = _faults()
         view = memoryview(buf)
         while True:
             t = time.perf_counter()
@@ -101,6 +108,7 @@ def _reader(k, todo, ready_q, free_q, buf, slot_bytes, cpus, io_bytes, go, stop,
             st["read_s"] += time.perf_counter() - t
             st["bytes"] += u.span
             ready_q.put((slot, u))
+        st["minflt"] = _faults() - flt0
         ready_q.put(_DONE)
     except BaseException as e:  # noqa: BLE001 (report it, and unblock the worker)
         st["error"] = repr(e)
@@ -126,7 +134,9 @@ def _worker(
     stop,
     res_q,
 ):
-    st = dict(role="worker", k=k, frames=0, decode_s=0.0, write_s=0.0, idle_s=0.0, error=None)
+    st = dict(
+        role="worker", k=k, frames=0, decode_s=0.0, write_s=0.0, idle_s=0.0, error=None, minflt=0
+    )
     t_first = t_last = None
     try:
         if cpu is not None:
@@ -140,7 +150,7 @@ def _worker(
             free_q.put(s)
         barrier.wait()
         go.wait()
-        c0, t0 = time.thread_time(), time.perf_counter()
+        c0, t0, flt0 = time.thread_time(), time.perf_counter(), _faults()
         while True:
             t = time.perf_counter()
             item = ready_q.get()  # blocks until the reader has a whole unit in
@@ -165,6 +175,7 @@ def _worker(
                 st["frames"] += n
             t_last = time.perf_counter()
             free_q.put(slot)
+        st["minflt"] = _faults() - flt0
         st["sink"] = sink.end()
         st["wall_s"], st["cpu_s"] = time.perf_counter() - t0, time.thread_time() - c0
         st["active_s"] = (t_last - t_first) if t_first is not None and t_last is not None else 0.0
@@ -313,5 +324,11 @@ def run(
             read=round(sum(s["read_s"] for s in rd) / wall / workers, 3),
             read_wait_for_buffer=round(sum(s["wait_s"] for s in rd) / wall / workers, 3),
         ),
+        # minor page faults taken by the workers and readers after the buffers were touched: with
+        # no allocation per file this stays small and does not grow with the number of files
+        page_faults=dict(
+            workers=sum(s["minflt"] for s in wk), readers=sum(s["minflt"] for s in rd)
+        ),
+        files=len(units),
         sink=[s.get("sink") for s in wk][:1],
     )

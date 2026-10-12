@@ -9,7 +9,8 @@
            system cache for everything after it), then the list wraps.
 --layout   free (the OS places threads), interleave (workers on the CPUs of the list that
            alternates between NUMA nodes) or pack (a node is filled before the next one starts).
---op       sparsify, or 1d (a synthetic radial matrix, 2000 bins).
+--op       decompress, unshuffle, sparsify, 1d, 2d, rings, fazit (tools/bench_ops.py: the same stages and
+           pyFAI matrices); --backend gpu for the CUDA decoder.
 One JSON line per point, prefixed RESULT.  Never run it in CI."""
 
 import argparse
@@ -25,6 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_suite  # noqa: E402,F401  (puts lib/ or $BSLZ4_TO_SPARSE_PATH on sys.path)
 
+import bench_ops as bo  # noqa: E402  (the stages and their matrices)
 import bslz4_to_sparse as b  # noqa: E402
 from bslz4_to_sparse import conveyor  # noqa: E402
 
@@ -48,22 +50,6 @@ def layout(name, workers):
     return cpus[:workers]
 
 
-def radial_matrix(shape, nbins=2000):
-    import scipy.sparse as sp
-
-    ni, nj = shape
-    y, x = np.mgrid[0:ni, 0:nj]
-    r = np.hypot(y - ni * 0.55, x - nj * 0.45)
-    pos = r / r.max() * (nbins - 1)
-    lo = np.minimum(np.floor(pos).astype(np.int64), nbins - 2)
-    w = (pos - lo).astype(np.float32)
-    npix = ni * nj
-    rows = np.concatenate([lo.ravel(), lo.ravel() + 1])
-    cols = np.concatenate([np.arange(npix), np.arange(npix)])
-    data = np.concatenate([(1 - w).ravel(), w.ravel()]).astype(np.float32)
-    return sp.csc_matrix((data, (rows, cols)), shape=(nbins, npix))
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--files", required=True)
@@ -72,7 +58,13 @@ def main():
     ap.add_argument("--files-per-worker", type=float, default=4)
     ap.add_argument("--mode", default="threads", choices=["threads", "processes"])
     ap.add_argument("--layout", default="interleave")
-    ap.add_argument("--op", default="sparsify", choices=["sparsify", "1d"])
+    ap.add_argument(
+        "--op",
+        default="sparsify",
+        choices=["decompress", "unshuffle", "sparsify", "1d", "2d", "rings", "fazit"],
+    )
+    ap.add_argument("--backend", default="cpu", choices=["cpu", "gpu"])
+    ap.add_argument("--acc", default="f64", help="gpu matrix accumulator")
     ap.add_argument("--unit-mb", type=int, default=256, help="a unit is a whole file when it fits")
     ap.add_argument(
         "--index-dir", default=None, help="sidecar chunk indexes (tools/index_chunks.py)"
@@ -82,7 +74,7 @@ def main():
     )
     ap.add_argument("--slots", type=int, default=2, help="slots per worker")
     ap.add_argument("--batch", type=int, default=16)
-    ap.add_argument("--cut", type=int, default=0)
+    ap.add_argument("--cut", type=int, default=1)
     ap.add_argument("--dset", default=DSET)
     ap.add_argument("--tag", default="")
     a = ap.parse_args()
@@ -100,8 +92,10 @@ def main():
             chunk0 = fh.read(int(u0.lengths[0]))
         f0 = b.decompress([chunk0], dtype)[0]
         mask = (f0 != np.iinfo(dtype).max).astype(np.uint8).reshape(shape)
-        csc = radial_matrix(shape) if a.op == "1d" else None
-        be = conveyor.CpuBackend(mask, dtype, csc=csc, cut=a.cut)
+        mats = bo.matrices(shape, mask) if a.op in ("1d", "2d", "rings", "fazit") else {}
+        be = bo.backend(a.op, dtype, shape, mask, mats, a.cut, a.backend == "gpu", a.batch)
+        if be is None:
+            raise SystemExit("%s is not available on the %s backend" % (a.op, a.backend))
         wcpu = layout(a.layout, nw)
         r = conveyor.run(
             units,

@@ -441,12 +441,14 @@ class chunk2sparse:
             self.pipeline = self._resolve()
 
     def _ensure_capacity(self, nframes, cmp, blocksize=None):
-        if self._nframes != nframes:
-            self._values = np.empty((nframes, self.npix), self.dtype)
-            self._indices = np.empty((nframes, self.npix), np.uint32)
-            self._npx = np.empty(nframes, np.int32)
-            self._cursors = np.empty(nframes, np.int64)
+        if self._nframes < nframes:  # grow only: a smaller batch uses views, nothing is reallocated
+            self._values_all = np.empty((nframes, self.npix), self.dtype)
+            self._indices_all = np.empty((nframes, self.npix), np.uint32)
+            self._npx_all = np.empty(nframes, np.int32)
+            self._cursors_all = np.empty(nframes, np.int64)
             self._nframes = nframes
+        self._values, self._indices = self._values_all[:nframes], self._indices_all[:nframes]
+        self._npx, self._cursors = self._npx_all[:nframes], self._cursors_all[:nframes]
         need = 3 * (blocksize or _blocksize_bytes(cmp))
         if self._workspace is None or self._workspace.size < need:
             self._workspace = np.empty(need, np.uint8)
@@ -661,18 +663,21 @@ class chunk2sparseCSC:
         try:
             return _matrix.build(self.dot, self._nm, block_elems, self.dtype)
         except ValueError as e:
-            raise ValueError("pipeline['dot']=%r cannot represent this matrix: %s (auto picks %r)"
-                             % (self.dot, e, _matrix.auto_dot(_matrix.analyse(self._nm), False)))
+            raise ValueError(
+                "pipeline['dot']=%r cannot represent this matrix: %s (auto picks %r)"
+                % (self.dot, e, _matrix.auto_dot(_matrix.analyse(self._nm), False))
+            )
 
     def _ensure_capacity(self, nframes, cmp, blocksize=None):
         lay = self._layout
-        if self._nframes != nframes:
-            self._values = np.empty((nframes, self.npix), self.dtype)
-            self._indices = np.empty((nframes, self.npix), np.uint32)
-            self._npx = np.empty(nframes, np.int32)
-            self._powder = np.empty((nframes, lay.nout), lay.powder_dtype)
-            self._cursors = np.empty(nframes, np.int64)
+        if self._nframes < nframes:  # grow only: a smaller batch uses views, nothing is reallocated
+            self._values_all = np.empty((nframes, self.npix), self.dtype)
+            self._indices_all = np.empty((nframes, self.npix), np.uint32)
+            self._npx_all = np.empty(nframes, np.int32)
+            self._cursors_all = np.empty(nframes, np.int64)
             self._nframes = nframes
+        self._values, self._indices = self._values_all[:nframes], self._indices_all[:nframes]
+        self._npx, self._cursors = self._npx_all[:nframes], self._cursors_all[:nframes]
         blocksize = blocksize or _blocksize_bytes(cmp)
         be = blocksize // self.dtype.itemsize
         if lay.block_elems is not None and be != lay.block_elems:
@@ -686,6 +691,12 @@ class chunk2sparseCSC:
                     self.pipeline[_pipeline.DOT] = _pipeline.NAMES["dot"].index(dot)
             self._layout = self._build(be)
             lay = self._layout
+        pshape = (self._nframes, lay.nout)
+        if getattr(self, "_powder_all", None) is None or (
+            self._powder_all.shape != pshape or self._powder_all.dtype != lay.powder_dtype
+        ):
+            self._powder_all = np.empty(pshape, lay.powder_dtype)
+        self._powder = self._powder_all[:nframes]
         need = 3 * blocksize + be * (4 + self.dtype.itemsize)
         if self._workspace is None or self._workspace.size < need:
             self._workspace = np.empty(need, np.uint8)

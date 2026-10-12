@@ -20,7 +20,7 @@ the GIL, so threads are the default.  Pure Python 3, numpy only: the chunk index
 from ._index import read_index, write_index, harvest, sidecar_path, StaleIndex
 from ._source import make_units
 from ._sinks import Sink, NullSink
-from ._backends import CpuBackend, GpuBackend
+from ._backends import CpuBackend, DecompressBackend, GpuBackend
 from ._engine import run, numa_nodes
 
 __all__ = [
@@ -33,6 +33,7 @@ __all__ = [
     "Sink",
     "NullSink",
     "CpuBackend",
+    "DecompressBackend",
     "GpuBackend",
     "run",
     "numa_nodes",

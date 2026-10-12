@@ -30,6 +30,40 @@ class CpuBackend(object):
         return run
 
 
+class DecompressBackend(object):
+    """The front half alone: bslz4_to_sparse.decompress into a preallocated array, no sparse step.
+    unshuffle=False gives each block as stored (before the bit unshuffle); True the pixel values.
+    Returns npx = 0 for every frame, values = the decompressed frames, no indices or powder."""
+
+    name = "decompress"
+
+    def __init__(self, dtype, shape, unshuffle=True, batch=16):
+        self.dtype, self.shape, self.unshuffle, self.batch = (
+            np.dtype(dtype),
+            tuple(shape),
+            unshuffle,
+            batch,
+        )
+
+    def make_worker(self):
+        import bslz4_to_sparse as b
+
+        npix = int(np.prod(self.shape))
+        if self.unshuffle:
+            out = np.empty((self.batch, npix), self.dtype)
+        else:
+            out = np.empty((self.batch, npix * self.dtype.itemsize), np.uint8)
+        npx = np.zeros(self.batch, np.int32)
+        dtype, unshuffle = self.dtype, self.unshuffle
+
+        def run(buf, offsets, lengths):
+            n = len(offsets)
+            b.decompress_offsets(buf, offsets, lengths, dtype, unshuffle=unshuffle, out=out[:n])
+            return npx[:n], out[:n], None, None
+
+        return run
+
+
 class GpuBackend(object):
     """bslz4_to_sparse.cuda (cupy): one decoder per worker, each with its own CUDA stream.
     Build the workers after any fork: CUDA must be initialised in the process that uses it.
