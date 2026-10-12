@@ -53,7 +53,16 @@
 #define BSLZ4_LZ4ZERO_DENSE 8
 #endif
 
-/* The plain codec call: decoded size (== cap) or a negative value. */
+/* The plain codec call: decoded size (== cap) or a negative value.
+ *
+ * zstd: ZSTD_decompress() builds a ZSTD_DCtx on the heap for every call (ZSTD_HEAPMODE 1). The
+ * context is opaque: ZSTD_estimateDCtxSize() is 96 kB in zstd 1.5.7, and it is not safe to share
+ * between threads. Measured 2026-10-12 (Xeon Gold 6248, glibc malloc, 8 kB blocks of 1.5x to 11x):
+ * about 190 ns of 8 to 12 us per block, 1.5 to 2.3 %, the same time as ZSTD_decompressDCtx() with
+ * one reused context. So it is not cached here. If that ever matters: one context per driver call,
+ * as bslz4_driver_decompress does, or ZSTD_initStaticDCtx() on workspace memory (needs
+ * ZSTD_STATIC_LINKING_ONLY; no free, but the size must be passed in). Other allocators not
+ * measured. */
 static inline int bslz4_decode_plain(int decode, const char *BSLZ4_RESTRICT src, int n,
                                      char *BSLZ4_RESTRICT dst, int cap) {
     if (decode == BSLZ4_DECODE_ZSTD) {

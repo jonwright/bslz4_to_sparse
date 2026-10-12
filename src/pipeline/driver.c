@@ -428,8 +428,8 @@ int bslz4_driver_decompress(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     uint8_t *BSLZ4_RESTRICT scratch = workspace + wsz;
     uint8_t *BSLZ4_RESTRICT block = workspace + 2 * wsz;
 
-    ZSTD_DCtx *zctx =
-        decode == BSLZ4_DECODE_ZSTD ? ZSTD_createDCtx() : NULL; /* one context for every block */
+    /* one zstd context for every block of the call (what it saves: see the note in steps/decode.h) */
+    ZSTD_DCtx *zctx = decode == BSLZ4_DECODE_ZSTD ? ZSTD_createDCtx() : NULL;
     if (decode == BSLZ4_DECODE_ZSTD && !zctx) return BSLZ4_ERR_DECOMPRESS;
     const size_t full = (size_t) (total / blocksize);
     const size_t remaining = (size_t) (total - (uint64_t) full * blocksize);
