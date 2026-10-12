@@ -349,6 +349,13 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
             ],
         },
         {
+            "py_sig": "set_counters(on: int) -> void",
+            "doc": "Start (1) or stop (0) counting blocks per step value (test instrumentation; off by default so that decoding threads share no written memory).",
+            "c_overloads": [
+                {"sig": "bslz4_set_counters(int on) -> void", "map": {"on": "on"}},
+            ],
+        },
+        {
             "py_sig": "read_counters(out: buffer) -> int",
             "doc": "Fill out (uint64 array) with the flattened [step][value] block counters; returns the number of entries written.",
             "c_overloads": [

@@ -15,6 +15,7 @@
 extern int bslz4_lowplanes_available(int value);
 
 uint64_t bslz4_counters[BSLZ4_NSTEPS][BSLZ4_VALUE_SLOTS];
+int bslz4_counters_on = 0;
 
 typedef char bslz4_value_slots_cover_every_step
     [(BSLZ4_DECODE_N <= BSLZ4_VALUE_SLOTS && BSLZ4_MASK_N <= BSLZ4_VALUE_SLOTS &&
@@ -185,6 +186,11 @@ int bslz4_resolve(int dtype, const uint16_t *pipeline, int layout, bslz4_pipe *B
 
 void bslz4_reset_counters(void) {
     memset(bslz4_counters, 0, sizeof(bslz4_counters));
+    bslz4_counters_on = 1; /* counting starts here: see bslz4_counters_bump in pipeline.h */
+}
+
+void bslz4_set_counters(int on) {
+    bslz4_counters_on = on != 0;
 }
 
 int bslz4_read_counters(uint64_t *BSLZ4_RESTRICT out, int n) {

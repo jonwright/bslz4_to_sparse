@@ -215,7 +215,8 @@ int bslz4_dot_layout(int dot);
 int bslz4_dot_out_size(int dot);
 
 /* test instrumentation: blocks run per (step, value) */
-void bslz4_reset_counters(void);
+void bslz4_reset_counters(void); /* zero them and start counting */
+void bslz4_set_counters(int on); /* 0: stop counting (the default), 1: count */
 int  bslz4_read_counters(uint64_t *BSLZ4_RESTRICT out, int n);   /* flattened [step][value] */
 
 /* ---- dtype-generic kernels (src/steps/kernels.cpp) ---- */
@@ -259,10 +260,18 @@ int bslz4_driver_decompress(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
  * (step, value)); the array lives in registry.c.  Deliberately a plain,
  * unsynchronised increment (an atomic one is a locked RMW per block): the
  * counters are test instrumentation and only exact while one decode runs at
- * a time; concurrent decodes may lose counts, never corrupt the output. */
+ * a time; concurrent decodes may lose counts, never corrupt the output.
+ *
+ * They count only between bslz4_reset_counters() (or set_counters(1)) and
+ * bslz4_set_counters(0), and are off in a fresh process.  While off the flag is read-only, so
+ * decoding threads share no written cache line: with the counters always on, every block of every
+ * thread wrote the same few lines and 32 threads ran at a third of the speed of 32 processes
+ * (measured 2026-10-12, Xeon Gold 6248: 100 against 326 frames/s per worker;
+ * with the counters off, threads and processes were equal). */
 extern uint64_t bslz4_counters[BSLZ4_NSTEPS][BSLZ4_VALUE_SLOTS];
+extern int bslz4_counters_on;
 static inline void bslz4_counters_bump(int step, int value) {
-    bslz4_counters[(unsigned) step][(unsigned) value]++;
+    if (BSLZ4_UNLIKELY(bslz4_counters_on)) bslz4_counters[(unsigned) step][(unsigned) value]++;
 }
 
 #endif /* BSLZ4_PIPELINE_H */

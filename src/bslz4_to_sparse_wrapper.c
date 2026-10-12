@@ -24,6 +24,7 @@ extern int bslz4_offsets_to_pointers(const char * base, size_t base_len, int64_t
 extern void bslz4_note_chunk(const char * chunk, size_t chunk_len, int index, int64_t * pointers, int32_t * lengths);
 extern int bslz4_step_available(int step, int value);
 extern void bslz4_reset_counters();
+extern void bslz4_set_counters(int on);
 extern int bslz4_read_counters(uint64_t * out, int n);
 extern int bslz4_build_info(char * out, int n);
 
@@ -2979,6 +2980,78 @@ _reset_counters_wrapper(PyObject *self, PyObject *args)
     return _reset_counters_fastcall(self, argv, nargs);
 }
 
+/* -------------------------------------------- */
+/* Wrapper for: set_counters */
+/* -------------------------------------------- */
+
+static PyObject*
+_set_counters_impl(int c_on)
+{
+    /* overload 0 (always) */
+    {
+        bslz4_set_counters(c_on);
+        Py_RETURN_NONE;
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_set_counters_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    int c_on = 0;
+    PyObject *ret = NULL;
+
+    if (nargs != 1) {
+        PyErr_SetString(PyExc_TypeError,
+            "set_counters expects 1 argument");
+        return NULL;
+    }
+
+    /* extract int: on from args[0] */
+    {
+        long _c2py_tmp = PyLong_AsLong(args[0]);
+        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
+        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "int parameter on out of range (must fit in C int)");
+            return NULL;
+        }
+        c_on = (int)_c2py_tmp;
+    }
+
+
+    ret = _set_counters_impl(c_on);
+
+    return ret;
+}
+
+static PyObject*
+_set_counters_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *argv[1];
+    Py_ssize_t nargs = PyTuple_Size(args);
+    Py_ssize_t _i;
+    if (nargs < 0) return NULL;
+    if (nargs > 1) {
+        PyErr_SetString(PyExc_TypeError,
+            "set_counters expects 1 argument");
+        return NULL;
+    }
+    for (_i = 0; _i < nargs; _i++) {
+        argv[_i] = PyTuple_GetItem(args, _i);
+        if (argv[_i] == NULL) return NULL;
+    }
+    return _set_counters_fastcall(self, argv, nargs);
+}
+
 static const uint8_t _acqord_read_counters[] = { C2PY_PIN_NDARRAY, C2PY_PIN_PEP3118 };
 
 /* -------------------------------------------- */
@@ -3185,6 +3258,7 @@ static const char _doc_offsets_to_pointers[] = "offsets_to_pointers(base, offset
 static const char _doc_note_chunk[] = "note_chunk(chunk, index, pointers, lengths)\n--\n\nnote_chunk(chunk: buffer, index: int, pointers: buffer, lengths: buffer) -> void\n\nWrite chunk's raw address and byte length into pointers[index]/lengths[index].\n\nParameters\n----------\nchunk : buffer\nindex : int\npointers : buffer\n    Writable\nlengths : buffer\n    Writable\n\nOverloads\n---------\n  bslz4_note_chunk(const char *chunk, size_t chunk_len, int index, int64_t *pointers, int32_t *lengths) -> void\n    Map: chunk = chunk.ptr (const char *)\n         chunk_len = chunk.len (size_t)\n         index = index (int)\n         pointers = pointers.ptr (int64_t *)\n         lengths = lengths.ptr (int32_t *)";
 static const char _doc_step_available[] = "step_available(step, value)\n--\n\nstep_available(step: int, value: int) -> int\n\n1 if a pipeline step value can run here, 0 if it is known but this CPU/build lacks what it needs, -1 if it is unknown (0, auto, included).\n\nParameters\n----------\nstep : int\nvalue : int\n\nOverloads\n---------\n  bslz4_step_available(int step, int value) -> int\n    Map: step = step (int)\n         value = value (int)";
 static const char _doc_reset_counters[] = "reset_counters()\n--\n\nreset_counters() -> void\n\nZero the per step value block counters (test instrumentation).\n\nOverloads\n---------\n  bslz4_reset_counters() -> void";
+static const char _doc_set_counters[] = "set_counters(on)\n--\n\nset_counters(on: int) -> void\n\nStart (1) or stop (0) counting blocks per step value (test instrumentation; off by default so that decoding threads share no written memory).\n\nParameters\n----------\non : int\n\nOverloads\n---------\n  bslz4_set_counters(int on) -> void\n    Map: on = on (int)";
 static const char _doc_read_counters[] = "read_counters(out)\n--\n\nread_counters(out: buffer) -> int\n\nFill out (uint64 array) with the flattened [step][value] block counters; returns the number of entries written.\n\nParameters\n----------\nout : buffer\n    Writable\n\nOverloads\n---------\n  bslz4_read_counters(uint64_t *out, int n) -> int\n    Map: out = out.ptr (uint64_t *)\n         n = out.n (int)";
 static const char _doc_build_info[] = "build_info(out)\n--\n\nbuild_info(out: buffer) -> int\n\nCopy the JSON build description (version, git describe, source sha256, compiler, platform, time) into out (uint8 array); returns its full length in bytes, which may exceed out.len.\n\nParameters\n----------\nout : buffer\n    Type: uint8 (format 'B')\n    Writable\n\nChecks\n------\n  out.format == 'B'  [ValueError]\n\nOverloads\n---------\n  bslz4_build_info(char *out, int n) -> int\n    Map: out = out.ptr (char *)\n         n = out.len (int)";
 static const char _module_doc[] = "Module: _bslz4_to_sparse\nSource: ['bslz4_to_sparse.c']\nHeaders: ['c2py_amd64.h', 'c2py_arm64.h', 'c2py_ppc64.h']\nTiming: no\nFree-threading: yes (Py_MOD_GIL_NOT_USED)\nGIL release: sparsify, sparsify_and_dot, sparsify_and_dot_padded, sparsify_and_dot_bsbcsr, decompress";
@@ -3199,6 +3273,7 @@ static PyMethodDef _methods_varargs[] = {
     {"note_chunk", (PyCFunction)_note_chunk_wrapper, METH_VARARGS, _doc_note_chunk},
     {"step_available", (PyCFunction)_step_available_wrapper, METH_VARARGS, _doc_step_available},
     {"reset_counters", (PyCFunction)_reset_counters_wrapper, METH_VARARGS, _doc_reset_counters},
+    {"set_counters", (PyCFunction)_set_counters_wrapper, METH_VARARGS, _doc_set_counters},
     {"read_counters", (PyCFunction)_read_counters_wrapper, METH_VARARGS, _doc_read_counters},
     {"build_info", (PyCFunction)_build_info_wrapper, METH_VARARGS, _doc_build_info},
     {NULL, NULL, 0, NULL}
@@ -3214,6 +3289,7 @@ static PyMethodDef _methods_fastcall[] = {
     {"note_chunk", (PyCFunction)_note_chunk_fastcall, METH_FASTCALL, _doc_note_chunk},
     {"step_available", (PyCFunction)_step_available_fastcall, METH_FASTCALL, _doc_step_available},
     {"reset_counters", (PyCFunction)_reset_counters_fastcall, METH_FASTCALL, _doc_reset_counters},
+    {"set_counters", (PyCFunction)_set_counters_fastcall, METH_FASTCALL, _doc_set_counters},
     {"read_counters", (PyCFunction)_read_counters_fastcall, METH_FASTCALL, _doc_read_counters},
     {"build_info", (PyCFunction)_build_info_fastcall, METH_FASTCALL, _doc_build_info},
     {NULL, NULL, 0, NULL}
