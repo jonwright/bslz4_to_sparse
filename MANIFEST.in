@@ -19,6 +19,7 @@ recursive-include src/pipeline *.c *.h
 recursive-include src/steps *.h *.hpp *.cpp
 include src/msvc_include/stdint.h
 recursive-include src/cuda *.py *.cu *.cuh
+recursive-include src/conveyor *.py
 
 # Vendored c2py23 runtime (dlsym-based, so one binary serves every Python) and
 # the build driver setup.py's build_py invokes.
