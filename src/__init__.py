@@ -283,9 +283,21 @@ def _settle_mask(obj, pointers, lengths, cmp):
     values = np.empty(obj.npix, np.uint16)
     adr = np.empty(obj.npix, np.uint32)
     npx = np.empty(1, np.int32)
-    ret = _ext.sparsify(pointers[:1], lengths[:1], np.ones(obj.npix, np.uint8), values, adr,
-                        npx, 65534, np.empty(3 * _blocksize_bytes(cmp), np.uint8),
-                        np.empty(1, np.int64), _toppix.EMPTY_TOP, _toppix.EMPTY_OUT, obj._di, p)
+    ret = _ext.sparsify(
+        pointers[:1],
+        lengths[:1],
+        np.ones(obj.npix, np.uint8),
+        values,
+        adr,
+        npx,
+        65534,
+        np.empty(3 * _blocksize_bytes(cmp), np.uint8),
+        np.empty(1, np.int64),
+        _toppix.EMPTY_TOP,
+        _toppix.EMPTY_OUT,
+        obj._di,
+        p,
+    )
     if ret < 0:
         return                      # the real decode reports the error
     masked = obj.mask == 0
@@ -304,20 +316,36 @@ def _decompress(pointers, lengths, cmp, dtype, unshuffle, out, codec):
     total = struct.unpack(">Q", cmp[:8])[0]
     n = len(pointers)
     if unshuffle and total % dtype.itemsize:
-        raise ValueError("the chunks hold %d bytes, not a whole number of %s pixels" % (total, dtype))
+        raise ValueError(
+            "the chunks hold %d bytes, not a whole number of %s pixels" % (total, dtype)
+        )
     if out is None:
-        out = np.empty((n, total // dtype.itemsize) if unshuffle else (n, total),
-                       dtype if unshuffle else np.uint8)
+        out = np.empty(
+            (n, total // dtype.itemsize) if unshuffle else (n, total),
+            dtype if unshuffle else np.uint8,
+        )
     flat = out.reshape(-1) if out.flags.c_contiguous else None
     if flat is None or flat.nbytes < n * total or not out.flags.writeable:
-        raise ValueError("out must be a writeable C-contiguous array of at least %d bytes" % (n * total))
+        raise ValueError(
+            "out must be a writeable C-contiguous array of at least %d bytes" % (n * total)
+        )
     if codec is None:
         codec = _codec_of_chunk(cmp)
     names = _pipeline.NAMES
     decode = names["decode"].index("zstd" if codec == CODEC_ZSTD else "lz4-stock")
-    workspace = np.empty(3 * min(_blocksize_bytes(cmp), total) if unshuffle else 1, np.uint8)   # a corrupt header cannot ask for more
-    ret = _ext.decompress(pointers, lengths, flat.view(np.uint8), workspace, dtype.itemsize, decode,
-                          names["untranspose"].index("kcb"), 1 if unshuffle else 0)
+    workspace = np.empty(
+        3 * min(_blocksize_bytes(cmp), total) if unshuffle else 1, np.uint8
+    )  # a corrupt header cannot ask for more
+    ret = _ext.decompress(
+        pointers,
+        lengths,
+        flat.view(np.uint8),
+        workspace,
+        dtype.itemsize,
+        decode,
+        names["untranspose"].index("kcb"),
+        1 if unshuffle else 0,
+    )
     if ret < 0:
         raise _decode_error(ret, batch=n > 1)
     return out
@@ -382,8 +410,9 @@ class chunk2sparse:
     howmany reduced it).
     """
 
-    def __init__(self, mask, dtype=np.uint16, codec=None, pipeline=None, howmany=None,
-                 thresholds=None):
+    def __init__(
+        self, mask, dtype=np.uint16, codec=None, pipeline=None, howmany=None, thresholds=None
+    ):
         self.howmany, self.thresholds = _toppix.check(howmany, thresholds)
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
@@ -432,11 +461,23 @@ class chunk2sparse:
             if self._mask_pending:
                 _settle_mask(self, pointers, lengths, cmp)
             self._ensure_capacity(len(pointers), cmp)
-            pipe = self.pipeline          # after the settling above: the first chunk may change it
+            pipe = self.pipeline  # after the settling above: the first chunk may change it
         req = _toppix.Request(self.howmany, self.thresholds, cut, self.dtype, len(pointers))
-        ret = _ext.sparsify(pointers, lengths, self.mask, self._values.ravel(),
-                            self._indices.ravel(), self._npx, cut, self._workspace,
-                            self._cursors, req.top, req.out, self._di, pipe)
+        ret = _ext.sparsify(
+            pointers,
+            lengths,
+            self.mask,
+            self._values.ravel(),
+            self._indices.ravel(),
+            self._npx,
+            cut,
+            self._workspace,
+            self._cursors,
+            req.top,
+            req.out,
+            self._di,
+            pipe,
+        )
         if ret < 0:
             self._npx[:] = 0
             raise _decode_error(ret, batch=len(pointers) > 1)
@@ -458,10 +499,11 @@ class chunk2sparse:
         return p
 
     def from_frames(self, frames, cut):
-        """As multi, for uncompressed frames: an array (nframes, ni, nj) or (nframes, ni*nj) of this object's pixel
-        dtype.  Only the back half of the pipeline runs (mask, collect, matrix product, howmany): the same results as
-        multi on the compressed frames.  A C-contiguous array of the right dtype is used in place, else a copy is made."""
-        arr = np.require(frames, self.dtype, ["C", "A"])           # C-contiguous and aligned, else a copy
+        """As multi, for uncompressed frames: an array (nframes, ni, nj) or (nframes, ni*nj) of this
+        object's pixel dtype.  Only the back half of the pipeline runs (mask, collect, matrix
+        product, howmany): the same results as multi on the compressed frames.  A C-contiguous array
+        of the right dtype is used in place, else a copy is made."""
+        arr = np.require(frames, self.dtype, ["C", "A"])  # C-contiguous and aligned, else a copy
         if arr.size == 0 or arr.size % self.npix:
             raise ValueError("frames must hold whole frames of %d pixels" % self.npix)
         arr = arr.reshape(-1, self.npix)
@@ -534,9 +576,21 @@ def bslz4_to_sparse(ds, num, cut, mask=None, pixelbuffer=None, workspace=None, c
     pointers, lengths = _gather_chunks([buffer])
     npx_out = np.empty(1, np.int32)
     cursors = np.empty(1, np.int64)
-    ret = _ext.sparsify(pointers, lengths, mask, values, indices, npx_out, cut, workspace,
-                        cursors, _toppix.EMPTY_TOP, _toppix.EMPTY_OUT,
-                        _pipeline.DTYPE_INDEX[_pipeline.dtype_suffix(values.dtype)], p)
+    ret = _ext.sparsify(
+        pointers,
+        lengths,
+        mask,
+        values,
+        indices,
+        npx_out,
+        cut,
+        workspace,
+        cursors,
+        _toppix.EMPTY_TOP,
+        _toppix.EMPTY_OUT,
+        _pipeline.DTYPE_INDEX[_pipeline.dtype_suffix(values.dtype)],
+        p,
+    )
     if ret < 0:
         raise _decode_error(ret, batch=False)
     return int(npx_out[0]), (values, indices)
@@ -560,8 +614,9 @@ class chunk2sparseCSC:
     powder; c.multi(chunks, cut) -> the same per frame for a batch.
     """
 
-    def __init__(self, mask, csc, dtype=np.uint16, codec=None, pipeline=None, howmany=None,
-                 thresholds=None):
+    def __init__(
+        self, mask, csc, dtype=np.uint16, codec=None, pipeline=None, howmany=None, thresholds=None
+    ):
         self.howmany, self.thresholds = _toppix.check(howmany, thresholds)
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
@@ -645,7 +700,7 @@ class chunk2sparseCSC:
             if self._mask_pending:
                 _settle_mask(self, pointers, lengths, cmp)
             self._ensure_capacity(len(pointers), cmp)
-            pipe = self.pipeline          # after the settling above: the first chunk may change it
+            pipe = self.pipeline  # after the settling above: the first chunk may change it
         lay = self._layout
         a = lay.args()
         req = _toppix.Request(self.howmany, self.thresholds, cut, self.dtype, len(pointers))
@@ -653,13 +708,31 @@ class chunk2sparseCSC:
                 self._npx, cut, self._powder.ravel())
         tail = (self._di, pipe)
         if lay.entry == "csc":
-            ret = _ext.sparsify_and_dot(*(head + a + (self._workspace, self._cursors, req.top, req.out, lay.nout) + tail))
+            ret = _ext.sparsify_and_dot(
+                *(head + a + (self._workspace, self._cursors, req.top, req.out, lay.nout) + tail)
+            )
         elif lay.entry == "padded":
-            ret = _ext.sparsify_and_dot_padded(*(head + a[:5] + (self._workspace, self._cursors, req.top, req.out) +
-                                                 a[5:] + (lay.nout,) + tail))
+            ret = _ext.sparsify_and_dot_padded(
+                *(
+                    head
+                    + a[:5]
+                    + (self._workspace, self._cursors, req.top, req.out)
+                    + a[5:]
+                    + (lay.nout,)
+                    + tail
+                )
+            )
         else:
-            ret = _ext.sparsify_and_dot_bsbcsr(*(head + a[:8] + (self._workspace, self._cursors, req.top, req.out) +
-                                                 a[8:] + (lay.nout,) + tail))
+            ret = _ext.sparsify_and_dot_bsbcsr(
+                *(
+                    head
+                    + a[:8]
+                    + (self._workspace, self._cursors, req.top, req.out)
+                    + a[8:]
+                    + (lay.nout,)
+                    + tail
+                )
+            )
         if ret < 0:
             self._npx[:] = 0
             raise _decode_error(ret, batch=len(pointers) > 1)
@@ -683,10 +756,11 @@ class chunk2sparseCSC:
         return p
 
     def from_frames(self, frames, cut):
-        """As multi, for uncompressed frames: an array (nframes, ni, nj) or (nframes, ni*nj) of this object's pixel
-        dtype.  Only the back half of the pipeline runs (mask, collect, matrix product, howmany): the same results as
-        multi on the compressed frames.  A C-contiguous array of the right dtype is used in place, else a copy is made."""
-        arr = np.require(frames, self.dtype, ["C", "A"])           # C-contiguous and aligned, else a copy
+        """As multi, for uncompressed frames: an array (nframes, ni, nj) or (nframes, ni*nj) of this
+        object's pixel dtype.  Only the back half of the pipeline runs (mask, collect, matrix
+        product, howmany): the same results as multi on the compressed frames.  A C-contiguous array
+        of the right dtype is used in place, else a copy is made."""
+        arr = np.require(frames, self.dtype, ["C", "A"])  # C-contiguous and aligned, else a copy
         if arr.size == 0 or arr.size % self.npix:
             raise ValueError("frames must hold whole frames of %d pixels" % self.npix)
         arr = arr.reshape(-1, self.npix)

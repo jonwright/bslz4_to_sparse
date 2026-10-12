@@ -1,0 +1,14 @@
+# C, C++ and CUDA sources: laptop-width lines, comments reflowed to fit.
+# Third-party code (lz4, zstd, bitshuffle, kcb, src/cuda/nvcomp_lz4.cuh) is not formatted.
+BasedOnStyle: LLVM
+Language: Cpp
+IndentWidth: 4
+ColumnLimit: 100
+PointerAlignment: Right
+BreakBeforeBraces: Attach
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortLoopsOnASingleLine: false
+SortIncludes: Never
+ReflowComments: true
+SpaceAfterCStyleCast: true

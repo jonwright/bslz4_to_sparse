@@ -24,6 +24,9 @@
  *                           3781 vs 4812 ns/block), and Cascade Lake.
  *   BSLZ4_DECODE_LZ4_STOCK  LZ4_decompress_safe.
  *   BSLZ4_DECODE_ZSTD       ZSTD_decompress.
+ *   BSLZ4_DECODE_PIXELS     no decode: the input is uncompressed pixel frames (from_frames), so the
+ *                           block loop reads each frame's blocks where they lie and runs only the
+ *                           mask, collect and dot steps.
  *
  * *nz_end returns how many leading bytes of raw are valid: the zero-aware
  * decoder leaves the zero tail of the block unwritten (raw[nz_end..) is zero

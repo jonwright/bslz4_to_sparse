@@ -10,13 +10,15 @@ pixel order.  howmany=None keeps every pixel above the cut.
 Default thresholds: max(cut, 1) * 2**i, i = 0..MAXTHR-1.  (ImageD11 itself
 uses cut * 2**i, which for cut == 0 is all zeros and never reduces anything.)
 
-A frame's count after the selection, `last_nabove`, is the number of pixels above the cut it ended up with (`last_cut`),
-before truncation to howmany.
+A frame's count after the selection, `last_nabove`, is the number of pixels above the cut it ended
+up with (`last_cut`), before truncation to howmany.
 
-The CPU classes run this inside the block loop of the C driver (src/pipeline/driver.c): a frame whose list passes the
-limit moves to the next threshold and its list is filtered in place, which gives the same answer as selecting afterwards.
-Float pixels with a non-integer threshold cannot be represented there and use the numpy version below.
+The CPU classes run this inside the block loop of the C driver (src/pipeline/driver.c): a frame
+whose list passes the limit moves to the next threshold and its list is filtered in place, which
+gives the same answer as selecting afterwards. Float pixels with a non-integer threshold cannot be
+represented there and use the numpy version below.
 """
+
 import math
 
 import numpy as np
@@ -25,7 +27,7 @@ MAXTHR = 16
 
 
 def default_thresholds(cut):
-    return [max(cut, 1) * 2 ** i for i in range(MAXTHR)]
+    return [max(cut, 1) * 2**i for i in range(MAXTHR)]
 
 
 def check(howmany, thresholds):
@@ -46,7 +48,8 @@ def check(howmany, thresholds):
 
 
 def _above(v, t):
-    """v > t, compared as float64 (numpy 1.x would compare a float32 array with a float64 scalar in float32)."""
+    """v > t, compared as float64 (numpy 1.x would compare a float32 array with a float64 scalar in
+    float32)."""
     return np.greater(v, t, signature="dd->?", casting="unsafe")
 
 
@@ -62,7 +65,7 @@ def top_pixels(values, indices, nnz, howmany, thresholds):
         if np.count_nonzero(_above(v, t)) < howmany:
             tcut = t
             break
-    if tcut is None:                      # no thresholds at all: the first howmany
+    if tcut is None:  # no thresholds at all: the first howmany
         keep = np.arange(howmany)
         nabove = nnz
     else:
@@ -80,10 +83,11 @@ EMPTY_OUT = np.zeros(0, np.int32)
 
 
 def _effective(thr, cut, dtype):
-    """The thresholds as the C driver compares them, an int64 per level: max(cut, floor(t)).  None when C cannot compare
-    exactly as numpy does: a float pixel type that cannot hold the integer exactly, anything beyond 2**62, or an infinite
-    threshold for float and 64-bit pixels (smaller integer types can never exceed one, so it is clamped)."""
-    big = 2 ** 62
+    """The thresholds as the C driver compares them, an int64 per level: max(cut, floor(t)).  None
+    when C cannot compare exactly as numpy does: a float pixel type that cannot hold the integer
+    exactly, anything beyond 2**62, or an infinite threshold for float and 64-bit pixels (smaller
+    integer types can never exceed one, so it is clamped)."""
+    big = 2**62
     out = []
     for t in thr:
         if t == float("-inf"):
@@ -96,18 +100,19 @@ def _effective(thr, cut, dtype):
             continue
         f = math.floor(t)
         if dtype.kind == "f" and (f != t or float(dtype.type(f)) != f):
-            return None                                    # not an integer, or not exact in the pixel type
+            return None  # not an integer, or not exact in the pixel type
         if f > big:
             if dtype.kind == "f" or dtype.itemsize >= 8:
                 return None
-            f = big                                        # above every value of the type: nothing passes
+            f = big  # above every value of the type: nothing passes
         out.append(max(int(cut), int(f)))
     return out
 
 
 class Request(object):
-    """One call's top_pixels: .top and .out are the arrays the C entry points take (empty when there is no howmany or the
-    numpy version is used); finish() gives (last_nabove, last_cut) after the call, doing the selection in numpy if C did not."""
+    """One call's top_pixels: .top and .out are the arrays the C entry points take (empty when there
+    is no howmany or the numpy version is used); finish() gives (last_nabove, last_cut) after the
+    call, doing the selection in numpy if C did not."""
 
     def __init__(self, howmany, thresholds, cut, dtype, nframes):
         self.howmany, self.cut, self.nframes = howmany, cut, nframes
@@ -117,7 +122,9 @@ class Request(object):
             eff = _effective(self.thr, cut, dtype)
             if eff is not None:
                 self.native = True
-                self.top = np.array([min(howmany, 2 ** 31 - 1), len(eff)] + eff, np.int64)   # more than a frame holds: no limit
+                self.top = np.array(
+                    [min(howmany, 2**31 - 1), len(eff)] + eff, np.int64
+                )  # more than a frame holds: no limit
                 self.out = np.zeros(2 * nframes, np.int32)
 
     def finish(self, npx, values, indices):

@@ -222,7 +222,9 @@ def resolve(pipeline, dtype, codec, mask, dot_auto=None, matrix=False):
     # what the data and the dtype allow
     dname = NAMES["decode"][vals[DECODE]]
     if dname == "pixels":
-        raise ValueError("pipeline['decode']='pixels' is for uncompressed frames: call from_frames() instead")
+        raise ValueError(
+            "pipeline['decode']='pixels' is for uncompressed frames: call from_frames() instead"
+        )
     if codec == CODEC_ZSTD and dname != "zstd":
         raise ValueError("pipeline['decode']=%r: the data is zstd compressed (use 'zstd')" % dname)
     if codec != CODEC_ZSTD and dname == "zstd":

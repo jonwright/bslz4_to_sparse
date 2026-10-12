@@ -40,11 +40,12 @@ enum {
 /* decode: the codec is a property of the data (lz4 or zstd); for lz4 the
  * decoder is a choice */
 enum {
-    BSLZ4_DECODE_LZ4_BAND = 1,    /* zero-aware decoder below 8x and above 24x, stock in between */
-    BSLZ4_DECODE_LZ4_ZERO = 2,    /* zero-aware decoder (src/steps/lz4zero.h) for every block */
-    BSLZ4_DECODE_LZ4_STOCK = 3,   /* LZ4_decompress_safe */
+    BSLZ4_DECODE_LZ4_BAND = 1,  /* zero-aware decoder below 8x and above 24x, stock in between */
+    BSLZ4_DECODE_LZ4_ZERO = 2,  /* zero-aware decoder (src/steps/lz4zero.h) for every block */
+    BSLZ4_DECODE_LZ4_STOCK = 3, /* LZ4_decompress_safe */
     BSLZ4_DECODE_ZSTD = 4,
-    BSLZ4_DECODE_PIXELS = 5,      /* no decode: the "chunks" are uncompressed pixel frames (the back half only) */
+    BSLZ4_DECODE_PIXELS =
+        5, /* no decode: the "chunks" are uncompressed pixel frames (the back half only) */
     BSLZ4_DECODE_N = 6
 };
 
@@ -148,12 +149,14 @@ typedef struct bslz4_pipe {
     size_t elem_size;            /* sizeof(pixel dtype) */
 } bslz4_pipe;
 
-/* top_pixels inside the block loop (ImageD11's rules, see src/_toppix.py).  Each frame starts at the call's cut (level -1);
- * whenever its list reaches the limit (more than howmany at the cut, howmany or more at a threshold) the frame moves to the
- * next threshold and its list is filtered in place, so a list never grows past howmany + one block.  The answer equals
- * "all pixels above the cut, then top_pixels", because a prefix that is over the limit stays over it.  thr[k] is the
- * effective threshold of level k, max(cut, floor(t_k)), non-decreasing.  After the call level[f] is the level the frame
- * ended at, nabove[f] its pixel count at that level before truncation to howmany. */
+/* top_pixels inside the block loop (ImageD11's rules, see src/_toppix.py).  Each frame starts at
+ * the call's cut (level -1); whenever its list reaches the limit (more than howmany at the cut,
+ * howmany or more at a threshold) the frame moves to the next threshold and its list is filtered in
+ * place, so a list never grows past howmany + one block.  The answer equals "all pixels above the
+ * cut, then top_pixels", because a prefix that is over the limit stays over it.  thr[k] is the
+ * effective threshold of level k, max(cut, floor(t_k)), non-decreasing.  After the call level[f] is
+ * the level the frame ended at, nabove[f] its pixel count at that level before truncation to
+ * howmany. */
 typedef struct bslz4_top {
     int howmany;
     int nthr;
@@ -219,7 +222,8 @@ int  bslz4_read_counters(uint64_t *BSLZ4_RESTRICT out, int n);   /* flattened [s
 int bslz4_sparse_dispatch(const bslz4_work *BSLZ4_RESTRICT w);
 int bslz4_sparse_dot_dispatch(const bslz4_work *BSLZ4_RESTRICT w);
 
-/* keep the entries of (vals, adr)[0..n) with value > thr (the collect's own comparison), in order; returns the new n */
+/* keep the entries of (vals, adr)[0..n) with value > thr (the collect's own comparison), in order;
+ * returns the new n */
 int bslz4_filter_gt_dispatch(int dtype, void *vals, uint32_t *adr, int n, int64_t thr);
 
 /* ---- the frame/block loop (src/pipeline/driver.c) ---- */
@@ -228,23 +232,24 @@ int bslz4_filter_gt_dispatch(int dtype, void *vals, uint32_t *adr, int n, int64_
  * layout descriptor for p->step[BSLZ4_STEP_DOT] */
 int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                      const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,
-                     const uint8_t *BSLZ4_RESTRICT mask, int NIJ,
-                     void *BSLZ4_RESTRICT outpx, uint32_t *BSLZ4_RESTRICT output_adr,
-                     int32_t *BSLZ4_RESTRICT npx_out, int threshold,
-                     void *BSLZ4_RESTRICT powder, int nout, const void *BSLZ4_RESTRICT mat,
-                     uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len,
-                     int64_t *BSLZ4_RESTRICT cursors, const bslz4_pipe *BSLZ4_RESTRICT p,
-                     const bslz4_top *BSLZ4_RESTRICT top);     /* NULL: every pixel above the cut */
+                     const uint8_t *BSLZ4_RESTRICT mask, int NIJ, void *BSLZ4_RESTRICT outpx,
+                     uint32_t *BSLZ4_RESTRICT output_adr, int32_t *BSLZ4_RESTRICT npx_out,
+                     int threshold, void *BSLZ4_RESTRICT powder, int nout,
+                     const void *BSLZ4_RESTRICT mat, uint8_t *BSLZ4_RESTRICT workspace,
+                     size_t workspace_len, int64_t *BSLZ4_RESTRICT cursors,
+                     const bslz4_pipe *BSLZ4_RESTRICT p,
+                     const bslz4_top *BSLZ4_RESTRICT top); /* NULL: every pixel above the cut */
 
-/* The front half alone: decode the chunks (lz4 or zstd, `decode` = BSLZ4_DECODE_LZ4_STOCK or BSLZ4_DECODE_ZSTD) into out,
- * frame f at out + f * (the chunks' decoded size), and with unshuffle != 0 also undo the bit shuffle (`untranspose` is the
- * step value for it), giving the pixel bytes; unshuffle == 0 leaves each block as the HDF5 filter's decompressor yields it,
- * before the unshuffle.  elem_size is the pixel size in bytes. */
+/* The front half alone: decode the chunks (lz4 or zstd, `decode` = BSLZ4_DECODE_LZ4_STOCK or
+ * BSLZ4_DECODE_ZSTD) into out, frame f at out + f * (the chunks' decoded size), and with unshuffle
+ * != 0 also undo the bit shuffle (`untranspose` is the step value for it), giving the pixel bytes;
+ * unshuffle == 0 leaves each block as the HDF5 filter's decompressor yields it, before the
+ * unshuffle.  elem_size is the pixel size in bytes. */
 int bslz4_driver_decompress(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                             const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,
                             uint8_t *BSLZ4_RESTRICT out, size_t out_len,
-                            uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len,
-                            int elem_size, int decode, int untranspose, int unshuffle);
+                            uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len, int elem_size,
+                            int decode, int untranspose, int unshuffle);
 
 #ifdef __cplusplus
 }

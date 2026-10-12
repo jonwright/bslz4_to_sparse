@@ -98,11 +98,12 @@ template int bslz4_sparse_dot_block<double>(const bslz4_work *);
 
 /* ---- top_pixels: raise a frame's cut and filter its list in place ---- */
 
-template<typename T>
+template <typename T>
 BSLZ4_NOINLINE int bslz4_filter_gt(void *vals_, uint32_t *adr, int n, int64_t thr) {
     T *vals = (T *) vals_;
     if (std::numeric_limits<T>::is_integer && thr >= (int64_t) std::numeric_limits<T>::max() &&
-        std::numeric_limits<T>::digits < 63) return 0;               /* nothing can be above it */
+        std::numeric_limits<T>::digits < 63)
+        return 0; /* nothing can be above it */
     const T cut = (T) thr;
     int k = 0;
     for (int i = 0; i < n; i++) {
@@ -117,17 +118,28 @@ BSLZ4_NOINLINE int bslz4_filter_gt(void *vals_, uint32_t *adr, int n, int64_t th
 
 extern "C" int bslz4_filter_gt_dispatch(int dtype, void *vals, uint32_t *adr, int n, int64_t thr) {
     switch (dtype) {
-    case 0:  return bslz4_filter_gt<uint8_t>(vals, adr, n, thr);
-    case 1:  return bslz4_filter_gt<uint16_t>(vals, adr, n, thr);
-    case 2:  return bslz4_filter_gt<uint32_t>(vals, adr, n, thr);
-    case 3:  return bslz4_filter_gt<uint64_t>(vals, adr, n, thr);
-    case 4:  return bslz4_filter_gt<int8_t>(vals, adr, n, thr);
-    case 5:  return bslz4_filter_gt<int16_t>(vals, adr, n, thr);
-    case 6:  return bslz4_filter_gt<int32_t>(vals, adr, n, thr);
-    case 7:  return bslz4_filter_gt<int64_t>(vals, adr, n, thr);
-    case 8:  return bslz4_filter_gt<float>(vals, adr, n, thr);
-    case 9:  return bslz4_filter_gt<double>(vals, adr, n, thr);
-    default: return -1;
+    case 0:
+        return bslz4_filter_gt<uint8_t>(vals, adr, n, thr);
+    case 1:
+        return bslz4_filter_gt<uint16_t>(vals, adr, n, thr);
+    case 2:
+        return bslz4_filter_gt<uint32_t>(vals, adr, n, thr);
+    case 3:
+        return bslz4_filter_gt<uint64_t>(vals, adr, n, thr);
+    case 4:
+        return bslz4_filter_gt<int8_t>(vals, adr, n, thr);
+    case 5:
+        return bslz4_filter_gt<int16_t>(vals, adr, n, thr);
+    case 6:
+        return bslz4_filter_gt<int32_t>(vals, adr, n, thr);
+    case 7:
+        return bslz4_filter_gt<int64_t>(vals, adr, n, thr);
+    case 8:
+        return bslz4_filter_gt<float>(vals, adr, n, thr);
+    case 9:
+        return bslz4_filter_gt<double>(vals, adr, n, thr);
+    default:
+        return -1;
     }
 }
 
