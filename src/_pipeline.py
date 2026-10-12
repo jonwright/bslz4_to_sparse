@@ -35,6 +35,7 @@ VALUES = {
         ("lz4-zero", "lz4: zero-aware decoder for every block"),
         ("lz4-stock", "lz4: LZ4_decompress_safe"),
         ("zstd", "zstd"),
+        ("pixels", "no decode: uncompressed pixel frames (from_frames); not for chunks"),
     ),
     "mask": (
         "auto",
@@ -220,6 +221,8 @@ def resolve(pipeline, dtype, codec, mask, dot_auto=None, matrix=False):
         _check_cpu(step, vals[s])
     # what the data and the dtype allow
     dname = NAMES["decode"][vals[DECODE]]
+    if dname == "pixels":
+        raise ValueError("pipeline['decode']='pixels' is for uncompressed frames: call from_frames() instead")
     if codec == CODEC_ZSTD and dname != "zstd":
         raise ValueError("pipeline['decode']=%r: the data is zstd compressed (use 'zstd')" % dname)
     if codec != CODEC_ZSTD and dname == "zstd":

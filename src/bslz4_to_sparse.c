@@ -10,17 +10,39 @@
 
 #include <stdint.h>
 
+/* top_pixels request of a call: top = [howmany, nthr, thr[0..nthr)] (empty: every pixel above the cut), top_out =
+ * int32[2 * nframes] receiving each frame's final level and pixel count (see bslz4_top in pipeline.h) */
+static int top_from_args(const int64_t *top, size_t ntop, int32_t *top_out, int nframes, bslz4_top *t,
+                         const bslz4_top **pt) {
+    *pt = NULL;
+    if (ntop == 0) return 0;
+    if (ntop < 2 || top[0] < 0 || top[0] > INT32_MAX || top[1] < 0 || (uint64_t) top[1] > ntop - 2)
+        return BSLZ4_ERR_BAD_THRESHOLD;
+    t->howmany = (int) top[0];
+    t->nthr = (int) top[1];
+    t->thr = top + 2;
+    t->level = top_out;
+    t->nabove = top_out + nframes;
+    *pt = t;
+    return 0;
+}
+
 int bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes,
                    const uint8_t *mask, int NIJ,
                    void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold,
                    uint8_t *workspace, size_t workspace_len, int64_t *cursors,
+                   const int64_t *top, size_t ntop, int32_t *top_out,
                    int dtype, const uint16_t *pipeline) {
     bslz4_pipe p;
+    bslz4_top tv;
+    const bslz4_top *top_p;
+    int rc_top = top_from_args(top, ntop, top_out, nframes, &tv, &top_p);
+    if (rc_top) return rc_top;
     int rc = bslz4_resolve(dtype, pipeline, -1, &p);
     if (rc) return rc;
     return bslz4_driver_run(compressed_ptrs, compressed_lengths, nframes, mask, NIJ,
                             outpx, output_adr, npx_out, threshold, NULL, 0, NULL,
-                            workspace, workspace_len, cursors, &p);
+                            workspace, workspace_len, cursors, &p, top_p);
 }
 
 int bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
@@ -29,8 +51,13 @@ int bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compre
                            void *powder, int nout,
                            const void *weights, const void *indices, const uint32_t *indptr,
                            uint8_t *workspace, size_t workspace_len, int64_t *cursors,
+                           const int64_t *top, size_t ntop, int32_t *top_out,
                            int dtype, const uint16_t *pipeline) {
     bslz4_pipe p;
+    bslz4_top tv;
+    const bslz4_top *top_p;
+    int rc_top = top_from_args(top, ntop, top_out, nframes, &tv, &top_p);
+    if (rc_top) return rc_top;
     int rc = bslz4_resolve(dtype, pipeline, BSLZ4_LAYOUT_CSC, &p);
     if (rc) return rc;
     bslz4_mat_csc m;
@@ -39,7 +66,7 @@ int bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compre
     m.indptr = indptr;
     return bslz4_driver_run(compressed_ptrs, compressed_lengths, nframes, mask, NIJ,
                             outpx, output_adr, npx_out, threshold, powder, nout, &m,
-                            workspace, workspace_len, cursors, &p);
+                            workspace, workspace_len, cursors, &p, top_p);
 }
 
 int bslz4_sparsify_and_dot_padded(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
@@ -51,8 +78,13 @@ int bslz4_sparsify_and_dot_padded(const int64_t *compressed_ptrs, const int32_t 
                                   const int32_t *row_ptr, int nrow_ptr, int width, int listed,
                                   size_t block_elems,
                                   uint8_t *workspace, size_t workspace_len, int64_t *cursors,
+                                  const int64_t *top, size_t ntop, int32_t *top_out,
                                   int dtype, const uint16_t *pipeline) {
     bslz4_pipe p;
+    bslz4_top tv;
+    const bslz4_top *top_p;
+    int rc_top = top_from_args(top, ntop, top_out, nframes, &tv, &top_p);
+    if (rc_top) return rc_top;
     int rc = bslz4_resolve(dtype, pipeline, BSLZ4_LAYOUT_PADDED, &p);
     if (rc) return rc;
     bslz4_mat_padded m;
@@ -67,7 +99,7 @@ int bslz4_sparsify_and_dot_padded(const int64_t *compressed_ptrs, const int32_t 
     m.block_elems = block_elems;
     return bslz4_driver_run(compressed_ptrs, compressed_lengths, nframes, mask, NIJ,
                             outpx, output_adr, npx_out, threshold, powder, nout, &m,
-                            workspace, workspace_len, cursors, &p);
+                            workspace, workspace_len, cursors, &p, top_p);
 }
 
 int bslz4_sparsify_and_dot_bsbcsr(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
@@ -80,8 +112,13 @@ int bslz4_sparsify_and_dot_bsbcsr(const int64_t *compressed_ptrs, const int32_t 
                                   const float *csc_data, const uint32_t *csc_indices,
                                   const uint32_t *csc_indptr, size_t block_elems,
                                   uint8_t *workspace, size_t workspace_len, int64_t *cursors,
+                                  const int64_t *top, size_t ntop, int32_t *top_out,
                                   int dtype, const uint16_t *pipeline) {
     bslz4_pipe p;
+    bslz4_top tv;
+    const bslz4_top *top_p;
+    int rc_top = top_from_args(top, ntop, top_out, nframes, &tv, &top_p);
+    if (rc_top) return rc_top;
     int rc = bslz4_resolve(dtype, pipeline, BSLZ4_LAYOUT_BSBCSR, &p);
     if (rc) return rc;
     bslz4_mat_bsbcsr m;
@@ -97,7 +134,14 @@ int bslz4_sparsify_and_dot_bsbcsr(const int64_t *compressed_ptrs, const int32_t 
     m.block_elems = block_elems;
     return bslz4_driver_run(compressed_ptrs, compressed_lengths, nframes, mask, NIJ,
                             outpx, output_adr, npx_out, threshold, powder, nout, &m,
-                            workspace, workspace_len, cursors, &p);
+                            workspace, workspace_len, cursors, &p, top_p);
+}
+
+int bslz4_decompress(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes,
+                     uint8_t *out, size_t out_len, uint8_t *workspace, size_t workspace_len,
+                     int elem_size, int decode, int untranspose, int unshuffle) {
+    return bslz4_driver_decompress(compressed_ptrs, compressed_lengths, nframes, out, out_len, workspace,
+                                   workspace_len, elem_size, decode, untranspose, unshuffle);
 }
 
 int bslz4_offsets_to_pointers(const char *base, size_t base_len, int64_t *offsets,
@@ -133,7 +177,7 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
     "functions": [
         {
             "gil_release": True,
-            "py_sig": "sparsify(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, dtype: int, pipeline: buffer) -> int",
+            "py_sig": "sparsify(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, dtype: int, pipeline: buffer) -> int",
             "doc": "Decode nframes bitshuffle-LZ4/zstd chunks from the same dataset into per-frame masked/thresholded sparse (outpx, output_adr, npx_out). dtype is the pixel dtype index (0..9); pipeline is a uint16 array of 6 step values (decode, mask, untranspose, collect, route, dot; route and dot 0), all resolved (src/pipeline/pipeline.h).",
             "checks": [
                 "mask.format == 'B' or mask.format == 'b'",
@@ -144,16 +188,19 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
                 "compressed_lengths.itemsize == 4",
                 "compressed_lengths.n == compressed_ptrs.n",
                 "cursors.itemsize == 8",
+                "top.itemsize == 8",
+                "top_out.itemsize == 4",
+                "top.n == 0 or top_out.n >= 2 * compressed_ptrs.n",
                 "pipeline.format == 'H'",
                 "pipeline.n == 6",
             ],
             "c_overloads": [
-                {"sig": "bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, const uint16_t *pipeline) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "dtype": "dtype", "pipeline": "pipeline.ptr"}},
+                {"sig": "bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "top": "top.ptr", "ntop": "top.n", "top_out": "top_out.ptr", "dtype": "dtype", "pipeline": "pipeline.ptr"}},
             ],
         },
         {
             "gil_release": True,
-            "py_sig": "sparsify_and_dot(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, cursors: buffer, nout: int, dtype: int, pipeline: buffer) -> int",
+            "py_sig": "sparsify_and_dot(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, nout: int, dtype: int, pipeline: buffer) -> int",
             "doc": "Decode a batch of chunks into per-frame sparse (outpx, output_adr, npx_out) and per-frame CSC powder integrations (powder). The matrix must be mask-folded: masked pixels have empty columns (the dense route makes no mask test; the mask selects the sparse output and the sparse-route pixels). Frames must have exactly mask.n pixels. The dot says what indices holds: a bin per entry (indices.n == data.n), or, for the per-pixel dots (csc-run and its integer forms: the first bin of a run; csc-nosplit, csc-nosplit-moment, csc-permute: the one bin), a bin per pixel (indices.n == mask.n); a per-pixel dot must be given per-pixel indices. The dot also says the element types: data f32, or u32/u16 fixed-point weights with an int64 (q) powder, or (csc-permute) a powder in the pixel dtype. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values (src/pipeline/pipeline.h).",
             "checks": [
                 "mask.format == 'B' or mask.format == 'b'",
@@ -165,6 +212,9 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
                 "compressed_lengths.itemsize == 4",
                 "compressed_lengths.n == compressed_ptrs.n",
                 "cursors.itemsize == 8",
+                "top.itemsize == 8",
+                "top_out.itemsize == 4",
+                "top.n == 0 or top_out.n >= 2 * compressed_ptrs.n",
                 "data.format == 'f' or ((data.format == 'I' or data.format == 'L') and data.itemsize == 4) or data.format == 'H'",
                 "(indices.format == 'I' or indices.format == 'i' or indices.format == 'L' or indices.format == 'l') and indices.itemsize == 4",
                 "(indptr.format == 'I' or indptr.format == 'i' or indptr.format == 'L' or indptr.format == 'l') and indptr.itemsize == 4",
@@ -174,12 +224,12 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
                 "pipeline.n == 6",
             ],
             "c_overloads": [
-                {"sig": "bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, void *powder, int nout, const void *weights, const void *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, const uint16_t *pipeline) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "powder": "powder.ptr", "nout": "nout", "weights": "data.ptr", "indices": "indices.ptr", "indptr": "indptr.ptr", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "dtype": "dtype", "pipeline": "pipeline.ptr"}},
+                {"sig": "bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, void *powder, int nout, const void *weights, const void *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "powder": "powder.ptr", "nout": "nout", "weights": "data.ptr", "indices": "indices.ptr", "indptr": "indptr.ptr", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "top": "top.ptr", "ntop": "top.n", "top_out": "top_out.ptr", "dtype": "dtype", "pipeline": "pipeline.ptr"}},
             ],
         },
         {
             "gil_release": True,
-            "py_sig": "sparsify_and_dot_padded(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, base: buffer, weights: buffer, pixels: buffer, rowmap: buffer, row_ptr: buffer, workspace: buffer, cursors: buffer, width: int, listed: int, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int",
+            "py_sig": "sparsify_and_dot_padded(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, base: buffer, weights: buffer, pixels: buffer, rowmap: buffer, row_ptr: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, width: int, listed: int, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int",
             "doc": "Decode a batch of chunks into per-frame sparse and a padded-CSC powder integration. base/weights/pixels/rowmap/row_ptr describe the padded layout (see bslz4_mat_padded), built from a mask-folded matrix (masked pixels have zero-weight rows or no row); width and listed are scalars; block_elems is the decode block size in pixels. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values.",
             "checks": [
                 "mask.format == 'B' or mask.format == 'b'",
@@ -191,6 +241,9 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
                 "compressed_lengths.itemsize == 4",
                 "compressed_lengths.n == compressed_ptrs.n",
                 "cursors.itemsize == 8",
+                "top.itemsize == 8",
+                "top_out.itemsize == 4",
+                "top.n == 0 or top_out.n >= 2 * compressed_ptrs.n",
                 "(base.format == 'i' or base.format == 'l') and base.itemsize == 4",
                 "weights.format == 'f'",
                 "(pixels.format == 'i' or pixels.format == 'l') and pixels.itemsize == 4",
@@ -207,12 +260,12 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
                 "pipeline.n == 6",
             ],
             "c_overloads": [
-                {"sig": "bslz4_sparsify_and_dot_padded(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *powder, int nout, const int32_t *base, const float *weights, const int32_t *pixels, const int32_t *rowmap, const int32_t *row_ptr, int nrow_ptr, int width, int listed, size_t block_elems, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, const uint16_t *pipeline) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "powder": "powder.ptr", "nout": "nout", "base": "base.ptr", "weights": "weights.ptr", "pixels": "pixels.ptr", "rowmap": "rowmap.ptr", "row_ptr": "row_ptr.ptr", "nrow_ptr": "row_ptr.n", "width": "width", "listed": "listed", "block_elems": "block_elems", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "dtype": "dtype", "pipeline": "pipeline.ptr"}},
+                {"sig": "bslz4_sparsify_and_dot_padded(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *powder, int nout, const int32_t *base, const float *weights, const int32_t *pixels, const int32_t *rowmap, const int32_t *row_ptr, int nrow_ptr, int width, int listed, size_t block_elems, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "powder": "powder.ptr", "nout": "nout", "base": "base.ptr", "weights": "weights.ptr", "pixels": "pixels.ptr", "rowmap": "rowmap.ptr", "row_ptr": "row_ptr.ptr", "nrow_ptr": "row_ptr.n", "width": "width", "listed": "listed", "block_elems": "block_elems", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "top": "top.ptr", "ntop": "top.n", "top_out": "top_out.ptr", "dtype": "dtype", "pipeline": "pipeline.ptr"}},
             ],
         },
         {
             "gil_release": True,
-            "py_sig": "sparsify_and_dot_bsbcsr(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, blk_ptr: buffer, bins: buffer, bin_ptr: buffer, idx: buffer, data: buffer, csc_data: buffer, csc_indices: buffer, csc_indptr: buffer, workspace: buffer, cursors: buffer, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int",
+            "py_sig": "sparsify_and_dot_bsbcsr(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, blk_ptr: buffer, bins: buffer, bin_ptr: buffer, idx: buffer, data: buffer, csc_data: buffer, csc_indices: buffer, csc_indptr: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int",
             "doc": "Decode a batch of chunks into per-frame sparse and a bit-shuffle-block CSR powder integration. blk_ptr/bins/bin_ptr/idx/data describe the bsb-csr layout (see bslz4_mat_bsbcsr); csc_data/csc_indices/csc_indptr is the CSC used for the sparse route. Both must be built from a mask-folded matrix (masked pixels have no entries). block_elems is the decode block size in pixels. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values.",
             "checks": [
                 "mask.format == 'B' or mask.format == 'b'",
@@ -224,6 +277,9 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
                 "compressed_lengths.itemsize == 4",
                 "compressed_lengths.n == compressed_ptrs.n",
                 "cursors.itemsize == 8",
+                "top.itemsize == 8",
+                "top_out.itemsize == 4",
+                "top.n == 0 or top_out.n >= 2 * compressed_ptrs.n",
                 "(blk_ptr.format == 'I' or blk_ptr.format == 'L') and blk_ptr.itemsize == 4",
                 "(bins.format == 'I' or bins.format == 'L') and bins.itemsize == 4",
                 "(bin_ptr.format == 'I' or bin_ptr.format == 'L') and bin_ptr.itemsize == 4",
@@ -241,7 +297,22 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
                 "pipeline.n == 6",
             ],
             "c_overloads": [
-                {"sig": "bslz4_sparsify_and_dot_bsbcsr(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *powder, int nout, const uint32_t *blk_ptr, int nblk_ptr, const uint32_t *bins, const uint32_t *bin_ptr, const uint16_t *idx, const float *data, const float *csc_data, const uint32_t *csc_indices, const uint32_t *csc_indptr, size_t block_elems, uint8_t *workspace, size_t workspace_len, int64_t *cursors, int dtype, const uint16_t *pipeline) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "powder": "powder.ptr", "nout": "nout", "blk_ptr": "blk_ptr.ptr", "nblk_ptr": "blk_ptr.n", "bins": "bins.ptr", "bin_ptr": "bin_ptr.ptr", "idx": "idx.ptr", "data": "data.ptr", "csc_data": "csc_data.ptr", "csc_indices": "csc_indices.ptr", "csc_indptr": "csc_indptr.ptr", "block_elems": "block_elems", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "dtype": "dtype", "pipeline": "pipeline.ptr"}},
+                {"sig": "bslz4_sparsify_and_dot_bsbcsr(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *powder, int nout, const uint32_t *blk_ptr, int nblk_ptr, const uint32_t *bins, const uint32_t *bin_ptr, const uint16_t *idx, const float *data, const float *csc_data, const uint32_t *csc_indices, const uint32_t *csc_indptr, size_t block_elems, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "mask": "mask.ptr", "NIJ": "mask.n", "outpx": "outpx.ptr", "output_adr": "output_adr.ptr", "npx_out": "npx_out.ptr", "threshold": "threshold", "powder": "powder.ptr", "nout": "nout", "blk_ptr": "blk_ptr.ptr", "nblk_ptr": "blk_ptr.n", "bins": "bins.ptr", "bin_ptr": "bin_ptr.ptr", "idx": "idx.ptr", "data": "data.ptr", "csc_data": "csc_data.ptr", "csc_indices": "csc_indices.ptr", "csc_indptr": "csc_indptr.ptr", "block_elems": "block_elems", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "cursors": "cursors.ptr", "top": "top.ptr", "ntop": "top.n", "top_out": "top_out.ptr", "dtype": "dtype", "pipeline": "pipeline.ptr"}},
+            ],
+        },
+        {
+            "gil_release": True,
+            "py_sig": "decompress(compressed_ptrs: buffer, compressed_lengths: buffer, out: buffer, workspace: buffer, elem_size: int, decode: int, untranspose: int, unshuffle: int) -> int",
+            "doc": "The front half alone: decompress nframes bitshuffle chunks (lz4 or zstd) into out, frame f at out + f * decoded size. unshuffle 0 leaves each block as the HDF5 filter's decompressor yields it (before the bit unshuffle); unshuffle 1 gives the pixel bytes (untranspose is the step value for the unshuffle). elem_size is the pixel size in bytes; decode is lz4-stock (3) or zstd (4). Releases the GIL.",
+            "checks": [
+                "out.format == 'B'",
+                "workspace.format == 'B'",
+                "compressed_ptrs.itemsize == 8",
+                "compressed_lengths.itemsize == 4",
+                "compressed_lengths.n == compressed_ptrs.n",
+            ],
+            "c_overloads": [
+                {"sig": "bslz4_decompress(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, uint8_t *out, size_t out_len, uint8_t *workspace, size_t workspace_len, int elem_size, int decode, int untranspose, int unshuffle) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "out": "out.ptr", "out_len": "out.len", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "elem_size": "elem_size", "decode": "decode", "untranspose": "untranspose", "unshuffle": "unshuffle"}},
             ],
         },
         {

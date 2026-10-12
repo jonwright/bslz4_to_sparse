@@ -36,6 +36,10 @@ NPIX = (BS + TAIL) // NB            # 4196
 NBINS = 10
 
 
+NOTOP = np.zeros(0, np.int64)      # no top_pixels request (src/_toppix.py)
+NOOUT = np.zeros(0, np.int32)
+
+
 def _lz4_zeros(n):
     """LZ4 block holding n zero bytes as one literal-only sequence."""
     ext = n - 15
@@ -218,13 +222,13 @@ def test_resolution_errors():
     assert _ext.sparsify(ptr, lens, mask, np.zeros(NPIX, np.uint16),
                          np.empty(NPIX, np.uint32), np.empty(1, np.int32), 0,
                          np.zeros(3 * BS, np.uint8), np.empty(1, np.int64),
-                         11, pipe) == -113
+                         NOTOP, NOOUT, 11, pipe) == -113
 
     # an unresolved (auto) pipeline is refused by C -> -111
     assert _ext.sparsify(ptr, lens, mask, np.zeros(NPIX, np.uint16),
                          np.empty(NPIX, np.uint32), np.empty(1, np.int32), 0,
                          np.zeros(3 * BS, np.uint8), np.empty(1, np.int64),
-                         1, np.zeros(6, np.uint16)) == -111
+                         NOTOP, NOOUT, 1, np.zeros(6, np.uint16)) == -111
 
     # int64 indices / indptr arrays are rejected at the boundary
     ws = np.zeros(3 * BS + (BS // NB) * (4 + NB), np.uint8)
@@ -235,7 +239,7 @@ def test_resolution_errors():
         _ext.sparsify_and_dot(ptr, lens, mask, np.zeros(NPIX, np.uint16),
                               np.empty(NPIX, np.uint32), np.empty(1, np.int32), 0,
                               np.zeros(NBINS, np.float64), data, ind64, indptr,
-                              ws, np.empty(1, np.int64), NBINS, 1, cpipe)
+                              ws, np.empty(1, np.int64), NOTOP, NOOUT, NBINS, 1, cpipe)
 
     # wrong matrix size (indptr not npix+1) is rejected
     with pytest.raises(Exception):
@@ -244,7 +248,7 @@ def test_resolution_errors():
                               np.zeros(NBINS, np.float64), data,
                               np.arange(NPIX, dtype=np.uint32),
                               np.arange(NPIX, dtype=np.uint32),
-                              ws, np.empty(1, np.int64), NBINS, 1, cpipe)
+                              ws, np.empty(1, np.int64), NOTOP, NOOUT, NBINS, 1, cpipe)
 
 
 # ---- dot values: the per-dtype/kernel mechanism ------------------------------

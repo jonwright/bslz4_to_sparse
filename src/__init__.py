@@ -52,6 +52,8 @@ __all__ = [
     "detect_codec",
     "harvest_chunk_offsets",
     "pack_offsets_lengths",
+    "decompress",
+    "decompress_offsets",
     "build_info",
     "CODEC_LZ4",
     "CODEC_ZSTD",
@@ -283,13 +285,72 @@ def _settle_mask(obj, pointers, lengths, cmp):
     npx = np.empty(1, np.int32)
     ret = _ext.sparsify(pointers[:1], lengths[:1], np.ones(obj.npix, np.uint8), values, adr,
                         npx, 65534, np.empty(3 * _blocksize_bytes(cmp), np.uint8),
-                        np.empty(1, np.int64), obj._di, p)
+                        np.empty(1, np.int64), _toppix.EMPTY_TOP, _toppix.EMPTY_OUT, obj._di, p)
     if ret < 0:
         return                      # the real decode reports the error
     masked = obj.mask == 0
     at_max = int(np.count_nonzero(masked[adr[:int(npx[0])]]))
     if at_max >= _MASK_PLANES_FRACTION * int(np.count_nonzero(masked)):
         obj.pipeline[_pipeline.MASK] = _pipeline.NAMES["mask"].index("planes")
+
+
+def _decompress(pointers, lengths, cmp, dtype, unshuffle, out, codec):
+    dtype = np.dtype(dtype)
+    if dtype.itemsize not in (1, 2, 4, 8):
+        raise ValueError("dtype %s: pixels of 1, 2, 4 or 8 bytes" % dtype)
+    cmp = bytes(memoryview(cmp)[:20])
+    if len(cmp) < 12:
+        raise _decode_error(-107)
+    total = struct.unpack(">Q", cmp[:8])[0]
+    n = len(pointers)
+    if unshuffle and total % dtype.itemsize:
+        raise ValueError("the chunks hold %d bytes, not a whole number of %s pixels" % (total, dtype))
+    if out is None:
+        out = np.empty((n, total // dtype.itemsize) if unshuffle else (n, total),
+                       dtype if unshuffle else np.uint8)
+    flat = out.reshape(-1) if out.flags.c_contiguous else None
+    if flat is None or flat.nbytes < n * total or not out.flags.writeable:
+        raise ValueError("out must be a writeable C-contiguous array of at least %d bytes" % (n * total))
+    if codec is None:
+        codec = _codec_of_chunk(cmp)
+    names = _pipeline.NAMES
+    decode = names["decode"].index("zstd" if codec == CODEC_ZSTD else "lz4-stock")
+    workspace = np.empty(3 * min(_blocksize_bytes(cmp), total) if unshuffle else 1, np.uint8)   # a corrupt header cannot ask for more
+    ret = _ext.decompress(pointers, lengths, flat.view(np.uint8), workspace, dtype.itemsize, decode,
+                          names["untranspose"].index("kcb"), 1 if unshuffle else 0)
+    if ret < 0:
+        raise _decode_error(ret, batch=n > 1)
+    return out
+
+
+def decompress(chunks, dtype, unshuffle=True, out=None, codec=None):
+    """
+    Decompress bitshuffle-lz4/zstd chunks (one frame each, as h5py's
+    read_direct_chunk gives them) without any sparse processing: the front
+    half of the pipeline alone.  The GIL is released, so threads decompress in
+    parallel; nothing touches HDF5.
+
+    dtype = the pixel dtype of the dataset
+    unshuffle = True: the pixel values, array (nframes, npixels) of dtype.
+            False: each block as the HDF5 filter's decompressor yields it,
+            before the bit unshuffle: uint8 array (nframes, nbytes), for
+            a later stage (the GPU, from_frames after a separate unshuffle)
+    out = None, or a writeable C-contiguous array to fill (at least
+            nframes * the decoded size in bytes), returned
+    codec = None (found from the first chunk), CODEC_LZ4 or CODEC_ZSTD
+    """
+    if len(chunks) == 0:
+        raise _decode_error(-105)
+    pointers, lengths = _gather_chunks(chunks)
+    return _decompress(pointers, lengths, chunks[0], dtype, unshuffle, out, codec)
+
+
+def decompress_offsets(base, offsets, lengths, dtype, unshuffle=True, out=None, codec=None):
+    """As decompress, for the chunks at byte offsets[i] (lengths[i]) inside the
+    one buffer base (an mmap of the HDF5 file, or the file read into memory):
+    see harvest_chunk_offsets and pack_offsets_lengths."""
+    pointers, lengths, cmp = _offset_pointers(base, offsets, lengths)
+    return _decompress(pointers, lengths, cmp, dtype, unshuffle, out, codec)
 
 
 class chunk2sparse:
@@ -350,31 +411,36 @@ class chunk2sparse:
             self.codec = codec
             self.pipeline = self._resolve()
 
-    def _ensure_capacity(self, nframes, cmp):
+    def _ensure_capacity(self, nframes, cmp, blocksize=None):
         if self._nframes != nframes:
             self._values = np.empty((nframes, self.npix), self.dtype)
             self._indices = np.empty((nframes, self.npix), np.uint32)
             self._npx = np.empty(nframes, np.int32)
             self._cursors = np.empty(nframes, np.int64)
             self._nframes = nframes
-        need = 3 * _blocksize_bytes(cmp)
+        need = 3 * (blocksize or _blocksize_bytes(cmp))
         if self._workspace is None or self._workspace.size < need:
             self._workspace = np.empty(need, np.uint8)
 
-    def _run(self, pointers, lengths, cmp, cut):
-        if self._codec_pending:
-            self._settle_codec(cmp)
-        if self._mask_pending:
-            _settle_mask(self, pointers, lengths, cmp)
-        self._ensure_capacity(len(pointers), cmp)
+    def _run(self, pointers, lengths, cmp, cut, pixels=False):
+        if pixels:
+            pipe = self._pixel_pipeline()
+            self._ensure_capacity(len(pointers), None, DEFAULT_BLOCK_BYTES)
+        else:
+            if self._codec_pending:
+                self._settle_codec(cmp)
+            if self._mask_pending:
+                _settle_mask(self, pointers, lengths, cmp)
+            self._ensure_capacity(len(pointers), cmp)
+            pipe = self.pipeline          # after the settling above: the first chunk may change it
+        req = _toppix.Request(self.howmany, self.thresholds, cut, self.dtype, len(pointers))
         ret = _ext.sparsify(pointers, lengths, self.mask, self._values.ravel(),
                             self._indices.ravel(), self._npx, cut, self._workspace,
-                            self._cursors, self._di, self.pipeline)
+                            self._cursors, req.top, req.out, self._di, pipe)
         if ret < 0:
             self._npx[:] = 0
             raise _decode_error(ret, batch=len(pointers) > 1)
-        self.last_nabove, self.last_cut = _toppix.apply(
-            self._npx, self._values, self._indices, cut, self.howmany, self.thresholds)
+        self.last_nabove, self.last_cut = req.finish(self._npx, self._values, self._indices)
         return self._npx, (self._values, self._indices)
 
     def multi(self, chunks, cut):
@@ -384,6 +450,25 @@ class chunk2sparse:
             raise _decode_error(-105)
         pointers, lengths = _gather_chunks(chunks)
         return self._run(pointers, lengths, chunks[0], cut)
+
+    def _pixel_pipeline(self):
+        """This object's resolved pipeline with the decode step 'pixels' (the input is uncompressed)."""
+        p = self.pipeline.copy()
+        p[_pipeline.DECODE] = _pipeline.NAMES["decode"].index("pixels")
+        return p
+
+    def from_frames(self, frames, cut):
+        """As multi, for uncompressed frames: an array (nframes, ni, nj) or (nframes, ni*nj) of this object's pixel
+        dtype.  Only the back half of the pipeline runs (mask, collect, matrix product, howmany): the same results as
+        multi on the compressed frames.  A C-contiguous array of the right dtype is used in place, else a copy is made."""
+        arr = np.require(frames, self.dtype, ["C", "A"])           # C-contiguous and aligned, else a copy
+        if arr.size == 0 or arr.size % self.npix:
+            raise ValueError("frames must hold whole frames of %d pixels" % self.npix)
+        arr = arr.reshape(-1, self.npix)
+        nbytes = self.npix * self.dtype.itemsize
+        pointers = arr.ctypes.data + nbytes * np.arange(len(arr), dtype=np.int64)
+        lengths = np.full(len(arr), nbytes, np.int32)
+        return self._run(pointers, lengths, None, cut, pixels=True)
 
     def decode_offsets(self, base, offsets, lengths, cut):
         """As multi, for the chunks at byte offsets[i] (lengths[i]) inside
@@ -450,7 +535,8 @@ def bslz4_to_sparse(ds, num, cut, mask=None, pixelbuffer=None, workspace=None, c
     npx_out = np.empty(1, np.int32)
     cursors = np.empty(1, np.int64)
     ret = _ext.sparsify(pointers, lengths, mask, values, indices, npx_out, cut, workspace,
-                        cursors, _pipeline.DTYPE_INDEX[_pipeline.dtype_suffix(values.dtype)], p)
+                        cursors, _toppix.EMPTY_TOP, _toppix.EMPTY_OUT,
+                        _pipeline.DTYPE_INDEX[_pipeline.dtype_suffix(values.dtype)], p)
     if ret < 0:
         raise _decode_error(ret, batch=False)
     return int(npx_out[0]), (values, indices)
@@ -523,7 +609,7 @@ class chunk2sparseCSC:
             raise ValueError("pipeline['dot']=%r cannot represent this matrix: %s (auto picks %r)"
                              % (self.dot, e, _matrix.auto_dot(_matrix.analyse(self._nm), False)))
 
-    def _ensure_capacity(self, nframes, cmp):
+    def _ensure_capacity(self, nframes, cmp, blocksize=None):
         lay = self._layout
         if self._nframes != nframes:
             self._values = np.empty((nframes, self.npix), self.dtype)
@@ -532,7 +618,7 @@ class chunk2sparseCSC:
             self._powder = np.empty((nframes, lay.nout), lay.powder_dtype)
             self._cursors = np.empty(nframes, np.int64)
             self._nframes = nframes
-        blocksize = _blocksize_bytes(cmp)
+        blocksize = blocksize or _blocksize_bytes(cmp)
         be = blocksize // self.dtype.itemsize
         if lay.block_elems is not None and be != lay.block_elems:
             # a block-dependent layout built at another block size: rebuild
@@ -549,31 +635,36 @@ class chunk2sparseCSC:
         if self._workspace is None or self._workspace.size < need:
             self._workspace = np.empty(need, np.uint8)
 
-    def _run(self, pointers, lengths, cmp, cut):
-        if self._codec_pending:
-            self._settle_codec(cmp)
-        if self._mask_pending:
-            _settle_mask(self, pointers, lengths, cmp)
-        self._ensure_capacity(len(pointers), cmp)
+    def _run(self, pointers, lengths, cmp, cut, pixels=False):
+        if pixels:
+            pipe = self._pixel_pipeline()
+            self._ensure_capacity(len(pointers), None, DEFAULT_BLOCK_BYTES)
+        else:
+            if self._codec_pending:
+                self._settle_codec(cmp)
+            if self._mask_pending:
+                _settle_mask(self, pointers, lengths, cmp)
+            self._ensure_capacity(len(pointers), cmp)
+            pipe = self.pipeline          # after the settling above: the first chunk may change it
         lay = self._layout
         a = lay.args()
+        req = _toppix.Request(self.howmany, self.thresholds, cut, self.dtype, len(pointers))
         head = (pointers, lengths, self.mask, self._values.ravel(), self._indices.ravel(),
                 self._npx, cut, self._powder.ravel())
-        tail = (self._di, self.pipeline)
+        tail = (self._di, pipe)
         if lay.entry == "csc":
-            ret = _ext.sparsify_and_dot(*(head + a + (self._workspace, self._cursors, lay.nout) + tail))
+            ret = _ext.sparsify_and_dot(*(head + a + (self._workspace, self._cursors, req.top, req.out, lay.nout) + tail))
         elif lay.entry == "padded":
-            ret = _ext.sparsify_and_dot_padded(*(head + a[:5] + (self._workspace, self._cursors) +
+            ret = _ext.sparsify_and_dot_padded(*(head + a[:5] + (self._workspace, self._cursors, req.top, req.out) +
                                                  a[5:] + (lay.nout,) + tail))
         else:
-            ret = _ext.sparsify_and_dot_bsbcsr(*(head + a[:8] + (self._workspace, self._cursors) +
+            ret = _ext.sparsify_and_dot_bsbcsr(*(head + a[:8] + (self._workspace, self._cursors, req.top, req.out) +
                                                  a[8:] + (lay.nout,) + tail))
         if ret < 0:
             self._npx[:] = 0
             raise _decode_error(ret, batch=len(pointers) > 1)
         powder = self._powder if lay.scale is None else self._powder * lay.scale
-        self.last_nabove, self.last_cut = _toppix.apply(
-            self._npx, self._values, self._indices, cut, self.howmany, self.thresholds)
+        self.last_nabove, self.last_cut = req.finish(self._npx, self._values, self._indices)
         return self._npx, (self._values, self._indices), powder
 
     def multi(self, chunks, cut):
@@ -584,6 +675,25 @@ class chunk2sparseCSC:
             raise _decode_error(-105)
         pointers, lengths = _gather_chunks(chunks)
         return self._run(pointers, lengths, chunks[0], cut)
+
+    def _pixel_pipeline(self):
+        """This object's resolved pipeline with the decode step 'pixels' (the input is uncompressed)."""
+        p = self.pipeline.copy()
+        p[_pipeline.DECODE] = _pipeline.NAMES["decode"].index("pixels")
+        return p
+
+    def from_frames(self, frames, cut):
+        """As multi, for uncompressed frames: an array (nframes, ni, nj) or (nframes, ni*nj) of this object's pixel
+        dtype.  Only the back half of the pipeline runs (mask, collect, matrix product, howmany): the same results as
+        multi on the compressed frames.  A C-contiguous array of the right dtype is used in place, else a copy is made."""
+        arr = np.require(frames, self.dtype, ["C", "A"])           # C-contiguous and aligned, else a copy
+        if arr.size == 0 or arr.size % self.npix:
+            raise ValueError("frames must hold whole frames of %d pixels" % self.npix)
+        arr = arr.reshape(-1, self.npix)
+        nbytes = self.npix * self.dtype.itemsize
+        pointers = arr.ctypes.data + nbytes * np.arange(len(arr), dtype=np.int64)
+        lengths = np.full(len(arr), nbytes, np.int32)
+        return self._run(pointers, lengths, None, cut, pixels=True)
 
     def decode_offsets(self, base, offsets, lengths, cut):
         """As multi, for the chunks at byte offsets[i] (lengths[i]) inside

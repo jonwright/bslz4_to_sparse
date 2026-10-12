@@ -272,7 +272,8 @@ class chunk2sparse(object):
                             "its size); chunks %s" % list(np.flatnonzero(err) + f0))
         npx = self.d_npx[:n].get()
         level = self.d_level[:n].get()
-        self.last_nabove[f0:f0 + n] = self.d_npxl[:n].get()          # level 0 rows: the count above the call's cut
+        npxl = self.d_npxl[:(self._ndev_thr + 1) * n].get().reshape(self._ndev_thr + 1, n)
+        self.last_nabove[f0:f0 + n] = npxl[np.clip(level, 0, None), np.arange(n)]   # pixels above the cut each frame ended at
         thr = np.array(self._thr_call if self._ndev_thr else [self._call_cut], np.float64)
         self.last_cut[f0:f0 + n] = np.where(level > 0, thr[np.clip(level - 1, 0, len(thr) - 1)], self._call_cut)
         total = int(npx.sum())
@@ -301,9 +302,10 @@ class chunk2sparse(object):
         used = self._call_cut
         if self.howmany is not None:
             thr = _toppix.default_thresholds(self._call_cut) if self.thresholds is None else self.thresholds
-            k, t = _toppix.top_pixels(self._values[f0 + j], self._indices[f0 + j], k, self.howmany, thr)
+            k, t, na = _toppix.top_pixels(self._values[f0 + j], self._indices[f0 + j], k, self.howmany, thr)
             used = used if t is None else t
         self.last_cut[f0 + j] = used
+        self.last_nabove[f0 + j] = na if self.howmany is not None else k
         self.last_host += 1
         self._npx_host = k
 
