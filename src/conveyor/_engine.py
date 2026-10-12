@@ -175,6 +175,10 @@ def _worker(
                 st["frames"] += n
             t_last = time.perf_counter()
             free_q.put(slot)
+        # Whatever made us stop (the units are done, or another worker failed), our reader may be
+        # blocked waiting for a free buffer: give it some, or it waits for ever.
+        for _ in range(S + 1):
+            free_q.put(0)
         st["minflt"] = _faults() - flt0
         st["sink"] = sink.end()
         st["wall_s"], st["cpu_s"] = time.perf_counter() - t0, time.thread_time() - c0
@@ -208,7 +212,7 @@ def run(
     """Run the units through the conveyor; returns a dict of what it took.
 
     units         from make_units; handed out in order to whichever worker is ready for one
-    backend       CpuBackend or GpuBackend (anything with make_worker())
+    backend       CpuBackend, DecompressBackend or GpuBackend (anything with make_worker())
     workers       decoders; each has its own reader thread (or process, in "processes" mode)
     sink          factory k -> Sink, called in each worker (default: NullSink)
     mode          "threads" (default) or "processes" (forked): the same code, to compare

@@ -13,8 +13,9 @@ of steps one decoder runs on every block.  The conveyor moves work to the decode
     sinks     where results go (a file format is the sink's business: see Sink)
 
 Workers are threads or forked processes (run(mode=...)) around the same code; the decoders release
-the GIL, so threads are the default.  Pure Python 3, numpy only: the chunk index of each file is read from a sidecar
-(tools/index_chunks.py builds them, with h5py, once), so reading touches no HDF5; cupy for the GPU backend.
+the GIL, so threads are the default.  Pure Python 3, numpy only: the chunk index of each file is
+read from a sidecar file (tools/index_chunks.py builds them, with h5py, once), so reading touches
+no HDF5; cupy is needed only for the GPU backend.
 """
 
 from ._index import read_index, write_index, harvest, sidecar_path, StaleIndex

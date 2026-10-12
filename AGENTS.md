@@ -81,7 +81,8 @@ report both.
 `src/*.py` must stay importable on Python 2.7 (CI job `test-py27`) and with numpy
 below 2: no infix `@`, f-strings, `yield from`, keyword-only arguments or
 `nonlocal`; no `np.random.default_rng`. One binary serves every Python version
-(c2py23 resolves the CPython API at runtime), free-threaded builds included.
+(c2py23 resolves the CPython API at runtime), free-threaded builds included. The
+subpackages `src/cuda/` and `src/conveyor/` are optional and Python 3 only.
 
 ## 7. Build and test
 
@@ -127,8 +128,13 @@ below 2: no infix `@`, f-strings, `yield from`, keyword-only arguments or
 
 ## 9. Design rules for the GPU / stream work
 
-- Fork multiprocessing, not threads (the GIL, measured). Allocate one big buffer
-  before forking. No `multiprocessing.shared_memory`.
+- Threads and forked processes perform alike (measured: 0.93 to 1.07 over eight
+  matched pairs; the earlier thread collapse was the decoder's global block
+  counters, now off unless a test asks). The conveyor defaults to threads. Allocate
+  one big buffer once, before the work starts. No `multiprocessing.shared_memory`.
+- No locks of our own on a hot path: work in units of seconds (whole files), and
+  synchronise about once per unit, with blocking waits, never polling or spinning.
+  Any worker that stops must release whatever its partner waits on.
 - Reader, compute and writer are separate components. The compute returns
   indices/values/powder; the output format sits behind an abstract `Sink`.
 - Whole-file or large reads for GPFS. O_DIRECT on NFS/GPFS does not help.

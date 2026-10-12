@@ -28,8 +28,8 @@ def make_units(paths, dset, max_bytes=256 << 20, index_dir=None, harvest=False):
         except FileNotFoundError:
             if not harvest:
                 raise FileNotFoundError(
-                    "no chunk index for %s: build it with tools/index_chunks.py, or pass harvest=True "
-                    "(reads it from HDF5)" % p
+                    "no chunk index for %s: build it with tools/index_chunks.py, or pass "
+                    "harvest=True (reads it from HDF5)" % p
                 )
             ix = harvest_index(p, dset)
         if ix.dataset != dset:

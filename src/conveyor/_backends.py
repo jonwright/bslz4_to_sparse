@@ -5,7 +5,9 @@ import numpy as np
 
 
 class CpuBackend(object):
-    """bslz4_to_sparse.chunk2sparse, or chunk2sparseCSC with a matrix (the GIL is released)."""
+    """bslz4_to_sparse.chunk2sparse, or chunk2sparseCSC with a matrix (the GIL is released).
+    mask, dtype: the detector mask and pixel type; csc: a pyFAI CSC matrix or None; cut, howmany,
+    thresholds: as chunk2sparse; pipeline: passed through to it."""
 
     name = "cpu"
 
@@ -14,6 +16,8 @@ class CpuBackend(object):
         self.howmany, self.thresholds, self.pipeline = howmany, thresholds, pipeline
 
     def make_worker(self):
+        """A decoder for one worker: fn(buffer, offsets, lengths) -> (npx, values, indices,
+        powder)."""
         import bslz4_to_sparse as b
 
         kw = dict(howmany=self.howmany, thresholds=self.thresholds, pipeline=self.pipeline)
@@ -33,7 +37,8 @@ class CpuBackend(object):
 class DecompressBackend(object):
     """The front half alone: bslz4_to_sparse.decompress into a preallocated array, no sparse step.
     unshuffle=False gives each block as stored (before the bit unshuffle); True the pixel values.
-    Returns npx = 0 for every frame, values = the decompressed frames, no indices or powder."""
+    Returns npx = 0 for every frame, values = the decompressed frames, no indices or powder.
+    dtype, shape: pixel type and frame shape; batch: frames per call."""
 
     name = "decompress"
 
@@ -46,6 +51,8 @@ class DecompressBackend(object):
         )
 
     def make_worker(self):
+        """A decompressor for one worker: fn(buffer, offsets, lengths) -> (npx, frames, None,
+        None)."""
         import bslz4_to_sparse as b
 
         npix = int(np.prod(self.shape))
@@ -67,6 +74,8 @@ class DecompressBackend(object):
 class GpuBackend(object):
     """bslz4_to_sparse.cuda (cupy): one decoder per worker, each with its own CUDA stream.
     Build the workers after any fork: CUDA must be initialised in the process that uses it.
+    mask, dtype, csc, cut: as CpuBackend; batch: frames per call; acc: accumulator type of the CSC
+    sum ("f64"); howmany, thresholds: as chunk2sparse.
     """
 
     name = "gpu"
@@ -78,6 +87,8 @@ class GpuBackend(object):
         self.batch, self.acc, self.howmany, self.thresholds = batch, acc, howmany, thresholds
 
     def make_worker(self):
+        """A GPU decoder for one worker: fn(buffer, offsets, lengths) -> (npx, values, indices,
+        powder)."""
         from bslz4_to_sparse import cuda
 
         kw = dict(batch=self.batch, howmany=self.howmany, thresholds=self.thresholds)

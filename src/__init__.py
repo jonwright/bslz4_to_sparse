@@ -405,9 +405,9 @@ class chunk2sparse:
     c(chunk, cut) -> npixels, (values, indices) for one frame (the arrays
     are full size: slice [:npixels]); c.multi(chunks, cut) -> the same per
     frame for a batch, npixels an array and the arrays (nframes, ni*nj).
-    After a call, last_nabove[i] is the number of pixels frame i had above
-    cut and last_cut[i] the cut it ended up with (the call's cut unless
-    howmany reduced it).
+    After a call, last_cut[i] is the cut frame i ended up with (the call's
+    cut unless howmany reduced it) and last_nabove[i] the number of pixels
+    above that cut, before the list was truncated to howmany.
     """
 
     def __init__(

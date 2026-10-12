@@ -474,7 +474,7 @@ class chunk2sparse(object):
         )
         npx = np.zeros(nf, np.int32)
         self.last_cut = np.empty(nf, np.float64)  # the cut each frame used (top_pixels)
-        self.last_nabove = np.empty(nf, np.int64)  # pixels above the call's cut, before top_pixels
+        self.last_nabove = np.empty(nf, np.int64)  # pixels above last_cut, before truncation
         self._call_cut = float(cut)
         self.last_host = 0  # frames listed on the host (not sparse)
         self._prepare_outputs(nf)
@@ -512,11 +512,14 @@ class chunk2sparse(object):
         return self._run(views, cut)
 
     def __call__(self, buffer, cut):
+        """Decode one chunk: npixels, (values, indices) and, with a matrix, the powder."""
         r = self.multi([buffer], cut)
         npx, (values, indices) = r[0], r[1]
         return (int(npx[0]), (values[0], indices[0])) + tuple(x[0] for x in r[2:])
 
     def coo(self, buffer, cut):
+        """Decode one chunk to (npixels, row, col, values) as arrays of their own, then the
+        powder."""
         r = self.__call__(buffer, cut)
         npixels, (values, indices) = r[0], r[1]
         row, col = np.divmod(indices[:npixels].astype(np.int64), self.nfast)

@@ -26,6 +26,7 @@ def device(dev):
 
 
 def synchronize(dev):
+    """Wait for everything queued on device `dev`."""
     cp.cuda.Device(dev).synchronize()
 
 
@@ -35,10 +36,12 @@ def Stream():
 
 
 def empty(shape, dtype):
+    """An uninitialised device array."""
     return cp.empty(shape, dtype)
 
 
 def zeros(shape, dtype):
+    """A zeroed device array."""
     return cp.zeros(shape, dtype)
 
 

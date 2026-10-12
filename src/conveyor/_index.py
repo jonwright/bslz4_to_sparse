@@ -8,9 +8,10 @@ a 1000-frame file, 0.005 % of it), never anything that would need the data to be
     <file>.bslz4idx, or <index_dir>/<path with / replaced by __>.bslz4idx
 
 Layout (little endian): the 8 bytes b"BSLZ4IDX", a uint32 length H, H bytes of UTF-8 JSON (dataset,
-shape, dtype, chunks, codec, file_size, file_mtime_ns, nframes, version), zero padding to a multiple
-of 8, then nframes int64 byte offsets and nframes int32 byte lengths.  A sidecar is stale, and
-refused, when the data file's size or modification time no longer match.
+shape, dtype, chunks, codec, file_size, file_mtime_ns, nframes, declared_nframes, version), zero
+padding to a multiple of 8, then nframes int64 byte offsets and nframes int32 byte
+lengths.  A sidecar is stale, and refused, when the data file's size or modification time no
+longer match.
 
 Only harvest() touches HDF5 (through h5py, once per file, offline); everything else is numpy."""
 
@@ -30,9 +31,10 @@ class StaleIndex(ValueError):
 
 
 class Index(object):
-    """shape (nframes, ni, nj) of the frames stored (meta["declared_nframes"] is what HDF5 says; fewer
-    when the acquisition stopped early), dtype, codec (CODEC_LZ4 / CODEC_ZSTD), offsets int64[nframes],
-    lengths int32[nframes] (bytes of each frame's chunk in the file), dataset, meta (the header)."""
+    """shape (nframes, ni, nj) of the frames stored (meta["declared_nframes"] is what HDF5 says;
+    fewer when the acquisition stopped early), dtype, codec (CODEC_LZ4 / CODEC_ZSTD), offsets
+    int64[nframes], lengths int32[nframes] (bytes of each frame's chunk in the file), dataset, meta
+    (the header)."""
 
     def __init__(self, meta, offsets, lengths):
         self.meta = meta
@@ -44,6 +46,7 @@ class Index(object):
 
 
 def sidecar_path(path, index_dir=None):
+    """Where the chunk index of the data file `path` is kept: beside it, or under `index_dir`."""
     path = os.path.abspath(path)
     if index_dir is None:
         return path + SUFFIX
@@ -138,7 +141,8 @@ def read_index(path, index_dir=None, check=True):
         st = os.stat(path)
         if st.st_size != meta["file_size"] or st.st_mtime_ns != meta["file_mtime_ns"]:
             raise StaleIndex(
-                "%s was written for a file of %d bytes modified at %d; %s is %d bytes, modified at %d"
+                "%s was written for a file of %d bytes modified at %d; %s is %d bytes, "
+                "modified at %d"
                 % (sc, meta["file_size"], meta["file_mtime_ns"], path, st.st_size, st.st_mtime_ns)
             )
     return Index(meta, off, ln)

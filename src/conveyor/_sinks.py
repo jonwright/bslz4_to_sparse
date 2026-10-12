@@ -14,10 +14,13 @@ keeps anything copies it."""
 
 
 class Sink(object):
+    """Where one worker's results go: subclass it and implement write (and begin, end if needed)."""
+
     def begin(self, meta):
         """called once in the worker before the first batch; meta: dict (dtype, shape, ...)"""
 
     def write(self, file, frame0, npx, values, indices, powder):
+        """Receive one batch of frames (arguments in the module docstring)."""
         raise NotImplementedError
 
     def end(self):
@@ -33,8 +36,10 @@ class NullSink(Sink):
         self.pixels = 0
 
     def write(self, file, frame0, npx, values, indices, powder):
+        """Count the frames and pixels of the batch."""
         self.frames += len(npx)
         self.pixels += int(npx.sum())
 
     def end(self):
+        """The counts: dict(frames, pixels)."""
         return dict(frames=self.frames, pixels=self.pixels)
