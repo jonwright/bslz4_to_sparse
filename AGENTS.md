@@ -98,7 +98,26 @@ below 2: no infix `@`, f-strings, `yield from`, keyword-only arguments or
   typed into a file (see `docs/AGENTS.md`). Do not write prices or costs into any
   file in the repository; chat only.
 
-## 8. Design rules for the GPU / stream work
+## 8. Cluster and GPU runs
+
+- Slurm: always a `low*` partition (`low-gpu`, `low-p9gpu`, `low`), never the normal
+  queues; no `--exclusive`. One GPU of one type is enough, no need to sweep all
+  cards. `--constraint=a40` etc. picks the type; `sinfo` shows what is idle.
+- Python: `module load jupyter-slurm` is the working environment (numpy, scipy, h5py,
+  hdf5plugin, pyFAI, pytest, cupy). Do not build new environments. On p9 (ppc64le)
+  use `module load p9imaged11` from `/data/id11/jon/p9env/modulefiles`.
+- That environment already has an old `bslz4_to_sparse` (0.0.15) installed.
+  `BSLZ4_TO_SPARSE_PATH` is read only by the tests, so anything else (the GPU
+  code imports `bslz4_to_sparse._matrix`) silently gets the old one. Put the build
+  under test first: `export PYTHONPATH=<dir containing bslz4_to_sparse>`, and print
+  `bslz4_to_sparse.__file__` and `.version` at the top of every job log.
+- Jobs: `$HOME` is not writable. Set `HOME` to a temp dir and `CUPY_CACHE_DIR`
+  under it. Put anything a node must read (builds, data, scripts) on the shared
+  home, not in local `/tmp`.
+- To iterate, hold an allocation (`salloc --no-shell`, then `srun --jobid=<id>`)
+  rather than submitting a batch job per change.
+
+## 9. Design rules for the GPU / stream work
 
 - Fork multiprocessing, not threads (the GIL, measured). Allocate one big buffer
   before forking. No `multiprocessing.shared_memory`.
@@ -108,7 +127,7 @@ below 2: no infix `@`, f-strings, `yield from`, keyword-only arguments or
 - A plain install must need no GPU, cupy or HDF5. Optional parts are optional
   imports.
 
-## 9. Working with others
+## 10. Working with others
 
 - Be terse; long text does not get read. Give the conclusion, not what was tried
   and abandoned, in comments, commits and pull requests.
