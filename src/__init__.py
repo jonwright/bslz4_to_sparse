@@ -35,6 +35,7 @@ import numpy as np
 from .c2py_loader import load_native
 from . import _pipeline
 from . import _matrix
+from . import _toppix
 from ._pipeline import describe, CODEC_LZ4, CODEC_ZSTD
 
 _ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse")
@@ -303,13 +304,26 @@ class chunk2sparse:
             Until then .codec is CODEC_LZ4 and .pipeline is resolved for lz4;
             it is resolved again if the first chunk is zstd.
     pipeline = None (best guess), or step values: see describe()
+    howmany = None (default): every pixel above the cut is returned.  An
+            integer: at most that many per frame, chosen as ImageD11's
+            top_pixels does.  A frame with more pixels above the cut keeps
+            those above the first of the sorted `thresholds` that leaves
+            fewer than howmany (else above the last), and then the first
+            howmany of them in pixel order.
+    thresholds = None: max(cut, 1) * 2**i for i in 0..15, or up to 16 sorted
+            values.  Only used when howmany is set.
 
     c(chunk, cut) -> npixels, (values, indices) for one frame (the arrays
     are full size: slice [:npixels]); c.multi(chunks, cut) -> the same per
     frame for a batch, npixels an array and the arrays (nframes, ni*nj).
+    After a call, last_nabove[i] is the number of pixels frame i had above
+    cut and last_cut[i] the cut it ended up with (the call's cut unless
+    howmany reduced it).
     """
 
-    def __init__(self, mask, dtype=np.uint16, codec=None, pipeline=None):
+    def __init__(self, mask, dtype=np.uint16, codec=None, pipeline=None, howmany=None,
+                 thresholds=None):
+        self.howmany, self.thresholds = _toppix.check(howmany, thresholds)
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
         self.npix = mask.size
@@ -359,6 +373,8 @@ class chunk2sparse:
         if ret < 0:
             self._npx[:] = 0
             raise _decode_error(ret, batch=len(pointers) > 1)
+        self.last_nabove, self.last_cut = _toppix.apply(
+            self._npx, self._values, self._indices, cut, self.howmany, self.thresholds)
         return self._npx, (self._values, self._indices)
 
     def multi(self, chunks, cut):
@@ -450,13 +466,17 @@ class chunk2sparseCSC:
           (data, indices, indptr, bins)
     dtype, codec, pipeline: as chunk2sparse; pipeline's dot step picks the
           matrix layout (auto: from what the matrix is)
+    howmany, thresholds: as chunk2sparse; they limit the pixels returned
+          only: the powder always uses every unmasked pixel
 
     The mask is folded into the matrix once, here: masked pixels contribute
     nothing to the powder.  c(chunk, cut) -> npixels, (values, indices),
     powder; c.multi(chunks, cut) -> the same per frame for a batch.
     """
 
-    def __init__(self, mask, csc, dtype=np.uint16, codec=None, pipeline=None):
+    def __init__(self, mask, csc, dtype=np.uint16, codec=None, pipeline=None, howmany=None,
+                 thresholds=None):
+        self.howmany, self.thresholds = _toppix.check(howmany, thresholds)
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
         self.npix = mask.size
@@ -552,6 +572,8 @@ class chunk2sparseCSC:
             self._npx[:] = 0
             raise _decode_error(ret, batch=len(pointers) > 1)
         powder = self._powder if lay.scale is None else self._powder * lay.scale
+        self.last_nabove, self.last_cut = _toppix.apply(
+            self._npx, self._values, self._indices, cut, self.howmany, self.thresholds)
         return self._npx, (self._values, self._indices), powder
 
     def multi(self, chunks, cut):
