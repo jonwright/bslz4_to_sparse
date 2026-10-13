@@ -180,7 +180,7 @@ class Integrator(object):
             (np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
             shape=(naz * len(ranges), nrad * naz),
         )
-        R = (S @ self.csc.tocsr()).astype(np.float32).tocsc()
+        R = S.dot(self.csc.tocsr()).astype(np.float32).tocsc()
         return Integrator(
             R,
             np.ones(R.shape[0]),
@@ -283,7 +283,7 @@ class Integrator(object):
         q = np.asarray(q, np.float64).ravel()
         if q.size != self.csc.shape[1]:
             raise ValueError("q has %d values for %d pixels" % (q.size, self.csc.shape[1]))
-        both = sp.vstack([self.csc, self.csc @ sp.diags(q)]).astype(np.float32).tocsc()
+        both = sp.vstack([self.csc, self.csc.dot(sp.diags(q))]).astype(np.float32).tocsc()
         return Integrator(
             both,
             np.concatenate([self.norm, np.zeros(self.nbins)]),

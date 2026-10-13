@@ -41,5 +41,5 @@ def clip_exact_powder(powder, npx, values, indices, wtmax, weights, in_place=Fal
         v = values[i, :k].astype(np.int64)
         hot = v > wtmax
         if hot.any():
-            out[i] -= weights[:, indices[i, :k][hot].astype(np.int64)] @ (v[hot] - int(wtmax))
+            out[i] -= weights[:, indices[i, :k][hot].astype(np.int64)].dot(v[hot] - int(wtmax))
     return out

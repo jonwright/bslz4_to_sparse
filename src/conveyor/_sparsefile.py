@@ -132,9 +132,11 @@ class ImageD11SparseSink(Sink):
                 dict(chunks=(max(1, min(len(flat), 10000)),), maxshape=(None,)) if len(flat) else {}
             )
             ck = kw if len(flat) else {}
-            g.create_dataset("row", data=(flat // nj).astype(np.uint16), **chunks, **ck)
-            g.create_dataset("col", data=(flat % nj).astype(np.uint16), **chunks, **ck)
-            g.create_dataset("intensity", data=val, **chunks, **ck)
+            opts = dict(chunks)
+            opts.update(ck)
+            g.create_dataset("row", data=(flat // nj).astype(np.uint16), **opts)
+            g.create_dataset("col", data=(flat % nj).astype(np.uint16), **opts)
+            g.create_dataset("intensity", data=val, **opts)
             g.create_dataset("nnz", data=nnz)
             pw = self.powder
             if pw:
