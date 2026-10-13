@@ -55,7 +55,7 @@ def test_files_match_a_direct_decode(tmp_path, compression):
             with h5py.File(p, "r") as src:
                 frames = src[DSET][:]
             ref = np.stack([np.bincount(rows, weights=f.ravel(), minlength=12) for f in frames])
-            assert np.array_equal(pw[:].astype(np.float64) * pw.attrs["scale"], ref)
+            assert np.array_equal(pw[:].astype(np.float64) * (1.0 / pw.attrs["scale"]), ref)
 
 
 def test_float_powder_and_whole_files_only(tmp_path):

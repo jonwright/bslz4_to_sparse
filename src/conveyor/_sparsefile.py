@@ -14,7 +14,7 @@ as it reads its own.  Layout, in the group named like the input dataset (the lim
 and, when the run has a matrix, in the same group
 
     powder      (nframes, nbins)     the summed powder: int64 sums if the backend is exact (then the
-                                     attribute scale is the factor to float), else float64;
+                                     attribute scale is the integer to divide by for float), else float64;
                                      powder_dtype float32 or float64 stores it as float (the sums
                                      were accumulated in 64 bits, scale applied, no scale attribute)
     attributes  of powder: scale (int64 only), integrator (the path of an Integrator file, if given)
@@ -190,7 +190,7 @@ class ImageD11SparseSink(Sink):
                 scale = self.meta.get("powder_scale")
                 if self.pdtype is not None:
                     if pw.dtype.kind == "i":
-                        pw = pw * np.float64(scale)
+                        pw = pw * (1.0 / scale)
                     pw = pw.astype(self.pdtype)
                 parts = {"powder": pw}
                 if self.stack is not None:  # one dataset per block of the stacked matrix

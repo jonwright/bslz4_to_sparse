@@ -14,8 +14,8 @@ import numpy as np
 
 def fixed_weights(csc, mask, dtype, maxval=None):
     """(W, scale): the integer weights of bslz4_to_sparse.fixed_point_matrix(csc, mask, dtype,
-    maxval) (what the "csc-int" dot uses), as a scipy CSC matrix of int64, and the scale of its
-    sums."""
+    maxval) (what the "csc-int" dot uses), as a scipy CSC matrix of int64, and the scale (integer, divide
+    the sums by it)."""
     import scipy.sparse as sp
 
     from bslz4_to_sparse import fixed_point_matrix

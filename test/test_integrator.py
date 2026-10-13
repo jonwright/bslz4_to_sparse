@@ -79,7 +79,7 @@ def test_the_intensity_equals_pyfais(tmp_path, split, corrections, flat):
     # relative differences are below 5e-11 and 0.  Its intensity is stored as float32, whose
     # rounding is 6e-8 (measured 5.7e-8 at most), the only reason the intensity differs.
     ss = np.asarray(ref.sum_signal)
-    assert np.allclose(powder[0] * d.powder_scale, ss, rtol=1e-9, atol=0)
+    assert np.allclose(powder[0] * (1.0 / d.powder_scale), ss, rtol=1e-9, atol=0)
     assert np.array_equal(back.norm, np.asarray(ref.sum_normalization).ravel())
     assert ref.intensity.dtype == np.float32
     assert np.allclose(got, ref.intensity, rtol=1.2e-7, atol=0)

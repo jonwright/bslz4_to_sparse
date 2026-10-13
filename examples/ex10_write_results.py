@@ -1,9 +1,9 @@
 """Writing results: ImageD11 sparse files with exact powder sums, and the integrator beside them.
 
 One output file per input file (workers never share a file; a later step gathers them), in ImageD11's
-sparse layout.  The powder is kept as int64 sums of fixed-point weights, with the power-of-two scale
-that turns them into float: the sums themselves are exact integers.  The conveyor's
-backend prepares the matrix with fixed_point_matrix by default for 16-bit pixels; exact=True asks
+sparse layout.  The powder is kept as int64 sums of fixed-point weights, with the integer
+power-of-two scale they are divided by to get float: the sums themselves are exact integers.  The
+conveyor's backend prepares the matrix with fixed_point_matrix by default for 16-bit pixels; exact=True asks
 for it for wider ones too, whose weights are coarser because the sums must leave room for larger
 pixel values (tools/fixed_point_precision.py shows by how much).  What turns
 sums into intensities (the pyFAI geometry, the sparse matrix and the normalisation of an image of
@@ -65,7 +65,9 @@ with h5py.File(os.path.join(outdir, conveyor.imaged11_name(h5filenames[0])), "r"
     where = g["powder"].attrs["integrator"]
     nnz = g["nnz"][:]
 back = conveyor.Integrator.load(where)
-intensity = back.intensity(powder_sums, scale)  # integer sums times 2**-b, over the normalisation
+intensity = back.intensity(
+    powder_sums, scale
+)  # integer sums divided by the scale, over the normalisation
 method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
 frame3 = None
 with h5py.File(h5filenames[0], "r") as h5:

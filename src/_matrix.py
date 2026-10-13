@@ -358,15 +358,15 @@ INT_DOTS = ("csc-int", "csc-run-int", "csc-run-int16")
 
 class FixedPointMatrix(object):
     """A csc matrix prepared for the integer dots: the mask folded in and the weights stored as
-    round(w * 2**bits) integers (data, uint32 or uint16), so that a chunk2sparseCSC given it
-    returns the int64 sums of integer weight times pixel, exact; powder * scale is the float sum
-    (scale = 2**-bits).  Made by fixed_point_matrix; the decoder uses it as it is."""
+    round(w * scale) integers (data, uint32 or uint16), so that a chunk2sparseCSC given it
+    returns the int64 sums of integer weight times pixel, exact; powder / scale is the float sum.
+    scale is an integer power of two, 2**b.  Made by fixed_point_matrix; the decoder uses it as
+    it is."""
 
-    def __init__(self, nm, data, bits, dtype, maxval):
+    def __init__(self, nm, data, nbits, dtype, maxval):
         self.nm = nm  # the mask-folded float32 matrix the weights were made from
         self.data = data
-        self.bits = int(bits)
-        self.scale = 2.0 ** -self.bits
+        self.scale = 1 << int(nbits)
         self.nbins = nm.nbins
         self.npix = nm.npix
         self.dtype = np.dtype(dtype)
@@ -401,7 +401,8 @@ def fixed_point_matrix(csc, mask, dtype, maxval=None, wbits=32):
     matrix and data.
 
     Raises ValueError for a matrix that cannot be fixed-point (negative weights beyond rounding
-    noise, no room for 4 fractional bits).  The result has .scale (2**-b), .bits and .nbins.
+    noise, no room for 4 fractional bits).  The result has .scale (the integer 2**b to divide the
+    int64 sums by) and .nbins.
     """
     mask = np.asarray(mask)
     dtype = np.dtype(dtype)
@@ -472,8 +473,8 @@ class Layout(object):
     """The arrays one dot reads, ready for its C entry ("csc", "padded" or
     "bsb-csr"): args() are the layout's arrays, which follow the powder in the call
     for "csc" and are split around the workspace arguments for the others.  nout is the
-    powder length, powder_dtype its type (scale turns an int64 powder back
-    into float; None for the float ones), block_elems the decode block size
+    powder length, powder_dtype its type (an int64 powder divided by scale
+    is float; scale is None for the float ones), block_elems the decode block size
     it was built for (None when it does not depend on it)."""
 
     def __init__(self, dot, entry, args, nout, powder_dtype=np.float64, scale=None,

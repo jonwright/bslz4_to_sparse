@@ -105,7 +105,7 @@ def expected(integ, frames, ref):
     lay = integ._layout
     if lay.scale is not None:
         nm = integ._nm
-        Mq = sp.csc_matrix((lay.args()[0].astype(np.float64) * lay.scale, nm.indices, nm.indptr),
+        Mq = sp.csc_matrix((lay.args()[0].astype(np.float64) * (1.0 / lay.scale), nm.indices, nm.indptr),
                            shape=nm.shape)
         return np.array([Mq @ f.ravel().astype(np.float64) for f in frames]), 1e-12
     return ref, 1e-9

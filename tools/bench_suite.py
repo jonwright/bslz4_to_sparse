@@ -431,7 +431,7 @@ def main():
                     scale = objs["dense"]._layout.scale
                     rtol = 1e-9
                     if scale is not None:
-                        rtol = 4 * scale * max(1, int(np.diff(M.indptr).max()))
+                        rtol = 4 / scale * max(1, int(np.diff(M.indptr).max()))
                     for route, _rv in routes:
                         integ = objs[route].multi
                         t, p = time_dot(integ, chunks)

@@ -11,7 +11,7 @@ Differences from the CPU classes:
     accepted and ignored;
   * `acc` chooses the accumulator of the matrix product: 'f64' (default: f32 weights, f64 sums as
     pyFAI), 'f32' (fast; relative error about 1e-6); a matrix from fixed_point_matrix is summed as
-    'i64' (exact integer sums, returned as int64: the factor to float is `powder_scale`);
+    'i64' (exact integer sums, returned as int64: divide by `powder_scale` for float);
   * `batch` = frames per GPU launch.  The result arrays are numpy (as the CPU classes) and are
     overwritten by the next call.
   * the matrix is the one chunk2sparseCSC takes (scipy csc / pyFAI CSC engine, or fixed_point_matrix); normalise_matrix and
@@ -519,7 +519,7 @@ class chunk2sparseCSC(chunk2sparse):
 
     csc: a scipy csc / pyFAI CSC engine, used as it is (float32 weights; acc 'f64' sums by default,
     or 'f32'), or the result of bslz4_to_sparse.fixed_point_matrix: the powder is then the int64
-    sums of its integer weights (acc 'i64'), not converted to float: float powder = powder *
+    sums of its integer weights (acc 'i64'), not converted to float: float powder = powder /
     powder_scale.  They are the CPU class's integers for the same matrix.  The matrix is not
     changed here."""
 
@@ -593,7 +593,7 @@ class chunk2sparseCSC(chunk2sparse):
 
     @property
     def powder_scale(self):
-        """The factor that turns an integer powder into float (2**-b); None for float accumulators."""
+        """The integer (2**b) an integer powder is divided by to get float; None for float accumulators."""
         return self.scale
 
     def _acc(self):

@@ -115,10 +115,11 @@ print("2D cake", cake.shape, "matches pyFAI's integrate2d sum_signal")
 
 # New in 0.0.22: exact sums.  fixed_point_matrix folds the mask into the matrix and stores its
 # weights as fixed-point integers; chunk2sparseCSC given it returns the int64 sums of integer
-# weight x pixel, and powder_scale (a power of two) turns them into float.  Integer pixels only;
-# for 32-bit pixels the weights get fewer bits, unless maxval says how large the data can be.
+# weight x pixel, and dividing by powder_scale (an integer power of two) turns them into float.
+# Integer pixels only; for 32-bit pixels the weights get fewer bits, unless maxval says how large
+# the data can be.
 fixed = bslz4_to_sparse.fixed_point_matrix(engine, mask, dtype)
 exact = bslz4_to_sparse.chunk2sparseCSC(mask, fixed, dtype)
 _, _, powder_int = exact(chunk0, nothing)
-print("fixed point: powder %s, scale 2**-%d" % (powder_int.dtype, fixed.bits))
-assert np.allclose(powder_int * exact.powder_scale, powder_sum, rtol=1e-6, atol=0)
+print("fixed point: powder %s, scale %d" % (powder_int.dtype, fixed.scale))
+assert np.allclose(powder_int * (1.0 / exact.powder_scale), powder_sum, rtol=1e-6, atol=0)

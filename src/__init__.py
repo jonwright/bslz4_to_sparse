@@ -646,8 +646,8 @@ class chunk2sparseCSC:
           (data, indices, indptr, bins): used as it is, float32 weights, float64
           powder.  Or the result of fixed_point_matrix(csc, mask, dtype): integer
           weights, and the powder is the int64 sums of weight x pixel, exact, not
-          converted to float: float powder = powder * powder_scale (a power of two,
-          2**-b).  With a matrix of weight 1 per pixel (no pixel splitting) these are
+          converted to float: float powder = powder / powder_scale (an integer power
+          of two, 2**b).  With a matrix of weight 1 per pixel (no pixel splitting) these are
           exactly the photon counts summed per bin.  Either way the matrix is not
           changed here: preparing it is a step of its own.
     dtype, codec, pipeline: as chunk2sparse; pipeline's dot step picks the
@@ -710,7 +710,7 @@ class chunk2sparseCSC:
 
     @property
     def powder_scale(self):
-        """The factor that turns an integer powder into float (2**-b), None for a float dot."""
+        """The integer (2**b) an integer powder is divided by to get float; None for a float dot."""
         return self._layout.scale
 
     def _resolve(self):
@@ -866,7 +866,7 @@ class chunk2sparseCSC:
         returns npixels, (values, indices), powder_sum: values and indices are full-frame-size
         views of buffers owned by this object, overwritten by the next call (slice
         values[:npixels] and indices[:npixels]; copy what you keep); powder_sum is float64, or
-        int64 when this object was made with a fixed_point_matrix (powder_scale is the factor to float).
+        int64 when this object was made with a fixed_point_matrix (divide by powder_scale for float).
         """
         npx, (values, indices), powder = self.multi([buffer], cut)
         return int(npx[0]), (values[0], indices[0]), powder[0]

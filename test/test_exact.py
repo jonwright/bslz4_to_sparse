@@ -35,10 +35,10 @@ def test_unit_weights_are_the_exact_photon_sums():
     c = b.chunk2sparseCSC(mask, fp(m, mask, np.uint16), np.uint16)
     _, _, powder = c.from_frames(fr, 0)
     assert powder.dtype == np.int64 and c.powder_scale is not None
-    assert np.log2(c.powder_scale) == int(np.log2(c.powder_scale))
+    assert c.powder_scale == 1 << int(np.log2(c.powder_scale))
     want = np.stack([np.bincount(rows, weights=f.ravel(), minlength=NBINS) for f in fr])
-    # integer weights are round(1 * 2**b): the sums are exact multiples of 2**b
-    assert np.array_equal(powder.astype(np.float64) * c.powder_scale, want)
+    # integer weights are round(1 * scale): the sums are exact multiples of scale
+    assert np.array_equal(powder.astype(np.float64) * (1.0 / c.powder_scale), want)
 
 
 def test_weights_match_the_float_powder():
@@ -47,7 +47,7 @@ def test_weights_match_the_float_powder():
     fr = frames()
     ce = b.chunk2sparseCSC(mask, fp(m, mask, np.uint16), np.uint16)
     cf = b.chunk2sparseCSC(mask, m, np.uint16)
-    pe = ce.from_frames(fr, 0)[2].astype(np.float64) * ce.powder_scale
+    pe = ce.from_frames(fr, 0)[2].astype(np.float64) * (1.0 / ce.powder_scale)
     pf = cf.from_frames(fr, 0)[2]
     assert np.allclose(pe, pf, rtol=1e-5)
     assert cf.powder_scale is None and pf.dtype == np.float64
@@ -107,9 +107,9 @@ def test_the_fixed_point_weights_get_fewer_bits_as_the_pixels_get_larger():
         q = fp(m, mask, dt, maxval=maxval)
         top = float(2**32 if maxval is None and dt == np.uint32 else (maxval or 2**16) + 1)
         want = min(31, int(np.floor(62 - np.log2(top) - np.log2(nmax))))
-        assert q.bits == want, (dt, maxval, q.bits, want)
-        assert q.scale == 2.0**-q.bits
-        scales[(dt, maxval)] = q.bits
+        nbits = int(np.log2(q.scale))
+        assert q.scale == 1 << nbits and nbits == want, (dt, maxval, nbits, want)
+        scales[(dt, maxval)] = nbits
     # the same data type gets more bits when the data cannot reach its largest value
     assert scales[(np.uint32, 2**16 - 1)] > scales[(np.uint32, None)]
     assert scales[(np.uint32, 2**28)] < scales[(np.uint32, 2**16 - 1)]

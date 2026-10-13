@@ -300,7 +300,7 @@ def test_dot_values_agree(tmp_path):
         cnt = _testing.counters()["dot"]
         assert cnt.get(dot, 0) > 0, (dot, "selected dot did not run", cnt)
         assert set(cnt) == {dot}, (dot, "another dot ran", cnt)
-        return npx.copy(), vals.copy(), adr.copy(), np.asarray(powder, np.float64) * (c.powder_scale or 1.0)
+        return npx.copy(), vals.copy(), adr.copy(), np.asarray(powder, np.float64) * (1.0 / (c.powder_scale or 1))
 
     usable = [d for d in DOTS if d in _usable("dot")]
     for route in ("dense", "sparse"):

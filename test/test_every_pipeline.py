@@ -182,7 +182,7 @@ def test_every_dot_and_route(data, variant, fill):
             except ValueError as e:
                 refused.append((mname, p, str(e)))
                 continue
-            got = np.asarray(powder, np.float64).reshape(ref.shape) * (c.powder_scale or 1.0)
+            got = np.asarray(powder, np.float64).reshape(ref.shape) * (1.0 / (c.powder_scale or 1))
             tol = 1e-3 if dot.endswith(("int", "int16")) else 1e-6
             if np.abs(got - ref).max() > tol * max(1.0, np.abs(ref).max()):
                 wrong.append((mname, p, float(np.abs(got - ref).max())))
@@ -231,7 +231,7 @@ def test_automatic_dot_any_block_size(data, variant):
         c = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec)
         npx, (v, i), powder = c.multi(chunks, 0)
         ref = np.stack([M.astype(np.float64) @ fr for fr in masked_frames])
-        got = np.asarray(powder, np.float64).reshape(ref.shape) * (c.powder_scale or 1.0)
+        got = np.asarray(powder, np.float64).reshape(ref.shape) * (1.0 / (c.powder_scale or 1))
         assert np.abs(got - ref).max() <= 1e-6 * max(1.0, np.abs(ref).max()), (mname, c.dot)
         if variant[2] // 2 > 65536:
             assert not c.dot.startswith("bsb"), (mname, c.dot)
@@ -279,7 +279,7 @@ def test_every_dot_and_route_on_uncompressed_frames(data, fill):
                 assert accepted_refusal(str(e), fill), str(e)
                 continue
             npx, (v, i), powder = c.from_frames(frames, 0)
-            got = np.asarray(powder, np.float64).reshape(ref.shape) * (c.powder_scale or 1.0)
+            got = np.asarray(powder, np.float64).reshape(ref.shape) * (1.0 / (c.powder_scale or 1))
             tol = 1e-3 if dot.endswith(("int", "int16")) else 1e-6
             if np.abs(got - ref).max() > tol * max(1.0, np.abs(ref).max()):
                 wrong.append((mname, dot, route, float(np.abs(got - ref).max())))

@@ -175,7 +175,7 @@ def test_matrices(tmp_path, dt, kind, acc):
         c = g.chunk2sparseCSC(mask, M, dt, codec, acc=acc)
     npx, (v, idx), p = c.multi(chunks, 0)
     if c.powder_scale is not None:
-        p = p * c.powder_scale
+        p = p * (1.0 / c.powder_scale)
     ref = reference(M, frames, mask)
     assert np.abs(p - ref).max() / max(np.abs(ref).max(), 1.0) < TOL[acc]
 

@@ -136,11 +136,11 @@ class Integrator(object):
 
     def intensity(self, powder, scale=None):
         """Normalised intensity of summed powder: powder (nbins,) or (nframes, nbins), integers
-        times scale (from the decoder: its power of two) or floats.  Empty bins (norm 0) are 0, as
+        divided by scale (from the decoder: its power of two) or floats.  Empty bins (norm 0) are 0, as
         in pyFAI."""
         p = np.asarray(powder, np.float64)
         if scale is not None:
-            p = p * scale
+            p = p * (1.0 / scale)  # a power of two: exact
         if self.kind == "moment":  # the first half: the signal; mean_q gives the moment
             p = p[..., : self.nbins // 2]
         out = np.zeros_like(p)
