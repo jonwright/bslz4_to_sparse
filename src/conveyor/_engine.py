@@ -162,7 +162,7 @@ def _worker(
             buf[s * slot_bytes : (s + 1) * slot_bytes : 4096] = 0
         fn = backend.make_worker()
         sink = sink_factory(k)
-        sink.begin(meta)
+        sink.begin(dict(meta, powder_scale=getattr(fn, "powder_scale", None)))
         for s in range(k * S, (k + 1) * S):
             free_q.put(s)
         barrier.wait()
@@ -254,6 +254,11 @@ def run(
         raise ValueError("mode must be 'threads' or 'processes'")
     ctx = ctx or _ForkContext()
     sink = sink or (lambda k: NullSink())
+    meta = dict(meta or {})
+    mask = getattr(backend, "mask", None)
+    if mask is not None:
+        meta.setdefault("shape", tuple(mask.shape))
+        meta.setdefault("dtype", str(np.dtype(backend.dtype)))
     if policy is not None:
         policy.check(backend, units)
         sink = policy.wrap(sink)
@@ -272,7 +277,7 @@ def run(
                 k,
                 backend,
                 sink,
-                meta or {},
+                meta,
                 ready_qs[k],
                 free_qs[k],
                 buf,

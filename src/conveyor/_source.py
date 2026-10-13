@@ -11,7 +11,7 @@ class Unit(object):
     """Consecutive frames of one file: file[start:start+span] holds frames frame0..frame0+n-1, the
     chunk of frame frame0+i at offsets[i] (relative to start), lengths[i] bytes long."""
 
-    __slots__ = ("file", "path", "frame0", "n", "start", "span", "offsets", "lengths")
+    __slots__ = ("file", "path", "frame0", "n", "nfile", "start", "span", "offsets", "lengths")
 
 
 def make_units(paths, dset, max_bytes=256 << 20, index_dir=None, harvest=False):
@@ -47,7 +47,7 @@ def make_units(paths, dset, max_bytes=256 << 20, index_dir=None, harvest=False):
             while f0 + n < len(off) and off[f0 + n] + ln[f0 + n] - off[f0] <= max_bytes:
                 n += 1
             u = Unit()
-            u.file, u.path, u.frame0, u.n = fi, p, f0, n
+            u.file, u.path, u.frame0, u.n, u.nfile = fi, p, f0, n, len(off)
             u.start = int(off[f0])
             u.span = int(off[f0 + n - 1] + ln[f0 + n - 1] - off[f0])
             u.offsets = off[f0 : f0 + n] - off[f0]

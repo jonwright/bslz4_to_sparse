@@ -298,7 +298,8 @@ def conveyor_page():
         ),
         ("Running", ("run", "iterate", "report", "numa_nodes")),
         ("Decoders", ("CpuBackend", "DecompressBackend", "GpuBackend")),
-        ("Sinks", ("Sink", "NullSink")),
+        ("Sinks", ("Sink", "NullSink", "ImageD11SparseSink", "imaged11_name")),
+        ("Integrator state", ("Integrator",)),
         (
             "Output policy",
             ("Policy", "OutputRefused", "GuardSink", "OutputTooLarge", "stored_size"),

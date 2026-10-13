@@ -62,7 +62,10 @@ Every run reports the compressed bytes read, the bytes of results and the rates.
 A guard sink measures the results compressed as they would be stored and refuses
 to write anything larger than the compressed input it came from.  A policy states what
 the conveyor agrees to write, and results can also be taken in memory as a plain
-iterator, which is how to read them without choosing a file format.
+iterator, which is how to read them without choosing a file format.  For writing there is
+one sparse file per input file in ImageD11's layout, with the powder kept as exact
+integer sums and a power-of-two scale, and a small integrator file (geometry, sparse
+matrix, normalisation) that turns the sums into pyFAI's intensities.
 
 ## Where to look
 

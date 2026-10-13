@@ -7,12 +7,24 @@ import numpy as np
 class CpuBackend(object):
     """bslz4_to_sparse.chunk2sparse, or chunk2sparseCSC with a matrix (the GIL is released).
     mask, dtype: the detector mask and pixel type; csc: a pyFAI CSC matrix or None; cut, howmany,
-    thresholds: as chunk2sparse; pipeline: passed through to it."""
+    thresholds: as chunk2sparse; pipeline: passed through to it; exact: integer pixels, the powder
+    is the int64 fixed-point sums (see chunk2sparseCSC), its scale in the sink's meta."""
 
     name = "cpu"
 
-    def __init__(self, mask, dtype, csc=None, cut=0, howmany=None, thresholds=None, pipeline=None):
+    def __init__(
+        self,
+        mask,
+        dtype,
+        csc=None,
+        cut=0,
+        howmany=None,
+        thresholds=None,
+        pipeline=None,
+        exact=False,
+    ):
         self.mask, self.csc, self.dtype, self.cut = mask, csc, np.dtype(dtype), cut
+        self.exact = exact
         self.howmany, self.thresholds, self.pipeline = howmany, thresholds, pipeline
 
     def make_worker(self):
@@ -24,13 +36,14 @@ class CpuBackend(object):
         if self.csc is None:
             c = b.chunk2sparse(self.mask, self.dtype, **kw)
         else:
-            c = b.chunk2sparseCSC(self.mask, self.csc, self.dtype, **kw)
+            c = b.chunk2sparseCSC(self.mask, self.csc, self.dtype, exact=self.exact, **kw)
         cut = self.cut
 
         def run(buf, offsets, lengths):
             r = c.decode_offsets(buf, offsets, lengths, cut)
             return r[0], r[1][0], r[1][1], (r[2] if len(r) > 2 else None)
 
+        run.powder_scale = getattr(c, "powder_scale", None)
         return run
 
 

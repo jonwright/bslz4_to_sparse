@@ -53,6 +53,7 @@ nav:
       - Limit pixels, uncompressed frames, decompress alone: gen/examples/ex7_limit_pixels_and_frames.md
       - The conveyor: gen/examples/ex8_conveyor.md
       - The firehose, as a for loop: gen/examples/ex9_firehose.md
+      - Writing results and the integrator: gen/examples/ex10_write_results.md
   - Performance:
       - Three data sets: gen/performance.md
       - Every pipeline: gen/kernels.md

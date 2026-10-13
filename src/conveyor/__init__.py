@@ -24,6 +24,8 @@ from ._sinks import Sink, NullSink, GuardSink, OutputTooLarge, stored_size
 from ._backends import CpuBackend, DecompressBackend, GpuBackend
 from ._policy import Policy, OutputRefused
 from ._iter import iterate
+from ._integrator import Integrator
+from ._sparsefile import ImageD11SparseSink, imaged11_name
 from ._engine import run, report, numa_nodes
 
 __all__ = [
@@ -45,6 +47,9 @@ __all__ = [
     "GpuBackend",
     "run",
     "iterate",
+    "Integrator",
+    "ImageD11SparseSink",
+    "imaged11_name",
     "report",
     "numa_nodes",
 ]

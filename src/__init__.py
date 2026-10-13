@@ -610,6 +610,11 @@ class chunk2sparseCSC:
           matrix layout (auto: from what the matrix is)
     howmany, thresholds: as chunk2sparse; they limit the pixels returned
           only: the powder always uses every unmasked pixel
+    exact: integer pixels only.  The powder is returned as the int64 sums of the dot with
+          fixed-point integer weights, not converted to float: float powder = powder *
+          powder_scale (a power of two, 2**-b).  With a matrix of weight 1 per pixel (no pixel
+          splitting) these are exactly the photon counts summed per bin.  The array is the object's
+          own and is overwritten by the next call.  The pipeline's dot step defaults to "csc-int".
 
     The mask is folded into the matrix once, here: masked pixels contribute
     nothing to the powder.  c(chunk, cut) -> npixels, (values, indices),
@@ -617,9 +622,25 @@ class chunk2sparseCSC:
     """
 
     def __init__(
-        self, mask, csc, dtype=np.uint16, codec=None, pipeline=None, howmany=None, thresholds=None
+        self,
+        mask,
+        csc,
+        dtype=np.uint16,
+        codec=None,
+        pipeline=None,
+        howmany=None,
+        thresholds=None,
+        exact=False,
     ):
         self.howmany, self.thresholds = _toppix.check(howmany, thresholds)
+        self._exact = bool(exact)
+        if self._exact:
+            if np.dtype(dtype).kind not in "ui":
+                raise ValueError("exact needs integer pixels, not %s" % np.dtype(dtype))
+            if pipeline is not None and not isinstance(pipeline, dict):
+                raise ValueError("exact takes the pipeline as a dict (or None)")
+            pipeline = dict(pipeline or {})
+            pipeline.setdefault("dot", "csc-int")
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
         self.npix = mask.size
@@ -640,8 +661,17 @@ class chunk2sparseCSC:
         self.dot = _pipeline.NAMES["dot"][self.pipeline[_pipeline.DOT]]
         self._di = _pipeline.DTYPE_INDEX[_pipeline.dtype_suffix(self.dtype)]
         self._layout = self._build(DEFAULT_BLOCK_BYTES // self.dtype.itemsize)
+        if self._exact and self._layout.scale is None:
+            raise ValueError(
+                "exact needs an integer dot (csc-int, csc-run-int, ...), not %s" % self.dot
+            )
         self._nframes = 0
         self._workspace = None
+
+    @property
+    def powder_scale(self):
+        """The factor that turns an integer powder into float (2**-b), None for a float dot."""
+        return self._layout.scale
 
     def _resolve(self):
         nm, padded_avx2 = self._nm, self._padded_avx2
@@ -747,7 +777,7 @@ class chunk2sparseCSC:
         if ret < 0:
             self._npx[:] = 0
             raise _decode_error(ret, batch=len(pointers) > 1)
-        powder = self._powder if lay.scale is None else self._powder * lay.scale
+        powder = self._powder if (self._exact or lay.scale is None) else self._powder * lay.scale
         self.last_nabove, self.last_cut = req.finish(self._npx, self._values, self._indices)
         return self._npx, (self._values, self._indices), powder
 
