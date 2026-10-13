@@ -291,38 +291,21 @@ def conveyor_page():
         "## The package\n",
         fence("text", inspect.getdoc(cv)),
     ]
-    for title, names in (
+    groups = (
         (
             "Chunk indexes and units",
             ("make_units", "read_index", "write_index", "harvest", "sidecar_path", "StaleIndex"),
         ),
-        ("Running", ("run", "numa_nodes")),
+        ("Running", ("run", "report", "numa_nodes")),
         ("Decoders", ("CpuBackend", "DecompressBackend", "GpuBackend")),
-        ("Sinks", ("Sink", "NullSink")),
-    ):
+        ("Sinks", ("Sink", "NullSink", "GuardSink", "OutputTooLarge", "stored_size")),
+    )
+    for title, names in groups:
         parts.append("# %s\n" % title)
         for name in names:
             parts += section(name, title)
-    missing = [
-        n
-        for n in cv.__all__
-        if not any(
-            n in g
-            for g in (
-                (
-                    "make_units",
-                    "read_index",
-                    "write_index",
-                    "harvest",
-                    "sidecar_path",
-                    "StaleIndex",
-                ),
-                ("run", "numa_nodes"),
-                ("CpuBackend", "DecompressBackend", "GpuBackend"),
-                ("Sink", "NullSink"),
-            )
-        )
-    ]
+    placed = set(n for _, names in groups for n in names)
+    missing = [n for n in cv.__all__ if n not in placed]
     if missing:
         raise SystemExit("conveyor names with no place on the page: %r" % (missing,))
     parts.append("\n" + provenance())

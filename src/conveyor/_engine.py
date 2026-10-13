@@ -75,6 +75,15 @@ def _faults():
     return resource.getrusage(resource.RUSAGE_THREAD).ru_minflt
 
 
+def _out_bytes(npx, values, indices, powder):
+    """Bytes of one batch of results as the decoder hands them over, before any compression."""
+    if indices is None:  # dense frames (DecompressBackend)
+        n = values.nbytes
+    else:
+        n = int(npx.sum()) * (values.dtype.itemsize + indices.dtype.itemsize) + npx.nbytes
+    return n + (0 if powder is None else powder.nbytes)
+
+
 def _reader(k, todo, ready_q, free_q, buf, slot_bytes, cpus, io_bytes, go, stop, res_q):
     st = dict(role="reader", k=k, bytes=0, read_s=0.0, wait_s=0.0, error=None, minflt=0)
     try:
@@ -135,7 +144,15 @@ def _worker(
     res_q,
 ):
     st = dict(
-        role="worker", k=k, frames=0, decode_s=0.0, write_s=0.0, idle_s=0.0, error=None, minflt=0
+        role="worker",
+        k=k,
+        frames=0,
+        decode_s=0.0,
+        write_s=0.0,
+        idle_s=0.0,
+        out_bytes=0,
+        error=None,
+        minflt=0,
     )
     t_first = t_last = None
     try:
@@ -162,6 +179,7 @@ def _worker(
                 t_first = time.perf_counter()
             base = slot * slot_bytes
             data = buf[base : base + u.span]
+            sink.begin_unit(u)
             for f0 in range(0, u.n, batch):
                 n = min(batch, u.n - f0)
                 t = time.perf_counter()
@@ -169,10 +187,14 @@ def _worker(
                     data, u.offsets[f0 : f0 + n], u.lengths[f0 : f0 + n]
                 )
                 t1 = time.perf_counter()
+                st["out_bytes"] += _out_bytes(npx, values, indices, powder)
                 sink.write(u.file, u.frame0 + f0, npx, values, indices, powder)
                 st["decode_s"] += t1 - t
                 st["write_s"] += time.perf_counter() - t1
                 st["frames"] += n
+            t1 = time.perf_counter()
+            sink.end_unit(u)
+            st["write_s"] += time.perf_counter() - t1
             t_last = time.perf_counter()
             free_q.put(slot)
         # Whatever made us stop (the units are done, or another worker failed), our reader may be
@@ -304,6 +326,9 @@ def run(
     if errors:
         raise RuntimeError(errors[0])
     wk = sorted((s for s in got if s["role"] == "worker"), key=lambda s: s["k"])
+    stored = [s["sink"]["stored_bytes"] for s in wk if "stored_bytes" in (s.get("sink") or {})]
+    in_bytes = sum(int(u.lengths.sum()) for u in units)
+    out_bytes = sum(s["out_bytes"] for s in wk)
     rd = [s for s in got if s["role"] == "reader"]
     frames = sum(s["frames"] for s in wk)
     busy = [s for s in wk if s["active_s"] > 0]
@@ -317,6 +342,15 @@ def run(
         # while the first files arrive, and the end, while the slowest worker finishes, left out)
         steady_fps=round(sum(s["frames"] / s["active_s"] for s in busy), 1),
         read_gbs=round(sum(u.span for u in units) / wall / 1e9, 3),
+        # input and output: chunk bytes decoded, results as handed to the sink (uncompressed), and
+        # what the sink measured compressed for writing (a GuardSink; else None)
+        in_bytes=in_bytes,
+        out_bytes=out_bytes,
+        stored_bytes=sum(stored) if stored else None,
+        in_gbs=round(in_bytes / wall / 1e9, 3),
+        out_gbs=round(out_bytes / wall / 1e9, 3),
+        out_over_in=round(out_bytes / in_bytes, 4),
+        stored_over_in=round(sum(stored) / in_bytes, 4) if stored else None,
         slot_mb=round(slot_bytes / 1e6),
         memory_gb=round(workers * S * slot_bytes / 1e9, 2),
         worker_cpu_cores=round(sum(s["cpu_s"] for s in wk) / wall, 2),
@@ -336,3 +370,26 @@ def run(
         files=len(units),
         sink=[s.get("sink") for s in wk][:1],
     )
+
+
+def report(r):
+    """The run result r as text: input and output bytes, their ratio, and the rates."""
+    out = [
+        "%d frames of %d files in %.1f s with %d %s: %.0f frames/s"
+        % (r["frames"], r["files"], r["wall_s"], r["workers"], r["mode"], r["fps"]),
+        "input  %.3f GB compressed, %.3f GB/s (file span read %.3f GB/s)"
+        % (r["in_bytes"] / 1e9, r["in_gbs"], r["read_gbs"]),
+        "output %.3f GB as handed to the sink, %.3f GB/s, %.4f of the input"
+        % (r["out_bytes"] / 1e9, r["out_gbs"], r["out_over_in"]),
+    ]
+    if r["stored_bytes"] is not None:
+        out.append(
+            "stored %.3f GB compressed for writing, %.4f of the input"
+            % (r["stored_bytes"] / 1e9, r["stored_over_in"])
+        )
+    b = r["busy_frac"]
+    out.append(
+        "workers: %.0f%% decode, %.0f%% sink, %.0f%% idle; readers %.0f%% reading"
+        % (100 * b["decode"], 100 * b["write"], 100 * b["idle"], 100 * b["read"])
+    )
+    return "\n".join(out)

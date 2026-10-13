@@ -20,9 +20,9 @@ no HDF5; cupy is needed only for the GPU backend.
 
 from ._index import read_index, write_index, harvest, sidecar_path, StaleIndex
 from ._source import make_units
-from ._sinks import Sink, NullSink
+from ._sinks import Sink, NullSink, GuardSink, OutputTooLarge, stored_size
 from ._backends import CpuBackend, DecompressBackend, GpuBackend
-from ._engine import run, numa_nodes
+from ._engine import run, report, numa_nodes
 
 __all__ = [
     "make_units",
@@ -33,9 +33,13 @@ __all__ = [
     "StaleIndex",
     "Sink",
     "NullSink",
+    "GuardSink",
+    "OutputTooLarge",
+    "stored_size",
     "CpuBackend",
     "DecompressBackend",
     "GpuBackend",
     "run",
+    "report",
     "numa_nodes",
 ]

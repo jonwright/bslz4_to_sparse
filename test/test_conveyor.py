@@ -293,3 +293,43 @@ def test_a_faster_worker_takes_more_units(tmp_path):
     cv.run(units, cv.CpuBackend(np.ones(SHAPE, np.uint8), dtype), workers=3, sink=Counting, batch=4)
     assert sum(done.values()) == 4 * 60
     assert done[0] < min(done[1], done[2]) / 2, done
+
+
+def test_report_and_the_size_guard(tmp_path):
+    pytest.importorskip("bitshuffle")
+    paths = make_files(tmp_path)
+    units, shape, dtype = cv.make_units(paths, DSET, max_bytes=4000)
+    mask = np.ones(SHAPE, np.uint8)
+    backend = cv.CpuBackend(mask, dtype)
+    # within the limit: the inner sink gets exactly what a direct decode gives
+    Collect.out = {}
+    r = cv.run(
+        units,
+        backend,
+        workers=2,
+        sink=lambda k: cv.GuardSink(Collect(), limit=1e6),
+        batch=8,
+    )
+    assert Collect.out == direct(paths, mask)
+    assert r["in_bytes"] == sum(int(u.lengths.sum()) for u in units)
+    assert r["out_bytes"] > 0 and r["stored_bytes"] > 0
+    assert r["stored_over_in"] == pytest.approx(r["stored_bytes"] / r["in_bytes"], abs=1e-4)
+    assert "stored" in cv.report(r) and "input" in cv.report(r)
+    # nothing is written once a unit is refused
+    Collect.out = {}
+    with pytest.raises(RuntimeError, match="OutputTooLarge"):
+        cv.run(
+            units,
+            backend,
+            workers=2,
+            sink=lambda k: cv.GuardSink(Collect(), limit=1e-9),
+            batch=8,
+        )
+    assert Collect.out == {}
+    zs = pytest.importorskip("zstandard") and cv.stored_size(
+        [np.arange(5000, dtype=np.uint32)], "bszstd"
+    )
+    assert 0 < zs < 20000
+    # without a guard the report has no stored size
+    r = cv.run(units, backend, workers=2, batch=8)
+    assert r["stored_bytes"] is None and "stored" not in cv.report(r)

@@ -58,6 +58,10 @@ once in a small index file beside it, so reading never calls HDF5, which takes a
 global lock.  A faster worker simply takes more files, and the only
 synchronisation is about once per file.  The conveyor is pure Python 3.
 
+Every run reports the compressed bytes read, the bytes of results and the rates.
+A guard sink measures the results compressed as they would be stored and refuses
+to write anything larger than the compressed input it came from.
+
 ## Where to look
 
 - **Examples**: short programs that run as shown; each page includes the
