@@ -18,8 +18,10 @@ and, when the run has a matrix, in the same group
     attributes  of powder: scale (int64 only), integrator (the path of an Integrator file, if given)
 
 Only the sparse pixels are ImageD11's; powder and its attributes are ours, and ImageD11 ignores them.
-No cleaning is applied (ImageD11's pixels_in_spot is a policy of its own).  Datasets are compressed
-with the bitshuffle filter of hdf5plugin (compression "bslz4", "bszstd", "lzf" or None).
+When the pixels of a file were not sparse (a GuardSink skipped them) the file holds no pixels and
+the attribute sparse_skipped says why.  No cleaning is applied (ImageD11's pixels_in_spot is a
+policy of its own).  Datasets are compressed with the bitshuffle filter of hdf5plugin (compression
+"bslz4", "bszstd", "lzf" or None).
 
 A sink writes whole files: use make_units with max_bytes large enough that a unit is a file.
 """
@@ -87,6 +89,11 @@ class ImageD11SparseSink(Sink):
                 % (unit.path, unit.frame0, unit.frame0 + unit.n - 1, unit.nfile)
             )
         self.held = []
+        self.skipped_reason = None
+
+    def sparse_skipped(self, unit, reason):
+        """The pixels of this file are not sparse: the file is written without them, and says why."""
+        self.skipped_reason = reason
 
     def write(self, file, frame0, npx, values, indices, powder):
         """Keep the batch (trimmed to its pixels) until the file is complete."""
@@ -115,6 +122,8 @@ class ImageD11SparseSink(Sink):
                 npx=len(flat),
                 itype="uint16",
             )
+            if self.skipped_reason:  # nnz is 0 everywhere: no pixels, not "no signal"
+                g.attrs["sparse_skipped"] = self.skipped_reason
             chunks = (
                 dict(chunks=(max(1, min(len(flat), 10000)),), maxshape=(None,)) if len(flat) else {}
             )

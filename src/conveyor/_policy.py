@@ -1,18 +1,22 @@
 """What the conveyor agrees to write: sparse pixels, 1D powder and ring sums, and nothing that
-would be larger than the data it came from.
+fills the disk with more than the data it came from.
 
-A Policy is checked before a run (from the backend and the units) and, through a GuardSink, on the
-compressed size of every unit while it runs.  It is a place to evolve the rules, not a file format.
+A Policy has two parts, and neither stops a useful job.
 
-    kinds    "sparse"    pixels above a cut, at most howmany per frame: howmany must be set
+  * Sparse pixels are checked as they come (GuardSink): a unit whose pixels, compressed as they
+    would be stored, are larger than the compressed frames they came from is not sparse (a cut that
+    is too low, howmany None on a dense image).  Its pixels are not written, a warning and the run
+    result say so, and the job goes on: the powder and ring sums of those frames are written as
+    usual.  The pixels of the other units are written.
+  * A powder result (1D, rings) is dense and does not compress, so before the run its bins are
+    counted at full size against the compressed frame.  A matrix with so many bins that every frame
+    would give more than it read (a 2D cake in disguise) is refused before anything starts.
+
+    kinds    "sparse"    pixels above a cut, at most howmany per frame (howmany None: all of them)
              "powder1d"  a 1D powder per frame (needs a matrix)
              "rings"     ring windows x azimuth bins per frame (needs a matrix)
     2D powder and FAZIT images are as large as or larger than the frames, so they have no writer:
     they are returned to memory (see iterate).
-
-A powder result is dense and does not compress, so the check before the run counts its bins at
-full size against the compressed frames it is made from.  Sparse pixels do compress, and are
-checked as they come (GuardSink).
 """
 
 from ._sinks import GuardSink
@@ -26,12 +30,11 @@ class OutputRefused(ValueError):
 
 
 class Policy(object):
-    """kinds       one kind or a tuple of them (KINDS), what will be written
-    max_howmany  sparse: the largest howmany allowed (None: any, but it must be set)
-    limit        largest (output)/(input) ratio, both compressed; 1.0: not larger than the input
-    codec        "bslz4" or "bszstd": the codec the output is sized with (and is meant to use)"""
+    """kinds   one kind or a tuple of them (KINDS), what will be written
+    limit   largest (output)/(input) ratio, both compressed; 1.0: not larger than the input
+    codec   "bslz4" or "bszstd": the codec the output is sized with (and is meant to use)"""
 
-    def __init__(self, kinds, max_howmany=None, limit=1.0, codec="bslz4"):
+    def __init__(self, kinds, limit=1.0, codec="bslz4"):
         self.kinds = (kinds,) if isinstance(kinds, str) else tuple(kinds)
         for k in self.kinds:
             if k in MEMORY_ONLY:
@@ -41,20 +44,11 @@ class Policy(object):
                 )
             if k not in KINDS:
                 raise ValueError("kind %r: one of %r" % (k, KINDS))
-        self.max_howmany, self.limit, self.codec = max_howmany, limit, codec
+        self.limit, self.codec = limit, codec
 
     def check(self, backend, units):
-        """Raise OutputRefused when the backend and units would not give an allowed output."""
+        """Raise OutputRefused when the matrix would give more bins than the frame it is made from."""
         mean_in = sum(int(u.lengths.sum()) for u in units) / float(sum(u.n for u in units))
-        if "sparse" in self.kinds:
-            hm = getattr(backend, "howmany", None)
-            if hm is None:
-                raise OutputRefused(
-                    "sparse output needs howmany set (the most pixels kept per frame; "
-                    "ImageD11's lima_segmenter uses 100000)"
-                )
-            if self.max_howmany is not None and hm > self.max_howmany:
-                raise OutputRefused("howmany %d is over the limit %d" % (hm, self.max_howmany))
         if any(k in self.kinds for k in ("powder1d", "rings")):
             csc = getattr(backend, "csc", None)
             if csc is None:
@@ -68,7 +62,8 @@ class Policy(object):
                 )
 
     def wrap(self, sink_factory):
-        """The sink factory with every sink guarded on the compressed size of each unit."""
+        """The sink factory with every sink guarded: its sparse pixels are not written for a unit
+        where they are not sparse."""
         return lambda k: GuardSink(sink_factory(k), self.codec, self.limit)
 
 

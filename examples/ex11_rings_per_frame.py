@@ -58,20 +58,27 @@ with tempfile.TemporaryDirectory() as tmp:
     out = os.path.join(tmp, "rings")
     conveyor.run(
         units,
-        # howmany=0: rings only, no sparse pixels
-        conveyor.CpuBackend(np.ones(shape, np.uint8), dtype, csc=rings.csc, howmany=0),
+        # the sparse pixels come from the same pass: what is in the images is not ours to say
+        conveyor.CpuBackend(np.ones(shape, np.uint8), dtype, csc=rings.csc, cut=3, howmany=1000),
         workers=2,
-        sink=lambda k: conveyor.RingSink(rings, out, DSET, ring, role),
-        policy=conveyor.Policy("rings"),
+        sink=lambda k: conveyor.TeeSink(
+            conveyor.RingSink(rings, out, DSET, ring, role),
+            conveyor.ImageD11SparseSink(out, DSET),
+        ),
+        policy=conveyor.Policy(("sparse", "rings")),
     )
     with h5py.File(os.path.join(out, conveyor.rings_name(paths[1])), "r") as h:
         g = h[DSET.strip("/")]
         intensity, roles = g["intensity"][:], g["role"][:]
         bins = g["window_nbins"][:]
 
+    with h5py.File(os.path.join(out, conveyor.imaged11_name(paths[1])), "r") as h:
+        npx = h[DSET.strip("/")]["nnz"][:]
+
 # frames, windows (below, ring, above), azimuth bins; the ring window is the brightest
 assert intensity.shape == (6, 3, 12) and list(roles) == [-1, 0, 1]
 assert (intensity[:, 1] / bins[1]).mean() > (
     intensity[:, [0, 2]].mean(axis=(0, 2)) / bins[[0, 2]]
 ).max()
+assert npx.shape == (6,) and npx.max() <= 1000  # the pixels of the same frames, in the same order
 print("intensity %s: frames, windows %s, azimuth bins" % (intensity.shape, list(roles)))

@@ -4,8 +4,7 @@ Writing results is a sink's job, and file formats are the user's choice.  Often 
 simpler: take every frame's sparse pixels (or powder) into your own code as they are decoded.
 iterate() runs the conveyor behind a for loop; each item is one batch of frames, a copy you may keep.
 Batches arrive in the order the workers finish them: file and frame0 say where each belongs.
-A Policy checks beforehand that the output is one the conveyor agrees to write, and refuses
-what is not a reduction.
+A Policy guards what is written; here nothing is, so it only checks the kind of output.
 """
 
 import os
@@ -42,7 +41,7 @@ with tempfile.TemporaryDirectory() as tmp:
     units, frame_shape, dtype = conveyor.make_units(paths, DSET, max_bytes=3000)
     backend = conveyor.CpuBackend(mask, dtype, howmany=500)
 
-    # sparse pixels are allowed when howmany is set; the loop gets them as they are decoded
+    # the loop gets the pixels as they are decoded (a Policy guards what is written, not what is iterated)
     total = {}
     for file, frame0, npx, values, indices, powder in conveyor.iterate(
         units, backend, workers=2, batch=8, policy=conveyor.Policy("sparse")
@@ -51,16 +50,8 @@ with tempfile.TemporaryDirectory() as tmp:
             total[(file, frame0 + j)] = int(values[j, :n].sum(dtype=np.int64))
     assert total == truth
 
-    # without howmany the sparse output is refused before anything is read
-    try:
-        conveyor.run(units, conveyor.CpuBackend(mask, dtype), 2, policy=conveyor.Policy("sparse"))
-    except conveyor.OutputRefused as e:
-        refused = str(e)
-    assert "howmany" in refused
-
     # stopping early stops the run
     first = next(iter(conveyor.iterate(units, backend, workers=2)))
     assert first[0] in (0, 1, 2)
 
 print("%d frames through a for loop, equal to the sums of the input" % len(total))
-print("refused: " + refused)

@@ -59,8 +59,9 @@ global lock.  A faster worker simply takes more files, and the only
 synchronisation is about once per file.  The conveyor is pure Python 3.
 
 Every run reports the compressed bytes read, the bytes of results and the rates.
-A guard sink measures the results compressed as they would be stored and refuses
-to write anything larger than the compressed input it came from.  A policy states what
+A guard sink measures the sparse pixels compressed as they would be stored and, for a
+file where they are not sparse, does not write them and says so, while the powder and
+ring sums of the same frames are written as usual.  A policy states what
 the conveyor agrees to write, and results can also be taken in memory as a plain
 iterator, which is how to read them without choosing a file format.  For writing there is
 one sparse file per input file in ImageD11's layout, with the powder kept as exact

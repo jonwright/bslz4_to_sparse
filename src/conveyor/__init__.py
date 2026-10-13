@@ -20,7 +20,7 @@ no HDF5; cupy is needed only for the GPU backend.
 
 from ._index import read_index, write_index, harvest, sidecar_path, StaleIndex
 from ._source import make_units
-from ._sinks import Sink, NullSink, GuardSink, OutputTooLarge, stored_size
+from ._sinks import Sink, NullSink, GuardSink, TeeSink, stored_size
 from ._backends import CpuBackend, DecompressBackend, GpuBackend
 from ._policy import Policy, OutputRefused
 from ._iter import iterate
@@ -42,7 +42,7 @@ __all__ = [
     "GuardSink",
     "Policy",
     "OutputRefused",
-    "OutputTooLarge",
+    "TeeSink",
     "stored_size",
     "CpuBackend",
     "DecompressBackend",

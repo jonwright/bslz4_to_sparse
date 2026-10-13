@@ -295,47 +295,64 @@ def test_a_faster_worker_takes_more_units(tmp_path):
     assert done[0] < min(done[1], done[2]) / 2, done
 
 
-def test_report_and_the_size_guard(tmp_path):
+def test_report_and_the_guard_drops_only_pixels_that_are_not_sparse(tmp_path):
     pytest.importorskip("bitshuffle")
+    import scipy.sparse as sp
+
     paths = make_files(tmp_path)
     units, shape, dtype = cv.make_units(paths, DSET, max_bytes=4000)
     mask = np.ones(SHAPE, np.uint8)
-    backend = cv.CpuBackend(mask, dtype)
-    # within the limit: the inner sink gets exactly what a direct decode gives
-    Collect.out = {}
-    r = cv.run(
-        units,
-        backend,
-        workers=2,
-        sink=lambda k: cv.GuardSink(Collect(), limit=1e6),
-        batch=8,
+    npix = int(np.prod(SHAPE))
+    m = sp.csc_matrix(
+        (np.ones(npix, np.float32), (np.arange(npix) % 7, np.arange(npix))), (7, npix)
     )
-    assert Collect.out == direct(paths, mask)
+    backend = cv.CpuBackend(mask, dtype, csc=m)
+    want = direct(paths, mask)
+
+    class Both(Collect):
+        """pixels as Collect, and the powder sums per frame"""
+
+        powder = {}
+
+        def write(self, file, frame0, npx, values, indices, powder):
+            Collect.write(self, file, frame0, npx, values, indices, powder)
+            with Collect.lock:
+                for j in range(len(npx)):
+                    Both.powder[(file, frame0 + j)] = powder[j].copy()
+
+    # within the limit: the inner sink gets exactly what a direct decode gives
+    Collect.out, Both.powder = {}, {}
+    r = cv.run(units, backend, workers=2, sink=lambda k: cv.GuardSink(Both(), limit=1e6), batch=8)
+    assert Collect.out == want and r["sparse_skipped"] == []
+    ref_powder = dict(Both.powder)
     assert r["in_bytes"] == sum(int(u.lengths.sum()) for u in units)
-    assert r["out_bytes"] > 0 and r["stored_bytes"] > 0
-    assert r["stored_over_in"] == pytest.approx(r["stored_bytes"] / r["in_bytes"], abs=1e-4)
-    assert "stored" in cv.report(r) and "input" in cv.report(r)
-    # nothing is written once a unit is refused
-    Collect.out = {}
-    with pytest.raises(RuntimeError, match="OutputTooLarge"):
-        cv.run(
-            units,
-            backend,
-            workers=2,
-            sink=lambda k: cv.GuardSink(Collect(), limit=1e-9),
-            batch=8,
+    assert r["out_bytes"] > 0 and r["sparse_stored_bytes"] > 0
+    assert r["sparse_stored_over_in"] == pytest.approx(
+        r["sparse_stored_bytes"] / r["in_bytes"], abs=1e-4
+    )
+    assert "sparse pixels" in cv.report(r) and "input" in cv.report(r)
+    # over the limit: no pixels reach the sink, the job goes on, the powder is the same, and the
+    # result and a warning say so
+    Collect.out, Both.powder = {}, {}
+    with pytest.warns(UserWarning, match="not sparse"):
+        r = cv.run(
+            units, backend, workers=2, sink=lambda k: cv.GuardSink(Both(), limit=1e-9), batch=8
         )
-    assert Collect.out == {}
+    assert r["frames"] == 3 * 37 and len(r["sparse_skipped"]) == len(units)
+    assert all(v[0] == 0 for v in Collect.out.values())  # no pixels
+    assert Both.powder.keys() == ref_powder.keys()
+    assert all(np.array_equal(Both.powder[k], ref_powder[k]) for k in ref_powder)
+    assert "NOT WRITTEN" in cv.report(r)
     zs = pytest.importorskip("zstandard") and cv.stored_size(
         [np.arange(5000, dtype=np.uint32)], "bszstd"
     )
     assert 0 < zs < 20000
-    # without a guard the report has no stored size
+    # without a guard the report has no sparse size
     r = cv.run(units, backend, workers=2, batch=8)
-    assert r["stored_bytes"] is None and "stored" not in cv.report(r)
+    assert r["sparse_stored_bytes"] is None and "sparse pixels" not in cv.report(r)
 
 
-def test_policy_allows_sparse_and_powder_and_refuses_the_rest(tmp_path):
+def test_policy_refuses_only_what_has_no_writer_or_too_many_bins(tmp_path):
     import scipy.sparse as sp
 
     paths = make_files(tmp_path)
@@ -347,12 +364,9 @@ def test_policy_allows_sparse_and_powder_and_refuses_the_rest(tmp_path):
             cv.Policy(k)
     with pytest.raises(ValueError):
         cv.Policy("nonsense")
-    # sparse: howmany must be set, and may be capped
-    with pytest.raises(cv.OutputRefused, match="howmany"):
-        cv.Policy("sparse").check(cv.CpuBackend(mask, dtype), units)
+    # sparse: nothing is refused beforehand, whatever howmany is: the guard sizes what comes
+    cv.Policy("sparse").check(cv.CpuBackend(mask, dtype), units)
     cv.Policy("sparse").check(cv.CpuBackend(mask, dtype, howmany=100), units)
-    with pytest.raises(cv.OutputRefused, match="limit"):
-        cv.Policy("sparse", max_howmany=50).check(cv.CpuBackend(mask, dtype, howmany=100), units)
     # powder: needs a matrix, and its dense bins must be smaller than the compressed frame
     with pytest.raises(cv.OutputRefused, match="matrix"):
         cv.Policy("powder1d").check(cv.CpuBackend(mask, dtype), units)

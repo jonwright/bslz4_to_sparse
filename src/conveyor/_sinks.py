@@ -29,7 +29,12 @@ class Sink(object):
         raise NotImplementedError
 
     def end_unit(self, unit):
-        """called after the last batch of a unit; may raise OutputTooLarge to refuse it"""
+        """called after the last batch of a unit"""
+
+    def sparse_skipped(self, unit, reason):
+        """called (before the batches of the unit) when the sparse pixels of a unit are not passed
+        on because they were not sparse: the batches then carry no pixels (npx is 0).  The powder
+        is passed on as always."""
 
     def end(self):
         """flush and close; return a dict of statistics"""
@@ -51,11 +56,6 @@ class NullSink(Sink):
     def end(self):
         """The counts: dict(frames, pixels)."""
         return dict(frames=self.frames, pixels=self.pixels)
-
-
-class OutputTooLarge(RuntimeError):
-    """A unit's results, compressed for writing, are larger than the compressed input they came
-    from: the job would inflate the data, so it is refused."""
 
 
 def stored_size(arrays, codec="bslz4"):
@@ -82,21 +82,23 @@ def stored_size(arrays, codec="bslz4"):
 
 
 class GuardSink(Sink):
-    """Wraps a sink and refuses to let it write what would be larger than it read.
+    """Wraps a sink and keeps it from writing sparse pixels that are not sparse.
 
-    A unit's results are kept in memory until the unit is complete, then compressed with the
-    write codec as they would be stored (the pixels, their indices, the counts, the powder sums,
-    one stream each) and compared with the compressed input of the unit.  Within limit times the
-    input they are passed on to the inner sink; otherwise OutputTooLarge stops the run before
-    anything was written.  Results of a unit are in RAM meanwhile: units are seconds of work.
+    The pixels of a unit (their values, indices and counts) are kept in memory until the unit is
+    complete, then compressed with the write codec as they would be stored and compared with the
+    compressed input of the unit.  Within limit times the input they are passed on.  Over it
+    (frames that are not sparse, a cut that is too low, howmany None on a dense image) they are
+    not: the inner sink gets sparse_skipped(unit, reason) and batches without pixels, and the
+    unit goes on into the list in skipped.  The powder sums are always passed on, and the job
+    never stops for this.  Results of a unit are in RAM meanwhile: units are seconds of work.
 
-    inner  the Sink that writes;  codec  "bslz4" or "bszstd";  limit  largest allowed
-    (compressed output) / (compressed input), 1.0: not larger than the input.
-    end() adds in_bytes, stored_bytes (what was measured, all units) to the inner statistics."""
+    inner  the Sink that writes;  codec  "bslz4" or "bszstd";  limit  largest (compressed pixels)
+    / (compressed input), 1.0: not larger than the input.
+    end() adds in_bytes, sparse_stored_bytes (measured, all units) and skipped to the statistics."""
 
     def __init__(self, inner, codec="bslz4", limit=1.0):
         self.inner, self.codec, self.limit = inner, codec, limit
-        self.held, self.in_bytes, self.stored_bytes = [], 0, 0
+        self.held, self.in_bytes, self.stored_bytes, self.skipped = [], 0, 0, []
 
     def begin(self, meta):
         self.inner.begin(meta)
@@ -120,22 +122,23 @@ class GuardSink(Sink):
         )
 
     def end_unit(self, unit):
-        """Compare the unit's compressed results with its compressed input; write or refuse."""
+        """Size the unit's pixels compressed against its compressed input; pass them on or not."""
         npx = np.concatenate([h[2] for h in self.held])
-        vals = np.concatenate([h[3][i, : h[2][i]] for h in self.held for i in range(len(h[2]))])
-        idx = None
-        if self.held[0][4] is not None:
-            idx = np.concatenate([h[4][i, : h[2][i]] for h in self.held for i in range(len(h[2]))])
-        pw = None
-        if self.held[0][5] is not None:
-            pw = np.concatenate([h[5] for h in self.held])
-        out = stored_size([npx, vals, idx, pw], self.codec)
+        out = 0
+        if npx.any():
+            rows = [(h, i) for h in self.held for i in range(len(h[2]))]
+            vals = np.concatenate([h[3][i, : h[2][i]] for h, i in rows])
+            idx = None
+            if self.held[0][4] is not None:
+                idx = np.concatenate([h[4][i, : h[2][i]] for h, i in rows])
+            out = stored_size([npx, vals, idx], self.codec)
         inp = int(unit.lengths.sum())
         self.in_bytes += inp
         self.stored_bytes += out
         if out > self.limit * inp:
-            raise OutputTooLarge(
-                "%s frames %d-%d: %d bytes compressed (%s) for %d bytes of input, over %g x"
+            reason = (
+                "%s frames %d-%d: the pixels are %d bytes compressed (%s) for %d bytes of input, "
+                "over %g x: not sparse (set howmany, or a higher cut)"
                 % (
                     unit.path,
                     unit.frame0,
@@ -146,13 +149,56 @@ class GuardSink(Sink):
                     self.limit,
                 )
             )
-        for h in self.held:
-            self.inner.write(*h)
+            self.skipped.append(dict(path=unit.path, frame0=unit.frame0, n=unit.n, reason=reason))
+            self.inner.sparse_skipped(unit, reason)
+            for f, f0, n, v, ix, pw in self.held:
+                self.inner.write(
+                    f, f0, np.zeros_like(n), v[:, :0], None if ix is None else ix[:, :0], pw
+                )
+        else:
+            for h in self.held:
+                self.inner.write(*h)
         self.held = []
         self.inner.end_unit(unit)
 
     def end(self):
-        """The inner statistics with in_bytes and stored_bytes."""
+        """The inner statistics with in_bytes, sparse_stored_bytes and skipped."""
         st = dict(self.inner.end())
-        st.update(in_bytes=self.in_bytes, stored_bytes=self.stored_bytes)
+        st.update(
+            in_bytes=self.in_bytes, sparse_stored_bytes=self.stored_bytes, skipped=self.skipped
+        )
+        return st
+
+
+class TeeSink(Sink):
+    """Several sinks in one: every call goes to each of them, in order (sparse pixels to a pixel
+    writer and the powder to a ring writer, say).  end() merges their statistics."""
+
+    def __init__(self, *sinks):
+        self.sinks = sinks
+
+    def begin(self, meta):
+        for s in self.sinks:
+            s.begin(meta)
+
+    def begin_unit(self, unit):
+        for s in self.sinks:
+            s.begin_unit(unit)
+
+    def sparse_skipped(self, unit, reason):
+        for s in self.sinks:
+            s.sparse_skipped(unit, reason)
+
+    def write(self, file, frame0, npx, values, indices, powder):
+        for s in self.sinks:
+            s.write(file, frame0, npx, values, indices, powder)
+
+    def end_unit(self, unit):
+        for s in self.sinks:
+            s.end_unit(unit)
+
+    def end(self):
+        st = {}
+        for s in self.sinks:
+            st.update(s.end())
         return st

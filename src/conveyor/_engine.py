@@ -24,6 +24,7 @@ import queue
 import resource
 import threading
 import time
+import warnings
 
 import numpy as np
 
@@ -337,13 +338,15 @@ def run(
     if errors:
         raise RuntimeError(errors[0])
     wk = sorted((s for s in got if s["role"] == "worker"), key=lambda s: s["k"])
-    stored = [s["sink"]["stored_bytes"] for s in wk if "stored_bytes" in (s.get("sink") or {})]
+    sinks = [s.get("sink") or {} for s in wk]
+    stored = [k["sparse_stored_bytes"] for k in sinks if "sparse_stored_bytes" in k]
+    skipped = [x for k in sinks for x in k.get("skipped", [])]
     in_bytes = sum(int(u.lengths.sum()) for u in units)
     out_bytes = sum(s["out_bytes"] for s in wk)
     rd = [s for s in got if s["role"] == "reader"]
     frames = sum(s["frames"] for s in wk)
     busy = [s for s in wk if s["active_s"] > 0]
-    return dict(
+    result = dict(
         mode=mode,
         workers=workers,
         frames=frames,
@@ -357,11 +360,12 @@ def run(
         # what the sink measured compressed for writing (a GuardSink; else None)
         in_bytes=in_bytes,
         out_bytes=out_bytes,
-        stored_bytes=sum(stored) if stored else None,
+        sparse_stored_bytes=sum(stored) if stored else None,
+        sparse_skipped=skipped,
         in_gbs=round(in_bytes / wall / 1e9, 3),
         out_gbs=round(out_bytes / wall / 1e9, 3),
         out_over_in=round(out_bytes / in_bytes, 4),
-        stored_over_in=round(sum(stored) / in_bytes, 4) if stored else None,
+        sparse_stored_over_in=round(sum(stored) / in_bytes, 4) if stored else None,
         slot_mb=round(slot_bytes / 1e6),
         memory_gb=round(workers * S * slot_bytes / 1e9, 2),
         worker_cpu_cores=round(sum(s["cpu_s"] for s in wk) / wall, 2),
@@ -381,6 +385,13 @@ def run(
         files=len(units),
         sink=[s.get("sink") for s in wk][:1],
     )
+    if skipped:
+        warnings.warn(
+            "sparse pixels were not written for %d of %d units because they were not sparse: %s"
+            % (len(skipped), len(units), skipped[0]["reason"]),
+            stacklevel=2,
+        )
+    return result
 
 
 def report(r):
@@ -393,10 +404,15 @@ def report(r):
         "output %.3f GB as handed to the sink, %.3f GB/s, %.4f of the input"
         % (r["out_bytes"] / 1e9, r["out_gbs"], r["out_over_in"]),
     ]
-    if r["stored_bytes"] is not None:
+    if r["sparse_stored_bytes"] is not None:
         out.append(
-            "stored %.3f GB compressed for writing, %.4f of the input"
-            % (r["stored_bytes"] / 1e9, r["stored_over_in"])
+            "sparse pixels %.3f GB compressed for writing, %.4f of the input"
+            % (r["sparse_stored_bytes"] / 1e9, r["sparse_stored_over_in"])
+        )
+    if r["sparse_skipped"]:
+        out.append(
+            "SPARSE PIXELS NOT WRITTEN for %d units (not sparse), e.g. %s"
+            % (len(r["sparse_skipped"]), r["sparse_skipped"][0]["reason"])
         )
     b = r["busy_frac"]
     out.append(
