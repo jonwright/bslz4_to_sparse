@@ -66,9 +66,10 @@ file where they are not sparse, does not write them and says so, while the powde
 ring sums of the same frames are written as usual.  A policy states what
 the conveyor agrees to write, and results can also be taken in memory as a plain
 iterator, which is how to read them without choosing a file format.  For writing there is
-one sparse file per input file in ImageD11's layout, with the powder kept, when the decoder
-is asked for exact sums, as integer sums and a power-of-two scale, and a small integrator file (geometry, sparse
-matrix, normalisation) that turns the sums into pyFAI's intensities.  For texture work there is a ring writer: per frame, for
+one sparse file per input file in ImageD11's layout, with the powder kept, for 16-bit
+pixels, as integer sums and a power-of-two scale (float sums for wider pixels), and a small
+integrator file (geometry, sparse matrix, normalisation) that turns the sums into pyFAI's
+intensities.  For texture work there is a ring writer: per frame, for
 every ring and azimuth bin, the sum over the ring's window and over a background
 window either side, in the frame order of each input file.
 

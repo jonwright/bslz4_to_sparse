@@ -386,14 +386,13 @@ BSB_MAX_BLOCK_ELEMS = 65536   # bsb-csr's in-block pixel index is uint16
 
 
 def auto_dot(info, padded_avx2, block_elems=None):
-    """The best measured choice (tools/bench_kernels.py, Xeon Gold 6248 and
-    EPYC 9655, 2026-10-10): a histogram -> bsb-csr-nosplit; one run of <= 8 bins per pixel -> padded-avx2 (1.4-1.9x
-    on dense frames, the AVX2 rows) or padded; else few occupied pixels (rings)
-    -> bsb-csr; runs of 9-64 bins -> padded for decode blocks of <= 8192
-    pixels, csc for larger ones (csc-run was never the best); else csc.  Decode blocks
-    over BSB_MAX_BLOCK_ELEMS pixels rule the bsb-csr dots out (csc-nosplit,
-    csc instead).  Never csc-permute or the integer dots: they change the
-    output type."""
+    """The float dot to use for a matrix, from the kernels measured by tools/bench_kernels.py (the
+    Every pipeline page of the documentation): a histogram -> bsb-csr-nosplit; one run of <= 8
+    bins per pixel -> padded-avx2 (on dense frames) or padded; else few occupied pixels (rings) ->
+    bsb-csr; runs of 9-64 bins -> padded for decode blocks of <= 8192 pixels, csc for larger ones
+    (csc-run was never the best); else csc.  Decode blocks over BSB_MAX_BLOCK_ELEMS pixels rule
+    the bsb-csr dots out (csc-nosplit, csc instead).  Never csc-permute (it changes the output) or
+    the integer dots: chunk2sparseCSC chooses those itself, for its exact sums."""
     bsb = block_elems is None or block_elems <= BSB_MAX_BLOCK_ELEMS
     if info["nosplit"]:
         return "bsb-csr-nosplit" if bsb else "csc-nosplit"

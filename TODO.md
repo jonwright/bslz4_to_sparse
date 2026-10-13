@@ -1,15 +1,24 @@
 # To do
 
-- **u32 precision and wtmax.** The exact (fixed-point) dot leaves the weights 2^-17 to 2^-22
-  for u32 pixels, because the scale must cover the full u32 range; u16 gets 2^-31 or finer.
-  Setting wtmax (ImageD11's largest allowed intensity) lower would give finer weights, but needs
-  the u32 kernels changed to clip the pixel values inside the dot (the GPU `maxval` argument
-  already takes the bound for the weights). Until then wtmax is applied afterwards,
-  bit for bit, with `clip_exact_powder` (needs every pixel above wtmax in the sparse output).
+- **u32 precision, maxval and wtmax.** The exact sums are the default for 8 and 16-bit pixels and
+  float for 32-bit ones, because the fixed-point weights must leave int64 headroom for the largest
+  pixel value: for u32 at its dtype maximum a 1D matrix gets 15 to 17 fractional bits (the
+  weights' step 2^-15 to 2^-17, bin sums off by up to a few 1e-6), for 16-bit pixels 31 or 32
+  (tools/fixed_point_precision.py prints this for your matrix and data).  `maxval=` gives the
+  weights more bits when the data cannot reach the dtype maximum, as a promise: pixels above it can
+  overflow the sums silently.  A safe form needs the u32 kernels to clip pixel values inside the
+  dot (ImageD11's wtmax); until then wtmax is applied afterwards, bit for bit, with
+  `clip_exact_powder` (needs every pixel above wtmax in the sparse output).  Decide whether u32
+  data with a known wtmax should be exact by default.
 - **dummy / dynamic mask.** Kept in the sparse output and removed later. Dropping a pixel
   changes the normalisation per frame: the Integrator would need a per-pixel normalisation
   image, not only the per-bin sums.
-- **`exact` as the default** for integer pixels: a results change, to be measured first.
+- **Benchmarks on the ID11 example data.** `tools/bench_docs.py` and `tools/bench_kernels.py` still
+  use the kevlar and eiger4m data sets and cached local matrices; point them at the two example files
+  (CeO2, u32 and dense; silicon, u16 and sparse, in /data/id11/jon/hdftest/bslz4_to_sparse_examples,
+  with calib.poni and mask.h5), so that anyone can reproduce the tables of the performance and
+  kernels pages on their own computer, and re-measure docs/bench/*.json on both machines (they
+  predate the current code, and still list the removed csc-nosplit-moment dot).
 - **Dark subtraction and error bars** (pyFAI's variance models): not in the sums.
 
 ## Future work: a cut that is an image

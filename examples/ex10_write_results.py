@@ -1,11 +1,13 @@
 """Writing results: ImageD11 sparse files with exact powder sums, and the integrator beside them.
 
 One output file per input file (workers never share a file; a later step gathers them), in ImageD11's
-sparse layout.  The powder is kept as int64 sums of fixed-point weights with the power-of-two scale that
-turns them into float (chunk2sparseCSC exact=True), so the sums themselves are exact integers.  What turns sums into intensities (the pyFAI geometry,
-the sparse matrix and the normalisation of an image of ones) is saved once, as an Integrator file
-that the results point to.  The conveyor's Policy checks that nothing written is larger than what
-was read.
+sparse layout.  The powder is kept as int64 sums of fixed-point weights, with the power-of-two scale
+that turns them into float: the sums themselves are exact integers.  That is the default for 16-bit
+pixels; exact=True asks for it for wider ones too, whose weights are coarser because the sums must
+leave room for larger pixel values (tools/fixed_point_precision.py shows by how much).  What turns
+sums into intensities (the pyFAI geometry, the sparse matrix and the normalisation of an image of
+ones) is saved once, as an Integrator file that the results point to.  The conveyor's Policy checks
+that nothing written is larger than what was read.
 """
 
 import glob
