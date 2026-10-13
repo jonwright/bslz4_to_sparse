@@ -157,8 +157,8 @@ def ring_matrices(ai, split):
 @pytest.mark.parametrize("split", ["no", "bbox"])
 def test_ring_first_moment(setup, split, order):
     """sum(I) and sum(q I) per (ring, azimuth): plain extra matrix rows, so
-    every dot that accepts the matrix must match numpy.  csc-nosplit-moment
-    takes exactly the no-split interleaved case; csc-run every interleaved one
+    every dot that accepts the matrix must match numpy.  csc-run takes every
+    interleaved one
     (a pixel's entries stay one run of consecutive bins)."""
     ai, mask, frames, chunks, codec = setup
     M = ring_matrices(ai, split)[order]
@@ -177,7 +177,6 @@ def test_ring_first_moment(setup, split, order):
             r, tol = expected(integ, frames * keep.reshape(frames.shape[1:]), ref)
             err = np.abs(p - r).max() / scale
             assert err < tol, (dot, route, split, order, err)
-    assert ("csc-nosplit-moment" in seen) == (split == "no" and order == "inter")
     assert ("csc-run" in seen) == (order == "inter")
     assert "csc-nosplit" not in seen
 

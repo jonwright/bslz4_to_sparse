@@ -73,7 +73,7 @@ DEFAULT_CASES = ("1D no x1", "1D bbox x1", "1D bbox x5",
                  "rings", "rings+mom inter", "rings no", "rings+mom inter no", "fazit")
 FAZIT_DOTS = ("csc-nosplit", "bsb-csr-nosplit", "csc-permute")
 CORE_DOTS = ("csc", "padded", "padded-avx2", "csc-run", "csc-nosplit", "bsb-csr",
-             "bsb-csr-nosplit", "csc-nosplit-moment", "csc-permute", "csc-int", "csc-run-int",
+             "bsb-csr-nosplit", "csc-permute", "csc-int", "csc-run-int",
              "csc-run-int16")
 BATCH = 25
 NAZIM = 360
