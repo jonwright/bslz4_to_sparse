@@ -43,14 +43,14 @@ int bitshuf_decode_block(char *out, const char *in, char *scratch, size_t size, 
 #ifndef BSLZ4_LOWPLANES_SKIP_RATIO
 /* The AVX-512 fused collect transposes only the 64-pixel groups holding
  * data (a bitmap from ORing the planes) in blocks compressed more than this;
- * every group otherwise.  hpc8: 0.1 % frames -25 %, WAu0012 -8 %; at 16x
- * WAu0008 blocks (~44 % of groups busy) gained nothing. */
+ * every group otherwise.  It pays on sparse blocks; on blocks with many busy
+ * groups it gains nothing. */
 #define BSLZ4_LOWPLANES_SKIP_RATIO 48
 #endif
 
-/* POWER: branch-free emit for blocks compressed more than this (9 % frames
- * -18 %; on dense blocks nearly every pixel passes and the store chain is
- * serial: +89 %) */
+/* POWER: branch-free emit for blocks compressed more than this (on dense
+ * blocks nearly every pixel passes and the store chain is serial, so it is
+ * slower there) */
 #define BSLZ4_LOWPLANES_BRANCHFREE_RATIO 8
 
 /* planes at or past the decoder's nz_end are read from here (a tile's planes,
@@ -201,9 +201,9 @@ static inline void bslz4_lowplanes_group(const uint8_t *const *BSLZ4_RESTRICT pl
  * groups holding a pixel are many and scattered, so a branch per group
  * mispredicts.  Pass 1 records every group's bytes and selection, pass 2
  * emits only the groups with pixels, found by bit scan (one mispredict per
- * block).  One pass, skipping empty groups, was ~4 % faster at cut 2 but
- * ~30 % slower at cut 0; choosing per block from the previous block's hit
- * rate kept neither (WAu, 2026-10-04). */
+ * block).  One pass, skipping empty groups, was slightly faster at cut 2 but
+ * much slower at cut 0; choosing per block from the previous block's hit
+ * rate kept neither. */
 __attribute__((target("avx512f,avx512bw,avx512vl,avx512vbmi,avx512vbmi2,gfni,popcnt")))
 static int bslz4_lowplanes_collect_u16(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
                                        const uint8_t *BSLZ4_RESTRICT zeros,
@@ -235,7 +235,7 @@ static int bslz4_lowplanes_collect_u16(uint8_t *BSLZ4_RESTRICT raw, size_t ne, s
         /* the 64-pixel groups holding any data: the planes ORed 64 bytes (8
          * groups) at a time, one test per 8 groups; with skip, only those are
          * transposed (on sparse frames most are empty).  Without skip, a plain
-         * counted loop (the bit-scan loop over every group cost 2-5 % there). */
+         * counted loop (the bit-scan loop over every group cost more there). */
         if (skip && tsize % 64 == 0) {
             uint64_t gnz[NW] = {0};
             for (size_t i = 0; i < tsize; i += 64) {
@@ -303,8 +303,8 @@ static int bslz4_high_planes_zero(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t
 /* The byte skip without VBMI + GFNI (AVX2, or AVX-512BW without VBMI): the 8
  * low bit-planes are untransposed as one-byte elements -- kcb picks its
  * AVX-512BW / AVX2 / SSE2 kernel -- into scratch, then widened to u16.  Half
- * the bit transpose of the full path and no byte transpose (EPYC 7543: the
- * bit transpose was 20-48 % of sparsify). */
+ * the bit transpose of the full path and no byte transpose (the bit transpose is a
+ * large part of sparsify without AVX-512). */
 __attribute__((target("avx2")))
 static void bslz4_widen_u8_u16_avx2(uint16_t *BSLZ4_RESTRICT out, const uint8_t *BSLZ4_RESTRICT in,
                                     size_t n) {
@@ -368,8 +368,8 @@ static inline int bslz4_collect_u8_swar(const uint8_t *BSLZ4_RESTRICT v8, const 
  * transpose per doubleword) gives the 64 pixel bytes; planes at or past
  * nz_end are read from `zeros`; a group whose plane bytes are all zero is
  * skipped; the pixels > cut (and unmasked) are collected from the bytes with
- * all-zero 8-byte words skipped.  POWER9: kcb's scalar transpose was ~60 %
- * of WAu sparsify after the byte skip. */
+ * all-zero 8-byte words skipped.  On POWER9 kcb's scalar transpose
+ * dominated sparsify after the byte skip. */
 static int bslz4_lowplanes_collect_vsx(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
                                        const uint8_t *BSLZ4_RESTRICT zeros,
                                        const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
@@ -411,9 +411,9 @@ static int bslz4_lowplanes_collect_vsx(uint8_t *BSLZ4_RESTRICT raw, size_t ne, s
             if (branchfree) {
                 /* store every pixel, advance by its selection (the stores past
                  * the count stay below base + b <= the block's end): no
-                 * mispredicts where the selection is scattered (9 % frames
-                 * -18 %), but a serial chain where nearly every pixel passes
-                 * (dense +89 %), so only for well-compressed blocks */
+                 * mispredicts where the selection is scattered, but a
+                 * serial chain where nearly every pixel passes (dense), so
+                 * only for well-compressed blocks */
                 for (size_t b = w; b < w + 8; b++) {
                     const unsigned v = ub[b];
                     out_vals[npx] = (uint16_t) v;

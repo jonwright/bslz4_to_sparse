@@ -11,9 +11,9 @@
  *                      bit-plane straight after decode, so masked pixels are
  *                      0 before any untranspose and the block needs no mask
  *                      tests.  Blocks with nothing masked skip it.  Wins
- *                      (-1..-5 % at cut 0) only where masked pixels hold the
- *                      dtype maximum: then they no longer stop the u16 byte
- *                      skip; pure overhead (+2..+17 %) on zero-filled data.
+ *                      only where masked pixels hold the dtype maximum: then
+ *                      they no longer stop the u16 byte skip; pure overhead
+ *                      on zero-filled data.
  *   BSLZ4_MASK_NONE    every pixel valid: no tests at all.
  *
  * The matrix of a dot object is mask-folded (masked pixels have no entries),

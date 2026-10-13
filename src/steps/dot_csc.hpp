@@ -121,8 +121,7 @@ int sparse_dot_core(const bslz4_work *BSLZ4_RESTRICT w, const bslz4_mat_csc *BSL
      * loop applies all staged entries.  The per-pixel loop over 2 or 3
      * entries (pyFAI bbox, at random) mispredicted about once per pixel.
      * Only for blocks averaging 1.5-4 entries per pixel: at 1 (no split) the
-     * staging is pure overhead, at ~7 (5 bins per pixel) it lost too
-     * (real WAu and synthetic frames, 2026-10-04). */
+     * staging is pure overhead, at ~7 (5 bins per pixel) it lost too. */
     const size_t eblk = (size_t) (indptr[i0 + n] - indptr[i0]);
     const int stage = 2 * eblk > 3 * n && eblk < 4 * n;
     uint32_t sk[BSLZ4_DOT_STAGE * 8 + 8];

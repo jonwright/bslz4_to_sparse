@@ -16,8 +16,8 @@
  * then transposes and compares (> cut, unmasked) only those groups, recording
  * bytes and selection with no branch; pass B packs only the groups with
  * selected pixels, with the avx2cs lane table (a group with one pixel: the
- * bit loop).  On sparse frames most groups are never touched; on 9 %-
- * occupied ones there is still no branch per group.  Works in tiles of
+ * bit loop).  On sparse frames most groups are never touched; on
+ * densely occupied ones there is still no branch per group.  Works in tiles of
  * BSLZ4_LOWPLANES_TILE pixels; needs ne % 256 == 0.  Stores reach at most 8
  * entries past the count, within i0 + t + 64 g + 64 <= i0 + ne. */
 #if BSLZ4_HAVE_AVX2_COLLECT
@@ -106,7 +106,7 @@ static int bslz4_lowplanes_collect_avx2_impl(uint8_t *BSLZ4_RESTRICT raw, size_t
                            (uint64_t) (uint32_t) _mm256_movemask_epi8(_mm256_cmpeq_epi8(
                                 _mm256_loadu_si256((const __m256i *) (const void *) (mm + 32)), z)) << 32);
                 }
-                /* record; no branch on k (mispredicts on 9 %-occupied frames) */
+                /* record; no branch on k (mispredicts on densely occupied frames) */
                 _mm256_store_si256((__m256i *) (void *) (ubuf + 64 * g), u0);
                 _mm256_store_si256((__m256i *) (void *) (ubuf + 64 * g + 32), u1);
                 kv[g] = k;

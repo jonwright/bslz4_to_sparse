@@ -7,8 +7,8 @@
  * width - 1, zero padded where the pixel touches fewer bins.  A pixel value
  * v adds v * weights[k] to out[base + k]: one destination and a small vector
  * multiply-add, no index read per entry.  _padded_from_csc (Python) checks
- * the matrix once.  The best 1D split layout measured (2026-10-06, Zen 4,
- * default route): 9 % frames 3.1 ms vs 3.9 csc, WAu0012 0.79 vs 0.99.
+ * the matrix once.  The best 1D split layout measured, faster than csc (tools/bench_kernels.py,
+ * see the Every pipeline page of the documentation).
  *
  * The mask is folded into the matrix first, so a masked pixel's row has
  * zero weights (implicit layout) or no row (listed layout): no mask tests.

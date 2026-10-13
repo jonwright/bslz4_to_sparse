@@ -149,7 +149,7 @@ static int bslz4_lz4_decode_zero(const uint8_t *src, size_t srcsize, uint8_t *ds
             /* 16-byte chunks, as many as mlen needs (a 64-byte load of a source
              * just written by smaller stores stalls on store forwarding), the
              * non-zero bytes gathered as a mask on the way: the trailing zeros
-             * without a byte loop (that loop was 26 % of the decoder on WAu
+             * without a byte loop (that loop dominated the decoder on sparse
              * blocks).  Bytes of a chunk at or past mlen are don't-care. */
             uint64_t nz = 0;
             for (size_t c = 0; c < mlen; c += 16) {
@@ -162,7 +162,7 @@ static int bslz4_lz4_decode_zero(const uint8_t *src, size_t srcsize, uint8_t *ds
         } else if (off >= mlen && (size_t) (olim - op) >= mlen + 16) {
             /* longer: the same chunks, keeping the last one holding a non-zero
              * byte (a byte scan back over long, mostly zero copies made the
-             * decoder 1.7x slower than stock on synthetic sparse blocks) */
+             * decoder slower than stock on sparse blocks) */
             size_t lastc = 0;
             uint32_t lastm = 0;
             for (size_t c = 0; c < mlen; c += 16) {

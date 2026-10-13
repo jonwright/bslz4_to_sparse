@@ -6,7 +6,6 @@
  *   csc-permute     a permutation (FAZIT: each pixel to its own output slot,
  *                   b = indices[p]); the value is stored, not added, in the
  *                   pixel dtype, so the output is the image re-ordered.
- *                   4M dense 8.2 ms vs 27.7 for the double powder of csc.
  *   csc-int         fixed-point integer weights (u32) per CSC entry,
  *   csc-run-int     ... start bin per pixel + u32 weights (csc-run's layout),
  *   csc-run-int16   ... start bin per pixel + u16 weights:

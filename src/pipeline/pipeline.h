@@ -265,9 +265,8 @@ int bslz4_driver_decompress(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
  * They count only between bslz4_reset_counters() (or set_counters(1)) and
  * bslz4_set_counters(0), and are off in a fresh process.  While off the flag is read-only, so
  * decoding threads share no written cache line: with the counters always on, every block of every
- * thread wrote the same few lines and 32 threads ran at a third of the speed of 32 processes
- * (measured 2026-10-12, Xeon Gold 6248: 100 against 326 frames/s per worker;
- * with the counters off, threads and processes were equal). */
+ * thread wrote the same few lines and 32 threads ran much slower than 32 processes
+ * (with the counters off, threads and processes were equal). */
 extern uint64_t bslz4_counters[BSLZ4_NSTEPS][BSLZ4_VALUE_SLOTS];
 extern int bslz4_counters_on;
 static inline void bslz4_counters_bump(int step, int value) {
