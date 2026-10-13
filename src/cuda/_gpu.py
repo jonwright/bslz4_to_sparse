@@ -533,7 +533,12 @@ class chunk2sparse(object):
 
 class chunk2sparseCSC(chunk2sparse):
     """As chunk2sparse, and every frame also goes through the sparse matrix product powder = csc @
-    frame (mask folded into the matrix: masked pixels contribute nothing)."""
+    frame (mask folded into the matrix: masked pixels contribute nothing).
+
+    exact=True (integer pixels): the powder is returned as the int64 sums of the fixed-point dot
+    (acc 'i64', the default then), not converted to float: float powder = powder * powder_scale.
+    The weights and sums are the CPU class's (chunk2sparseCSC(exact=True)), so for the same matrix
+    the two give the same integers."""
 
     def __init__(
         self,
@@ -547,9 +552,15 @@ class chunk2sparseCSC(chunk2sparse):
         maxval=None,
         howmany=None,
         thresholds=None,
+        exact=False,
     ):
         import scipy.sparse as ss
 
+        self._exact = bool(exact)
+        if self._exact:
+            if acc not in ("f64", "i64"):  # f64 is the default: exact means i64
+                raise ValueError("exact needs acc='i64'")
+            acc = "i64"
         if acc not in ACC:
             raise ValueError("acc must be one of %s" % list(ACC))
         self.acc = acc
@@ -598,6 +609,11 @@ class chunk2sparseCSC(chunk2sparse):
         }
         self.csr_info = dict(nnz=int(R.nnz), nbins=int(self.nbins), threads_per_bin=self.wg)
 
+    @property
+    def powder_scale(self):
+        """The factor that turns an integer powder into float (2**-b); None for float accumulators."""
+        return self.scale
+
     def _acc(self):
         return self.acc
 
@@ -629,13 +645,13 @@ class chunk2sparseCSC(chunk2sparse):
 
     def _prepare_outputs(self, nf):
         if getattr(self, "_powder_buf", None) is None or self._powder_buf.shape[0] < nf:
-            self._powder_buf = np.empty((nf, self.nbins), np.float64)
+            self._powder_buf = np.empty((nf, self.nbins), np.int64 if self._exact else np.float64)
         self._powder_out = self._powder_buf[:nf]
 
     def _fetch_powder(self, f0, n):
         h = self.h_powder[:n]
         self.d_powder[:n].get(out=h)  # into pinned memory: no allocation per batch
-        if self.scale is None:
+        if self.scale is None or self._exact:
             self._powder_out[f0 : f0 + n] = h[:, : self.nbins]
         else:
             np.multiply(h[:, : self.nbins], self.scale, out=self._powder_out[f0 : f0 + n])

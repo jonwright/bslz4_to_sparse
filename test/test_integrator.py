@@ -32,10 +32,33 @@ def frame():
     return rng.integers(0, 300, SHAPE).astype(np.uint16)
 
 
-@pytest.mark.parametrize("split", ["no", "bbox"])
-def test_the_intensity_equals_pyfais(tmp_path, split):
+CORRECTIONS = {
+    "none": dict(correctSolidAngle=False),
+    "solid angle": dict(correctSolidAngle=True),
+    "polarization": dict(correctSolidAngle=False, polarization_factor=0.9),
+    "all": dict(correctSolidAngle=True, polarization_factor=0.95, normalization_factor=2.5),
+}
+
+
+def masked_ai(flat=False):
+    """a detector with masked pixels (pyFAI: 1 = masked) and optionally a flat field"""
     ai = make_ai()
-    integ = cv.Integrator.from_pyfai(ai, 60, unit="q_nm^-1", split=split, polarization_factor=0.9)
+    rng = np.random.default_rng(6)
+    ai.detector.mask = (rng.random(SHAPE) < 0.03).astype(np.int8)
+    if flat:
+        ai.detector.flatfield = 0.8 + 0.4 * rng.random(SHAPE)
+    return ai
+
+
+@pytest.mark.parametrize("flat", [False, True])
+@pytest.mark.parametrize("corrections", sorted(CORRECTIONS))
+@pytest.mark.parametrize("split", ["no", "bbox", "full"])
+def test_the_intensity_equals_pyfais(tmp_path, split, corrections, flat):
+    """pyFAI's intensity, from the decoder's exact sums and the Integrator's normalisation: with
+    pixel splitting, solid angle, polarization, a normalisation factor, a flat field and a mask."""
+    kw = CORRECTIONS[corrections]
+    ai = masked_ai(flat)
+    integ = cv.Integrator.from_pyfai(ai, 60, unit="q_nm^-1", split=split, **kw)
     path = str(tmp_path / "integrator.h5")
     integ.save(path)
     back = cv.Integrator.load(path)
@@ -45,12 +68,17 @@ def test_the_intensity_equals_pyfais(tmp_path, split):
     assert abs(back.ai().dist - 0.1) < 1e-12
 
     fr = frame()
-    d = b.chunk2sparseCSC(np.ones(SHAPE, np.uint8), back.csc, np.uint16, exact=True)
+    mask = (1 - ai.detector.mask).astype(np.uint8)  # the decoder's: 1 = use the pixel
+    d = b.chunk2sparseCSC(mask, back.csc, np.uint16, exact=True)
     _, _, powder = d.from_frames(fr[None], 0)
+    assert powder.dtype == np.int64
     got = back.intensity(powder, d.powder_scale)[0]
     method = IntegrationMethod.select_one_available((split, "csc", "cython"), dim=1)
-    ref = ai.integrate1d(fr, 60, unit="q_nm^-1", method=method, polarization_factor=0.9)
+    ref = ai.integrate1d(fr, 60, unit="q_nm^-1", method=method, **kw)
     assert np.allclose(got, ref.intensity, rtol=1e-4, atol=1e-4)
+    # and the float powder gives the same intensity (the fixed-point sums lose nothing visible)
+    pf = b.chunk2sparseCSC(mask, back.csc, np.uint16).from_frames(fr[None], 0)[2]
+    assert np.allclose(back.intensity(pf)[0], got, rtol=1e-5, atol=1e-6)
 
 
 def test_2d_rows_are_radial_then_azimuth(tmp_path):

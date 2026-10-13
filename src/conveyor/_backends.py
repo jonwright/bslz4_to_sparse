@@ -88,15 +88,26 @@ class GpuBackend(object):
     """bslz4_to_sparse.cuda (cupy): one decoder per worker, each with its own CUDA stream.
     Build the workers after any fork: CUDA must be initialised in the process that uses it.
     mask, dtype, csc, cut: as CpuBackend; batch: frames per call; acc: accumulator type of the CSC
-    sum ("f64"); howmany, thresholds: as chunk2sparse.
+    sum ("f64"); howmany, thresholds: as chunk2sparse; exact: integer pixels, the powder is the
+    int64 fixed-point sums, as CpuBackend(exact=True) gives for the same matrix.
     """
 
     name = "gpu"
 
     def __init__(
-        self, mask, dtype, csc=None, cut=0, batch=16, acc="f64", howmany=None, thresholds=None
+        self,
+        mask,
+        dtype,
+        csc=None,
+        cut=0,
+        batch=16,
+        acc="f64",
+        howmany=None,
+        thresholds=None,
+        exact=False,
     ):
         self.mask, self.csc, self.dtype, self.cut = mask, csc, np.dtype(dtype), cut
+        self.exact = exact
         self.batch, self.acc, self.howmany, self.thresholds = batch, acc, howmany, thresholds
 
     def make_worker(self):
@@ -108,11 +119,14 @@ class GpuBackend(object):
         if self.csc is None:
             c = cuda.chunk2sparse(self.mask, self.dtype, **kw)
         else:
-            c = cuda.chunk2sparseCSC(self.mask, self.csc, self.dtype, acc=self.acc, **kw)
+            c = cuda.chunk2sparseCSC(
+                self.mask, self.csc, self.dtype, acc=self.acc, exact=self.exact, **kw
+            )
         cut = self.cut
 
         def run(buf, offsets, lengths):
             r = c.decode_offsets(buf, offsets, lengths, cut)
             return r[0], r[1][0], r[1][1], (r[2] if len(r) > 2 else None)
 
+        run.powder_scale = getattr(c, "powder_scale", None)
         return run
