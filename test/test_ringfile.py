@@ -51,7 +51,7 @@ def test_ring_files_follow_the_input_files(tmp_path):
     integ = cv.Integrator.from_pyfai(ai, nrad, unit="2th_deg", npt_azim=naz, **kw).rings(ranges)
     paths = make_files(tmp_path, nfiles=2, nframes=9)
     # the frames are the files' own; the ring files must follow their order
-    units, shape, dtype = cv.make_units(paths, DSET)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
     mask = (1 - ai.detector.mask).astype(np.uint8)
     out = str(tmp_path / "rings")
     cv.run(
@@ -107,7 +107,7 @@ def test_dense_frames_lose_their_pixels_but_not_their_rings(tmp_path):
             **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
         )
     cv.write_index(cv.harvest(p, DSET), p)
-    units, shape, dtype = cv.make_units([p], DSET)
+    units, shape, dtype = cv.make_work_units([p], DSET)
     out = str(tmp_path / "o")
     with pytest.warns(UserWarning, match="not sparse"):
         r = cv.run(
@@ -139,7 +139,7 @@ def test_everything_in_one_pass_through_the_conveyor(tmp_path):
     rings = cake.rings(ranges)
     stack = cv.IntegratorStack({"powder1d": one, "rings": rings, "moment": one.first_moment()})
     paths = make_files(tmp_path, nfiles=2, nframes=7)
-    units, shape, dtype = cv.make_units(paths, DSET)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
     mask = (1 - ai.detector.mask).astype(np.uint8)
     out = str(tmp_path / "all")
     r = cv.run(

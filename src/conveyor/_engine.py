@@ -235,7 +235,7 @@ def run(
 ):
     """Run the units through the conveyor; returns a dict of what it took.
 
-    units         from make_units; handed out in order to whichever worker is ready for one
+    units         from make_work_units; handed out in order to whichever worker is ready for one
     backend       CpuBackend, DecompressBackend or GpuBackend (anything with make_worker())
     workers       decoders; each has its own reader thread (or process, in "processes" mode)
     sink          factory k -> Sink, called in each worker (default: NullSink)

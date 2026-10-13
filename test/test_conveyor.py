@@ -77,7 +77,7 @@ class Collect(cv.Sink):
 @pytest.mark.parametrize("unit_bytes", [1 << 30, 3000])
 def test_every_frame_once_and_equal_to_a_direct_decode(tmp_path, unit_bytes):
     paths = make_files(tmp_path)
-    units, shape, dtype = cv.make_units(paths, DSET, max_bytes=unit_bytes)
+    units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=unit_bytes)
     assert shape == SHAPE and dtype == np.uint16
     assert sum(u.n for u in units) == 3 * 37
     if unit_bytes < 1 << 20:
@@ -98,7 +98,7 @@ def test_every_frame_once_and_equal_to_a_direct_decode(tmp_path, unit_bytes):
 
 def test_processes_count_the_same_frames(tmp_path):
     paths = make_files(tmp_path)
-    units, shape, dtype = cv.make_units(paths, DSET, max_bytes=4000)
+    units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=4000)
 
     class Count(cv.Sink):
         def __init__(self):
@@ -124,7 +124,7 @@ def test_with_a_matrix_and_howmany(tmp_path):
     import scipy.sparse as sp
 
     paths = make_files(tmp_path, nfiles=1, nframes=20)
-    units, shape, dtype = cv.make_units(paths, DSET)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
     npix = SHAPE[0] * SHAPE[1]
     csc = sp.csc_matrix(
         (np.ones(npix, np.float32), (np.arange(npix) % 7, np.arange(npix))), shape=(7, npix)
@@ -147,7 +147,7 @@ def test_with_a_matrix_and_howmany(tmp_path):
 @pytest.mark.parametrize("mode", ["threads", "processes"])
 def test_a_failing_sink_raises_and_does_not_hang(tmp_path, mode):
     paths = make_files(tmp_path)
-    units, shape, dtype = cv.make_units(paths, DSET, max_bytes=4000)
+    units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=4000)
 
     class Bad(cv.Sink):
         def write(self, file, frame0, npx, values, indices, powder):
@@ -167,7 +167,7 @@ def test_bad_arguments(tmp_path):
     with pytest.raises(ValueError):
         cv.run([], cv.CpuBackend(np.ones(SHAPE, np.uint8), np.uint16), workers=1)
     paths = make_files(tmp_path, nfiles=1)
-    units, shape, dtype = cv.make_units(paths, DSET)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
     with pytest.raises(ValueError, match="mode"):
         cv.run(units, cv.CpuBackend(np.ones(SHAPE, np.uint8), dtype), workers=1, mode="gpus")
 
@@ -204,7 +204,7 @@ def test_a_changed_file_makes_the_sidecar_stale(tmp_path):
         cv.read_index(paths[0])
     assert cv.read_index(paths[0], check=False).shape[0] == 5  # the caller may choose to trust it
     with pytest.raises(cv.StaleIndex):
-        cv.make_units(paths, DSET)
+        cv.make_work_units(paths, DSET)
 
 
 def test_corrupt_and_missing_sidecars(tmp_path):
@@ -219,8 +219,8 @@ def test_corrupt_and_missing_sidecars(tmp_path):
         cv.read_index(paths[0])
     os.remove(sc)
     with pytest.raises(FileNotFoundError, match="index_chunks"):
-        cv.make_units(paths, DSET)
-    units, shape, dtype = cv.make_units(paths, DSET, harvest=True)  # the explicit HDF5 path
+        cv.make_work_units(paths, DSET)
+    units, shape, dtype = cv.make_work_units(paths, DSET, harvest=True)  # the explicit HDF5 path
     assert sum(u.n for u in units) == 5
 
 
@@ -231,7 +231,7 @@ def test_reading_and_decoding_need_no_hdf5(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "h5py", None)  # from here "import h5py" raises ImportError
     with pytest.raises(ImportError):
         import h5py  # noqa: F401
-    units, shape, dtype = cv.make_units(paths, DSET, max_bytes=3000)
+    units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=3000)
     Collect.out = {}
     cv.run(units, cv.CpuBackend(mask, dtype), workers=2, sink=lambda k: Collect())
     assert Collect.out == ref
@@ -254,7 +254,7 @@ def test_an_acquisition_that_stopped_early(tmp_path):
     ix = cv.harvest(p, DSET)
     assert ix.shape == (4,) + SHAPE and ix.meta["declared_nframes"] == 10 and len(ix.offsets) == 4
     cv.write_index(ix, p)
-    units, shape, dtype = cv.make_units([p], DSET)
+    units, shape, dtype = cv.make_work_units([p], DSET)
     assert sum(u.n for u in units) == 4
     q = str(tmp_path / "holes.h5")
     with h5py.File(q, "w") as h:
@@ -276,7 +276,7 @@ def test_a_faster_worker_takes_more_units(tmp_path):
     import time
 
     paths = make_files(tmp_path, nfiles=4, nframes=60)
-    units, shape, dtype = cv.make_units(paths, DSET, max_bytes=5000)
+    units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=5000)
     assert len(units) > 40
     done = {}
 
@@ -300,7 +300,7 @@ def test_report_and_the_guard_drops_only_pixels_that_are_not_sparse(tmp_path):
     import scipy.sparse as sp
 
     paths = make_files(tmp_path)
-    units, shape, dtype = cv.make_units(paths, DSET, max_bytes=4000)
+    units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=4000)
     mask = np.ones(SHAPE, np.uint8)
     npix = int(np.prod(SHAPE))
     m = sp.csc_matrix(
@@ -356,7 +356,7 @@ def test_policy_refuses_only_what_has_no_writer_or_too_many_bins(tmp_path):
     import scipy.sparse as sp
 
     paths = make_files(tmp_path)
-    units, shape, dtype = cv.make_units(paths, DSET)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
     mask = np.ones(SHAPE, np.uint8)
     npix = int(np.prod(SHAPE))
     for k in ("2d", "fazit", "decompress"):
@@ -385,7 +385,7 @@ def test_policy_refuses_only_what_has_no_writer_or_too_many_bins(tmp_path):
 
 def test_iterate_gives_every_frame_and_stops_cleanly(tmp_path):
     paths = make_files(tmp_path)
-    units, shape, dtype = cv.make_units(paths, DSET, max_bytes=3000)
+    units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=3000)
     mask = np.ones(SHAPE, np.uint8)
     want = direct(paths, mask)
     got = {}

@@ -22,7 +22,7 @@ def matrix(nbins=12):
 @pytest.mark.parametrize("compression", ["bslz4", "bszstd", "lzf", None])
 def test_files_match_a_direct_decode(tmp_path, compression):
     paths = make_files(tmp_path)
-    units, shape, dtype = cv.make_units(paths, DSET)  # a unit is a file
+    units, shape, dtype = cv.make_work_units(paths, DSET)  # a unit is a file
     mask = np.ones(SHAPE, np.uint8)
     out = str(tmp_path / "sparse")
     m, rows = matrix()
@@ -61,7 +61,7 @@ def test_files_match_a_direct_decode(tmp_path, compression):
 def test_float_powder_and_whole_files_only(tmp_path):
     paths = make_files(tmp_path, nfiles=1)
     mask = np.ones(SHAPE, np.uint8)
-    units, shape, dtype = cv.make_units(paths, DSET)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
     cv.run(
         units,
         cv.CpuBackend(mask, dtype, csc=matrix()[0], exact=True),
@@ -76,7 +76,7 @@ def test_float_powder_and_whole_files_only(tmp_path):
             frames = src[DSET][:]
         want = np.stack([np.bincount(matrix()[1], weights=f.ravel(), minlength=12) for f in frames])
         assert np.array_equal(g["powder"][:], want.astype(np.float32))
-    small, _, _ = cv.make_units(paths, DSET, max_bytes=3000)
+    small, _, _ = cv.make_work_units(paths, DSET, max_unit_bytes=3000)
     with pytest.raises(RuntimeError, match="written per input file"):
         cv.run(
             small,
@@ -90,7 +90,7 @@ def test_imageD11_reads_it(tmp_path):
     sparseframe = pytest.importorskip("ImageD11.sparseframe")
     paths = make_files(tmp_path, nfiles=1)
     mask = np.ones(SHAPE, np.uint8)
-    units, shape, dtype = cv.make_units(paths, DSET)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
     out = str(tmp_path / "o")
     cv.run(
         units,

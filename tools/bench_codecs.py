@@ -67,7 +67,7 @@ def chunks(a, n):
 
 def decode(files, dset, index_dir, nframes, cut, mats, mask):
     """(results dict of 1D arrays, compressed input bytes) for the first nframes frames."""
-    units, shape, dtype = conveyor.make_units(files, dset, index_dir=index_dir)
+    units, shape, dtype = conveyor.make_work_units(files, dset, index_dir=index_dir)
     nj = shape[1]
     parts = {k: [] for k in ("intensity", "row", "col", "flat", "nnz", "powder")}
     got = in_bytes = 0
@@ -106,8 +106,8 @@ def main():
     ap.add_argument("--out", default=None, help="write the JSON lines here too")
     a = ap.parse_args()
     files = sorted(glob.glob(a.files))
-    _, shape, dtype = conveyor.make_units(files[:1], a.dset, index_dir=a.index_dir)
-    units, _, _ = conveyor.make_units(files[:1], a.dset, 1 << 30, a.index_dir)
+    _, shape, dtype = conveyor.make_work_units(files[:1], a.dset, index_dir=a.index_dir)
+    units, _, _ = conveyor.make_work_units(files[:1], a.dset, 1 << 30, a.index_dir)
     u0 = units[0]  # the mask: pixels at the maximum value in the first frame (as bench_ops.py)
     with open(u0.path, "rb") as fh:
         fh.seek(u0.start + int(u0.offsets[0]))

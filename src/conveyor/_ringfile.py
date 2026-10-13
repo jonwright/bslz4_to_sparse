@@ -90,7 +90,7 @@ class RingSink(Sink):
         if unit.frame0 != 0 or unit.n != unit.nfile:
             raise ValueError(
                 "%s: ring files are written per input file, but this unit is frames %d-%d of %d: "
-                "make_units(max_bytes=...) larger"
+                "make_work_units(max_unit_bytes=...) larger"
                 % (unit.path, unit.frame0, unit.frame0 + unit.n - 1, unit.nfile)
             )
         self.held = []

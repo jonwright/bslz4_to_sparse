@@ -85,7 +85,7 @@ def main():
         nf = max(1, int(round(a.files_per_worker * nw)))
         files = [allfiles[(pos + k) % len(allfiles)] for k in range(nf)]
         pos += nf
-        units, shape, dtype = conveyor.make_units(files, a.dset, a.unit_mb << 20, a.index_dir)
+        units, shape, dtype = conveyor.make_work_units(files, a.dset, a.unit_mb << 20, a.index_dir)
         u0 = units[0]  # the mask: pixels at the dtype maximum in the first frame; no HDF5 involved
         with open(u0.path, "rb") as fh:
             fh.seek(u0.start + int(u0.offsets[0]))

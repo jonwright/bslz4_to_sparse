@@ -23,7 +23,7 @@ the attribute sparse_skipped says why.  No cleaning is applied (ImageD11's pixel
 policy of its own).  Datasets are compressed with the bitshuffle filter of hdf5plugin (compression
 "bslz4", "bszstd", "lzf" or None).
 
-A sink writes whole files: use make_units with max_bytes large enough that a unit is a file.
+A sink writes whole files: use make_work_units with max_unit_bytes large enough that a unit is a file.
 """
 
 import os
@@ -89,7 +89,7 @@ class ImageD11SparseSink(Sink):
         if unit.frame0 != 0 or unit.n != unit.nfile:
             raise ValueError(
                 "%s: the sparse file is written per input file, but this unit is frames %d-%d of "
-                "%d: make_units(max_bytes=...) larger"
+                "%d: make_work_units(max_unit_bytes=...) larger"
                 % (unit.path, unit.frame0, unit.frame0 + unit.n - 1, unit.nfile)
             )
         self.held = []

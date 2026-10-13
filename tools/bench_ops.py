@@ -133,7 +133,7 @@ def main():
     a = ap.parse_args()
     wlist = [int(x) for x in a.workers.split(",")]
     files = sorted(glob.glob(a.files))[a.skip : a.skip + max(wlist)]
-    units, shape, dtype = conveyor.make_units(files, a.dset, 1 << 30, a.index_dir)
+    units, shape, dtype = conveyor.make_work_units(files, a.dset, 1 << 30, a.index_dir)
     u0 = units[0]
     with open(u0.path, "rb") as fh:
         fh.seek(u0.start + int(u0.offsets[0]))

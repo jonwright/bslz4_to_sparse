@@ -48,7 +48,7 @@ def split_matrix(nbins=12):
 @pytest.mark.parametrize("weights", ["unit", "split"])
 def test_gpu_exact_equals_cpu_exact(tmp_path, weights):
     paths = make_files(tmp_path)
-    units, shape, dtype = cv.make_units(paths, DSET)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
     mask = np.ones(SHAPE, np.uint8)
     npix = SHAPE[0] * SHAPE[1]
     if weights == "unit":

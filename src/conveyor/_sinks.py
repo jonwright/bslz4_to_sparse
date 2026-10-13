@@ -4,7 +4,7 @@ A worker calls its sink (one per worker, made by the factory passed to run) once
 
     write(file, frame0, npx, values, indices, powder)
 
-file, frame0  which file (index into the paths given to make_units) and the first frame's number
+file, frame0  which file (index into the paths given to make_work_units) and the first frame's number
 npx           (n,) int32: the number of sparse pixels of each of the n frames
 values        (n, npixels) pixel dtype, indices (n, npixels) uint32: row i holds frame i's pixels in
               its first npx[i] entries
@@ -22,7 +22,7 @@ class Sink(object):
         """called once in the worker before the first batch; meta: dict (dtype, shape, ...)"""
 
     def begin_unit(self, unit):
-        """called before the batches of a unit (a Unit of make_units: file, frame0, n, lengths)"""
+        """called before the batches of a unit (a WorkUnit of make_work_units: file, frame0, n, lengths)"""
 
     def write(self, file, frame0, npx, values, indices, powder):
         """Receive one batch of frames (arguments in the module docstring)."""

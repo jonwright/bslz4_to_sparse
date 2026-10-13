@@ -6,7 +6,7 @@ its file formats are the example's choice.
 Not to be confused with the *pipeline* (decode, mask, untranspose, collect, route, dot), the chain
 of steps one decoder runs on every block.  The conveyor moves work to the decoders:
 
-    units     consecutive frames of a file, one large contiguous read each (make_units), seconds of
+    units     consecutive frames of a file, one large contiguous read each (make_work_units), seconds of
               work, so workers synchronise with the rest about once a second
     workers   each owns two buffers it first touches itself and a reader; decodes all the frames of
               a unit straight from a buffer, gives the sink the result
@@ -22,7 +22,7 @@ no HDF5; cupy is needed only for the GPU backend.
 """
 
 from ._index import read_index, write_index, harvest, sidecar_path, StaleIndex
-from ._source import make_units
+from ._source import make_work_units
 from ._sinks import Sink, NullSink, GuardSink, TeeSink, stored_size
 from ._backends import CpuBackend, DecompressBackend, GpuBackend
 from ._policy import Policy, OutputRefused
@@ -34,7 +34,7 @@ from ._sparsefile import ImageD11SparseSink, imaged11_name
 from ._engine import run, report, numa_nodes
 
 __all__ = [
-    "make_units",
+    "make_work_units",
     "read_index",
     "write_index",
     "harvest",

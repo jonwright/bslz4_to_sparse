@@ -54,7 +54,9 @@ def sidecar_path(path, index_dir=None):
 
 
 def harvest(path, dset):
-    """Read the chunk index of path from HDF5 (h5py, once, serially): an Index."""
+    """Read the chunk index of the HDF5 file path (h5py, once, serially).  Returns an Index: where each
+    frame's compressed chunk lies in the file (.offsets, bytes from the start; .lengths) and what
+    the frames are (.shape, .dtype, .codec).  Nothing is written: see write_index."""
     import h5py
 
     import bslz4_to_sparse as b
@@ -103,8 +105,9 @@ def harvest(path, dset):
 
 
 def write_index(index, path, index_dir=None):
-    """Write the sidecar for path; returns its path.  The file is written under a temporary name
-    and renamed, so a reader never sees a half-written index."""
+    """Write an Index to its small sidecar file beside the data file `path` (12 bytes per frame), so
+    that every later run finds the chunks without HDF5; returns the sidecar's path.  It is written
+    under a temporary name and renamed, so a reader never sees a half-written index."""
     head = json.dumps(index.meta, sort_keys=True).encode("utf-8")
     pad = -(len(MAGIC) + 4 + len(head)) % 8
     out = sidecar_path(path, index_dir)

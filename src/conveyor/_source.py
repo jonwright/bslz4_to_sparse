@@ -7,17 +7,21 @@ would gain nothing)."""
 from ._index import read_index, harvest as harvest_index
 
 
-class Unit(object):
-    """Consecutive frames of one file: file[start:start+span] holds frames frame0..frame0+n-1, the
-    chunk of frame frame0+i at offsets[i] (relative to start), lengths[i] bytes long."""
+class WorkUnit(object):
+    """A unit of work (nothing to do with pyFAI's radial units): consecutive frames of one file that
+    one worker reads and decodes.  file[start:start+span] holds frames frame0..frame0+n-1, the chunk
+    of frame frame0+i at offsets[i] (relative to start), lengths[i] bytes long; nfile is the number
+    of frames in the whole file."""
 
     __slots__ = ("file", "path", "frame0", "n", "nfile", "start", "span", "offsets", "lengths")
 
 
-def make_units(paths, dset, max_bytes=256 << 20, index_dir=None, harvest=False):
-    """(units, frame shape, dtype).  A unit is as many consecutive frames of a file as fit in
-    max_bytes of file span, the whole file when it fits: a read is one large contiguous request,
-    and a unit is seconds of work, so workers synchronise with the rest about once a second.
+def make_work_units(paths, dset, max_unit_bytes=256 << 20, index_dir=None, harvest=False):
+    """(units, frame shape, dtype): the work of reading and decoding the files, cut into WorkUnits.
+    A unit is as many consecutive frames of one file as fit in max_unit_bytes (bytes of the
+    compressed file, the input, not of any output), the whole file when it fits: a read is one large
+    contiguous request, and a unit is seconds of work, so workers synchronise with the rest about
+    once a second.  Where the chunks lie is read from each file's sidecar index (see write_index).
 
     index_dir  where the sidecar indexes are kept (None: beside each file)
     harvest    when a file has no sidecar, read its index from HDF5 instead of raising"""
@@ -44,9 +48,9 @@ def make_units(paths, dset, max_bytes=256 << 20, index_dir=None, harvest=False):
         f0 = 0
         while f0 < len(off):
             n = 1
-            while f0 + n < len(off) and off[f0 + n] + ln[f0 + n] - off[f0] <= max_bytes:
+            while f0 + n < len(off) and off[f0 + n] + ln[f0 + n] - off[f0] <= max_unit_bytes:
                 n += 1
-            u = Unit()
+            u = WorkUnit()
             u.file, u.path, u.frame0, u.n, u.nfile = fi, p, f0, n, len(off)
             u.start = int(off[f0])
             u.span = int(off[f0 + n - 1] + ln[f0 + n - 1] - off[f0])
