@@ -103,3 +103,54 @@ def test_imageD11_reads_it(tmp_path):
         frames = src[DSET][:]
     for i in (0, 5, 36):
         assert np.array_equal(s.getframe(i).to_dense("intensity"), frames[i])
+
+
+def test_small_objects_are_dropped_with_min_pixels(tmp_path):
+    pytest.importorskip("ImageD11.sparseframe")
+    import hdf5plugin
+
+    shape = (40, 50)
+    frames = np.zeros((3,) + shape, np.uint16)
+    for f in frames:
+        f[5:7, 5:7] = 9  # a 2 x 2 object: 4 pixels
+        f[20, 10:13] = 7  # a line of 3 pixels
+        f[30, 40] = 5  # single pixels: noise
+        f[10, 30] = 6
+        f[35, 3] = 4
+    p = str(tmp_path / "o.h5")
+    with h5py.File(p, "w") as h:
+        h.create_dataset(
+            DSET, data=frames, chunks=(1,) + shape, **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+        )
+    cv.write_index(cv.harvest(p, DSET), p)
+    units, _, dtype = cv.make_work_units([p], DSET)
+    mask = np.ones(shape, np.uint8)
+    got = {}
+    for n in (None, 2, 4):
+        out = str(tmp_path / ("o%s" % n))
+        cv.run(
+            units,
+            cv.CpuBackend(mask, dtype),
+            workers=1,
+            sink=lambda k: cv.ImageD11SparseSink(out, DSET, min_pixels=n),
+        )
+        with h5py.File("%s/%s" % (out, cv.imaged11_name(p)), "r") as h:
+            g = h[DSET.strip("/")]
+            got[n] = (
+                g["nnz"][:].tolist(),
+                g["row"][:],
+                g["col"][:],
+                g["intensity"][:],
+                dict(g.attrs),
+            )
+    assert got[None][0] == [10, 10, 10]  # every pixel: 4 + 3 + three singles
+    assert got[2][0] == [7, 7, 7] and got[4][0] == [4, 4, 4]  # without singles; only the 2 x 2
+    assert "min_pixels_in_object" not in got[None][4] and got[2][4]["min_pixels_in_object"] == 2
+    # what is left is the objects, exactly
+    r, c, v = got[4][1][:4], got[4][2][:4], got[4][3][:4]
+    assert sorted(zip(r.tolist(), c.tolist(), v.tolist())) == [
+        (5, 5, 9),
+        (5, 6, 9),
+        (6, 5, 9),
+        (6, 6, 9),
+    ]
