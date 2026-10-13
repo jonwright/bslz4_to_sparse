@@ -1,9 +1,11 @@
-"""Quick start: one compressed Eiger chunk straight to sparse pixels.
+"""Sparse pixels: the calls of the released versions (0.0.15, 0.0.16), unchanged.
 
-An Eiger writes each frame as one bitshuffle-lz4 (or -zstd) compressed HDF5 chunk.  chunk2sparse
-decodes such a chunk and keeps only the pixels above a cut that are not masked, without ever
-building the dense frame in Python.  Here h5py is used to find the data and hand over one chunk
-still compressed; example 2 shows the same without HDF5 in the loop.
+Examples 1 to 3 use only names that the released packages had, called as those releases took them;
+everything from example 4 on is new in 0.0.22.  An Eiger writes each frame as one bitshuffle-lz4
+(or -zstd) compressed HDF5 chunk.  chunk2sparse decodes such a chunk and keeps only the pixels
+above a cut that are not masked, without ever building the dense frame in Python; bslz4_to_sparse
+does the same for one frame of a dataset.  Here h5py finds the data and hands over one chunk still
+compressed.  (lz4 or zstd is found from the chunk: detect_codec and codec= are not needed.)
 """
 
 import h5py
@@ -21,7 +23,6 @@ mask_filename = (
 with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
     print("dataset: shape %s, dtype %s, chunks %s" % (ds.shape, ds.dtype, ds.chunks))
-    codec = bslz4_to_sparse.detect_codec(ds)  # lz4 or zstd, from the HDF5 filter
     frame0 = ds[0]  # decompressed by HDF5, only here to build the mask and to check
     chunk0 = ds.id.read_direct_chunk((0, 0, 0))[1]  # frame 0, still compressed
 
@@ -31,7 +32,7 @@ with h5py.File(mask_filename, "r") as h5:
 mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel
 
 # The object is made once for a dataset: it knows the frame shape (from the mask) and the dtype.
-c2s = bslz4_to_sparse.chunk2sparse(mask, dtype=ds.dtype, codec=codec)
+c2s = bslz4_to_sparse.chunk2sparse(mask, ds.dtype)
 cut = 3
 npx, (values, indices) = c2s(chunk0, cut)  # the pixels above the cut
 
@@ -45,6 +46,12 @@ ref = np.flatnonzero((frame0.ravel() > cut) & (mask.ravel() > 0))
 assert npx == ref.size and (indices[:npx] == ref).all()
 assert (values[:npx] == frame0.ravel()[ref]).all()
 print("same pixels as numpy finds in the frame HDF5 decompressed")
+
+# bslz4_to_sparse reads the chunk of a frame from an open dataset itself (h5py's read_direct_chunk)
+with h5py.File(h5filename, "r") as h5:
+    npx2, (values2, indices2) = bslz4_to_sparse.bslz4_to_sparse(h5[h5dataset], 0, cut, mask.ravel())
+assert npx2 == npx and (indices2[:npx] == indices[:npx]).all()
+print("bslz4_to_sparse(dataset, 0, cut, mask) finds the same %d pixels" % npx2)
 
 # coo() returns (row, column, value) copies instead, safe to keep
 npx, row, col, vals = c2s.coo(chunk0, cut)

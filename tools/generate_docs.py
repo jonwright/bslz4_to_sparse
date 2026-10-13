@@ -137,6 +137,7 @@ def example_page(path):
     with open(path) as fh:
         source = fh.read()
     title, body, code = split_docstring(source)
+    title = "Example %s: %s" % (re.match(r"ex(\d+)_", os.path.basename(path)).group(1), title)
     rel = os.path.relpath(path, REPO)
     head = "# %s\n\n%s\n\n" % (title, body)
     note = (
@@ -198,7 +199,7 @@ def example_page(path):
 # ---------------------------------------------------------------- API
 
 PUBLIC_CLASSES = ("chunk2sparse", "chunk2sparseCSC")
-PUBLIC_METHODS = ("__call__", "multi", "decode_offsets", "from_frames", "coo")
+PUBLIC_METHODS = ("__call__", "multi", "from_buffer", "from_frames", "coo")
 
 
 def signature(obj, name):
@@ -312,7 +313,7 @@ def gpu_page():
             ),
             need(cls, cname),
         ]
-        for m in ("set_top_pixels", "multi", "decode_offsets", "__call__", "coo"):
+        for m in ("set_top_pixels", "multi", "from_buffer", "__call__", "coo"):
             fn = (
                 methods.get(m)
                 or classes["chunk2sparse"].body
@@ -437,7 +438,7 @@ def pipelines_page():
         "Every value of every step: what it does, from the comments in the C sources "
         "(linked), and what it needs, from `VALUES` in `src/_pipeline.py`.  Value 0 "
         "(`auto`) is resolved when an object is made; `describe()` shows which values "
-        "the running machine can use (see the [pipelines example](examples/ex4_pipelines.md)), "
+        "the running machine can use (see the [pipelines example](examples/ex5_pipelines.md)), "
         "and the [kernel page](kernels.md) times them all.\n",
         step_values_section("##"),
         "\n" + provenance(),

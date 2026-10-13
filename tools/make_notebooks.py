@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Notebooks from the examples: each examples/ex*.py as a Jupyter notebook, run, with its figures.
 
-    python3 tools/make_notebooks.py [--run] [--out DIR] [examples/ex1_quickstart.py ...]
+    python3 tools/make_notebooks.py [--run] [--out DIR] [examples/ex1_sparse_pixels.py ...]
 
 An example is a plain script: a docstring (title, then what it shows) and code.  The notebook is
 made from it mechanically, so the script stays the one source:

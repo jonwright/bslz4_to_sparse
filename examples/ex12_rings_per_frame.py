@@ -5,7 +5,8 @@ azimuth.  The conveyor gives exactly that: for each ring a window of radial bins
 normalised 2D cake, summed, with a background window either side of it and no background subtracted,
 so the reader decides what to do with the three.  The sparse pixels of the same frames come from the
 same pass.  The files follow the input files and their frame order: sorting frames into scan order is
-left to the reader.  Where the rings are is user input: usually decided by eye from a powder pattern.
+left to the reader.  Where the rings are is user input: usually decided the unit cell and a user
+selection of which hkl to use and the width ranges to harvest. 
 """
 
 import glob

@@ -29,18 +29,18 @@ cut, nframes = 3, 6
 with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
     dtype, codec = ds.dtype, bslz4_to_sparse.detect_codec(ds)
-    where = bslz4_to_sparse.harvest_chunk_offsets(ds)
+    where = bslz4_to_sparse.locate_chunks(ds)
 with h5py.File(mask_filename, "r") as h5:
     bad = h5["mask"][()] != 0  # the masked pixels
 mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel
 file_bytes = np.fromfile(h5filename, dtype=np.uint8)
-offsets, lengths = bslz4_to_sparse.pack_offsets_lengths(where, range(nframes))
+offsets, lengths = bslz4_to_sparse.offsets_lengths(where, range(nframes))
 c2s = bslz4_to_sparse.chunk2sparse(mask, dtype=dtype, codec=codec)
 
 
 def from_chunks():
     """bslz4_to_sparse: decode the chunks of the batch and keep the pixels above the cut"""
-    return c2s.decode_offsets(file_bytes, offsets, lengths, cut)[0].copy()
+    return c2s.from_buffer(file_bytes, offsets, lengths, cut)[0].copy()
 
 
 def from_h5py_and_numpy():

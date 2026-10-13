@@ -1,9 +1,11 @@
 """Without HDF5 in the loop: find the chunks once, then read the file and decode by byte offset.
 
-HDF5 stores each frame's compressed chunk somewhere in the file.  harvest_chunk_offsets finds where
-(one pass through h5py, and the only use of HDF5 here: the result could be kept beside the file).
-After that the file is read with ordinary file reads, and decode_offsets decodes a batch of frames
-straight from the bytes read, with one release of the GIL for the whole batch.
+Each frame's compressed chunks are contiguous bytes and locate_chunks 
+reads the locations of chunks in the HDF5 file. This only works whenever the HDF5 
+chunking is set to one frame and will fail otherwise.
+After indexing, the file is read with ordinary file reads. 
+from_buffer decodes a batch of frames straight from the bytes read, 
+with one release of the GIL for the whole batch.
 """
 
 import h5py
@@ -23,7 +25,7 @@ with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
     nframes, shape, dtype = ds.shape[0], ds.shape[1:], ds.dtype
     codec = bslz4_to_sparse.detect_codec(ds)
-    where = bslz4_to_sparse.harvest_chunk_offsets(ds)  # {frame: (byte offset, byte size)}
+    where = bslz4_to_sparse.locate_chunks(ds)  # {frame: (byte offset, byte size)}
 print(
     "%d frames of %s %s; frame 0 is %d bytes at offset %d"
     % ((nframes, shape, dtype) + (where[0][1], where[0][0]))
@@ -35,11 +37,11 @@ mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel
 # 2. no HDF5 from here on: the file is read as bytes
 file_bytes = np.fromfile(h5filename, dtype=np.uint8)
 nbatch = min(nframes, 8)  # the output buffers have one full-size row per frame of the batch
-offsets, lengths = bslz4_to_sparse.pack_offsets_lengths(where, range(nbatch))
+offsets, lengths = bslz4_to_sparse.offsets_lengths(where, range(nbatch))
 
 c2s = bslz4_to_sparse.chunk2sparse(mask, dtype=dtype, codec=codec)
 cut = 3
-npx, (values, indices) = c2s.decode_offsets(file_bytes, offsets, lengths, cut)
+npx, (values, indices) = c2s.from_buffer(file_bytes, offsets, lengths, cut)
 print("pixels above the cut of %d, per frame:" % cut, npx.tolist())
 print("values and indices have one row per frame:", values.shape, indices.shape)
 # the buffers belong to c2s and are reused by its next call: copy what you keep

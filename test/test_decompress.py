@@ -1,4 +1,4 @@
-"""decompress / decompress_offsets: the front half alone, lz4 and zstd, with and without the
+"""decompress / decompress_from_buffer: the front half alone, lz4 and zstd, with and without the
 unshuffle, against what h5py reads through the HDF5 filter."""
 
 import os
@@ -88,7 +88,7 @@ def test_offsets_out_and_threads(tmp_path):
     lens = np.array([len(c) for c in chunks])
     offs = np.concatenate(([0], np.cumsum(lens)[:-1]))
     out = np.empty((6, 96 * 130), np.uint16)
-    r = b.decompress_offsets(np.frombuffer(blob, np.uint8), offs, lens, np.uint16, out=out)
+    r = b.decompress_from_buffer(np.frombuffer(blob, np.uint8), offs, lens, np.uint16, out=out)
     assert r is out and (out.reshape(frames.shape) == frames).all()
     # threads decompress in parallel, each its own output
     res = [None] * 3

@@ -4,7 +4,7 @@ The decode releases the GIL (and on free-threaded Python 3.14t/3.15t there is no
 decode in parallel, and so does reading a file with os.pread.  Objects keep and reuse their own work
 and output buffers and nothing is locked, so each thread owns one object and copies what it keeps
 before its next call.  Here every thread reads its own frames from the file by offset (the offsets
-are found once, see example 2) and decodes them, with no HDF5 call in the loop.
+are found once, see example 4) and decodes them, with no HDF5 call in the loop.
 """
 
 import os
@@ -25,7 +25,7 @@ mask_filename = (
 with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
     dtype, codec = ds.dtype, bslz4_to_sparse.detect_codec(ds)
-    where = bslz4_to_sparse.harvest_chunk_offsets(ds)  # {frame: (byte offset, byte size)}
+    where = bslz4_to_sparse.locate_chunks(ds)  # {frame: (byte offset, byte size)}
 with h5py.File(mask_filename, "r") as h5:
     bad = h5["mask"][()] != 0  # the masked pixels
 mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel

@@ -2,7 +2,7 @@
 
 Open the file, take the geometry from the .poni, build the integrator once, then for every frame get
 the pixels above the cut and the powder pattern straight from the compressed chunks, read by offset.
-Nothing is written here: what to do with the results is up to you (examples 8, 10 and 11 write results, example 9 iterates over them).
+Nothing is written here: what to do with the results is up to you (examples 9, 11 and 12 write results, example 10 iterates over them).
 """
 
 import os
@@ -29,7 +29,7 @@ ai = pyFAI.load(poni_filename)
 with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
     dtype, codec, nframes = ds.dtype, bslz4_to_sparse.detect_codec(ds), min(ds.shape[0], 20)
-    where = bslz4_to_sparse.harvest_chunk_offsets(ds)
+    where = bslz4_to_sparse.locate_chunks(ds)
     frame0 = ds[0]
 
 with h5py.File(mask_filename, "r") as h5:

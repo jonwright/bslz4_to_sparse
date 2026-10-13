@@ -274,7 +274,7 @@ def test_single_offsets_coo(tmp_path):
     blob = b"".join(bytes(x) for x in chunks)
     lens = np.array([len(x) for x in chunks])
     offs = np.concatenate(([0], np.cumsum(lens)[:-1]))
-    n2, _, p2 = c.decode_offsets(np.frombuffer(blob, np.uint8), offs, lens, 1)
+    n2, _, p2 = c.from_buffer(np.frombuffer(blob, np.uint8), offs, lens, 1)
     assert (n2 == npx).all() and (p2 == p).all()
     nn, row, col, vals, pw = c.coo(chunks[0], 1)
     assert nn == npx[0] and (row.astype(np.int64) * shape[1] + col == i[0, :nn]).all()

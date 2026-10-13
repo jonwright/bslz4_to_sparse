@@ -45,7 +45,7 @@ class CpuBackend(object):
         cut = self.cut
 
         def run(buf, offsets, lengths):
-            r = c.decode_offsets(buf, offsets, lengths, cut)
+            r = c.from_buffer(buf, offsets, lengths, cut)
             return r[0], r[1][0], r[1][1], (r[2] if len(r) > 2 else None)
 
         run.powder_scale = getattr(c, "powder_scale", None)
@@ -84,7 +84,7 @@ class DecompressBackend(object):
 
         def run(buf, offsets, lengths):
             n = len(offsets)
-            b.decompress_offsets(buf, offsets, lengths, dtype, unshuffle=unshuffle, out=out[:n])
+            b.decompress_from_buffer(buf, offsets, lengths, dtype, unshuffle=unshuffle, out=out[:n])
             return npx[:n], out[:n], None, None
 
         return run
@@ -138,7 +138,7 @@ class GpuBackend(object):
         cut = self.cut
 
         def run(buf, offsets, lengths):
-            r = c.decode_offsets(buf, offsets, lengths, cut)
+            r = c.from_buffer(buf, offsets, lengths, cut)
             return r[0], r[1][0], r[1][1], (r[2] if len(r) > 2 else None)
 
         run.powder_scale = getattr(c, "powder_scale", None)

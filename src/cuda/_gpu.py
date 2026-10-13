@@ -4,7 +4,7 @@ classes:
     c = chunk2sparse(mask, dtype, codec)           c(chunk, cut) -> npixels, (values, indices)
     c = chunk2sparseCSC(mask, csc, dtype, codec)   c(chunk, cut) -> npixels, (values, indices),
                                                    powder
-    c.multi(chunks, cut), c.decode_offsets(base, offsets, lengths, cut), c.coo(chunk, cut)
+    c.multi(chunks, cut), c.from_buffer(base, offsets, lengths, cut), c.coo(chunk, cut)
 
 Differences from the CPU classes:
   * lz4 only, 8 kB blocks (the bitshuffle default), pixels u8/u16/u32/i8/i16/i32/f32; `pipeline` is
@@ -475,7 +475,7 @@ class chunk2sparse(object):
         (nframes, ni*nj)."""
         return self._run([memoryview(c).cast("B") for c in chunks], cut)
 
-    def decode_offsets(self, base, offsets, lengths, cut):
+    def from_buffer(self, base, offsets, lengths, cut):
         """As multi, for the chunks at byte offsets[i] (lengths[i]) inside the one buffer base."""
         b = (
             memoryview(base).cast("B")

@@ -21,7 +21,7 @@ Threads: the GIL is released while decoding, and on free-threaded Python
   * the arrays a call returns are those buffers (except coo(), which
     copies): the next call on the same object overwrites them;
   * leave a call's inputs alone until it returns: do not modify, resize or
-    close the chunks, the decode_offsets base buffer (e.g. an mmap) or the
+    close the chunks, the from_buffer base buffer (e.g. an mmap) or the
     mask from another thread meanwhile.
 Sharing an object between threads, or breaking these rules, gives wrong
 results or a crash rather than an error.
@@ -44,6 +44,11 @@ _pipeline._ext = _ext
 
 version = "0.0.22a1"
 
+from ._compat import (  # noqa: E402  the names of the released versions
+    npbuf, buffer_from_memory, bslz4_uint8_t, bslz4_uint16_t, bslz4_uint32_t,
+    bslz4_csc_uint8_t, bslz4_csc_uint16_t, bslz4_csc_uint32_t,
+)
+
 __all__ = [
     "version",
     "bslz4_to_sparse",
@@ -51,10 +56,10 @@ __all__ = [
     "chunk2sparseCSC",
     "describe",
     "detect_codec",
-    "harvest_chunk_offsets",
-    "pack_offsets_lengths",
+    "locate_chunks",
+    "offsets_lengths",
     "decompress",
-    "decompress_offsets",
+    "decompress_from_buffer",
     "build_info",
     "CODEC_LZ4",
     "CODEC_ZSTD",
@@ -192,11 +197,11 @@ def _offset_pointers(base, offsets, lengths):
     return pointers, lengths, memoryview(base)[o:o + 20]
 
 
-def harvest_chunk_offsets(ds):
+def locate_chunks(ds):
     """
     Where each frame's compressed chunk lies in the HDF5 file: a dict
     {frame: (byte_offset, byte_size)} for a (nframes, ni, nj) dataset chunked
-    one frame per chunk.  With pack_offsets_lengths, it lets decode_offsets
+    one frame per chunk.  With offsets_lengths, it lets from_buffer
     read the chunks from one buffer holding the file (e.g. an np.memmap)
     with no h5py call per frame.  Raises ValueError for other chunk shapes,
     and for a chunk stored with the bitshuffle filter skipped.
@@ -204,7 +209,7 @@ def harvest_chunk_offsets(ds):
     chunks = tuple(ds.chunks) if ds.chunks is not None else None
     if chunks is None or len(chunks) != 3 or chunks[0] != 1:
         raise ValueError(
-            "harvest_chunk_offsets needs a (1, ni, nj)-chunked dataset, got chunks=%r "
+            "locate_chunks needs a (1, ni, nj)-chunked dataset, got chunks=%r "
             "(4-D (1,1,ni,nj) chunking is not supported yet)" % (chunks,)
         )
 
@@ -231,10 +236,10 @@ def harvest_chunk_offsets(ds):
     return offsets
 
 
-def pack_offsets_lengths(frame_offsets, frames):
+def offsets_lengths(frame_offsets, frames):
     """
-    The (offsets int64, lengths int32) arrays decode_offsets takes, for the
-    given frame numbers, from harvest_chunk_offsets' {frame: (offset, size)}.
+    The (offsets int64, lengths int32) arrays from_buffer takes, for the
+    given frame numbers, from locate_chunks' {frame: (offset, size)}.
     """
     n = len(frames)
     offsets = np.empty(n, dtype=np.int64)
@@ -413,10 +418,10 @@ def decompress(chunks, dtype, unshuffle=True, out=None, codec=None):
     return _decompress(pointers, lengths, chunks[0], dtype, unshuffle, out, codec)
 
 
-def decompress_offsets(base, offsets, lengths, dtype, unshuffle=True, out=None, codec=None):
+def decompress_from_buffer(base, offsets, lengths, dtype, unshuffle=True, out=None, codec=None):
     """As decompress, for the chunks at byte offsets[i] (lengths[i]) inside the
     one buffer base (an mmap of the HDF5 file, or the file read into memory):
-    see harvest_chunk_offsets and pack_offsets_lengths."""
+    see locate_chunks and offsets_lengths."""
     pointers, lengths, cmp = _offset_pointers(base, offsets, lengths)
     return _decompress(pointers, lengths, cmp, dtype, unshuffle, out, codec)
 
@@ -559,10 +564,10 @@ class chunk2sparse:
         lengths = np.full(len(arr), nbytes, np.int32)
         return self._run(pointers, lengths, None, cut, pixels=True)
 
-    def decode_offsets(self, base, offsets, lengths, cut):
+    def from_buffer(self, base, offsets, lengths, cut):
         """As multi, for the chunks at byte offsets[i] (lengths[i]) inside
         the one buffer base (an mmap of the HDF5 file, or the file read into
-        memory): see harvest_chunk_offsets and pack_offsets_lengths."""
+        memory): see locate_chunks and offsets_lengths."""
         pointers, lengths, cmp = _offset_pointers(base, offsets, lengths)
         return self._run(pointers, lengths, cmp, cut)
 
@@ -887,10 +892,10 @@ class chunk2sparseCSC:
         lengths = np.full(len(arr), nbytes, np.int32)
         return self._run(pointers, lengths, None, cut, pixels=True)
 
-    def decode_offsets(self, base, offsets, lengths, cut):
+    def from_buffer(self, base, offsets, lengths, cut):
         """As multi, for the chunks at byte offsets[i] (lengths[i]) inside
-        the one buffer base: see harvest_chunk_offsets and
-        pack_offsets_lengths."""
+        the one buffer base: see locate_chunks and
+        offsets_lengths."""
         pointers, lengths, cmp = _offset_pointers(base, offsets, lengths)
         return self._run(pointers, lengths, cmp, cut)
 

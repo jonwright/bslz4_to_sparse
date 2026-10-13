@@ -21,7 +21,7 @@ mask_filename = (
 )
 h5filenames = sorted(glob.glob(h5pattern))
 
-for name in h5filenames:  # once per file, the only use of HDF5 here (see example 8)
+for name in h5filenames:  # once per file, the only use of HDF5 here (see example 9)
     conveyor.write_index(conveyor.harvest(name, h5dataset), name)
 
 # Cut the work into units of at most 50 MB of compressed input each, so that a small data set still
