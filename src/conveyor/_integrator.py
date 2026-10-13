@@ -75,6 +75,7 @@ class Integrator(object):
 
     @property
     def nbins(self):
+        """The number of rows of the matrix: the length of the powder of one frame."""
         return self.csc.shape[0]
 
     @property
