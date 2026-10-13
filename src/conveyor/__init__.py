@@ -25,6 +25,7 @@ from ._backends import CpuBackend, DecompressBackend, GpuBackend
 from ._policy import Policy, OutputRefused
 from ._iter import iterate
 from ._integrator import Integrator
+from ._clip import fixed_weights, clip_exact_powder
 from ._sparsefile import ImageD11SparseSink, imaged11_name
 from ._engine import run, report, numa_nodes
 
@@ -49,6 +50,8 @@ __all__ = [
     "iterate",
     "Integrator",
     "ImageD11SparseSink",
+    "fixed_weights",
+    "clip_exact_powder",
     "imaged11_name",
     "report",
     "numa_nodes",
