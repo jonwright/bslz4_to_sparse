@@ -9,14 +9,13 @@ not in file order: `file` (the index into the list of files) and `frame0` say wh
 
 import glob
 
-import h5py
-import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
 import numpy as np
 
 from bslz4_to_sparse import conveyor
 
 h5pattern = "eiger_*.h5"  # your files: bitshuffle-compressed, one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside each
+mask_filename = "mask.npy"  # your detector mask, pyFAI's convention: non-zero = masked pixel
 h5filenames = sorted(glob.glob(h5pattern))
 
 for name in h5filenames:  # once per file, the only use of HDF5 here (see example 8)
@@ -25,8 +24,7 @@ for name in h5filenames:  # once per file, the only use of HDF5 here (see exampl
 # Cut the work into units of at most 50 MB of compressed input each, so that a small data set still
 # gives the workers several units to share (the default, 256 MB, is a whole file in most cases).
 units, shape, dtype = conveyor.make_work_units(h5filenames, h5dataset, max_unit_bytes=50_000_000)
-with h5py.File(h5filenames[0], "r") as h5:
-    mask = (h5[h5dataset][0] != np.iinfo(dtype).max).astype(np.uint8)
+mask = (np.load(mask_filename) == 0).astype(np.uint8)  # 1 = use this pixel
 backend = conveyor.CpuBackend(mask, dtype, cut=3, howmany=5000)
 
 # The loop gets the pixels as they are decoded.

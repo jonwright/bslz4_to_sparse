@@ -14,6 +14,7 @@ import bslz4_to_sparse
 
 h5filename = "eiger_0000.h5"  # your file: bitshuffle-compressed, one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside it
+mask_filename = "mask.npy"  # your detector mask, pyFAI's convention: non-zero = masked pixel
 
 with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
@@ -22,8 +23,9 @@ with h5py.File(h5filename, "r") as h5:
     frame0 = ds[0]  # decompressed by HDF5, only here to build the mask and to check
     chunk0 = ds.id.read_direct_chunk((0, 0, 0))[1]  # frame 0, still compressed
 
-# The mask: 1 = use this pixel.  A bad pixel holds the largest value of the dtype.
-mask = (frame0 != np.iinfo(ds.dtype).max).astype(np.uint8)
+# The mask: where the detector has gaps or dead pixels.
+bad = np.load(mask_filename) != 0  # the masked pixels
+mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel
 
 # The object is made once for a dataset: it knows the frame shape (from the mask) and the dtype.
 c2s = bslz4_to_sparse.chunk2sparse(mask, dtype=ds.dtype, codec=codec)

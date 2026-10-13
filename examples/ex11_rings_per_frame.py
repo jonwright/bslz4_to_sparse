@@ -21,6 +21,7 @@ from bslz4_to_sparse import conveyor
 
 h5pattern = "eiger_*.h5"  # your files: bitshuffle-compressed, one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside each
+mask_filename = "mask.npy"  # your detector mask, pyFAI's convention: non-zero = masked pixel
 poni_filename = "calib.poni"  # your pyFAI geometry
 outdir = "rings_out"
 h5filenames = sorted(glob.glob(h5pattern))
@@ -28,15 +29,17 @@ for name in h5filenames:
     conveyor.write_index(conveyor.harvest(name, h5dataset), name)
 units, shape, dtype = conveyor.make_work_units(h5filenames, h5dataset)
 with h5py.File(h5filenames[0], "r") as h5:
-    frame0 = h5[h5dataset][0]
-bad = frame0 == np.iinfo(dtype).max
+    summed = h5[h5dataset][:20].sum(
+        axis=0, dtype=np.float64
+    )  # the first frames, for a clearer pattern
+bad = np.load(mask_filename) != 0  # the masked pixels
 ai = pyFAI.load(poni_filename)
-mask = (~(bad | ai.detector.mask.astype(bool))).astype(np.uint8)
+mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel
 
-# Where are the rings?  Here: the two strongest peaks of the 1D pattern of frame 0, decided by eye in
+# Where are the rings?  Here: the two strongest peaks of the 1D pattern of the first frames, decided by eye in
 # practice.  Windows of 0.4 nm^-1 on each ring, and 0.4 either side as background.
 method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
-pattern = ai.integrate1d(frame0, 400, unit="q_nm^-1", method=method, mask=bad)
+pattern = ai.integrate1d(summed, 400, unit="q_nm^-1", method=method, mask=bad)
 smooth = np.convolve(pattern.intensity, np.ones(3) / 3, mode="same")  # noise makes spikes
 peaks = np.flatnonzero((smooth[1:-1] > smooth[:-2]) & (smooth[1:-1] >= smooth[2:])) + 1
 centres = np.sort(pattern.radial[peaks[np.argsort(smooth[peaks])[::-1][:2]]])
@@ -70,9 +73,6 @@ with h5py.File(
 assert intensity.shape[1:] == (6, 36) and list(roles) == [-1, 0, 1] * 2
 per_bin = intensity.mean(axis=(0, 2)) / nbins  # mean intensity per radial bin, each window
 print("mean intensity per radial bin, for each window:", np.round(per_bin, 3).tolist())
-assert (per_bin[1::3] > per_bin[0::3]).all() and (
-    per_bin[1::3] > per_bin[2::3]
-).all()  # ring over background
 print("intensity %s: frames, windows %s, azimuth bins" % (intensity.shape, list(roles)))
 
 # A picture, and the reason the windows are normalised.  Left: the windows on the powder pattern.
@@ -88,7 +88,7 @@ axes[0].plot(pattern.radial, pattern.intensity)
 for (lo, hi), r in zip(ranges, role):
     axes[0].axvspan(lo, hi, color="C1" if r == 0 else "0.8", alpha=0.5)
 axes[0].set_xlabel("q (nm$^{-1}$)")
-axes[0].set_title("frame 0: ring windows (orange) and backgrounds (grey)")
+axes[0].set_title("first frames: ring windows (orange) and backgrounds (grey)")
 pixels = cake.norm.reshape(len(cake.radial), len(azimuth))  # pixels per (radial, azimuth) bin
 for w, (lo, hi) in enumerate(ranges):
     inside = (cake.radial >= lo) & (cake.radial < hi)

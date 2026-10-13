@@ -28,6 +28,7 @@ from bslz4_to_sparse import conveyor
 
 h5pattern = "eiger_*.h5"  # your files: bitshuffle-compressed, one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside each
+mask_filename = "mask.npy"  # your detector mask, pyFAI's convention: non-zero = masked pixel
 outdir = "sparse_out"  # where the sparse files go
 h5filenames = sorted(glob.glob(h5pattern))
 
@@ -44,10 +45,7 @@ print(
 units, shape, dtype = conveyor.make_work_units(h5filenames, h5dataset)
 print("%d work units" % len(units))
 
-# the mask: pixels holding the detector's bad-pixel value in the first frame
-with h5py.File(h5filenames[0], "r") as h5:
-    frame0 = h5[h5dataset][0]
-mask = (frame0 != np.iinfo(dtype).max).astype(np.uint8)
+mask = (np.load(mask_filename) == 0).astype(np.uint8)  # 1 = use this pixel
 
 # 3. run: 3 workers (threads), the pixels above the cut of 3, at most 5000 per frame
 backend = conveyor.CpuBackend(mask, dtype, cut=3, howmany=5000)

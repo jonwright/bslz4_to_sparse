@@ -25,6 +25,7 @@ import bslz4_to_sparse
 
 h5filename = "eiger_0000.h5"  # your file: bitshuffle-compressed, one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside it
+mask_filename = "mask.npy"  # your detector mask, pyFAI's convention: non-zero = masked pixel
 poni_filename = "calib.poni"  # your pyFAI geometry
 
 with h5py.File(h5filename, "r") as h5:
@@ -32,7 +33,7 @@ with h5py.File(h5filename, "r") as h5:
     dtype, codec = ds.dtype, bslz4_to_sparse.detect_codec(ds)
     frame0 = ds[0]
     chunk0 = ds.id.read_direct_chunk((0, 0, 0))[1]
-bad = frame0 == np.iinfo(dtype).max  # detector gaps hold the dtype's maximum
+bad = np.load(mask_filename) != 0  # the masked pixels
 mask = (~bad).astype(np.uint8)
 
 # pyFAI makes its sparse matrix once, when it first integrates with a sparse method (bbox pixel
@@ -91,8 +92,11 @@ plt.show()
 
 # Only the powder is wanted? Then no pixel needs collecting: a cut at the dtype's maximum finds none
 # (and howmany=0 would keep none of any that were found).
+nothing = min(
+    np.iinfo(dtype).max, np.iinfo(np.int32).max
+)  # the cut is a C int: for 32-bit pixels, its largest
 only_powder = bslz4_to_sparse.chunk2sparseCSC(mask, engine, dtype=dtype, codec=codec)
-npx, _, powder_only = only_powder(chunk0, np.iinfo(dtype).max)
+npx, _, powder_only = only_powder(chunk0, nothing)
 assert npx == 0 and np.array_equal(powder_only, powder_sum)
 print("with the cut at the dtype maximum: no pixels, the same powder_sum")
 
@@ -100,7 +104,7 @@ print("with the cut at the dtype maximum: no pixels, the same powder_sum")
 method2 = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=2)
 ref2 = ai.integrate2d(frame0, 100, 18, unit="q_nm^-1", method=method2, mask=bad)
 integ2 = bslz4_to_sparse.chunk2sparseCSC(mask, ai.engines[method2].engine, dtype=dtype, codec=codec)
-_, _, powder_sum2 = integ2(chunk0, np.iinfo(dtype).max)
+_, _, powder_sum2 = integ2(chunk0, nothing)
 cake = powder_sum2.reshape(100, 18).T  # pyFAI's (azimuth, radial) layout
 assert np.allclose(cake, ref2.sum_signal, rtol=1e-9, atol=0)
 print("2D cake", cake.shape, "matches pyFAI's integrate2d sum_signal")

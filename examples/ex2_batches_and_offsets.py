@@ -14,6 +14,7 @@ import bslz4_to_sparse
 
 h5filename = "eiger_0000.h5"  # your file: bitshuffle-compressed, one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside it
+mask_filename = "mask.npy"  # your detector mask, pyFAI's convention: non-zero = masked pixel
 
 # 1. once, with HDF5: where is each chunk, and what are the shape and dtype of the frames?
 with h5py.File(h5filename, "r") as h5:
@@ -21,12 +22,12 @@ with h5py.File(h5filename, "r") as h5:
     nframes, shape, dtype = ds.shape[0], ds.shape[1:], ds.dtype
     codec = bslz4_to_sparse.detect_codec(ds)
     where = bslz4_to_sparse.harvest_chunk_offsets(ds)  # {frame: (byte offset, byte size)}
-    frame0 = ds[0]  # for the mask, and to check the result
 print(
     "%d frames of %s %s; frame 0 is %d bytes at offset %d"
     % ((nframes, shape, dtype) + (where[0][1], where[0][0]))
 )
-mask = (frame0 != np.iinfo(dtype).max).astype(np.uint8)
+bad = np.load(mask_filename) != 0  # the masked pixels
+mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel
 
 # 2. no HDF5 from here on: the file is read as bytes
 file_bytes = np.fromfile(h5filename, dtype=np.uint8)

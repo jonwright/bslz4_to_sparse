@@ -21,6 +21,7 @@ from bslz4_to_sparse import conveyor
 
 h5pattern = "eiger_*.h5"  # your files: bitshuffle-compressed, one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside each
+mask_filename = "mask.npy"  # your detector mask, pyFAI's convention: non-zero = masked pixel
 poni_filename = "calib.poni"  # your pyFAI geometry
 outdir = "results"
 h5filenames = sorted(glob.glob(h5pattern))
@@ -30,9 +31,9 @@ for name in h5filenames:
 units, shape, dtype = conveyor.make_work_units(h5filenames, h5dataset)
 with h5py.File(h5filenames[0], "r") as h5:
     frame0 = h5[h5dataset][0]
-bad = frame0 == np.iinfo(dtype).max
+bad = np.load(mask_filename) != 0  # the masked pixels
 ai = pyFAI.load(poni_filename)
-mask = (~(bad | ai.detector.mask.astype(bool))).astype(np.uint8)
+mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel
 
 # the integrator: matrix and normalisation from pyFAI, saved once
 os.makedirs(outdir, exist_ok=True)
@@ -64,7 +65,11 @@ frame3 = None
 with h5py.File(h5filenames[0], "r") as h5:
     frame3 = h5[h5dataset][3]
 ref = ai.integrate1d(frame3, 500, unit="q_nm^-1", method=method, mask=bad)
-assert np.allclose(intensity[3], ref.intensity, rtol=1.2e-7, atol=0)
+worst = (abs(intensity[3] - ref.intensity) / np.where(ref.intensity > 0, ref.intensity, 1)).max()
+print("largest relative difference from pyFAI's intensity: %.2e" % worst)
+# 16-bit pixels: only pyFAI's own float32 rounding (6e-8).  32-bit pixels: the integer weights have
+# to leave room for pixel values up to 2**32, so they are coarser (2**-17 or so): about 1e-6.
+assert worst < (1.2e-7 if dtype.itemsize <= 2 else 1e-5)
 print(
     "%d frames: %d sparse pixels, powder_sums %s int64 with scale 2**%d"
     % (len(nnz), nnz.sum(), powder_sums.shape, round(np.log2(scale)))
