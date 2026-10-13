@@ -126,3 +126,59 @@ def test_dense_frames_lose_their_pixels_but_not_their_rings(tmp_path):
     with h5py.File("%s/%s" % (out, cv.imaged11_name(p)), "r") as h:
         g = h[DSET.strip("/")]
         assert g["nnz"][:].sum() == 0 and "not sparse" in g.attrs["sparse_skipped"]
+
+
+def test_everything_in_one_pass_through_the_conveyor(tmp_path):
+    """Sparse pixels, a 1D powder, ring windows and the first moment from one pass over the pixels
+    (one stacked matrix): each file and dataset equals what that output gives on its own."""
+    ai = ti.masked_ai()
+    kw = dict(polarization_factor=0.95, radial_range=(0.3, 3.0))
+    one = cv.Integrator.from_pyfai(ai, 60, unit="2th_deg", **kw)
+    cake = cv.Integrator.from_pyfai(ai, 70, unit="2th_deg", npt_azim=12, **kw)
+    ranges, ring, role = cv.peak_windows([0.9, 1.4], 0.12, 0.1)
+    rings = cake.rings(ranges)
+    stack = cv.IntegratorStack({"powder1d": one, "rings": rings, "moment": one.first_moment()})
+    paths = make_files(tmp_path, nfiles=2, nframes=7)
+    units, shape, dtype = cv.make_units(paths, DSET)
+    mask = (1 - ai.detector.mask).astype(np.uint8)
+    out = str(tmp_path / "all")
+    r = cv.run(
+        units,
+        cv.CpuBackend(mask, dtype, csc=stack.csc, cut=200, howmany=2000),
+        workers=2,
+        sink=lambda k: cv.TeeSink(
+            cv.ImageD11SparseSink(out, DSET, stack=stack, integrator="stack.h5"),
+            cv.RingSink(rings, out, DSET, ring, role, rows=stack.slices["rings"]),
+        ),
+        policy=cv.Policy(("sparse", "powder1d", "rings")),
+    )
+    assert r["frames"] == 14 and r["sparse_skipped"] == []
+    method = ti.IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
+    for p in paths:
+        with h5py.File(p, "r") as src:
+            frames = src[DSET][:]
+        with h5py.File("%s/%s" % (out, cv.imaged11_name(p)), "r") as h:
+            g = h[DSET.strip("/")]
+            assert set(g) >= {"row", "col", "intensity", "nnz"}
+            assert g["powder_powder1d"].shape == (7, 60) and g["powder_moment"].shape == (7, 120)
+            assert (
+                g["powder_rings"].shape == (7, 72)
+                and g["powder_powder1d"].attrs["integrator"] == "stack.h5"
+            )
+            assert list(g["nnz"][:]) == [int(((f > 200) & (mask > 0)).sum()) for f in frames]
+            i = 3
+            ref = ai.integrate1d(
+                frames[i],
+                60,
+                unit="2th_deg",
+                method=method,
+                polarization_factor=0.95,
+                radial_range=(0.3, 3.0),
+            )
+            assert np.allclose(
+                one.intensity(g["powder_powder1d"][i]), ref.intensity, rtol=1.2e-7, atol=0
+            )
+        with h5py.File("%s/%s" % (out, cv.rings_name(p)), "r") as h:
+            inten = h[DSET.strip("/")]["intensity"][:]
+        refr = ti.textom_process_one_frame(ai, frames[3], 70, 12, ranges, np.zeros(70), **kw).T
+        assert np.allclose(inten[3], refr, rtol=2e-7, atol=0)

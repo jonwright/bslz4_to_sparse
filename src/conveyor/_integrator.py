@@ -12,11 +12,15 @@ keeps what that needs, in one file that results files point to:
               (nrings, 2) in `unit` when the bins are rings;  offset, per bin, added to the
               normalised intensity (the background of rings)
 
+Kinds: "powder1d", "powder2d", "rings", and "moment" (a 1D matrix and, below it, the same with every
+pixel's weights multiplied by its q: the sum of q x signal per bin; Integrator.first_moment).  An
+IntegratorStack puts several of them in one matrix, so one pass gives all of them.
+
 Rows of the matrix: "powder1d" the radial bins; "powder2d" radial-major, row = radial * nazim +
 azimuth; "rings" azimuth-major, row = azimuth * nrings + ring (reshape to (nazim, nrings)).
 
 File (HDF5; hdf5plugin supplies the bitshuffle filter): attributes bslz4_to_sparse_integrator
-(format version), kind ("powder1d", "rings" or "powder2d"), unit, shape (the detector), nbins,
+(format version), kind ("powder1d", "rings", "powder2d" or "moment"), unit, shape (the detector), nbins,
 bins_shape (what the powder of one frame reshapes to); datasets poni, norm, radial,
 azimuthal, ring_ranges and offset when present; group csc (attribute format = "CSC", shape = (nbins, npix))
 with datasets data (float32), indices (int32), indptr (int32), as scipy and pyFAI name them.
@@ -79,6 +83,8 @@ class Integrator(object):
             return (len(self.radial), len(self.azimuthal))
         if self.kind == "rings":
             return (len(self.azimuthal), len(self.ring_ranges))
+        if self.kind == "moment":
+            return (2, self.nbins // 2)
         return (self.nbins,)
 
     @classmethod
@@ -133,8 +139,11 @@ class Integrator(object):
         p = np.asarray(powder, np.float64)
         if scale is not None:
             p = p * scale
+        if self.kind == "moment":  # the first half: the signal; mean_q gives the moment
+            p = p[..., : self.nbins // 2]
         out = np.zeros_like(p)
-        np.divide(p, self.norm, out=out, where=self.norm > 0)
+        norm = self.norm[: p.shape[-1]]
+        np.divide(p, norm, out=out, where=norm > 0)
         if self.offset is not None:
             out = out + self.offset
         return out
@@ -189,69 +198,169 @@ class Integrator(object):
         """Write the integrator to an HDF5 file (see the module docstring)."""
         import h5py
 
+        with h5py.File(path, "w") as h:
+            self._write(h, compression)
+
+    def _write(self, h, compression=True):
+        """Write into the open HDF5 file or group h."""
         comp = {}
         if compression:
             import hdf5plugin
 
             comp = hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
         c = self.csc
-        with h5py.File(path, "w") as h:
-            h.attrs["bslz4_to_sparse_integrator"] = VERSION
-            h.attrs["kind"], h.attrs["unit"] = self.kind, self.unit
-            h.attrs["shape"], h.attrs["nbins"] = np.array(self.shape), self.nbins
-            h.attrs["bins_shape"] = np.array(self.bins_shape)
-            if self.poni is not None:
-                h["poni"] = self.poni
-            h.create_dataset("norm", data=self.norm)
-            for name in ("radial", "azimuthal", "ring_ranges", "offset"):
-                v = getattr(self, name)
-                if v is not None:
-                    h.create_dataset(name, data=v).attrs["unit"] = (
-                        self.unit if name != "azimuthal" else "deg"
-                    )
-            g = h.create_group("csc")
-            g.attrs["format"], g.attrs["shape"] = "CSC", np.array(c.shape)
-            for name, a, dt in (
-                ("data", c.data, np.float32),
-                ("indices", c.indices, np.int32),
-                ("indptr", c.indptr, np.int32),
-            ):
-                a = np.ascontiguousarray(a, dt)
-                kw = (
-                    dict(chunks=(min(len(a), 1 << 16),), **comp)
-                    if compression and len(a) > 1
-                    else {}
+        h.attrs["bslz4_to_sparse_integrator"] = VERSION
+        h.attrs["kind"], h.attrs["unit"] = self.kind, self.unit
+        h.attrs["shape"], h.attrs["nbins"] = np.array(self.shape), self.nbins
+        h.attrs["bins_shape"] = np.array(self.bins_shape)
+        if self.poni is not None:
+            h["poni"] = self.poni
+        h.create_dataset("norm", data=self.norm)
+        for name in ("radial", "azimuthal", "ring_ranges", "offset"):
+            v = getattr(self, name)
+            if v is not None:
+                h.create_dataset(name, data=v).attrs["unit"] = (
+                    self.unit if name != "azimuthal" else "deg"
                 )
-                g.create_dataset(name, data=a, **kw)
+        g = h.create_group("csc")
+        g.attrs["format"], g.attrs["shape"] = "CSC", np.array(c.shape)
+        for name, a, dt in (
+            ("data", c.data, np.float32),
+            ("indices", c.indices, np.int32),
+            ("indptr", c.indptr, np.int32),
+        ):
+            a = np.ascontiguousarray(a, dt)
+            kw = dict(chunks=(min(len(a), 1 << 16),), **comp) if compression and len(a) > 1 else {}
+            g.create_dataset(name, data=a, **kw)
 
     @classmethod
     def load(cls, path):
         """Read an integrator file written by save."""
         import h5py
-        import scipy.sparse as sp
 
         with h5py.File(path, "r") as h:
-            if h.attrs.get("bslz4_to_sparse_integrator") != VERSION:
-                raise ValueError("%s is not a version %d integrator file" % (path, VERSION))
-            g = h["csc"]
-            if g.attrs["format"] != "CSC":
-                raise ValueError("%s: the matrix is %r, not CSC" % (path, g.attrs["format"]))
-            csc = sp.csc_matrix(
-                (g["data"][()], g["indices"][()], g["indptr"][()]), shape=tuple(g.attrs["shape"])
-            )
-            opt = {n: h[n][()] for n in ("radial", "azimuthal", "ring_ranges", "offset") if n in h}
-            poni = h["poni"][()] if "poni" in h else None
-            if isinstance(poni, bytes):
-                poni = poni.decode("utf-8")
-            return cls(
-                csc,
-                h["norm"][()],
-                tuple(h.attrs["shape"]),
-                h.attrs["unit"],
-                kind=h.attrs["kind"],
-                poni=poni,
-                **opt
-            )
+            return cls._read(h, path)
+
+    @classmethod
+    def _read(cls, h, where=""):
+        import scipy.sparse as sp
+
+        if h.attrs.get("bslz4_to_sparse_integrator") != VERSION:
+            raise ValueError("%s is not a version %d integrator file" % (where, VERSION))
+        g = h["csc"]
+        if g.attrs["format"] != "CSC":
+            raise ValueError("%s: the matrix is %r, not CSC" % (where, g.attrs["format"]))
+        csc = sp.csc_matrix(
+            (g["data"][()], g["indices"][()], g["indptr"][()]), shape=tuple(g.attrs["shape"])
+        )
+        opt = {n: h[n][()] for n in ("radial", "azimuthal", "ring_ranges", "offset") if n in h}
+        poni = h["poni"][()] if "poni" in h else None
+        if isinstance(poni, bytes):
+            poni = poni.decode("utf-8")
+        return cls(
+            csc,
+            h["norm"][()],
+            tuple(h.attrs["shape"]),
+            h.attrs["unit"],
+            kind=h.attrs["kind"],
+            poni=poni,
+            **opt
+        )
+
+    def first_moment(self, q=None):
+        """A "moment" Integrator from this 1D one: the same matrix with, below it, the same
+        matrix with every pixel's weights multiplied by that pixel's q (in unit; default: pyFAI's
+        value at the pixel centre), so one product gives, per bin, the sum of weight x signal and
+        the sum of weight x q x signal.  Their ratio is the mean q of the signal in the bin.  The
+        weights are no longer 1-like numbers and the second half cannot be normalised by an image
+        of ones: use a float dot (not exact).  Rows: the first nbins, then the moment."""
+        import scipy.sparse as sp
+
+        if self.kind != "powder1d":
+            raise ValueError("first_moment needs a powder1d integrator, this is %r" % self.kind)
+        if q is None:
+            q = self.ai().array_from_unit(shape=self.shape, typ="center", unit=self.unit)
+        q = np.asarray(q, np.float64).ravel()
+        if q.size != self.csc.shape[1]:
+            raise ValueError("q has %d values for %d pixels" % (q.size, self.csc.shape[1]))
+        both = sp.vstack([self.csc, self.csc @ sp.diags(q)]).astype(np.float32).tocsc()
+        return Integrator(
+            both,
+            np.concatenate([self.norm, np.zeros(self.nbins)]),
+            self.shape,
+            self.unit,
+            radial=self.radial,
+            kind="moment",
+            poni=self.poni,
+        )
+
+    def mean_q(self, powder):
+        """Of a "moment" integrator's powder: the mean q of the signal of each bin, the second
+        half of the rows over the first (0 where the bin has no signal)."""
+        if self.kind != "moment":
+            raise ValueError("mean_q needs a moment integrator")
+        p = np.asarray(powder, np.float64)
+        n = self.nbins // 2
+        out = np.zeros_like(p[..., :n])
+        np.divide(p[..., n:], p[..., :n], out=out, where=p[..., :n] != 0)
+        return out
+
+
+class IntegratorStack(object):
+    """Several Integrators of one detector as one matrix: everything comes out of one pass over
+    the pixels, whatever their number (a 1D powder, ring windows, the first moment ...), each pixel
+    reaching all of their bins.  blocks: a dict, name -> Integrator (the order is kept).
+
+    csc     the blocks' matrices stacked, rows block after block (float: a block of rings or of
+            moments makes the whole product float, so use the float dot, not exact)
+    slices  name -> the rows of csc, and of every powder, that belong to the block
+    split(powder)  name -> the intensity of that block (powder: (nbins_total,) or (nframes, ...))
+    raw(powder)    name -> the rows of the powder of that block, as the decoder gives them"""
+
+    def __init__(self, blocks):
+        import scipy.sparse as sp
+
+        self.blocks = dict(blocks)
+        shapes = set(b.shape for b in self.blocks.values())
+        if len(shapes) != 1:
+            raise ValueError("the blocks are for detectors of different shapes: %r" % shapes)
+        self.shape = shapes.pop()
+        self.slices, n = {}, 0
+        for name, b in self.blocks.items():
+            self.slices[name] = slice(n, n + b.nbins)
+            n += b.nbins
+        self.csc = sp.vstack([b.csc for b in self.blocks.values()]).astype(np.float32).tocsc()
+        self.nbins = n
+
+    def raw(self, powder):
+        """name -> the rows of the powder of each block."""
+        p = np.asarray(powder)
+        return {k: p[..., sl] for k, sl in self.slices.items()}
+
+    def split(self, powder, scale=None):
+        """name -> the intensity of each block (Integrator.intensity of its rows)."""
+        return {k: self.blocks[k].intensity(v, scale) for k, v in self.raw(powder).items()}
+
+    def save(self, path, compression=True):
+        """Write the blocks to one HDF5 file, a group each (their matrices are not repeated as one)."""
+        import h5py
+
+        with h5py.File(path, "w") as h:
+            h.attrs["bslz4_to_sparse_integrator_stack"] = VERSION
+            h.attrs["names"] = np.array(list(self.blocks), dtype="S")
+            for k, b in self.blocks.items():
+                b._write(h.create_group(k), compression)
+
+    @classmethod
+    def load(cls, path):
+        """Read a stack written by save."""
+        import h5py
+
+        with h5py.File(path, "r") as h:
+            if h.attrs.get("bslz4_to_sparse_integrator_stack") != VERSION:
+                raise ValueError("%s is not a version %d integrator stack" % (path, VERSION))
+            names = [n.decode() if isinstance(n, bytes) else n for n in h.attrs["names"]]
+            return cls({n: Integrator._read(h[n], path) for n in names})
 
 
 def poni_text(ai):

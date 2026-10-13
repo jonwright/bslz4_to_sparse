@@ -56,7 +56,9 @@ class ImageD11SparseSink(Sink):
     """out_dir      where the files go (created);  dset  the dataset path of the input, which is the
     group written;  name  function input path -> file name (imaged11_name);  compression  see the
     module docstring;  powder_dtype  None (as the decoder gives it: int64 or float64), np.float32 or
-    np.float64;  integrator  path of an Integrator file to record beside the powder.
+    np.float64;  integrator  path of an Integrator file to record beside the powder;  stack  the
+    IntegratorStack the run's matrix is: each block is written as its own dataset powder_<name>
+    (raw sums of the block's rows, with the normalisation in the integrator file).
     """
 
     def __init__(
@@ -67,9 +69,11 @@ class ImageD11SparseSink(Sink):
         compression="bslz4",
         powder_dtype=None,
         integrator=None,
+        stack=None,
     ):
         self.out_dir, self.dset, self.name = out_dir, dset.strip("/"), name
         self.comp, self.pdtype, self.integrator = compression, powder_dtype, integrator
+        self.stack = stack
         self.files, self.powder = [], []
 
     def begin(self, meta):
@@ -140,13 +144,20 @@ class ImageD11SparseSink(Sink):
                     if pw.dtype.kind == "i":
                         pw = pw * np.float64(scale)
                     pw = pw.astype(self.pdtype)
-                d = g.create_dataset(
-                    "powder", data=pw, chunks=(min(len(pw), 64), pw.shape[1]), **kw
-                )
-                if pw.dtype.kind == "i" and scale is not None:
-                    d.attrs["scale"] = scale
-                if self.integrator:
-                    d.attrs["integrator"] = self.integrator
+                parts = {"powder": pw}
+                if self.stack is not None:  # one dataset per block of the stacked matrix
+                    parts = {"powder_" + k: pw[:, sl] for k, sl in self.stack.slices.items()}
+                for name, rows in parts.items():
+                    d = g.create_dataset(
+                        name,
+                        data=np.ascontiguousarray(rows),
+                        chunks=(min(len(rows), 64), rows.shape[1]),
+                        **kw
+                    )
+                    if rows.dtype.kind == "i" and scale is not None:
+                        d.attrs["scale"] = scale
+                    if self.integrator:
+                        d.attrs["integrator"] = self.integrator
         os.replace(out + ".tmp", out)
         self.files.append(out)
         self.held, self.powder = [], []

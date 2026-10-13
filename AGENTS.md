@@ -4,6 +4,16 @@ The single canonical agent guidance for this repository. Merged from the ImageD1
 agent notes and this project's own rules. Documentation rules are in
 `docs/AGENTS.md`; read that before touching `docs/`, `examples/` or `tools/*docs*`.
 
+## 0. What is the product
+
+The product is the kernels: the CPU decoders and matrix products (`src/*.py`, `src/steps`,
+`src/pipeline`) and the GPU ones (`src/cuda`), usable on their own. `src/conveyor` (reading,
+workers, sinks, the integrator state, the writers) is a worked example and a verification layer, so
+that people see the kernels working at scale. Kernels never import it and nobody is made to use it;
+keep it small, optional and honest about being a demo. File formats there are a choice of the demo,
+not of the library. The set of kernels will be trimmed at the end; until then, every case stays
+tested.
+
 ## 1. Think before coding
 
 - Read the files you will touch, end to end. Fragments give confident wrong answers.

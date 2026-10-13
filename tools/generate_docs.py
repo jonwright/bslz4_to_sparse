@@ -310,7 +310,10 @@ def conveyor_page():
                 "peak_windows",
             ),
         ),
-        ("Integrator state", ("Integrator", "fixed_weights", "clip_exact_powder")),
+        (
+            "Integrator state",
+            ("Integrator", "IntegratorStack", "fixed_weights", "clip_exact_powder"),
+        ),
         (
             "Output policy",
             ("Policy", "OutputRefused", "GuardSink", "OutputTooLarge", "stored_size"),

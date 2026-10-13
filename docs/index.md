@@ -51,7 +51,8 @@ plain images.  The same processing exists on a CUDA GPU behind the same calls
 
 ## Moving many files
 
-For a whole data set the conveyor keeps decoders busy: each worker owns two
+The decoders do not need anything around them, but a worked example shows them at scale. For a
+whole data set the conveyor keeps decoders busy: each worker owns two
 buffers and a reader, and the reader fills one with a unit (a whole file when it fits), in large reads,
 while the worker decodes the other.  Where every chunk lies in a file is kept
 once in a small index file beside it, so reading never calls HDF5, which takes a

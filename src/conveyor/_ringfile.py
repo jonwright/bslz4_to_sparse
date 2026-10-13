@@ -52,7 +52,9 @@ class RingSink(Sink):
     """integrator   the "rings" Integrator the run's backend uses (csc=integrator.csc, float dot)
     out_dir, dset, name, compression  as ImageD11SparseSink (the default name ends in _rings.h5)
     dtype        what intensity is stored as (np.float32);  integrator_path  recorded in attributes
-    ring_index, role  from peak_windows: which ring each window is for, and below/ring/above"""
+    ring_index, role  from peak_windows: which ring each window is for, and below/ring/above
+    rows         the rows of the powder that are this integrator's (a slice, from
+    IntegratorStack.slices) when the run's matrix is a stack"""
 
     def __init__(
         self,
@@ -65,6 +67,7 @@ class RingSink(Sink):
         compression="bslz4",
         dtype=np.float32,
         integrator_path=None,
+        rows=None,
     ):
         if integrator.kind != "rings":
             raise ValueError("RingSink needs a rings Integrator, not %r" % integrator.kind)
@@ -77,6 +80,7 @@ class RingSink(Sink):
         self.nbins = np.array(
             [int(((r >= lo) & (r < hi)).sum()) for lo, hi in integrator.ring_ranges], np.int32
         )
+        self.rows = rows
         self.held, self.files = [], []
 
     def begin(self, meta):
@@ -94,6 +98,8 @@ class RingSink(Sink):
     def write(self, file, frame0, npx, values, indices, powder):
         """Normalise the batch and keep it as (frames, windows, azimuth) until the file is done."""
         naz, nw = self.integ.bins_shape
+        if self.rows is not None:
+            powder = powder[:, self.rows]
         inten = self.integ.intensity(powder).reshape(len(powder), naz, nw)
         self.held.append(np.ascontiguousarray(inten.transpose(0, 2, 1), self.dtype))
 

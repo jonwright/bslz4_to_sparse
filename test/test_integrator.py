@@ -135,3 +135,56 @@ def test_rings_equal_the_summed_normalised_cake(tmp_path, background):
     ref = textom_process_one_frame(ai, fr, nrad, naz, ranges, bg, **kw)
     # measured: 4.5e-8 at most, the float32 rounding of pyFAI's cake (zero bins agree exactly)
     assert np.allclose(got, ref, rtol=1.2e-7, atol=0)
+
+
+def test_first_moment_is_the_mean_q_of_the_signal():
+    """The stacked q-weighted matrix gives pyFAI's sum_signal of the q-weighted image, and its ratio
+    to the plain sum is the mean q of each bin."""
+    ai = masked_ai()
+    integ = cv.Integrator.from_pyfai(ai, 50, unit="q_nm^-1", split="bbox")
+    mom = integ.first_moment()
+    assert mom.kind == "moment" and mom.nbins == 100 and mom.bins_shape == (2, 50)
+    fr = frame()
+    mask = (1 - ai.detector.mask).astype(np.uint8)
+    p = b.chunk2sparseCSC(mask, mom.csc, np.uint16).from_frames(fr[None], 0)[2]
+    q = ai.array_from_unit(shape=SHAPE, typ="center", unit="q_nm^-1")
+    method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
+    ref = ai.integrate1d(fr, 50, unit="q_nm^-1", method=method)
+    refq = ai.integrate1d(fr * q, 50, unit="q_nm^-1", method=method)
+    assert np.allclose(p[0, :50], ref.sum_signal, rtol=1e-9, atol=0)  # measured: identical
+    # pyFAI's q-weighted image is float32: measured differences are 3.3e-8 at most
+    assert np.allclose(p[0, 50:], refq.sum_signal, rtol=1e-7, atol=0)
+    got = mom.mean_q(p)[0]
+    ok = ref.sum_signal > 0
+    assert np.allclose(got[ok], refq.sum_signal[ok] / ref.sum_signal[ok], rtol=1e-7, atol=0)
+    assert np.allclose(mom.intensity(p)[0], ref.intensity, rtol=1.2e-7, atol=0)
+
+
+def test_one_pass_for_everything(tmp_path):
+    """A 1D powder, ring windows and the first moment, as one stacked matrix and one product: each
+    block equals what it gives alone, through a save and a load of the stack."""
+    ai = masked_ai()
+    kw = dict(polarization_factor=0.95)
+    one = cv.Integrator.from_pyfai(ai, 50, unit="q_nm^-1", **kw)
+    cake = cv.Integrator.from_pyfai(ai, 40, unit="q_nm^-1", npt_azim=8, radial_range=(5, 40), **kw)
+    rng = cake.radial[[5, 20]]
+    rings = cake.rings([(rng[0] - 0.4, rng[0] + 0.4), (rng[1] - 0.4, rng[1] + 0.4)])
+    stack = cv.IntegratorStack({"powder1d": one, "rings": rings, "moment": one.first_moment()})
+    path = str(tmp_path / "stack.h5")
+    stack.save(path)
+    stack = cv.IntegratorStack.load(path)
+    assert stack.nbins == 50 + 16 + 100 and list(stack.slices) == ["powder1d", "rings", "moment"]
+    fr = frame()
+    mask = (1 - ai.detector.mask).astype(np.uint8)
+    d = b.chunk2sparseCSC(mask, stack.csc, np.uint16)
+    powder = d.from_frames(fr[None], 0)[2]
+    out = stack.split(powder)
+    alone = {
+        k: b.chunk2sparseCSC(mask, blk.csc, np.uint16).from_frames(fr[None], 0)[2]
+        for k, blk in stack.blocks.items()
+    }
+    for k, blk in stack.blocks.items():
+        assert np.allclose(out[k], blk.intensity(alone[k]), rtol=1e-12, atol=0), k  # same sums
+    method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
+    ref = ai.integrate1d(fr, 50, unit="q_nm^-1", method=method, **kw)
+    assert np.allclose(out["powder1d"][0], ref.intensity, rtol=1.2e-7, atol=0)

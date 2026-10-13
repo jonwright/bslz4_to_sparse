@@ -1,5 +1,8 @@
 """The conveyor: storage (or network) -> memory -> decoders -> sinks, in pure Python.
 
+A worked example of the kernels at scale, and a test of them: nothing in the kernels needs it, and
+its file formats are the example's choice.
+
 Not to be confused with the *pipeline* (decode, mask, untranspose, collect, route, dot), the chain
 of steps one decoder runs on every block.  The conveyor moves work to the decoders:
 
@@ -24,7 +27,7 @@ from ._sinks import Sink, NullSink, GuardSink, TeeSink, stored_size
 from ._backends import CpuBackend, DecompressBackend, GpuBackend
 from ._policy import Policy, OutputRefused
 from ._iter import iterate
-from ._integrator import Integrator
+from ._integrator import Integrator, IntegratorStack
 from ._clip import fixed_weights, clip_exact_powder
 from ._ringfile import RingSink, peak_windows, rings_name
 from ._sparsefile import ImageD11SparseSink, imaged11_name
@@ -50,6 +53,7 @@ __all__ = [
     "run",
     "iterate",
     "Integrator",
+    "IntegratorStack",
     "ImageD11SparseSink",
     "RingSink",
     "peak_windows",

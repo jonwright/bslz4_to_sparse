@@ -12,4 +12,8 @@
 - **Ring ranges.** The rings matrix and its ring ranges (2theta windows per Bragg peak, bins per
   azimuth) in the Integrator file.
 - **`exact` as the default** for integer pixels: a results change, to be measured first.
+- **Trim the kernels at the end.** Among the cases to review: the `csc-nosplit-moment` dot (a
+  moment folded into the matrix) is superseded by the stacked matrix of `IntegratorStack` and
+  `Integrator.first_moment`; removing it takes the C enum and registry, the pipeline names, the
+  layout tests, the benchmark cases and a rerun of the committed benchmark JSON on both machines.
 - **Dark subtraction and error bars** (pyFAI's variance models): not in the sums.
