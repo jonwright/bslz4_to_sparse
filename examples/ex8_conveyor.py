@@ -56,6 +56,8 @@ result = conveyor.run(
     units,
     backend,
     workers=3,
+    # min_pixels=2 would also drop the single pixels (connected objects smaller than that, mostly
+    # noise), using ImageD11's labelling
     sink=lambda worker: conveyor.ImageD11SparseSink(outdir, h5dataset),
     policy=conveyor.Policy("sparse"),
 )
