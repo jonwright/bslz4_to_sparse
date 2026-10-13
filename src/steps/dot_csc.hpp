@@ -2,8 +2,7 @@
 /*
  * Step "dot", the CSC-entry layouts: csc (one bin per entry), csc-run
  * (start bin + consecutive weights per pixel), csc-nosplit (one bin per
- * pixel, weight 1: a histogram) and csc-nosplit-moment (a histogram with the
- * first moment beside it).  Each has a dense route (every pixel of the
+ * pixel, weight 1: a histogram).  Each has a dense route (every pixel of the
  * block) and a sparse route (the list of non-zero pixels).  The matrix is
  * mask-folded in Python, so the dense loops make no mask test; the mask
  * still selects the > cut sparse output.
@@ -333,71 +332,3 @@ static inline
 int nosplit_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
     return nosplit_sparse_core<T>(w, ((const bslz4_mat_csc *) w->mat)->indices);
 }
-
-/* csc-nosplit-moment: a histogram with a first moment beside each output.
- * Pixel p reaches the pair of bins b = indices[p] (sum I) and b+1 (sum qI),
- * or none (BSLZ4_NO_BIN); data[p] is its q (n = npix).  The sum I bin gets
- * the value with no multiply, the sum qI bin gets value * q.  indptr is not
- * read.  This is the interleaved [I, qI, I, qI, ...] output order. */
-template<typename T>
-static inline
-int nosplit_moment_dense(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = bslz4_cut_of<T>(w);
-    const T *px = (const T *) w->block;
-    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
-    const size_t i0 = w->i0, n = w->n;
-    const bslz4_mat_csc *BSLZ4_RESTRICT m = (const bslz4_mat_csc *) w->mat;
-    double *BSLZ4_RESTRICT out = (double *) w->powder;
-    const uint32_t *BSLZ4_RESTRICT bin = m->indices + i0;
-    const float *BSLZ4_RESTRICT q = (const float *) m->data + i0;
-    for (size_t j = 0; j < n; j++) {
-        uint32_t b = bin[j];
-        if (b != BSLZ4_NO_BIN) {
-            double v = (double) px[j];
-            out[b] += v;
-            out[b + 1] += v * (double) q[j];
-        }
-    }
-    if (bslz4_cut_above_max<T>(w)) return 0;
-    return bslz4_collect_gt<T>(px, mask, i0, n, cut, w->collect,
-                               (T *) w->out_vals, w->out_adr);
-}
-
-template<typename T>
-static inline
-int nosplit_moment_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = bslz4_cut_of<T>(w);
-    const T *px = (const T *) w->block;
-    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
-    const size_t i0 = w->i0, n = w->n;
-    T *tv = (T *) w->tval;
-    uint32_t *BSLZ4_RESTRICT tidx = w->tidx;
-    int npx = 0;
-    int nz = bslz4_collect_nz_w<T>(w, px, mask, i0, n, tv, tidx);
-    const bslz4_mat_csc *BSLZ4_RESTRICT m = (const bslz4_mat_csc *) w->mat;
-    double *BSLZ4_RESTRICT out = (double *) w->powder;
-    const uint32_t *BSLZ4_RESTRICT bin = m->indices;
-    const float *BSLZ4_RESTRICT q = (const float *) m->data;
-    for (int kk = 0; kk < nz; kk++) {
-        uint32_t p = tidx[kk];
-        uint32_t b = bin[p];
-        if (b != BSLZ4_NO_BIN) {
-            double v = (double) tv[kk];
-            out[b] += v;
-            out[b + 1] += v * (double) q[p];
-        }
-    }
-    T *ov = (T *) w->out_vals;
-    uint32_t *BSLZ4_RESTRICT out_adr = w->out_adr;
-    const int skip = bslz4_cut_above_max<T>(w);
-    for (int kk = 0; kk < nz; kk++) {
-        T val = tv[kk];
-        if (!skip && BSLZ4_UNLIKELY(val > cut)) {
-            ov[npx] = val;
-            out_adr[npx] = tidx[kk];
-            npx++;
-        }
-    }
-    return npx;
-}
-

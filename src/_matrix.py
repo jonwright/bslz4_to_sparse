@@ -222,32 +222,6 @@ def _nosplit_bins(nm):
     return bins
 
 
-def _nosplit_moment(nm):
-    """(data, indices) for the csc-nosplit-moment dot: a histogram with a first
-    moment beside each output, i.e. every pixel reaches either no bin or the
-    pair b, b+1 with weights exactly 1 (sum I) and q (sum qI) -- the
-    interleaved [I, qI, I, qI, ...] order.  indices[p] = b (_NO_BIN for none),
-    data[p] = q (npix entries each).  Raises ValueError otherwise."""
-    indptr = nm.indptr.astype(np.int64)
-    n = np.diff(indptr)
-    if ((n != 0) & (n != 2)).any():
-        raise ValueError("%d pixels do not reach exactly 0 or 2 bins"
-                         % int(((n != 0) & (n != 2)).sum()))
-    has = n == 2
-    k0 = indptr[:-1][has]
-    b0 = nm.indices[k0].astype(np.int64)
-    b1 = nm.indices[k0 + 1].astype(np.int64)
-    w0 = nm.data[k0]
-    bad = int(((b1 != b0 + 1) | (w0 != 1)).sum())
-    if bad:
-        raise ValueError("%d pixels are not (bin b, weight 1), (bin b+1, q)" % bad)
-    bins = np.full(nm.npix, _NO_BIN, dtype=np.uint32)
-    bins[has] = b0
-    q = np.zeros(nm.npix, dtype=np.float32)
-    q[has] = nm.data[k0 + 1]
-    return q, bins
-
-
 def _bsb_csr_from_csc(nm, block_elems):
     """Build a _BsbCSR from a _NormalMatrix: CSC entries sorted by
     (pixel//block_elems, bin), grouped per (block, bin).  General (works for
@@ -397,11 +371,6 @@ def analyse(nm):
         info["runs"] = True
     except ValueError:
         info["runs"] = False
-    try:
-        _nosplit_moment(nm)
-        info["moment"] = True
-    except ValueError:
-        info["moment"] = False
     return info
 
 
@@ -410,8 +379,7 @@ BSB_MAX_BLOCK_ELEMS = 65536   # bsb-csr's in-block pixel index is uint16
 
 def auto_dot(info, padded_avx2, block_elems=None):
     """The best measured choice (tools/bench_kernels.py, Xeon Gold 6248 and
-    EPYC 9655, 2026-10-10): a histogram -> bsb-csr-nosplit; moment pairs ->
-    csc-nosplit-moment; one run of <= 8 bins per pixel -> padded-avx2 (1.4-1.9x
+    EPYC 9655, 2026-10-10): a histogram -> bsb-csr-nosplit; one run of <= 8 bins per pixel -> padded-avx2 (1.4-1.9x
     on dense frames, the AVX2 rows) or padded; else few occupied pixels (rings)
     -> bsb-csr; runs of 9-64 bins -> padded for decode blocks of <= 8192
     pixels, csc for larger ones (csc-run was never the best); else csc.  Decode blocks
@@ -421,8 +389,6 @@ def auto_dot(info, padded_avx2, block_elems=None):
     bsb = block_elems is None or block_elems <= BSB_MAX_BLOCK_ELEMS
     if info["nosplit"]:
         return "bsb-csr-nosplit" if bsb else "csc-nosplit"
-    if info["moment"]:
-        return "csc-nosplit-moment"
     if info["runs"] and info["max_bins"] <= 8:
         return "padded-avx2" if padded_avx2 else "padded"
     if info["occupancy"] < 0.5 and bsb:
@@ -467,9 +433,6 @@ def build(dot, nm, block_elems, dtype):
         return Layout(dot, "csc", (nm.data, _run_starts(nm), nm.indptr), nbins)
     if dot == "csc-nosplit":
         return Layout(dot, "csc", (nm.data, _nosplit_bins(nm), nm.indptr), nbins)
-    if dot == "csc-nosplit-moment":
-        q, bins = _nosplit_moment(nm)
-        return Layout(dot, "csc", (q, bins, nm.indptr), nbins)
     if dot == "csc-permute":
         return Layout(dot, "csc", (nm.data, _permute_bins(nm), nm.indptr), nbins,
                       powder_dtype=np.dtype(dtype))

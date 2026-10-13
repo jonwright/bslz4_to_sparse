@@ -77,7 +77,6 @@ VALUES = {
         ("csc-nosplit", "at most one bin per pixel, weight 1 (a histogram)"),
         ("bsb-csr", "any matrix; for few occupied pixels (rings)"),
         ("bsb-csr-nosplit", "as csc-nosplit"),
-        ("csc-nosplit-moment", "0 or 2 bins per pixel: (b, 1), (b+1, q)"),
         ("csc-permute", "a permutation: one bin per pixel, weight 1, each bin used once; output in the pixel dtype"),
         ("csc-int", "integer pixels; fixed-point u32 weights, exact int64 sums"),
         ("csc-run-int", "integer pixels; as csc-run with fixed-point u32 weights"),

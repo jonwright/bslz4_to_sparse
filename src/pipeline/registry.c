@@ -67,10 +67,6 @@ static int bslz4_always(void) { return 1; }
  *                      the nested CSC.
  *   BSLZ4_DOT_BSBCSR_NOSPLIT  bsb-csr for a histogram (one bin per pixel,
  *                      weight 1).
- *   BSLZ4_DOT_CSC_NOSPLIT_MOMENT  a histogram with a first moment: each
- *                      pixel reaches no bin or the pair b, b+1 with weights
- *                      exactly 1 and q; the output interleaves sum I and
- *                      sum qI.  Stores b and q per pixel.
  *   BSLZ4_DOT_CSC_PERMUTE  a permutation: each pixel its own bin, weight 1;
  *                      the pixel value is stored (not added) at its bin, so
  *                      the output is the re-ordered image, in the pixel
@@ -95,7 +91,6 @@ static const bslz4_dot_desc bslz4_dots[BSLZ4_DOT_N] = {
     /* csc-nosplit           */ {BSLZ4_LAYOUT_CSC,    BSLZ4_ALL_DTYPES, 8, bslz4_always},
     /* bsb-csr               */ {BSLZ4_LAYOUT_BSBCSR, BSLZ4_ALL_DTYPES, 8, bslz4_always},
     /* bsb-csr-nosplit       */ {BSLZ4_LAYOUT_BSBCSR, BSLZ4_ALL_DTYPES, 8, bslz4_always},
-    /* csc-nosplit-moment    */ {BSLZ4_LAYOUT_CSC,    BSLZ4_ALL_DTYPES, 8, bslz4_always},
     /* csc-permute           */ {BSLZ4_LAYOUT_CSC,    BSLZ4_ALL_DTYPES, 0, bslz4_always},
     /* csc-int               */ {BSLZ4_LAYOUT_CSC,    BSLZ4_INT_DTYPES, 8, bslz4_always},
     /* csc-run-int           */ {BSLZ4_LAYOUT_CSC,    BSLZ4_INT_DTYPES, 8, bslz4_always},

@@ -5,7 +5,7 @@
  * bslz4_sparse_dispatch / bslz4_sparse_dot_dispatch, one call per block.
  *
  *   collect.hpp         block -> pixel list, per collect value
- *   dot_csc.hpp         csc, csc-run, csc-nosplit, csc-nosplit-moment
+ *   dot_csc.hpp         csc, csc-run, csc-nosplit
  *   dot_padded.hpp      padded, padded-avx2
  *   dot_bsbcsr.hpp      bsb-csr, bsb-csr-nosplit
  *   dot_fixed.hpp       csc-permute, csc-int, csc-run-int, csc-run-int16
@@ -69,7 +69,6 @@ BSLZ4_NOINLINE int bslz4_sparse_dot_block(const bslz4_work *BSLZ4_RESTRICT w) {
     case BSLZ4_DOT_CSC_NOSPLIT:        return sparse ? nosplit_sparse<T>(w) : nosplit_dense<T>(w);
     case BSLZ4_DOT_BSBCSR:             return sparse ? bsbcsr_sparse<T>(w) : bsbcsr_dense<T>(w);
     case BSLZ4_DOT_BSBCSR_NOSPLIT:     return sparse ? bsbcsr_nosplit_sparse<T>(w) : bsbcsr_nosplit_dense<T>(w);
-    case BSLZ4_DOT_CSC_NOSPLIT_MOMENT: return sparse ? nosplit_moment_sparse<T>(w) : nosplit_moment_dense<T>(w);
     default:                           return bslz4v::dispatch<T>(w);
     }
 }
