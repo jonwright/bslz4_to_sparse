@@ -177,6 +177,7 @@ class Integrator(object):
             np.ones(R.shape[0]),
             self.shape,
             self.unit,
+            radial=self.radial,  # the bins the windows were taken from
             azimuthal=self.azimuthal,
             kind="rings",
             poni=self.poni,

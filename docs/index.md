@@ -65,7 +65,9 @@ the conveyor agrees to write, and results can also be taken in memory as a plain
 iterator, which is how to read them without choosing a file format.  For writing there is
 one sparse file per input file in ImageD11's layout, with the powder kept as exact
 integer sums and a power-of-two scale, and a small integrator file (geometry, sparse
-matrix, normalisation) that turns the sums into pyFAI's intensities.
+matrix, normalisation) that turns the sums into pyFAI's intensities.  For texture work there is a ring writer: per frame, for
+every ring and azimuth bin, the sum over the ring's window and over a background
+window either side, in the frame order of each input file.
 
 ## Where to look
 

@@ -298,7 +298,18 @@ def conveyor_page():
         ),
         ("Running", ("run", "iterate", "report", "numa_nodes")),
         ("Decoders", ("CpuBackend", "DecompressBackend", "GpuBackend")),
-        ("Sinks", ("Sink", "NullSink", "ImageD11SparseSink", "imaged11_name")),
+        (
+            "Sinks",
+            (
+                "Sink",
+                "NullSink",
+                "ImageD11SparseSink",
+                "imaged11_name",
+                "RingSink",
+                "rings_name",
+                "peak_windows",
+            ),
+        ),
         ("Integrator state", ("Integrator", "fixed_weights", "clip_exact_powder")),
         (
             "Output policy",

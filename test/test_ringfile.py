@@ -1,0 +1,81 @@
+"""RingSink: per input file, intensity[frame, window, azimuth] with a background window either side
+of each ring, equal to pyFAI's cake summed over the windows."""
+
+import numpy as np
+import pytest
+
+h5py = pytest.importorskip("h5py")
+pytest.importorskip("hdf5plugin")
+pytest.importorskip("pyFAI")
+
+import test_integrator as ti  # noqa: E402
+from test_conveyor import DSET  # noqa: E402
+
+from bslz4_to_sparse import conveyor as cv  # noqa: E402
+
+
+def make_files(tmp_path, nfiles, nframes):
+    import hdf5plugin
+
+    rng = np.random.default_rng(12)
+    paths = []
+    for k in range(nfiles):
+        frames = rng.integers(0, 300, (nframes,) + ti.SHAPE).astype(np.uint16)
+        p = str(tmp_path / ("r%d.h5" % k))
+        with h5py.File(p, "w") as h:
+            h.create_dataset(
+                DSET,
+                data=frames,
+                chunks=(1,) + ti.SHAPE,
+                **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+            )
+        cv.write_index(cv.harvest(p, DSET), p)
+        paths.append(p)
+    return paths
+
+
+def test_peak_windows_order_and_edges():
+    r, ring, role = cv.peak_windows([1.0, 2.0], 0.2, background_width=0.1, gap=0.05)
+    assert r.shape == (6, 2) and list(ring) == [0, 0, 0, 1, 1, 1] and list(role) == [-1, 0, 1] * 2
+    assert np.allclose(r[:3], [(0.75, 0.85), (0.9, 1.1), (1.15, 1.25)])
+
+
+def test_ring_files_follow_the_input_files(tmp_path):
+    ai = ti.masked_ai()
+    nrad, naz = 70, 12
+    kw = dict(polarization_factor=0.95, radial_range=(0.3, 3.0))
+    ranges, ring, role = cv.peak_windows([0.9, 1.4], 0.12, 0.1)
+    integ = cv.Integrator.from_pyfai(ai, nrad, unit="2th_deg", npt_azim=naz, **kw).rings(ranges)
+    paths = make_files(tmp_path, nfiles=2, nframes=9)
+    # the frames are the files' own; the ring files must follow their order
+    units, shape, dtype = cv.make_units(paths, DSET)
+    mask = (1 - ai.detector.mask).astype(np.uint8)
+    out = str(tmp_path / "rings")
+    cv.run(
+        units,
+        cv.CpuBackend(mask, dtype, csc=integ.csc, howmany=0),  # rings only: no pixels
+        workers=2,
+        sink=lambda k: cv.RingSink(integ, out, DSET, ring, role, integrator_path="i.h5"),
+        policy=cv.Policy("rings"),
+    )
+    for p in paths:
+        with h5py.File(p, "r") as src:
+            frames = src[DSET][:]
+        with h5py.File("%s/%s" % (out, cv.rings_name(p)), "r") as h:
+            g = h[DSET.strip("/")]
+            inten = g["intensity"][:]
+            assert inten.shape == (9, 6, naz) and inten.dtype == np.float32
+            assert (
+                list(g["role"][:]) == [-1, 0, 1] * 2
+                and list(g["ring_index"][:]) == [0] * 3 + [1] * 3
+            )
+            assert g.attrs["integrator"] == "i.h5" and g.attrs["unit"] == "2th_deg"
+            assert np.all(g["window_nbins"][:] > 0)
+            assert np.allclose(g["window_ranges"][:], ranges)
+        for i in (0, 4, 8):
+            ref = ti.textom_process_one_frame(
+                ai, frames[i].astype(np.uint16), nrad, naz, ranges, np.zeros(nrad), **kw
+            ).T  # (window, azimuth)
+            assert np.allclose(
+                inten[i], ref, rtol=2e-7, atol=0
+            )  # float32 storage + pyFAI float32 cake
