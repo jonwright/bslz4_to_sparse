@@ -70,7 +70,7 @@ with tempfile.TemporaryDirectory() as tmp:
     intensity = back.intensity(powder, scale)
     method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
     ref = ai.integrate1d(frames[3].astype(np.uint16), 50, unit="q_nm^-1", method=method)
-    assert np.allclose(intensity[3], ref.intensity, rtol=1e-4, atol=1e-4)
+    assert np.allclose(intensity[3], ref.intensity, rtol=1.2e-7, atol=0)
     assert powder.dtype == np.int64
 
 print(

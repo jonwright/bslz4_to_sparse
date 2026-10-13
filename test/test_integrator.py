@@ -75,10 +75,17 @@ def test_the_intensity_equals_pyfais(tmp_path, split, corrections, flat):
     got = back.intensity(powder, d.powder_scale)[0]
     method = IntegrationMethod.select_one_available((split, "csc", "cython"), dim=1)
     ref = ai.integrate1d(fr, 60, unit="q_nm^-1", method=method, **kw)
-    assert np.allclose(got, ref.intensity, rtol=1e-4, atol=1e-4)
-    # and the float powder gives the same intensity (the fixed-point sums lose nothing visible)
+    # the sums and the normalisation are pyFAI's own (float64 sums of float32 weights): measured
+    # relative differences are below 5e-11 and 0.  Its intensity is stored as float32, whose
+    # rounding is 6e-8 (measured 5.7e-8 at most), the only reason the intensity differs.
+    ss = np.asarray(ref.sum_signal)
+    assert np.allclose(powder[0] * d.powder_scale, ss, rtol=1e-9, atol=0)
+    assert np.array_equal(back.norm, np.asarray(ref.sum_normalization).ravel())
+    assert ref.intensity.dtype == np.float32
+    assert np.allclose(got, ref.intensity, rtol=1.2e-7, atol=0)
+    # the float powder and the integer one give the same intensity
     pf = b.chunk2sparseCSC(mask, back.csc, np.uint16).from_frames(fr[None], 0)[2]
-    assert np.allclose(back.intensity(pf)[0], got, rtol=1e-5, atol=1e-6)
+    assert np.allclose(back.intensity(pf)[0], got, rtol=1e-9, atol=0)
 
 
 def test_2d_rows_are_radial_then_azimuth(tmp_path):
@@ -91,4 +98,4 @@ def test_2d_rows_are_radial_then_azimuth(tmp_path):
     got = integ.intensity(powder, d.powder_scale)[0].reshape(20, 8).T
     method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=2)
     ref = ai.integrate2d(fr, 20, 8, unit="q_nm^-1", method=method)
-    assert np.allclose(got, ref.intensity, rtol=1e-4, atol=1e-4)
+    assert np.allclose(got, ref.intensity, rtol=1.2e-7, atol=0)
