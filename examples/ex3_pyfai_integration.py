@@ -25,7 +25,9 @@ import bslz4_to_sparse
 
 h5filename = "eiger_0000.h5"  # your file: bitshuffle-compressed, one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside it
-mask_filename = "mask.npy"  # your detector mask, pyFAI's convention: non-zero = masked pixel
+mask_filename = (
+    "mask.h5"  # your detector mask: a dataset "mask", pyFAI's convention (non-zero = masked)
+)
 poni_filename = "calib.poni"  # your pyFAI geometry
 
 with h5py.File(h5filename, "r") as h5:
@@ -33,7 +35,8 @@ with h5py.File(h5filename, "r") as h5:
     dtype, codec = ds.dtype, bslz4_to_sparse.detect_codec(ds)
     frame0 = ds[0]
     chunk0 = ds.id.read_direct_chunk((0, 0, 0))[1]
-bad = np.load(mask_filename) != 0  # the masked pixels
+with h5py.File(mask_filename, "r") as h5:
+    bad = h5["mask"][()] != 0  # the masked pixels
 mask = (~bad).astype(np.uint8)
 
 # pyFAI makes its sparse matrix once, when it first integrates with a sparse method (bbox pixel

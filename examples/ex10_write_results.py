@@ -21,7 +21,9 @@ from bslz4_to_sparse import conveyor
 
 h5pattern = "eiger_*.h5"  # your files: bitshuffle-compressed, one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside each
-mask_filename = "mask.npy"  # your detector mask, pyFAI's convention: non-zero = masked pixel
+mask_filename = (
+    "mask.h5"  # your detector mask: a dataset "mask", pyFAI's convention (non-zero = masked)
+)
 poni_filename = "calib.poni"  # your pyFAI geometry
 outdir = "results"
 h5filenames = sorted(glob.glob(h5pattern))
@@ -31,7 +33,8 @@ for name in h5filenames:
 units, shape, dtype = conveyor.make_work_units(h5filenames, h5dataset)
 with h5py.File(h5filenames[0], "r") as h5:
     frame0 = h5[h5dataset][0]
-bad = np.load(mask_filename) != 0  # the masked pixels
+with h5py.File(mask_filename, "r") as h5:
+    bad = h5["mask"][()] != 0  # the masked pixels
 ai = pyFAI.load(poni_filename)
 mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel
 

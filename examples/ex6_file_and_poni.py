@@ -18,7 +18,9 @@ import bslz4_to_sparse
 
 h5filename = "eiger_0000.h5"  # your file: bitshuffle-compressed, one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside it
-mask_filename = "mask.npy"  # your detector mask, pyFAI's convention: non-zero = masked pixel
+mask_filename = (
+    "mask.h5"  # your detector mask: a dataset "mask", pyFAI's convention (non-zero = masked)
+)
 poni_filename = "calib.poni"  # your pyFAI geometry
 cut = 3  # keep the pixels above this
 npt = 1000  # radial bins of the powder pattern
@@ -30,7 +32,8 @@ with h5py.File(h5filename, "r") as h5:
     where = bslz4_to_sparse.harvest_chunk_offsets(ds)
     frame0 = ds[0]
 
-bad = np.load(mask_filename) != 0  # the masked pixels: gaps and dead pixels
+with h5py.File(mask_filename, "r") as h5:
+    bad = h5["mask"][()] != 0  # the masked pixels: gaps and dead pixels
 mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel
 
 # pyFAI builds its sparse matrix (and the normalisation of an image of ones) once
