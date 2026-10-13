@@ -28,6 +28,11 @@ using namespace bslz4;
 template<typename T> inline bool bslz4_cut_above_max(const bslz4_work *w) {
     return w->threshold > (int64_t) std::numeric_limits<T>::max();
 }
+/* The cut as the pixel type: integers from the int64 (u64: its bit pattern), floats from cutf, so
+ * a fractional cut is exact. */
+template<typename T> inline T bslz4_cut_of(const bslz4_work *w) { return (T) w->threshold; }
+template<> inline float bslz4_cut_of<float>(const bslz4_work *w) { return (float) w->cutf; }
+template<> inline double bslz4_cut_of<double>(const bslz4_work *w) { return w->cutf; }
 template<> inline bool bslz4_cut_above_max<uint64_t>(const bslz4_work *) { return false; }
 template<> inline bool bslz4_cut_above_max<float>(const bslz4_work *) { return false; }
 template<> inline bool bslz4_cut_above_max<double>(const bslz4_work *) { return false; }
@@ -40,7 +45,7 @@ template<> inline bool bslz4_cut_above_max<double>(const bslz4_work *) { return 
 template<typename T>
 static inline
 int dense_dot(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
@@ -99,7 +104,7 @@ int bslz4_collect_nz_w(const bslz4_work *BSLZ4_RESTRICT w, const T *BSLZ4_RESTRI
 template<typename T>
 static inline
 int sparse_dot_core(const bslz4_work *BSLZ4_RESTRICT w, const bslz4_mat_csc *BSLZ4_RESTRICT m) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
@@ -214,7 +219,7 @@ int sparse_dot(const bslz4_work *BSLZ4_RESTRICT w) {
 template<typename T>
 static inline
 int run_dense(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
@@ -239,7 +244,7 @@ int run_dense(const bslz4_work *BSLZ4_RESTRICT w) {
 template<typename T>
 static inline
 int run_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
@@ -278,7 +283,7 @@ int run_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
 template<typename T>
 static inline
 int nosplit_dense(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
@@ -297,7 +302,7 @@ int nosplit_dense(const bslz4_work *BSLZ4_RESTRICT w) {
 template<typename T>
 static inline
 int nosplit_sparse_core(const bslz4_work *BSLZ4_RESTRICT w, const uint32_t *BSLZ4_RESTRICT bin) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
@@ -338,7 +343,7 @@ int nosplit_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
 template<typename T>
 static inline
 int nosplit_moment_dense(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
@@ -362,7 +367,7 @@ int nosplit_moment_dense(const bslz4_work *BSLZ4_RESTRICT w) {
 template<typename T>
 static inline
 int nosplit_moment_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;

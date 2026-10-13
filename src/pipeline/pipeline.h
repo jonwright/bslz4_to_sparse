@@ -175,7 +175,8 @@ typedef struct bslz4_work {
     int    no_mask;                  /* skip all mask tests */
     size_t n;                        /* pixels in this block/tail */
     size_t i0;                       /* global pixel offset of block start */
-    int64_t threshold;
+    int64_t threshold;               /* the cut, integer pixel types (u64: the bit pattern) */
+    double  cutf;                    /* the cut, f32/f64 pixels */
     const void   *BSLZ4_RESTRICT block;    /* decoded + untransposed block */
     const uint8_t *BSLZ4_RESTRICT mask;
     void          *BSLZ4_RESTRICT out_vals;/* sparse output values */
@@ -235,7 +236,7 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                      const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,
                      const uint8_t *BSLZ4_RESTRICT mask, int NIJ, void *BSLZ4_RESTRICT outpx,
                      uint32_t *BSLZ4_RESTRICT output_adr, int32_t *BSLZ4_RESTRICT npx_out,
-                     int threshold, void *BSLZ4_RESTRICT powder, int nout,
+                     const void *cut, size_t ncut, void *BSLZ4_RESTRICT powder, int nout,
                      const void *BSLZ4_RESTRICT mat, uint8_t *BSLZ4_RESTRICT workspace,
                      size_t workspace_len, int64_t *BSLZ4_RESTRICT cursors,
                      const bslz4_pipe *BSLZ4_RESTRICT p,

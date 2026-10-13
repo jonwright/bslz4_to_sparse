@@ -29,7 +29,7 @@
 template<typename T>
 static inline
 int bsbcsr_dense(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const size_t i0 = w->i0, n = w->n;
     const bslz4_mat_bsbcsr *BSLZ4_RESTRICT m = (const bslz4_mat_bsbcsr *) w->mat;
@@ -75,7 +75,7 @@ int bsbcsr_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
 template<typename T>
 static inline
 int bsbcsr_nosplit_dense(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const size_t i0 = w->i0, n = w->n;
     const bslz4_mat_bsbcsr *BSLZ4_RESTRICT m = (const bslz4_mat_bsbcsr *) w->mat;

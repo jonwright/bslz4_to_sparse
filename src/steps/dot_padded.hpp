@@ -140,7 +140,7 @@ inline void bslz4_padded_dense_block(const T *block, size_t i0, const bslz4_mat_
 template<typename T>
 static inline
 int padded_dense(const bslz4_work *BSLZ4_RESTRICT w, bool avx2) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
@@ -162,7 +162,7 @@ int padded_dense(const bslz4_work *BSLZ4_RESTRICT w, bool avx2) {
 template<typename T>
 static inline
 int padded_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;

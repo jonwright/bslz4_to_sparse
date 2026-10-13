@@ -99,7 +99,7 @@ struct Permute {
 
 template<typename T, typename Body>
 static inline int dense(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
@@ -114,7 +114,7 @@ static inline int dense(const bslz4_work *BSLZ4_RESTRICT w) {
 
 template<typename T, typename Body>
 static inline int sparse(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;

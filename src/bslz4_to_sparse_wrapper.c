@@ -15,10 +15,10 @@
 #include "c2py_arm64.h"
 #include "c2py_ppc64.h"
 
-extern int bslz4_sparsify(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, int threshold, uint8_t * workspace, size_t workspace_len, int64_t * cursors, const int64_t * top, size_t ntop, int32_t * top_out, int dtype, const uint16_t * pipeline);
-extern int bslz4_sparsify_and_dot(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, int threshold, void * powder, int nout, const void * weights, const void * indices, const uint32_t * indptr, uint8_t * workspace, size_t workspace_len, int64_t * cursors, const int64_t * top, size_t ntop, int32_t * top_out, int dtype, const uint16_t * pipeline);
-extern int bslz4_sparsify_and_dot_padded(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, int threshold, double * powder, int nout, const int32_t * base, const float * weights, const int32_t * pixels, const int32_t * rowmap, const int32_t * row_ptr, int nrow_ptr, int width, int listed, size_t block_elems, uint8_t * workspace, size_t workspace_len, int64_t * cursors, const int64_t * top, size_t ntop, int32_t * top_out, int dtype, const uint16_t * pipeline);
-extern int bslz4_sparsify_and_dot_bsbcsr(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, int threshold, double * powder, int nout, const uint32_t * blk_ptr, int nblk_ptr, const uint32_t * bins, const uint32_t * bin_ptr, const uint16_t * idx, const float * data, const float * csc_data, const uint32_t * csc_indices, const uint32_t * csc_indptr, size_t block_elems, uint8_t * workspace, size_t workspace_len, int64_t * cursors, const int64_t * top, size_t ntop, int32_t * top_out, int dtype, const uint16_t * pipeline);
+extern int bslz4_sparsify(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, const void * cut, size_t ncut, uint8_t * workspace, size_t workspace_len, int64_t * cursors, const int64_t * top, size_t ntop, int32_t * top_out, int dtype, const uint16_t * pipeline);
+extern int bslz4_sparsify_and_dot(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, const void * cut, size_t ncut, void * powder, int nout, const void * weights, const void * indices, const uint32_t * indptr, uint8_t * workspace, size_t workspace_len, int64_t * cursors, const int64_t * top, size_t ntop, int32_t * top_out, int dtype, const uint16_t * pipeline);
+extern int bslz4_sparsify_and_dot_padded(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, const void * cut, size_t ncut, double * powder, int nout, const int32_t * base, const float * weights, const int32_t * pixels, const int32_t * rowmap, const int32_t * row_ptr, int nrow_ptr, int width, int listed, size_t block_elems, uint8_t * workspace, size_t workspace_len, int64_t * cursors, const int64_t * top, size_t ntop, int32_t * top_out, int dtype, const uint16_t * pipeline);
+extern int bslz4_sparsify_and_dot_bsbcsr(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, const void * cut, size_t ncut, double * powder, int nout, const uint32_t * blk_ptr, int nblk_ptr, const uint32_t * bins, const uint32_t * bin_ptr, const uint16_t * idx, const float * data, const float * csc_data, const uint32_t * csc_indices, const uint32_t * csc_indptr, size_t block_elems, uint8_t * workspace, size_t workspace_len, int64_t * cursors, const int64_t * top, size_t ntop, int32_t * top_out, int dtype, const uint16_t * pipeline);
 extern int bslz4_decompress(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, uint8_t * out, size_t out_len, uint8_t * workspace, size_t workspace_len, int elem_size, int decode, int untranspose, int unshuffle);
 extern int bslz4_offsets_to_pointers(const char * base, size_t base_len, int64_t * offsets, const int32_t * lengths, int nframes);
 extern void bslz4_note_chunk(const char * chunk, size_t chunk_len, int index, int64_t * pointers, int32_t * lengths);
@@ -43,7 +43,7 @@ static const uint8_t _acqord_sparsify[] = { C2PY_PIN_NDARRAY, C2PY_PIN_PEP3118 }
 /* -------------------------------------------- */
 
 static PyObject*
-_sparsify_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, c2py_ptr_info *info_top, c2py_ptr_info *info_top_out, c2py_ptr_info *info_pipeline, int c_threshold, int c_dtype)
+_sparsify_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_cut, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, c2py_ptr_info *info_top, c2py_ptr_info *info_top_out, c2py_ptr_info *info_pipeline, int c_dtype)
 {
     int _c2py_slow_axis_info_compressed_ptrs = -1;
     int _c2py_fast_axis_info_compressed_ptrs = -1;
@@ -91,6 +91,14 @@ _sparsify_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compress
     (void)_c2py_fast_axis_info_npx_out;
     /* contiguity check: npx_out */
     if (c2py_check_contiguity(info_npx_out, &_c2py_slow_axis_info_npx_out, &_c2py_fast_axis_info_npx_out) < 0)
+        return NULL;
+
+    int _c2py_slow_axis_info_cut = -1;
+    int _c2py_fast_axis_info_cut = -1;
+    (void)_c2py_slow_axis_info_cut;
+    (void)_c2py_fast_axis_info_cut;
+    /* contiguity check: cut */
+    if (c2py_check_contiguity(info_cut, &_c2py_slow_axis_info_cut, &_c2py_fast_axis_info_cut) < 0)
         return NULL;
 
     int _c2py_slow_axis_info_workspace = -1;
@@ -244,6 +252,11 @@ _sparsify_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compress
                 "buffer too large for int n (> INT_MAX elements)");
             return NULL;
         }
+        if ((((info_cut->len == 0) ? 0 : (info_cut->len / info_cut->itemsize))) > (Py_ssize_t)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "buffer too large for int n (> INT_MAX elements)");
+            return NULL;
+        }
         if ((info_workspace->len) > (Py_ssize_t)INT_MAX) {
             PyErr_SetString(PyExc_ValueError,
                 "buffer too large for int n (> INT_MAX elements)");
@@ -255,7 +268,7 @@ _sparsify_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compress
             return NULL;
         }
         if (_c2py_do_gil) _c2py_thread_state = PyEval_SaveThread();
-        int _ret = bslz4_sparsify((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, c_threshold, (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, (const int64_t *)info_top->ptr, (size_t)(((info_top->len == 0) ? 0 : (info_top->len / info_top->itemsize))), (int32_t *)info_top_out->ptr, c_dtype, (const uint16_t *)info_pipeline->ptr);
+        int _ret = bslz4_sparsify((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, (const void *)info_cut->ptr, (size_t)(((info_cut->len == 0) ? 0 : (info_cut->len / info_cut->itemsize))), (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, (const int64_t *)info_top->ptr, (size_t)(((info_top->len == 0) ? 0 : (info_top->len / info_top->itemsize))), (int32_t *)info_top_out->ptr, c_dtype, (const uint16_t *)info_pipeline->ptr);
         if (_c2py_do_gil) PyEval_RestoreThread(_c2py_thread_state);
         return PyLong_FromLong((long)_ret);
     }
@@ -279,12 +292,12 @@ _sparsify_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
     PyObject *py_outpx = NULL;
     PyObject *py_output_adr = NULL;
     PyObject *py_npx_out = NULL;
+    PyObject *py_cut = NULL;
     PyObject *py_workspace = NULL;
     PyObject *py_cursors = NULL;
     PyObject *py_top = NULL;
     PyObject *py_top_out = NULL;
     PyObject *py_pipeline = NULL;
-    int c_threshold = 0;
     int c_dtype = 0;
     c2py_buf_pin pin_compressed_ptrs;
     c2py_ptr_info info_compressed_ptrs;
@@ -298,6 +311,8 @@ _sparsify_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
     c2py_ptr_info info_output_adr;
     c2py_buf_pin pin_npx_out;
     c2py_ptr_info info_npx_out;
+    c2py_buf_pin pin_cut;
+    c2py_ptr_info info_cut;
     c2py_buf_pin pin_workspace;
     c2py_ptr_info info_workspace;
     c2py_buf_pin pin_cursors;
@@ -322,17 +337,7 @@ _sparsify_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
     py_outpx = args[3];
     py_output_adr = args[4];
     py_npx_out = args[5];
-    /* extract int: threshold from args[6] */
-    {
-        long _c2py_tmp = PyLong_AsLong(args[6]);
-        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
-        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
-            PyErr_SetString(PyExc_ValueError,
-                "int parameter threshold out of range (must fit in C int)");
-            return NULL;
-        }
-        c_threshold = (int)_c2py_tmp;
-    }
+    py_cut = args[6];
     py_workspace = args[7];
     py_cursors = args[8];
     py_top = args[9];
@@ -356,6 +361,7 @@ _sparsify_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
     memset(&pin_outpx.buf, 0, C2PY.pybuffer_size);
     memset(&pin_output_adr.buf, 0, C2PY.pybuffer_size);
     memset(&pin_npx_out.buf, 0, C2PY.pybuffer_size);
+    memset(&pin_cut.buf, 0, C2PY.pybuffer_size);
     memset(&pin_workspace.buf, 0, C2PY.pybuffer_size);
     memset(&pin_cursors.buf, 0, C2PY.pybuffer_size);
     memset(&pin_top.buf, 0, C2PY.pybuffer_size);
@@ -380,6 +386,9 @@ _sparsify_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
     if (c2py_pin(py_npx_out, &pin_npx_out, &info_npx_out, C2PY_BUF_WRITE, _acqord_sparsify, 2) == -1)
         goto cleanup;
 
+    if (c2py_pin(py_cut, &pin_cut, &info_cut, C2PY_BUF_READ, _acqord_sparsify, 2) == -1)
+        goto cleanup;
+
     if (c2py_pin(py_workspace, &pin_workspace, &info_workspace, C2PY_BUF_WRITE, _acqord_sparsify, 2) == -1)
         goto cleanup;
 
@@ -397,12 +406,12 @@ _sparsify_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
 
     /* restrict check: writable buffers must not overlap */
     {
-        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_top_out, &info_workspace, &info_compressed_lengths, &info_compressed_ptrs, &info_mask, &info_pipeline, &info_top };
-        if (c2py_check_no_overlap(_c2py_ov, 6, 11) < 0)
+        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_top_out, &info_workspace, &info_compressed_lengths, &info_compressed_ptrs, &info_cut, &info_mask, &info_pipeline, &info_top };
+        if (c2py_check_no_overlap(_c2py_ov, 6, 12) < 0)
             goto cleanup;
     }
 
-    ret = _sparsify_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_workspace, &info_cursors, &info_top, &info_top_out, &info_pipeline, c_threshold, c_dtype);
+    ret = _sparsify_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_cut, &info_workspace, &info_cursors, &info_top, &info_top_out, &info_pipeline, c_dtype);
 
 cleanup:
     c2py_unpin_buffer(&pin_pipeline);
@@ -410,6 +419,7 @@ cleanup:
     c2py_unpin_buffer(&pin_top);
     c2py_unpin_buffer(&pin_cursors);
     c2py_unpin_buffer(&pin_workspace);
+    c2py_unpin_buffer(&pin_cut);
     c2py_unpin_buffer(&pin_npx_out);
     c2py_unpin_buffer(&pin_output_adr);
     c2py_unpin_buffer(&pin_outpx);
@@ -445,7 +455,7 @@ static const uint8_t _acqord_sparsify_and_dot[] = { C2PY_PIN_NDARRAY, C2PY_PIN_P
 /* -------------------------------------------- */
 
 static PyObject*
-_sparsify_and_dot_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_powder, c2py_ptr_info *info_data, c2py_ptr_info *info_indices, c2py_ptr_info *info_indptr, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, c2py_ptr_info *info_top, c2py_ptr_info *info_top_out, c2py_ptr_info *info_pipeline, int c_threshold, int c_nout, int c_dtype)
+_sparsify_and_dot_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_cut, c2py_ptr_info *info_powder, c2py_ptr_info *info_data, c2py_ptr_info *info_indices, c2py_ptr_info *info_indptr, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, c2py_ptr_info *info_top, c2py_ptr_info *info_top_out, c2py_ptr_info *info_pipeline, int c_nout, int c_dtype)
 {
     int _c2py_slow_axis_info_compressed_ptrs = -1;
     int _c2py_fast_axis_info_compressed_ptrs = -1;
@@ -493,6 +503,14 @@ _sparsify_and_dot_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_
     (void)_c2py_fast_axis_info_npx_out;
     /* contiguity check: npx_out */
     if (c2py_check_contiguity(info_npx_out, &_c2py_slow_axis_info_npx_out, &_c2py_fast_axis_info_npx_out) < 0)
+        return NULL;
+
+    int _c2py_slow_axis_info_cut = -1;
+    int _c2py_fast_axis_info_cut = -1;
+    (void)_c2py_slow_axis_info_cut;
+    (void)_c2py_fast_axis_info_cut;
+    /* contiguity check: cut */
+    if (c2py_check_contiguity(info_cut, &_c2py_slow_axis_info_cut, &_c2py_fast_axis_info_cut) < 0)
         return NULL;
 
     int _c2py_slow_axis_info_powder = -1;
@@ -722,6 +740,11 @@ _sparsify_and_dot_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_
                 "buffer too large for int n (> INT_MAX elements)");
             return NULL;
         }
+        if ((((info_cut->len == 0) ? 0 : (info_cut->len / info_cut->itemsize))) > (Py_ssize_t)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "buffer too large for int n (> INT_MAX elements)");
+            return NULL;
+        }
         if ((info_workspace->len) > (Py_ssize_t)INT_MAX) {
             PyErr_SetString(PyExc_ValueError,
                 "buffer too large for int n (> INT_MAX elements)");
@@ -733,7 +756,7 @@ _sparsify_and_dot_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_
             return NULL;
         }
         if (_c2py_do_gil) _c2py_thread_state = PyEval_SaveThread();
-        int _ret = bslz4_sparsify_and_dot((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, c_threshold, (void *)info_powder->ptr, c_nout, (const void *)info_data->ptr, (const void *)info_indices->ptr, (const uint32_t *)info_indptr->ptr, (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, (const int64_t *)info_top->ptr, (size_t)(((info_top->len == 0) ? 0 : (info_top->len / info_top->itemsize))), (int32_t *)info_top_out->ptr, c_dtype, (const uint16_t *)info_pipeline->ptr);
+        int _ret = bslz4_sparsify_and_dot((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, (const void *)info_cut->ptr, (size_t)(((info_cut->len == 0) ? 0 : (info_cut->len / info_cut->itemsize))), (void *)info_powder->ptr, c_nout, (const void *)info_data->ptr, (const void *)info_indices->ptr, (const uint32_t *)info_indptr->ptr, (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, (const int64_t *)info_top->ptr, (size_t)(((info_top->len == 0) ? 0 : (info_top->len / info_top->itemsize))), (int32_t *)info_top_out->ptr, c_dtype, (const uint16_t *)info_pipeline->ptr);
         if (_c2py_do_gil) PyEval_RestoreThread(_c2py_thread_state);
         return PyLong_FromLong((long)_ret);
     }
@@ -757,6 +780,7 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
     PyObject *py_outpx = NULL;
     PyObject *py_output_adr = NULL;
     PyObject *py_npx_out = NULL;
+    PyObject *py_cut = NULL;
     PyObject *py_powder = NULL;
     PyObject *py_data = NULL;
     PyObject *py_indices = NULL;
@@ -766,7 +790,6 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
     PyObject *py_top = NULL;
     PyObject *py_top_out = NULL;
     PyObject *py_pipeline = NULL;
-    int c_threshold = 0;
     int c_nout = 0;
     int c_dtype = 0;
     c2py_buf_pin pin_compressed_ptrs;
@@ -781,6 +804,8 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
     c2py_ptr_info info_output_adr;
     c2py_buf_pin pin_npx_out;
     c2py_ptr_info info_npx_out;
+    c2py_buf_pin pin_cut;
+    c2py_ptr_info info_cut;
     c2py_buf_pin pin_powder;
     c2py_ptr_info info_powder;
     c2py_buf_pin pin_data;
@@ -813,17 +838,7 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
     py_outpx = args[3];
     py_output_adr = args[4];
     py_npx_out = args[5];
-    /* extract int: threshold from args[6] */
-    {
-        long _c2py_tmp = PyLong_AsLong(args[6]);
-        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
-        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
-            PyErr_SetString(PyExc_ValueError,
-                "int parameter threshold out of range (must fit in C int)");
-            return NULL;
-        }
-        c_threshold = (int)_c2py_tmp;
-    }
+    py_cut = args[6];
     py_powder = args[7];
     py_data = args[8];
     py_indices = args[9];
@@ -862,6 +877,7 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
     memset(&pin_outpx.buf, 0, C2PY.pybuffer_size);
     memset(&pin_output_adr.buf, 0, C2PY.pybuffer_size);
     memset(&pin_npx_out.buf, 0, C2PY.pybuffer_size);
+    memset(&pin_cut.buf, 0, C2PY.pybuffer_size);
     memset(&pin_powder.buf, 0, C2PY.pybuffer_size);
     memset(&pin_data.buf, 0, C2PY.pybuffer_size);
     memset(&pin_indices.buf, 0, C2PY.pybuffer_size);
@@ -888,6 +904,9 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
         goto cleanup;
 
     if (c2py_pin(py_npx_out, &pin_npx_out, &info_npx_out, C2PY_BUF_WRITE, _acqord_sparsify_and_dot, 2) == -1)
+        goto cleanup;
+
+    if (c2py_pin(py_cut, &pin_cut, &info_cut, C2PY_BUF_READ, _acqord_sparsify_and_dot, 2) == -1)
         goto cleanup;
 
     if (c2py_pin(py_powder, &pin_powder, &info_powder, C2PY_BUF_WRITE, _acqord_sparsify_and_dot, 2) == -1)
@@ -919,12 +938,12 @@ _sparsify_and_dot_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nar
 
     /* restrict check: writable buffers must not overlap */
     {
-        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_powder, &info_top_out, &info_workspace, &info_compressed_lengths, &info_compressed_ptrs, &info_data, &info_indices, &info_indptr, &info_mask, &info_pipeline, &info_top };
-        if (c2py_check_no_overlap(_c2py_ov, 7, 15) < 0)
+        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_powder, &info_top_out, &info_workspace, &info_compressed_lengths, &info_compressed_ptrs, &info_cut, &info_data, &info_indices, &info_indptr, &info_mask, &info_pipeline, &info_top };
+        if (c2py_check_no_overlap(_c2py_ov, 7, 16) < 0)
             goto cleanup;
     }
 
-    ret = _sparsify_and_dot_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_powder, &info_data, &info_indices, &info_indptr, &info_workspace, &info_cursors, &info_top, &info_top_out, &info_pipeline, c_threshold, c_nout, c_dtype);
+    ret = _sparsify_and_dot_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_cut, &info_powder, &info_data, &info_indices, &info_indptr, &info_workspace, &info_cursors, &info_top, &info_top_out, &info_pipeline, c_nout, c_dtype);
 
 cleanup:
     c2py_unpin_buffer(&pin_pipeline);
@@ -936,6 +955,7 @@ cleanup:
     c2py_unpin_buffer(&pin_indices);
     c2py_unpin_buffer(&pin_data);
     c2py_unpin_buffer(&pin_powder);
+    c2py_unpin_buffer(&pin_cut);
     c2py_unpin_buffer(&pin_npx_out);
     c2py_unpin_buffer(&pin_output_adr);
     c2py_unpin_buffer(&pin_outpx);
@@ -971,7 +991,7 @@ static const uint8_t _acqord_sparsify_and_dot_padded[] = { C2PY_PIN_NDARRAY, C2P
 /* -------------------------------------------- */
 
 static PyObject*
-_sparsify_and_dot_padded_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_powder, c2py_ptr_info *info_base, c2py_ptr_info *info_weights, c2py_ptr_info *info_pixels, c2py_ptr_info *info_rowmap, c2py_ptr_info *info_row_ptr, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, c2py_ptr_info *info_top, c2py_ptr_info *info_top_out, c2py_ptr_info *info_pipeline, int c_threshold, int c_width, int c_listed, int c_block_elems, int c_nout, int c_dtype)
+_sparsify_and_dot_padded_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_cut, c2py_ptr_info *info_powder, c2py_ptr_info *info_base, c2py_ptr_info *info_weights, c2py_ptr_info *info_pixels, c2py_ptr_info *info_rowmap, c2py_ptr_info *info_row_ptr, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, c2py_ptr_info *info_top, c2py_ptr_info *info_top_out, c2py_ptr_info *info_pipeline, int c_width, int c_listed, int c_block_elems, int c_nout, int c_dtype)
 {
     int _c2py_slow_axis_info_compressed_ptrs = -1;
     int _c2py_fast_axis_info_compressed_ptrs = -1;
@@ -1019,6 +1039,14 @@ _sparsify_and_dot_padded_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info
     (void)_c2py_fast_axis_info_npx_out;
     /* contiguity check: npx_out */
     if (c2py_check_contiguity(info_npx_out, &_c2py_slow_axis_info_npx_out, &_c2py_fast_axis_info_npx_out) < 0)
+        return NULL;
+
+    int _c2py_slow_axis_info_cut = -1;
+    int _c2py_fast_axis_info_cut = -1;
+    (void)_c2py_slow_axis_info_cut;
+    (void)_c2py_fast_axis_info_cut;
+    /* contiguity check: cut */
+    if (c2py_check_contiguity(info_cut, &_c2py_slow_axis_info_cut, &_c2py_fast_axis_info_cut) < 0)
         return NULL;
 
     int _c2py_slow_axis_info_powder = -1;
@@ -1315,6 +1343,11 @@ _sparsify_and_dot_padded_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info
                 "buffer too large for int n (> INT_MAX elements)");
             return NULL;
         }
+        if ((((info_cut->len == 0) ? 0 : (info_cut->len / info_cut->itemsize))) > (Py_ssize_t)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "buffer too large for int n (> INT_MAX elements)");
+            return NULL;
+        }
         if ((((info_row_ptr->len == 0) ? 0 : (info_row_ptr->len / info_row_ptr->itemsize))) > (Py_ssize_t)INT_MAX) {
             PyErr_SetString(PyExc_ValueError,
                 "buffer too large for int n (> INT_MAX elements)");
@@ -1331,7 +1364,7 @@ _sparsify_and_dot_padded_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info
             return NULL;
         }
         if (_c2py_do_gil) _c2py_thread_state = PyEval_SaveThread();
-        int _ret = bslz4_sparsify_and_dot_padded((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, c_threshold, (double *)info_powder->ptr, c_nout, (const int32_t *)info_base->ptr, (const float *)info_weights->ptr, (const int32_t *)info_pixels->ptr, (const int32_t *)info_rowmap->ptr, (const int32_t *)info_row_ptr->ptr, (int)(((info_row_ptr->len == 0) ? 0 : (info_row_ptr->len / info_row_ptr->itemsize))), c_width, c_listed, (size_t)(c_block_elems), (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, (const int64_t *)info_top->ptr, (size_t)(((info_top->len == 0) ? 0 : (info_top->len / info_top->itemsize))), (int32_t *)info_top_out->ptr, c_dtype, (const uint16_t *)info_pipeline->ptr);
+        int _ret = bslz4_sparsify_and_dot_padded((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, (const void *)info_cut->ptr, (size_t)(((info_cut->len == 0) ? 0 : (info_cut->len / info_cut->itemsize))), (double *)info_powder->ptr, c_nout, (const int32_t *)info_base->ptr, (const float *)info_weights->ptr, (const int32_t *)info_pixels->ptr, (const int32_t *)info_rowmap->ptr, (const int32_t *)info_row_ptr->ptr, (int)(((info_row_ptr->len == 0) ? 0 : (info_row_ptr->len / info_row_ptr->itemsize))), c_width, c_listed, (size_t)(c_block_elems), (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, (const int64_t *)info_top->ptr, (size_t)(((info_top->len == 0) ? 0 : (info_top->len / info_top->itemsize))), (int32_t *)info_top_out->ptr, c_dtype, (const uint16_t *)info_pipeline->ptr);
         if (_c2py_do_gil) PyEval_RestoreThread(_c2py_thread_state);
         return PyLong_FromLong((long)_ret);
     }
@@ -1355,6 +1388,7 @@ _sparsify_and_dot_padded_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
     PyObject *py_outpx = NULL;
     PyObject *py_output_adr = NULL;
     PyObject *py_npx_out = NULL;
+    PyObject *py_cut = NULL;
     PyObject *py_powder = NULL;
     PyObject *py_base = NULL;
     PyObject *py_weights = NULL;
@@ -1366,7 +1400,6 @@ _sparsify_and_dot_padded_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
     PyObject *py_top = NULL;
     PyObject *py_top_out = NULL;
     PyObject *py_pipeline = NULL;
-    int c_threshold = 0;
     int c_width = 0;
     int c_listed = 0;
     int c_block_elems = 0;
@@ -1384,6 +1417,8 @@ _sparsify_and_dot_padded_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
     c2py_ptr_info info_output_adr;
     c2py_buf_pin pin_npx_out;
     c2py_ptr_info info_npx_out;
+    c2py_buf_pin pin_cut;
+    c2py_ptr_info info_cut;
     c2py_buf_pin pin_powder;
     c2py_ptr_info info_powder;
     c2py_buf_pin pin_base;
@@ -1420,17 +1455,7 @@ _sparsify_and_dot_padded_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
     py_outpx = args[3];
     py_output_adr = args[4];
     py_npx_out = args[5];
-    /* extract int: threshold from args[6] */
-    {
-        long _c2py_tmp = PyLong_AsLong(args[6]);
-        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
-        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
-            PyErr_SetString(PyExc_ValueError,
-                "int parameter threshold out of range (must fit in C int)");
-            return NULL;
-        }
-        c_threshold = (int)_c2py_tmp;
-    }
+    py_cut = args[6];
     py_powder = args[7];
     py_base = args[8];
     py_weights = args[9];
@@ -1504,6 +1529,7 @@ _sparsify_and_dot_padded_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
     memset(&pin_outpx.buf, 0, C2PY.pybuffer_size);
     memset(&pin_output_adr.buf, 0, C2PY.pybuffer_size);
     memset(&pin_npx_out.buf, 0, C2PY.pybuffer_size);
+    memset(&pin_cut.buf, 0, C2PY.pybuffer_size);
     memset(&pin_powder.buf, 0, C2PY.pybuffer_size);
     memset(&pin_base.buf, 0, C2PY.pybuffer_size);
     memset(&pin_weights.buf, 0, C2PY.pybuffer_size);
@@ -1532,6 +1558,9 @@ _sparsify_and_dot_padded_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
         goto cleanup;
 
     if (c2py_pin(py_npx_out, &pin_npx_out, &info_npx_out, C2PY_BUF_WRITE, _acqord_sparsify_and_dot_padded, 2) == -1)
+        goto cleanup;
+
+    if (c2py_pin(py_cut, &pin_cut, &info_cut, C2PY_BUF_READ, _acqord_sparsify_and_dot_padded, 2) == -1)
         goto cleanup;
 
     if (c2py_pin(py_powder, &pin_powder, &info_powder, C2PY_BUF_WRITE, _acqord_sparsify_and_dot_padded, 2) == -1)
@@ -1569,12 +1598,12 @@ _sparsify_and_dot_padded_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
 
     /* restrict check: writable buffers must not overlap */
     {
-        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_powder, &info_top_out, &info_workspace, &info_base, &info_compressed_lengths, &info_compressed_ptrs, &info_mask, &info_pipeline, &info_pixels, &info_row_ptr, &info_rowmap, &info_top, &info_weights };
-        if (c2py_check_no_overlap(_c2py_ov, 7, 17) < 0)
+        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_powder, &info_top_out, &info_workspace, &info_base, &info_compressed_lengths, &info_compressed_ptrs, &info_cut, &info_mask, &info_pipeline, &info_pixels, &info_row_ptr, &info_rowmap, &info_top, &info_weights };
+        if (c2py_check_no_overlap(_c2py_ov, 7, 18) < 0)
             goto cleanup;
     }
 
-    ret = _sparsify_and_dot_padded_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_powder, &info_base, &info_weights, &info_pixels, &info_rowmap, &info_row_ptr, &info_workspace, &info_cursors, &info_top, &info_top_out, &info_pipeline, c_threshold, c_width, c_listed, c_block_elems, c_nout, c_dtype);
+    ret = _sparsify_and_dot_padded_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_cut, &info_powder, &info_base, &info_weights, &info_pixels, &info_rowmap, &info_row_ptr, &info_workspace, &info_cursors, &info_top, &info_top_out, &info_pipeline, c_width, c_listed, c_block_elems, c_nout, c_dtype);
 
 cleanup:
     c2py_unpin_buffer(&pin_pipeline);
@@ -1588,6 +1617,7 @@ cleanup:
     c2py_unpin_buffer(&pin_weights);
     c2py_unpin_buffer(&pin_base);
     c2py_unpin_buffer(&pin_powder);
+    c2py_unpin_buffer(&pin_cut);
     c2py_unpin_buffer(&pin_npx_out);
     c2py_unpin_buffer(&pin_output_adr);
     c2py_unpin_buffer(&pin_outpx);
@@ -1623,7 +1653,7 @@ static const uint8_t _acqord_sparsify_and_dot_bsbcsr[] = { C2PY_PIN_NDARRAY, C2P
 /* -------------------------------------------- */
 
 static PyObject*
-_sparsify_and_dot_bsbcsr_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_powder, c2py_ptr_info *info_blk_ptr, c2py_ptr_info *info_bins, c2py_ptr_info *info_bin_ptr, c2py_ptr_info *info_idx, c2py_ptr_info *info_data, c2py_ptr_info *info_csc_data, c2py_ptr_info *info_csc_indices, c2py_ptr_info *info_csc_indptr, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, c2py_ptr_info *info_top, c2py_ptr_info *info_top_out, c2py_ptr_info *info_pipeline, int c_threshold, int c_block_elems, int c_nout, int c_dtype)
+_sparsify_and_dot_bsbcsr_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_mask, c2py_ptr_info *info_outpx, c2py_ptr_info *info_output_adr, c2py_ptr_info *info_npx_out, c2py_ptr_info *info_cut, c2py_ptr_info *info_powder, c2py_ptr_info *info_blk_ptr, c2py_ptr_info *info_bins, c2py_ptr_info *info_bin_ptr, c2py_ptr_info *info_idx, c2py_ptr_info *info_data, c2py_ptr_info *info_csc_data, c2py_ptr_info *info_csc_indices, c2py_ptr_info *info_csc_indptr, c2py_ptr_info *info_workspace, c2py_ptr_info *info_cursors, c2py_ptr_info *info_top, c2py_ptr_info *info_top_out, c2py_ptr_info *info_pipeline, int c_block_elems, int c_nout, int c_dtype)
 {
     int _c2py_slow_axis_info_compressed_ptrs = -1;
     int _c2py_fast_axis_info_compressed_ptrs = -1;
@@ -1671,6 +1701,14 @@ _sparsify_and_dot_bsbcsr_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info
     (void)_c2py_fast_axis_info_npx_out;
     /* contiguity check: npx_out */
     if (c2py_check_contiguity(info_npx_out, &_c2py_slow_axis_info_npx_out, &_c2py_fast_axis_info_npx_out) < 0)
+        return NULL;
+
+    int _c2py_slow_axis_info_cut = -1;
+    int _c2py_fast_axis_info_cut = -1;
+    (void)_c2py_slow_axis_info_cut;
+    (void)_c2py_fast_axis_info_cut;
+    /* contiguity check: cut */
+    if (c2py_check_contiguity(info_cut, &_c2py_slow_axis_info_cut, &_c2py_fast_axis_info_cut) < 0)
         return NULL;
 
     int _c2py_slow_axis_info_powder = -1;
@@ -1999,6 +2037,11 @@ _sparsify_and_dot_bsbcsr_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info
                 "buffer too large for int n (> INT_MAX elements)");
             return NULL;
         }
+        if ((((info_cut->len == 0) ? 0 : (info_cut->len / info_cut->itemsize))) > (Py_ssize_t)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "buffer too large for int n (> INT_MAX elements)");
+            return NULL;
+        }
         if ((((info_blk_ptr->len == 0) ? 0 : (info_blk_ptr->len / info_blk_ptr->itemsize))) > (Py_ssize_t)INT_MAX) {
             PyErr_SetString(PyExc_ValueError,
                 "buffer too large for int n (> INT_MAX elements)");
@@ -2015,7 +2058,7 @@ _sparsify_and_dot_bsbcsr_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info
             return NULL;
         }
         if (_c2py_do_gil) _c2py_thread_state = PyEval_SaveThread();
-        int _ret = bslz4_sparsify_and_dot_bsbcsr((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, c_threshold, (double *)info_powder->ptr, c_nout, (const uint32_t *)info_blk_ptr->ptr, (int)(((info_blk_ptr->len == 0) ? 0 : (info_blk_ptr->len / info_blk_ptr->itemsize))), (const uint32_t *)info_bins->ptr, (const uint32_t *)info_bin_ptr->ptr, (const uint16_t *)info_idx->ptr, (const float *)info_data->ptr, (const float *)info_csc_data->ptr, (const uint32_t *)info_csc_indices->ptr, (const uint32_t *)info_csc_indptr->ptr, (size_t)(c_block_elems), (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, (const int64_t *)info_top->ptr, (size_t)(((info_top->len == 0) ? 0 : (info_top->len / info_top->itemsize))), (int32_t *)info_top_out->ptr, c_dtype, (const uint16_t *)info_pipeline->ptr);
+        int _ret = bslz4_sparsify_and_dot_bsbcsr((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), (const uint8_t *)info_mask->ptr, (int)(((info_mask->len == 0) ? 0 : (info_mask->len / info_mask->itemsize))), (void *)info_outpx->ptr, (uint32_t *)info_output_adr->ptr, (int32_t *)info_npx_out->ptr, (const void *)info_cut->ptr, (size_t)(((info_cut->len == 0) ? 0 : (info_cut->len / info_cut->itemsize))), (double *)info_powder->ptr, c_nout, (const uint32_t *)info_blk_ptr->ptr, (int)(((info_blk_ptr->len == 0) ? 0 : (info_blk_ptr->len / info_blk_ptr->itemsize))), (const uint32_t *)info_bins->ptr, (const uint32_t *)info_bin_ptr->ptr, (const uint16_t *)info_idx->ptr, (const float *)info_data->ptr, (const float *)info_csc_data->ptr, (const uint32_t *)info_csc_indices->ptr, (const uint32_t *)info_csc_indptr->ptr, (size_t)(c_block_elems), (uint8_t *)info_workspace->ptr, (size_t)(info_workspace->len), (int64_t *)info_cursors->ptr, (const int64_t *)info_top->ptr, (size_t)(((info_top->len == 0) ? 0 : (info_top->len / info_top->itemsize))), (int32_t *)info_top_out->ptr, c_dtype, (const uint16_t *)info_pipeline->ptr);
         if (_c2py_do_gil) PyEval_RestoreThread(_c2py_thread_state);
         return PyLong_FromLong((long)_ret);
     }
@@ -2039,6 +2082,7 @@ _sparsify_and_dot_bsbcsr_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
     PyObject *py_outpx = NULL;
     PyObject *py_output_adr = NULL;
     PyObject *py_npx_out = NULL;
+    PyObject *py_cut = NULL;
     PyObject *py_powder = NULL;
     PyObject *py_blk_ptr = NULL;
     PyObject *py_bins = NULL;
@@ -2053,7 +2097,6 @@ _sparsify_and_dot_bsbcsr_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
     PyObject *py_top = NULL;
     PyObject *py_top_out = NULL;
     PyObject *py_pipeline = NULL;
-    int c_threshold = 0;
     int c_block_elems = 0;
     int c_nout = 0;
     int c_dtype = 0;
@@ -2069,6 +2112,8 @@ _sparsify_and_dot_bsbcsr_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
     c2py_ptr_info info_output_adr;
     c2py_buf_pin pin_npx_out;
     c2py_ptr_info info_npx_out;
+    c2py_buf_pin pin_cut;
+    c2py_ptr_info info_cut;
     c2py_buf_pin pin_powder;
     c2py_ptr_info info_powder;
     c2py_buf_pin pin_blk_ptr;
@@ -2111,17 +2156,7 @@ _sparsify_and_dot_bsbcsr_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
     py_outpx = args[3];
     py_output_adr = args[4];
     py_npx_out = args[5];
-    /* extract int: threshold from args[6] */
-    {
-        long _c2py_tmp = PyLong_AsLong(args[6]);
-        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
-        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
-            PyErr_SetString(PyExc_ValueError,
-                "int parameter threshold out of range (must fit in C int)");
-            return NULL;
-        }
-        c_threshold = (int)_c2py_tmp;
-    }
+    py_cut = args[6];
     py_powder = args[7];
     py_blk_ptr = args[8];
     py_bins = args[9];
@@ -2176,6 +2211,7 @@ _sparsify_and_dot_bsbcsr_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
     memset(&pin_outpx.buf, 0, C2PY.pybuffer_size);
     memset(&pin_output_adr.buf, 0, C2PY.pybuffer_size);
     memset(&pin_npx_out.buf, 0, C2PY.pybuffer_size);
+    memset(&pin_cut.buf, 0, C2PY.pybuffer_size);
     memset(&pin_powder.buf, 0, C2PY.pybuffer_size);
     memset(&pin_blk_ptr.buf, 0, C2PY.pybuffer_size);
     memset(&pin_bins.buf, 0, C2PY.pybuffer_size);
@@ -2207,6 +2243,9 @@ _sparsify_and_dot_bsbcsr_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
         goto cleanup;
 
     if (c2py_pin(py_npx_out, &pin_npx_out, &info_npx_out, C2PY_BUF_WRITE, _acqord_sparsify_and_dot_bsbcsr, 2) == -1)
+        goto cleanup;
+
+    if (c2py_pin(py_cut, &pin_cut, &info_cut, C2PY_BUF_READ, _acqord_sparsify_and_dot_bsbcsr, 2) == -1)
         goto cleanup;
 
     if (c2py_pin(py_powder, &pin_powder, &info_powder, C2PY_BUF_WRITE, _acqord_sparsify_and_dot_bsbcsr, 2) == -1)
@@ -2253,12 +2292,12 @@ _sparsify_and_dot_bsbcsr_fastcall(PyObject *self, PyObject *const *args, Py_ssiz
 
     /* restrict check: writable buffers must not overlap */
     {
-        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_powder, &info_top_out, &info_workspace, &info_bin_ptr, &info_bins, &info_blk_ptr, &info_compressed_lengths, &info_compressed_ptrs, &info_csc_data, &info_csc_indices, &info_csc_indptr, &info_data, &info_idx, &info_mask, &info_pipeline, &info_top };
-        if (c2py_check_no_overlap(_c2py_ov, 7, 20) < 0)
+        c2py_ptr_info *_c2py_ov[] = { &info_cursors, &info_npx_out, &info_output_adr, &info_outpx, &info_powder, &info_top_out, &info_workspace, &info_bin_ptr, &info_bins, &info_blk_ptr, &info_compressed_lengths, &info_compressed_ptrs, &info_csc_data, &info_csc_indices, &info_csc_indptr, &info_cut, &info_data, &info_idx, &info_mask, &info_pipeline, &info_top };
+        if (c2py_check_no_overlap(_c2py_ov, 7, 21) < 0)
             goto cleanup;
     }
 
-    ret = _sparsify_and_dot_bsbcsr_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_powder, &info_blk_ptr, &info_bins, &info_bin_ptr, &info_idx, &info_data, &info_csc_data, &info_csc_indices, &info_csc_indptr, &info_workspace, &info_cursors, &info_top, &info_top_out, &info_pipeline, c_threshold, c_block_elems, c_nout, c_dtype);
+    ret = _sparsify_and_dot_bsbcsr_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_mask, &info_outpx, &info_output_adr, &info_npx_out, &info_cut, &info_powder, &info_blk_ptr, &info_bins, &info_bin_ptr, &info_idx, &info_data, &info_csc_data, &info_csc_indices, &info_csc_indptr, &info_workspace, &info_cursors, &info_top, &info_top_out, &info_pipeline, c_block_elems, c_nout, c_dtype);
 
 cleanup:
     c2py_unpin_buffer(&pin_pipeline);
@@ -2275,6 +2314,7 @@ cleanup:
     c2py_unpin_buffer(&pin_bins);
     c2py_unpin_buffer(&pin_blk_ptr);
     c2py_unpin_buffer(&pin_powder);
+    c2py_unpin_buffer(&pin_cut);
     c2py_unpin_buffer(&pin_npx_out);
     c2py_unpin_buffer(&pin_output_adr);
     c2py_unpin_buffer(&pin_outpx);
@@ -3249,10 +3289,10 @@ _build_info_wrapper(PyObject *self, PyObject *args)
 /* Module definition                          */
 /* -------------------------------------------- */
 
-static const char _doc_sparsify[] = "sparsify(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, threshold, workspace, cursors, top, top_out, dtype, pipeline)\n--\n\nsparsify(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, dtype: int, pipeline: buffer) -> int\n\nDecode nframes bitshuffle-LZ4/zstd chunks from the same dataset into per-frame masked/thresholded sparse (outpx, output_adr, npx_out). dtype is the pixel dtype index (0..9); pipeline is a uint16 array of 6 step values (decode, mask, untranspose, collect, route, dot; route and dot 0), all resolved (src/pipeline/pipeline.h).\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\nthreshold : int\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ntop : buffer\ntop_out : buffer\n    Writable\ndtype : int\npipeline : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  top.itemsize == 8  [ValueError]\n  top_out.itemsize == 4  [ValueError]\n  (top.n == 0 or top_out.n >= (2 * compressed_ptrs.n))  [ValueError]\n  pipeline.format == 'H'  [ValueError]\n  pipeline.n == 6  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         top = top.ptr (const int64_t *)\n         ntop = top.n (size_t)\n         top_out = top_out.ptr (int32_t *)\n         dtype = dtype (int)\n         pipeline = pipeline.ptr (const uint16_t *)";
-static const char _doc_sparsify_and_dot[] = "sparsify_and_dot(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, threshold, powder, data, indices, indptr, workspace, cursors, top, top_out, nout, dtype, pipeline)\n--\n\nsparsify_and_dot(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, nout: int, dtype: int, pipeline: buffer) -> int\n\nDecode a batch of chunks into per-frame sparse (outpx, output_adr, npx_out) and per-frame CSC powder integrations (powder). The matrix must be mask-folded: masked pixels have empty columns (the dense route makes no mask test; the mask selects the sparse output and the sparse-route pixels). Frames must have exactly mask.n pixels. The dot says what indices holds: a bin per entry (indices.n == data.n), or, for the per-pixel dots (csc-run and its integer forms: the first bin of a run; csc-nosplit, csc-nosplit-moment, csc-permute: the one bin), a bin per pixel (indices.n == mask.n); a per-pixel dot must be given per-pixel indices. The dot also says the element types: data f32, or u32/u16 fixed-point weights with an int64 (q) powder, or (csc-permute) a powder in the pixel dtype. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values (src/pipeline/pipeline.h).\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\nthreshold : int\npowder : buffer\n    Writable\ndata : buffer\nindices : buffer\nindptr : buffer\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ntop : buffer\ntop_out : buffer\n    Writable\nnout : int\ndtype : int\npipeline : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  (((((powder.format == 'd' or ((powder.format == 'q' or powder.format == 'l') and powder.itemsize == 8)) or powder.itemsize == 1) or powder.itemsize == 2) or powder.itemsize == 4) or powder.itemsize == 8)  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  top.itemsize == 8  [ValueError]\n  top_out.itemsize == 4  [ValueError]\n  (top.n == 0 or top_out.n >= (2 * compressed_ptrs.n))  [ValueError]\n  ((data.format == 'f' or ((data.format == 'I' or data.format == 'L') and data.itemsize == 4)) or data.format == 'H')  [ValueError]\n  ((((indices.format == 'I' or indices.format == 'i') or indices.format == 'L') or indices.format == 'l') and indices.itemsize == 4)  [ValueError]\n  ((((indptr.format == 'I' or indptr.format == 'i') or indptr.format == 'L') or indptr.format == 'l') and indptr.itemsize == 4)  [ValueError]\n  (indices.n == data.n or indices.n == mask.n)  [ValueError]\n  indptr.n == (mask.n + 1)  [ValueError]\n  pipeline.format == 'H'  [ValueError]\n  pipeline.n == 6  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, void *powder, int nout, const void *weights, const void *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         powder = powder.ptr (void *)\n         nout = nout (int)\n         weights = data.ptr (const void *)\n         indices = indices.ptr (const void *)\n         indptr = indptr.ptr (const uint32_t *)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         top = top.ptr (const int64_t *)\n         ntop = top.n (size_t)\n         top_out = top_out.ptr (int32_t *)\n         dtype = dtype (int)\n         pipeline = pipeline.ptr (const uint16_t *)";
-static const char _doc_sparsify_and_dot_padded[] = "sparsify_and_dot_padded(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, threshold, powder, base, weights, pixels, rowmap, row_ptr, workspace, cursors, top, top_out, width, listed, block_elems, nout, dtype, pipeline)\n--\n\nsparsify_and_dot_padded(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, base: buffer, weights: buffer, pixels: buffer, rowmap: buffer, row_ptr: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, width: int, listed: int, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int\n\nDecode a batch of chunks into per-frame sparse and a padded-CSC powder integration. base/weights/pixels/rowmap/row_ptr describe the padded layout (see bslz4_mat_padded), built from a mask-folded matrix (masked pixels have zero-weight rows or no row); width and listed are scalars; block_elems is the decode block size in pixels. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\nthreshold : int\npowder : buffer\n    Type: float64 (format 'd')\n    Writable\nbase : buffer\nweights : buffer\n    Type: float32 (format 'f')\npixels : buffer\nrowmap : buffer\nrow_ptr : buffer\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ntop : buffer\ntop_out : buffer\n    Writable\nwidth : int\nlisted : int\nblock_elems : int\nnout : int\ndtype : int\npipeline : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  powder.format == 'd'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  top.itemsize == 8  [ValueError]\n  top_out.itemsize == 4  [ValueError]\n  (top.n == 0 or top_out.n >= (2 * compressed_ptrs.n))  [ValueError]\n  ((base.format == 'i' or base.format == 'l') and base.itemsize == 4)  [ValueError]\n  weights.format == 'f'  [ValueError]\n  ((pixels.format == 'i' or pixels.format == 'l') and pixels.itemsize == 4)  [ValueError]\n  ((rowmap.format == 'i' or rowmap.format == 'l') and rowmap.itemsize == 4)  [ValueError]\n  ((row_ptr.format == 'i' or row_ptr.format == 'l') and row_ptr.itemsize == 4)  [ValueError]\n  (width >= 1 and width <= 64)  [ValueError]\n  (listed == 0 or listed == 1)  [ValueError]\n  weights.n == (base.n * width)  [ValueError]\n  (listed == 0 or pixels.n == base.n)  [ValueError]\n  (listed == 0 or rowmap.n == mask.n)  [ValueError]\n  (listed == 1 or base.n == mask.n)  [ValueError]\n  block_elems >= 1  [ValueError]\n  pipeline.format == 'H'  [ValueError]\n  pipeline.n == 6  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_sparsify_and_dot_padded(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *powder, int nout, const int32_t *base, const float *weights, const int32_t *pixels, const int32_t *rowmap, const int32_t *row_ptr, int nrow_ptr, int width, int listed, size_t block_elems, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         powder = powder.ptr (double *)\n         nout = nout (int)\n         base = base.ptr (const int32_t *)\n         weights = weights.ptr (const float *)\n         pixels = pixels.ptr (const int32_t *)\n         rowmap = rowmap.ptr (const int32_t *)\n         row_ptr = row_ptr.ptr (const int32_t *)\n         nrow_ptr = row_ptr.n (int)\n         width = width (int)\n         listed = listed (int)\n         block_elems = block_elems (size_t)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         top = top.ptr (const int64_t *)\n         ntop = top.n (size_t)\n         top_out = top_out.ptr (int32_t *)\n         dtype = dtype (int)\n         pipeline = pipeline.ptr (const uint16_t *)";
-static const char _doc_sparsify_and_dot_bsbcsr[] = "sparsify_and_dot_bsbcsr(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, threshold, powder, blk_ptr, bins, bin_ptr, idx, data, csc_data, csc_indices, csc_indptr, workspace, cursors, top, top_out, block_elems, nout, dtype, pipeline)\n--\n\nsparsify_and_dot_bsbcsr(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, threshold: int, powder: buffer, blk_ptr: buffer, bins: buffer, bin_ptr: buffer, idx: buffer, data: buffer, csc_data: buffer, csc_indices: buffer, csc_indptr: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int\n\nDecode a batch of chunks into per-frame sparse and a bit-shuffle-block CSR powder integration. blk_ptr/bins/bin_ptr/idx/data describe the bsb-csr layout (see bslz4_mat_bsbcsr); csc_data/csc_indices/csc_indptr is the CSC used for the sparse route. Both must be built from a mask-folded matrix (masked pixels have no entries). block_elems is the decode block size in pixels. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\nthreshold : int\npowder : buffer\n    Type: float64 (format 'd')\n    Writable\nblk_ptr : buffer\nbins : buffer\nbin_ptr : buffer\nidx : buffer\n    Type: uint16 (format 'H')\n    Size must equal data\ndata : buffer\n    Type: float32 (format 'f')\ncsc_data : buffer\n    Type: float32 (format 'f')\ncsc_indices : buffer\n    Size must equal csc_data\ncsc_indptr : buffer\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ntop : buffer\ntop_out : buffer\n    Writable\nblock_elems : int\nnout : int\ndtype : int\npipeline : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  powder.format == 'd'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  top.itemsize == 8  [ValueError]\n  top_out.itemsize == 4  [ValueError]\n  (top.n == 0 or top_out.n >= (2 * compressed_ptrs.n))  [ValueError]\n  ((blk_ptr.format == 'I' or blk_ptr.format == 'L') and blk_ptr.itemsize == 4)  [ValueError]\n  ((bins.format == 'I' or bins.format == 'L') and bins.itemsize == 4)  [ValueError]\n  ((bin_ptr.format == 'I' or bin_ptr.format == 'L') and bin_ptr.itemsize == 4)  [ValueError]\n  idx.format == 'H'  [ValueError]\n  data.format == 'f'  [ValueError]\n  csc_data.format == 'f'  [ValueError]\n  ((((csc_indices.format == 'I' or csc_indices.format == 'i') or csc_indices.format == 'L') or csc_indices.format == 'l') and csc_indices.itemsize == 4)  [ValueError]\n  ((((csc_indptr.format == 'I' or csc_indptr.format == 'i') or csc_indptr.format == 'L') or csc_indptr.format == 'l') and csc_indptr.itemsize == 4)  [ValueError]\n  bin_ptr.n == (bins.n + 1)  [ValueError]\n  idx.n == data.n  [ValueError]\n  csc_indices.n == csc_data.n  [ValueError]\n  csc_indptr.n == (mask.n + 1)  [ValueError]\n  (block_elems >= 1 and block_elems <= 65536)  [ValueError]\n  pipeline.format == 'H'  [ValueError]\n  pipeline.n == 6  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_sparsify_and_dot_bsbcsr(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, int threshold, double *powder, int nout, const uint32_t *blk_ptr, int nblk_ptr, const uint32_t *bins, const uint32_t *bin_ptr, const uint16_t *idx, const float *data, const float *csc_data, const uint32_t *csc_indices, const uint32_t *csc_indptr, size_t block_elems, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         threshold = threshold (int)\n         powder = powder.ptr (double *)\n         nout = nout (int)\n         blk_ptr = blk_ptr.ptr (const uint32_t *)\n         nblk_ptr = blk_ptr.n (int)\n         bins = bins.ptr (const uint32_t *)\n         bin_ptr = bin_ptr.ptr (const uint32_t *)\n         idx = idx.ptr (const uint16_t *)\n         data = data.ptr (const float *)\n         csc_data = csc_data.ptr (const float *)\n         csc_indices = csc_indices.ptr (const uint32_t *)\n         csc_indptr = csc_indptr.ptr (const uint32_t *)\n         block_elems = block_elems (size_t)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         top = top.ptr (const int64_t *)\n         ntop = top.n (size_t)\n         top_out = top_out.ptr (int32_t *)\n         dtype = dtype (int)\n         pipeline = pipeline.ptr (const uint16_t *)";
+static const char _doc_sparsify[] = "sparsify(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, cut, workspace, cursors, top, top_out, dtype, pipeline)\n--\n\nsparsify(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, cut: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, dtype: int, pipeline: buffer) -> int\n\nDecode nframes bitshuffle-LZ4/zstd chunks from the same dataset into per-frame masked/thresholded sparse (outpx, output_adr, npx_out). dtype is the pixel dtype index (0..9); pipeline is a uint16 array of 6 step values (decode, mask, untranspose, collect, route, dot; route and dot 0), all resolved (src/pipeline/pipeline.h).\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\ncut : buffer\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ntop : buffer\ntop_out : buffer\n    Writable\ndtype : int\npipeline : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  top.itemsize == 8  [ValueError]\n  top_out.itemsize == 4  [ValueError]\n  (top.n == 0 or top_out.n >= (2 * compressed_ptrs.n))  [ValueError]\n  pipeline.format == 'H'  [ValueError]\n  pipeline.n == 6  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_sparsify(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, const void *cut, size_t ncut, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         cut = cut.ptr (const void *)\n         ncut = cut.n (size_t)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         top = top.ptr (const int64_t *)\n         ntop = top.n (size_t)\n         top_out = top_out.ptr (int32_t *)\n         dtype = dtype (int)\n         pipeline = pipeline.ptr (const uint16_t *)";
+static const char _doc_sparsify_and_dot[] = "sparsify_and_dot(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, cut, powder, data, indices, indptr, workspace, cursors, top, top_out, nout, dtype, pipeline)\n--\n\nsparsify_and_dot(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, cut: buffer, powder: buffer, data: buffer, indices: buffer, indptr: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, nout: int, dtype: int, pipeline: buffer) -> int\n\nDecode a batch of chunks into per-frame sparse (outpx, output_adr, npx_out) and per-frame CSC powder integrations (powder). The matrix must be mask-folded: masked pixels have empty columns (the dense route makes no mask test; the mask selects the sparse output and the sparse-route pixels). Frames must have exactly mask.n pixels. The dot says what indices holds: a bin per entry (indices.n == data.n), or, for the per-pixel dots (csc-run and its integer forms: the first bin of a run; csc-nosplit, csc-nosplit-moment, csc-permute: the one bin), a bin per pixel (indices.n == mask.n); a per-pixel dot must be given per-pixel indices. The dot also says the element types: data f32, or u32/u16 fixed-point weights with an int64 (q) powder, or (csc-permute) a powder in the pixel dtype. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values (src/pipeline/pipeline.h).\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\ncut : buffer\npowder : buffer\n    Writable\ndata : buffer\nindices : buffer\nindptr : buffer\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ntop : buffer\ntop_out : buffer\n    Writable\nnout : int\ndtype : int\npipeline : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  (((((powder.format == 'd' or ((powder.format == 'q' or powder.format == 'l') and powder.itemsize == 8)) or powder.itemsize == 1) or powder.itemsize == 2) or powder.itemsize == 4) or powder.itemsize == 8)  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  top.itemsize == 8  [ValueError]\n  top_out.itemsize == 4  [ValueError]\n  (top.n == 0 or top_out.n >= (2 * compressed_ptrs.n))  [ValueError]\n  ((data.format == 'f' or ((data.format == 'I' or data.format == 'L') and data.itemsize == 4)) or data.format == 'H')  [ValueError]\n  ((((indices.format == 'I' or indices.format == 'i') or indices.format == 'L') or indices.format == 'l') and indices.itemsize == 4)  [ValueError]\n  ((((indptr.format == 'I' or indptr.format == 'i') or indptr.format == 'L') or indptr.format == 'l') and indptr.itemsize == 4)  [ValueError]\n  (indices.n == data.n or indices.n == mask.n)  [ValueError]\n  indptr.n == (mask.n + 1)  [ValueError]\n  pipeline.format == 'H'  [ValueError]\n  pipeline.n == 6  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_sparsify_and_dot(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, const void *cut, size_t ncut, void *powder, int nout, const void *weights, const void *indices, const uint32_t *indptr, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         cut = cut.ptr (const void *)\n         ncut = cut.n (size_t)\n         powder = powder.ptr (void *)\n         nout = nout (int)\n         weights = data.ptr (const void *)\n         indices = indices.ptr (const void *)\n         indptr = indptr.ptr (const uint32_t *)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         top = top.ptr (const int64_t *)\n         ntop = top.n (size_t)\n         top_out = top_out.ptr (int32_t *)\n         dtype = dtype (int)\n         pipeline = pipeline.ptr (const uint16_t *)";
+static const char _doc_sparsify_and_dot_padded[] = "sparsify_and_dot_padded(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, cut, powder, base, weights, pixels, rowmap, row_ptr, workspace, cursors, top, top_out, width, listed, block_elems, nout, dtype, pipeline)\n--\n\nsparsify_and_dot_padded(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, cut: buffer, powder: buffer, base: buffer, weights: buffer, pixels: buffer, rowmap: buffer, row_ptr: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, width: int, listed: int, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int\n\nDecode a batch of chunks into per-frame sparse and a padded-CSC powder integration. base/weights/pixels/rowmap/row_ptr describe the padded layout (see bslz4_mat_padded), built from a mask-folded matrix (masked pixels have zero-weight rows or no row); width and listed are scalars; block_elems is the decode block size in pixels. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\ncut : buffer\npowder : buffer\n    Type: float64 (format 'd')\n    Writable\nbase : buffer\nweights : buffer\n    Type: float32 (format 'f')\npixels : buffer\nrowmap : buffer\nrow_ptr : buffer\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ntop : buffer\ntop_out : buffer\n    Writable\nwidth : int\nlisted : int\nblock_elems : int\nnout : int\ndtype : int\npipeline : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  powder.format == 'd'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  top.itemsize == 8  [ValueError]\n  top_out.itemsize == 4  [ValueError]\n  (top.n == 0 or top_out.n >= (2 * compressed_ptrs.n))  [ValueError]\n  ((base.format == 'i' or base.format == 'l') and base.itemsize == 4)  [ValueError]\n  weights.format == 'f'  [ValueError]\n  ((pixels.format == 'i' or pixels.format == 'l') and pixels.itemsize == 4)  [ValueError]\n  ((rowmap.format == 'i' or rowmap.format == 'l') and rowmap.itemsize == 4)  [ValueError]\n  ((row_ptr.format == 'i' or row_ptr.format == 'l') and row_ptr.itemsize == 4)  [ValueError]\n  (width >= 1 and width <= 64)  [ValueError]\n  (listed == 0 or listed == 1)  [ValueError]\n  weights.n == (base.n * width)  [ValueError]\n  (listed == 0 or pixels.n == base.n)  [ValueError]\n  (listed == 0 or rowmap.n == mask.n)  [ValueError]\n  (listed == 1 or base.n == mask.n)  [ValueError]\n  block_elems >= 1  [ValueError]\n  pipeline.format == 'H'  [ValueError]\n  pipeline.n == 6  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_sparsify_and_dot_padded(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, const void *cut, size_t ncut, double *powder, int nout, const int32_t *base, const float *weights, const int32_t *pixels, const int32_t *rowmap, const int32_t *row_ptr, int nrow_ptr, int width, int listed, size_t block_elems, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         cut = cut.ptr (const void *)\n         ncut = cut.n (size_t)\n         powder = powder.ptr (double *)\n         nout = nout (int)\n         base = base.ptr (const int32_t *)\n         weights = weights.ptr (const float *)\n         pixels = pixels.ptr (const int32_t *)\n         rowmap = rowmap.ptr (const int32_t *)\n         row_ptr = row_ptr.ptr (const int32_t *)\n         nrow_ptr = row_ptr.n (int)\n         width = width (int)\n         listed = listed (int)\n         block_elems = block_elems (size_t)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         top = top.ptr (const int64_t *)\n         ntop = top.n (size_t)\n         top_out = top_out.ptr (int32_t *)\n         dtype = dtype (int)\n         pipeline = pipeline.ptr (const uint16_t *)";
+static const char _doc_sparsify_and_dot_bsbcsr[] = "sparsify_and_dot_bsbcsr(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, cut, powder, blk_ptr, bins, bin_ptr, idx, data, csc_data, csc_indices, csc_indptr, workspace, cursors, top, top_out, block_elems, nout, dtype, pipeline)\n--\n\nsparsify_and_dot_bsbcsr(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, cut: buffer, powder: buffer, blk_ptr: buffer, bins: buffer, bin_ptr: buffer, idx: buffer, data: buffer, csc_data: buffer, csc_indices: buffer, csc_indptr: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int\n\nDecode a batch of chunks into per-frame sparse and a bit-shuffle-block CSR powder integration. blk_ptr/bins/bin_ptr/idx/data describe the bsb-csr layout (see bslz4_mat_bsbcsr); csc_data/csc_indices/csc_indptr is the CSC used for the sparse route. Both must be built from a mask-folded matrix (masked pixels have no entries). block_elems is the decode block size in pixels. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\ncut : buffer\npowder : buffer\n    Type: float64 (format 'd')\n    Writable\nblk_ptr : buffer\nbins : buffer\nbin_ptr : buffer\nidx : buffer\n    Type: uint16 (format 'H')\n    Size must equal data\ndata : buffer\n    Type: float32 (format 'f')\ncsc_data : buffer\n    Type: float32 (format 'f')\ncsc_indices : buffer\n    Size must equal csc_data\ncsc_indptr : buffer\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ntop : buffer\ntop_out : buffer\n    Writable\nblock_elems : int\nnout : int\ndtype : int\npipeline : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  powder.format == 'd'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  top.itemsize == 8  [ValueError]\n  top_out.itemsize == 4  [ValueError]\n  (top.n == 0 or top_out.n >= (2 * compressed_ptrs.n))  [ValueError]\n  ((blk_ptr.format == 'I' or blk_ptr.format == 'L') and blk_ptr.itemsize == 4)  [ValueError]\n  ((bins.format == 'I' or bins.format == 'L') and bins.itemsize == 4)  [ValueError]\n  ((bin_ptr.format == 'I' or bin_ptr.format == 'L') and bin_ptr.itemsize == 4)  [ValueError]\n  idx.format == 'H'  [ValueError]\n  data.format == 'f'  [ValueError]\n  csc_data.format == 'f'  [ValueError]\n  ((((csc_indices.format == 'I' or csc_indices.format == 'i') or csc_indices.format == 'L') or csc_indices.format == 'l') and csc_indices.itemsize == 4)  [ValueError]\n  ((((csc_indptr.format == 'I' or csc_indptr.format == 'i') or csc_indptr.format == 'L') or csc_indptr.format == 'l') and csc_indptr.itemsize == 4)  [ValueError]\n  bin_ptr.n == (bins.n + 1)  [ValueError]\n  idx.n == data.n  [ValueError]\n  csc_indices.n == csc_data.n  [ValueError]\n  csc_indptr.n == (mask.n + 1)  [ValueError]\n  (block_elems >= 1 and block_elems <= 65536)  [ValueError]\n  pipeline.format == 'H'  [ValueError]\n  pipeline.n == 6  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_sparsify_and_dot_bsbcsr(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, const void *cut, size_t ncut, double *powder, int nout, const uint32_t *blk_ptr, int nblk_ptr, const uint32_t *bins, const uint32_t *bin_ptr, const uint16_t *idx, const float *data, const float *csc_data, const uint32_t *csc_indices, const uint32_t *csc_indptr, size_t block_elems, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         cut = cut.ptr (const void *)\n         ncut = cut.n (size_t)\n         powder = powder.ptr (double *)\n         nout = nout (int)\n         blk_ptr = blk_ptr.ptr (const uint32_t *)\n         nblk_ptr = blk_ptr.n (int)\n         bins = bins.ptr (const uint32_t *)\n         bin_ptr = bin_ptr.ptr (const uint32_t *)\n         idx = idx.ptr (const uint16_t *)\n         data = data.ptr (const float *)\n         csc_data = csc_data.ptr (const float *)\n         csc_indices = csc_indices.ptr (const uint32_t *)\n         csc_indptr = csc_indptr.ptr (const uint32_t *)\n         block_elems = block_elems (size_t)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         top = top.ptr (const int64_t *)\n         ntop = top.n (size_t)\n         top_out = top_out.ptr (int32_t *)\n         dtype = dtype (int)\n         pipeline = pipeline.ptr (const uint16_t *)";
 static const char _doc_decompress[] = "decompress(compressed_ptrs, compressed_lengths, out, workspace, elem_size, decode, untranspose, unshuffle)\n--\n\ndecompress(compressed_ptrs: buffer, compressed_lengths: buffer, out: buffer, workspace: buffer, elem_size: int, decode: int, untranspose: int, unshuffle: int) -> int\n\nThe front half alone: decompress nframes bitshuffle chunks (lz4 or zstd) into out, frame f at out + f * decoded size. unshuffle 0 leaves each block as the HDF5 filter's decompressor yields it (before the bit unshuffle); unshuffle 1 gives the pixel bytes (untranspose is the step value for the unshuffle). elem_size is the pixel size in bytes; decode is lz4-stock (3) or zstd (4). Releases the GIL.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nout : buffer\n    Type: uint8 (format 'B')\n    Writable\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\nelem_size : int\ndecode : int\nuntranspose : int\nunshuffle : int\n\nChecks\n------\n  out.format == 'B'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_decompress(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, uint8_t *out, size_t out_len, uint8_t *workspace, size_t workspace_len, int elem_size, int decode, int untranspose, int unshuffle) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         out = out.ptr (uint8_t *)\n         out_len = out.len (size_t)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         elem_size = elem_size (int)\n         decode = decode (int)\n         untranspose = untranspose (int)\n         unshuffle = unshuffle (int)";
 static const char _doc_offsets_to_pointers[] = "offsets_to_pointers(base, offsets, lengths)\n--\n\noffsets_to_pointers(base: buffer, offsets: buffer, lengths: buffer) -> int\n\nConvert byte offsets (into base) to absolute pointers in place, after checking every (offset, length) lies inside base. Returns 0, or -108 leaving offsets untouched on a bad one.\n\nParameters\n----------\nbase : buffer\noffsets : buffer\n    Writable\nlengths : buffer\n    Size must equal offsets\n\nChecks\n------\n  offsets.itemsize == 8  [ValueError]\n  lengths.itemsize == 4  [ValueError]\n  lengths.n == offsets.n  [ValueError]\n\nOverloads\n---------\n  bslz4_offsets_to_pointers(const char *base, size_t base_len, int64_t *offsets, const int32_t *lengths, int nframes) -> int\n    Map: base = base.ptr (const char *)\n         base_len = base.len (size_t)\n         offsets = offsets.ptr (int64_t *)\n         lengths = lengths.ptr (const int32_t *)\n         nframes = offsets.n (int)";
 static const char _doc_note_chunk[] = "note_chunk(chunk, index, pointers, lengths)\n--\n\nnote_chunk(chunk: buffer, index: int, pointers: buffer, lengths: buffer) -> void\n\nWrite chunk's raw address and byte length into pointers[index]/lengths[index].\n\nParameters\n----------\nchunk : buffer\nindex : int\npointers : buffer\n    Writable\nlengths : buffer\n    Writable\n\nOverloads\n---------\n  bslz4_note_chunk(const char *chunk, size_t chunk_len, int index, int64_t *pointers, int32_t *lengths) -> void\n    Map: chunk = chunk.ptr (const char *)\n         chunk_len = chunk.len (size_t)\n         index = index (int)\n         pointers = pointers.ptr (int64_t *)\n         lengths = lengths.ptr (int32_t *)";

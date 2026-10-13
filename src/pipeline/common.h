@@ -89,6 +89,7 @@ enum {
     BSLZ4_ERR_BAD_PIPELINE = -111,       /* a pipeline step value is unknown, 0 (auto: resolve it first) or invalid here */
     BSLZ4_ERR_UNAVAILABLE = -112,        /* a known step value needs an instruction set this CPU/build lacks */
     BSLZ4_ERR_DTYPE = -113,              /* dtype index out of range or unsupported */
+    BSLZ4_ERR_BAD_CUT = -114,            /* the cut buffer does not hold exactly one pixel-typed element */
 };
 
 #endif /* BSLZ4_COMMON_H */

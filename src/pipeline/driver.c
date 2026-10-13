@@ -104,11 +104,35 @@ static int32_t top_raise(const bslz4_top *BSLZ4_RESTRICT top, int dtype, int f, 
     return n;
 }
 
+/* The cut: one element of the pixel type (dtype index as in bslz4_resolve). Integer types give
+ * *ci (u64: the bit pattern, which the kernels cast back); f32/f64 give *cf. A negative or NaN cut
+ * is refused. A later version may take one cut per pixel: ncut is the element count. */
+static int read_cut(int dtype, const void *cut, size_t ncut, int64_t *ci, double *cf) {
+    *ci = 0;
+    *cf = 0.0;
+    if (!cut || ncut != 1) return BSLZ4_ERR_BAD_CUT;
+    switch (dtype) {
+    case 0: *ci = *(const uint8_t *) cut; return 0;
+    case 1: *ci = *(const uint16_t *) cut; return 0;
+    case 2: *ci = *(const uint32_t *) cut; return 0;
+    case 3: *ci = (int64_t) *(const uint64_t *) cut; return 0;
+    case 4: *ci = *(const int8_t *) cut; break;
+    case 5: *ci = *(const int16_t *) cut; break;
+    case 6: *ci = *(const int32_t *) cut; break;
+    case 7: *ci = *(const int64_t *) cut; break;
+    case 8: *cf = (double) *(const float *) cut; break;
+    case 9: *cf = *(const double *) cut; break;
+    default: return BSLZ4_ERR_DTYPE;
+    }
+    if (dtype >= 8 ? !(*cf >= 0.0) : *ci < 0) return BSLZ4_ERR_BAD_THRESHOLD;
+    return 0;
+}
+
 int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                      const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,
                      const uint8_t *BSLZ4_RESTRICT mask, int NIJ, void *BSLZ4_RESTRICT outpx,
                      uint32_t *BSLZ4_RESTRICT output_adr, int32_t *BSLZ4_RESTRICT npx_out,
-                     int threshold, void *BSLZ4_RESTRICT powder, int nout,
+                     const void *cut, size_t ncut, void *BSLZ4_RESTRICT powder, int nout,
                      const void *BSLZ4_RESTRICT mat, uint8_t *BSLZ4_RESTRICT workspace,
                      size_t workspace_len, int64_t *BSLZ4_RESTRICT cursors,
                      const bslz4_pipe *BSLZ4_RESTRICT p, const bslz4_top *BSLZ4_RESTRICT top) {
@@ -122,7 +146,13 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     int out_size = is_dot ? bslz4_dot_out_size(dot) : 0;
     if (is_dot && out_size == 0) out_size = (int) NB;     /* packed output: the pixel dtype */
 
-    if (threshold < 0) return BSLZ4_ERR_BAD_THRESHOLD;
+    int64_t cut_i;
+    double cut_f;
+    {
+        const int rc_cut = read_cut(p->dtype, cut, ncut, &cut_i, &cut_f);
+        if (rc_cut) return rc_cut;
+    }
+    const int is_float = p->dtype >= 8;
     if (top && (top->howmany < 0 || top->nthr < 0)) return BSLZ4_ERR_BAD_THRESHOLD;
 
     /* decode == PIXELS: the input frames are uncompressed pixels (NIJ * NB bytes each), so there is
@@ -216,7 +246,8 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     wbase.collect = collect;
     wbase.dot = dot;
     wbase.no_mask = emask == NULL;
-    wbase.threshold = (int64_t) threshold;
+    wbase.threshold = cut_i;
+    wbase.cutf = cut_f;
     wbase.block = block;
     wbase.mask = mask;
     wbase.mat = mat;
@@ -266,11 +297,12 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                                        (uint8_t *) outpx + (size_t) f * NIJ * NB,
                                        output_adr + (size_t) f * NIJ);
             const int32_t npx0 = npx_out[f];
-            const int64_t thr_f = top ? top_thr(top, f, (int64_t) threshold) : (int64_t) threshold;
+            const int64_t thr_f = top ? top_thr(top, f, cut_i) : cut_i;
             uint8_t *BSLZ4_RESTRICT out_vals = (uint8_t *) outpx + ((size_t) f * NIJ + (size_t) npx0) * NB;
             uint32_t *BSLZ4_RESTRICT out_adr = output_adr + (size_t) f * NIJ + npx0;
             bslz4_work w = wbase;
             w.threshold = thr_f;
+            if (is_float && top && top->level[f] >= 0) w.cutf = (double) thr_f;
             if (maskplanes) w.no_mask = 1;
             w.n = block_elems;
             w.i0 = (size_t) i0;
@@ -369,7 +401,8 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                           output_adr + (size_t) f * NIJ);
         const int32_t npx0 = npx_out[f];
         bslz4_work w = wbase;
-        w.threshold = top ? top_thr(top, f, (int64_t) threshold) : (int64_t) threshold;
+        w.threshold = top ? top_thr(top, f, cut_i) : cut_i;
+        if (is_float && top && top->level[f] >= 0) w.cutf = (double) w.threshold;
         if (pixels)
             w.block =
                 (const uint8_t *) cf + (size_t) i0 * NB; /* the frame's last pixels, in place */

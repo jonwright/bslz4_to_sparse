@@ -54,7 +54,7 @@ template<typename T>
 BSLZ4_NOINLINE int bslz4_sparse_block(const bslz4_work *BSLZ4_RESTRICT w) {
     if (bslz4_cut_above_max<T>(w)) return 0;
     return bslz4_collect_gt<T>((const T *) w->block, w->no_mask ? NULL : w->mask, w->i0,
-                               w->n, (T) w->threshold, w->collect, (T *) w->out_vals, w->out_adr);
+                               w->n, bslz4_cut_of<T>(w), w->collect, (T *) w->out_vals, w->out_adr);
 }
 
 /* sparsify + dot: the dot's dense or sparse route (w->route) */
