@@ -37,11 +37,12 @@ VERSION = 1
 
 
 class Integrator(object):
-    """csc        scipy.sparse CSC matrix (nbins, npix), float32 weights
+    """csc        scipy.sparse CSC matrix (nbins, npix); from_pyfai, rings, first_moment and the stack
+               make float32 weights
     norm       (nbins,) float64, sum_normalization of an image of ones
     shape      (ni, nj) of the detector;  unit  the radial unit (pyFAI name, e.g. "q_nm^-1")
     radial     bin positions in unit: (nrad,) for 1D or rings, with azimuthal (nazim,) for 2D
-    kind       "powder1d", "rings" or "powder2d";  poni  text of a .poni file
+    kind       "powder1d", "rings", "powder2d" or "moment";  poni  text of a .poni file
     ring_ranges (nrings, 2) lower and upper edge of each ring in unit (kind "rings");
     offset     (nbins,) added to the intensity (kind "rings": minus the background of the ring)"""
 
@@ -78,7 +79,7 @@ class Integrator(object):
 
     @property
     def bins_shape(self):
-        """The shape the powder of one frame reshapes to (see the rows of the matrix above)."""
+        """The shape the powder of one frame reshapes to (see the rows of the matrix in the module docstring; "moment": the first nbins // 2 rows, then the q-weighted ones)."""
         if self.kind == "powder2d":
             return (len(self.radial), len(self.azimuthal))
         if self.kind == "rings":
@@ -314,7 +315,7 @@ class IntegratorStack(object):
     csc     the blocks' matrices stacked, rows block after block (float: a block of rings or of
             moments makes the whole product float, so use the float dot, not exact)
     slices  name -> the rows of csc, and of every powder, that belong to the block
-    split(powder)  name -> the intensity of that block (powder: (nbins_total,) or (nframes, ...))
+    split(powder, scale=None)  name -> the intensity of that block (powder: (nbins_total,) or (nframes, ...))
     raw(powder)    name -> the rows of the powder of that block, as the decoder gives them"""
 
     def __init__(self, blocks):

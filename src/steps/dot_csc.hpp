@@ -203,7 +203,7 @@ int sparse_dot(const bslz4_work *BSLZ4_RESTRICT w) {
 
 /* ---- csc-run (start + length) and csc-nosplit (histogram) ----------
  *
- * New dots on the one CSC entry; the arrays mean something else per dot id:
+ * More dots on the one CSC entry; the arrays mean something else per dot id:
  *
  *   csc-run     indices[p] = first bin of pixel p (n = npix); its entries
  *               are data[indptr[p]..indptr[p+1]] for the consecutive bins
@@ -212,8 +212,7 @@ int sparse_dot(const bslz4_work *BSLZ4_RESTRICT w) {
  *   csc-nosplit indices[p] = the one bin of pixel p, or BSLZ4_NO_BIN; the
  *               weight is 1, so neither data nor indptr is read.
  *
- * Kept as separate leaves (not shared with the csc kernels above) so the
- * existing kernels are unchanged while these are measured. */
+ * Kept as separate leaves, not shared with the csc kernels above. */
 #define BSLZ4_NO_BIN 0xFFFFFFFFu
 
 template<typename T>

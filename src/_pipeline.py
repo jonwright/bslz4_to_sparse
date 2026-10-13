@@ -87,14 +87,6 @@ VALUES = {
 
 NAMES = {s: tuple(v if isinstance(v, str) else v[0] for v in VALUES[s]) for s in STEPS}
 
-# the matrix layouts the dots read (src/_matrix.py) and the C entry each uses
-DOT_ENTRY = {
-    "csc": "csc", "csc-run": "csc", "csc-nosplit": "csc", "csc-nosplit-moment": "csc",
-    "csc-permute": "csc", "csc-int": "csc", "csc-run-int": "csc", "csc-run-int16": "csc",
-    "padded": "padded", "padded-avx2": "padded",
-    "bsb-csr": "bsb-csr", "bsb-csr-nosplit": "bsb-csr",
-}
-
 DTYPE_INDEX = {"u8": 0, "u16": 1, "u32": 2, "u64": 3, "i8": 4, "i16": 5, "i32": 6, "i64": 7,
                "f32": 8, "f64": 9}
 _SUFFIX = {("u", 1): "u8", ("u", 2): "u16", ("u", 4): "u32", ("u", 8): "u64",
@@ -253,8 +245,8 @@ def resolve(pipeline, dtype, codec, mask, dot_auto=None, matrix=False):
 
 
 def describe(pipeline=None):
-    """The step names of a pipeline (a dict step -> name; None for the route
-    and dot of a plain sparsify), or, with no argument, every step's values
+    """The step names of a pipeline (a dict step -> name; None for a step left
+    auto (0), or not used), or, with no argument, every step's values
     with whether this CPU/build can run them (a dict step -> list of
     (value, name, usable, what it needs))."""
     if pipeline is None:

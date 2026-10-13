@@ -1,7 +1,8 @@
 """What the conveyor agrees to write: sparse pixels, 1D powder and ring sums, and nothing that
 fills the disk with more than the data it came from.
 
-A Policy has two parts, and neither stops a useful job.
+A Policy has two parts.  The sparse-pixel check never stops a job; the powder check refuses one
+before it starts, when its matrix has more bins than a frame has compressed bytes.
 
   * Sparse pixels are checked as they come (GuardSink): a unit whose pixels, compressed as they
     would be stored, are larger than the compressed frames they came from is not sparse (a cut that
@@ -47,7 +48,8 @@ class Policy(object):
         self.limit, self.codec = limit, codec
 
     def check(self, backend, units):
-        """Raise OutputRefused when the matrix would give more bins than the frame it is made from."""
+        """Raise OutputRefused when a powder kind has no matrix, or when its bins (float64) would be
+        more than limit x the compressed frame.  Sparse output is never refused here."""
         mean_in = sum(int(u.lengths.sum()) for u in units) / float(sum(u.n for u in units))
         if any(k in self.kinds for k in ("powder1d", "rings")):
             csc = getattr(backend, "csc", None)

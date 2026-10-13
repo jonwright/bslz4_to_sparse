@@ -10,8 +10,9 @@ Differences from the CPU classes:
   * lz4 only, 8 kB blocks (the bitshuffle default), pixels u8/u16/u32/i8/i16/i32/f32; `pipeline` is
     accepted and ignored;
   * `acc` chooses the accumulator of the matrix product: 'f64' (default: f32 weights, f64 sums as
-    pyFAI), 'i64' (u32 fixed-point weights, exact integer sums; needs the largest pixel value,
-    `maxval`), 'f32' (fast; relative error about 1e-6);
+    pyFAI), 'i64' (u32 fixed-point weights, exact integer sums; `maxval`, the largest pixel value,
+    gives more fractional bits), 'f32' (fast; relative error about 1e-6); `exact=True` selects 'i64'
+    and returns the int64 sums, whose factor to float is `powder_scale`;
   * `batch` = frames per GPU launch.  The result arrays are numpy (as the CPU classes) and are
     overwritten by the next call.
   * the matrix is the one chunk2sparseCSC takes (scipy csc / pyFAI CSC engine); normalise_matrix and
@@ -35,7 +36,7 @@ import numpy as np
 
 from . import _backend as cu
 from .. import _matrix, _toppix
-from .._pipeline import CODEC_LZ4, CODEC_ZSTD
+from .._pipeline import CODEC_LZ4
 
 BLOCK = 8192
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -149,7 +150,8 @@ def _chunk_header(cmp):
 
 class chunk2sparse(object):
     """Decode bitshuffle-lz4 chunks of (ni, nj) frames into the pixels above a cut (and not
-    masked)."""
+    masked).  lz4 only (a zstd chunk is refused), and no from_frames; last_host counts the frames
+    that fell back to the host (see the module docstring)."""
 
     def __init__(
         self,
@@ -512,14 +514,16 @@ class chunk2sparse(object):
         return self._run(views, cut)
 
     def __call__(self, buffer, cut):
-        """Decode one chunk: npixels, (values, indices) and, with a matrix, the powder."""
+        """Decode one chunk: npixels, (values, indices), and for an object with a matrix (chunk2sparseCSC)
+        also the powder.  values and indices are full-frame-size views of this object's buffers,
+        overwritten by the next call."""
         r = self.multi([buffer], cut)
         npx, (values, indices) = r[0], r[1]
         return (int(npx[0]), (values[0], indices[0])) + tuple(x[0] for x in r[2:])
 
     def coo(self, buffer, cut):
-        """Decode one chunk to (npixels, row, col, values) as arrays of their own, then the
-        powder."""
+        """Decode one chunk to (npixels, row, col, values) as arrays of their own (safe to keep), and
+        for an object with a matrix also the powder."""
         r = self.__call__(buffer, cut)
         npixels, (values, indices) = r[0], r[1]
         row, col = np.divmod(indices[:npixels].astype(np.int64), self.nfast)

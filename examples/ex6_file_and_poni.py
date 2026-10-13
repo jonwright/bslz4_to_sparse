@@ -2,7 +2,7 @@
 
 Open the file, take the geometry from the .poni, build the integrator once, then for every frame get
 the pixels above the cut and the powder pattern straight from the compressed chunks, read by offset.
-Nothing is written here: what to do with the results is up to you (see examples 8 to 11 for writers).
+Nothing is written here: what to do with the results is up to you (examples 8, 10 and 11 write results, example 9 iterates over them).
 """
 
 import os

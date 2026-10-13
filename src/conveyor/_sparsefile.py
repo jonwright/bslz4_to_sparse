@@ -7,7 +7,9 @@ as it reads its own.  Layout, in the group named like the input dataset (the lim
     row, col    uint16 (npx,)        pixel coordinates (dimension 0, dimension 1), frame after frame
     intensity   pixel dtype (npx,)   the pixel values, always the input dtype
     nnz         uint32 (nframes,)    the number of pixels of each frame
-    attributes  nframes, shape0, shape1, npx, itype ("uint16", the type of row and col)
+    attributes  nframes, shape0, shape1, npx, itype ("uint16", the type of row and col);
+                min_pixels_in_object when small objects were dropped; sparse_skipped (the reason)
+                when the pixels were not sparse and are not written
 
 and, when the run has a matrix, in the same group
 
@@ -16,6 +18,9 @@ and, when the run has a matrix, in the same group
                                      powder_dtype float32 or float64 stores it as float (the sums
                                      were accumulated in 64 bits, scale applied, no scale attribute)
     attributes  of powder: scale (int64 only), integrator (the path of an Integrator file, if given)
+
+With a stack (IntegratorStack) there is a dataset powder_<name> for every block, the rows of the
+block, with the same attributes.
 
 Only the sparse pixels are ImageD11's; powder and its attributes are ours, and ImageD11 ignores them.
 When the pixels of a file were not sparse (a GuardSink skipped them) the file holds no pixels and

@@ -16,13 +16,14 @@ of steps one decoder runs on every block.  The conveyor moves work to the decode
     sinks     where results go (a file format is the sink's business: see Sink)
 
 Workers are threads or forked processes (run(mode=...)) around the same code; the decoders release
-the GIL, so threads are the default.  Pure Python 3, numpy only: the chunk index of each file is
-read from a sidecar file (tools/index_chunks.py builds them, with h5py, once), so reading touches
-no HDF5; cupy is needed only for the GPU backend.
+the GIL, so threads are the default.  Pure Python 3: reading and decoding need numpy only, the chunk index of each file is read from a
+sidecar file (tools/index_chunks.py builds them, with h5py, once), so reading touches no HDF5.  The
+parts that name them need scipy and pyFAI (Integrator), h5py and hdf5plugin (the writers),
+bitshuffle and zstandard (the size guard), ImageD11 (min_pixels) or cupy (the GPU backend).
 """
 
-from ._index import read_index, write_index, harvest, sidecar_path, StaleIndex
-from ._source import make_work_units
+from ._index import read_index, write_index, harvest, sidecar_path, StaleIndex, Index
+from ._source import make_work_units, WorkUnit
 from ._sinks import Sink, NullSink, GuardSink, TeeSink, stored_size
 from ._backends import CpuBackend, DecompressBackend, GpuBackend
 from ._policy import Policy, OutputRefused
@@ -35,6 +36,8 @@ from ._engine import run, report, numa_nodes
 
 __all__ = [
     "make_work_units",
+    "WorkUnit",
+    "Index",
     "read_index",
     "write_index",
     "harvest",

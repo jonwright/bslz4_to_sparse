@@ -3,7 +3,7 @@
 howmany keeps at most that many pixels per frame, chosen as ImageD11's
 top_pixels does: a frame with more pixels above the cut moves to the first of
 the sorted thresholds that leaves fewer than howmany (the default thresholds
-double from the cut), and then keeps the first howmany of them in pixel order.
+double from max(cut, 1)), and then keeps the first howmany of them in pixel order.
 The selection runs inside the decode, so a frame that is too full costs
 little.  from_frames() runs the same processing on frames that are not
 compressed, and decompress() gives the frames back without any sparse step.

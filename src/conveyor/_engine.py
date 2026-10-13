@@ -1,6 +1,6 @@
 """The conveyor engine: a queue of units, and workers that each own two buffers and a reader.
 
-    todo       the units (whole files by default), in file order, all queued before the run
+    todo       the units (whole files when they fit in max_unit_bytes), in file order, all queued before the run
     reader k   whenever worker k has a free buffer, takes the next unit from todo and reads it into
                that buffer with large preadv calls in file order, while the worker decodes the
                previous one
@@ -8,7 +8,7 @@
                the result
 
 Pulling is the load balance: a worker that decodes faster frees its buffers sooner and so takes more
-units, and reading is demand driven, each worker reading only as fast as it consumes.  Workers touch
+units, and reading is demand driven, each worker reading only as fast as it consumes.  Readers touch
 the shared queue once per unit (a unit is seconds of work), and each worker and its reader meet once
 per unit through two blocking queues; nobody polls or spins.  The buffers are one anonymous mmap,
 cut per worker and first touched by that worker after it is pinned (near its CPU); not a file, not
@@ -245,6 +245,10 @@ def run(
     worker_cpus   list: worker k is pinned to worker_cpus[k % len]; None leaves it to the OS
     reader_cpus   list: every reader may run on any of these; None leaves it to the OS
     io_bytes      size of each read call (0: the whole unit in one call)
+    meta          a dict the sinks get in begin(), with shape, dtype (from the backend's mask) and
+                  powder_scale (from an exact backend) added
+    start_timeout seconds to wait for every worker to start (pinned, buffers touched, decoder
+                  built) before giving up
     policy        a Policy: refuse an output that is not allowed before starting, and guard the
                   sink on the compressed size of each unit
     """

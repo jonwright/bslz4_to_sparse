@@ -411,10 +411,10 @@ BSB_MAX_BLOCK_ELEMS = 65536   # bsb-csr's in-block pixel index is uint16
 def auto_dot(info, padded_avx2, block_elems=None):
     """The best measured choice (tools/bench_kernels.py, Xeon Gold 6248 and
     EPYC 9655, 2026-10-10): a histogram -> bsb-csr-nosplit; moment pairs ->
-    csc-nosplit-moment; few occupied pixels (rings) -> bsb-csr; one run of <= 8
-    bins per pixel -> padded-avx2 (1.4-1.9x on dense frames, the AVX2 rows) or
-    padded; runs of 9-64 bins -> padded for decode blocks of <= 8192 pixels,
-    csc for larger ones (csc-run was never the best); else csc.  Decode blocks
+    csc-nosplit-moment; one run of <= 8 bins per pixel -> padded-avx2 (1.4-1.9x
+    on dense frames, the AVX2 rows) or padded; else few occupied pixels (rings)
+    -> bsb-csr; runs of 9-64 bins -> padded for decode blocks of <= 8192
+    pixels, csc for larger ones (csc-run was never the best); else csc.  Decode blocks
     over BSB_MAX_BLOCK_ELEMS pixels rule the bsb-csr dots out (csc-nosplit,
     csc instead).  Never csc-permute or the integer dots: they change the
     output type."""
@@ -437,7 +437,8 @@ def auto_dot(info, padded_avx2, block_elems=None):
 
 class Layout(object):
     """The arrays one dot reads, ready for its C entry ("csc", "padded" or
-    "bsb-csr"): args() is what follows the powder in the call.  nout is the
+    "bsb-csr"): args() are the layout's arrays, which follow the powder in the call
+    for "csc" and are split around the workspace arguments for the others.  nout is the
     powder length, powder_dtype its type (scale turns an int64 powder back
     into float; None for the float ones), block_elems the decode block size
     it was built for (None when it does not depend on it)."""

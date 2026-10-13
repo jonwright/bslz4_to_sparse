@@ -48,8 +48,9 @@ in the repository, it cannot be edited by hand.
 
 ## Building locally
 
-    BSLZ4_TO_SPARSE_PATH=lib python3 tools/verify_docs.py
-    BSLZ4_TO_SPARSE_PATH=lib python3 tools/generate_docs.py
+    BSLZ4_TO_SPARSE_PATH=<dir holding a built bslz4_to_sparse> python3 tools/verify_docs.py
+    BSLZ4_TO_SPARSE_PATH=<the same> python3 tools/generate_docs.py   # lib/ if built with
+                                                       # setup.py build --build-lib=lib
     mkdocs build --strict -f docs/mkdocs.yml        # site/ (git-ignored)
 
 Needs h5py, hdf5plugin, pyFAI, scipy, mkdocs and mkdocs-material.

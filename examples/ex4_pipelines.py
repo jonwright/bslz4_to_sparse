@@ -35,7 +35,7 @@ npx, (values, indices) = c2s.multi(chunks, cut)
 want = [(values[i, : npx[i]].copy(), indices[i, : npx[i]].copy()) for i in range(len(chunks))]
 
 print(
-    "\nevery value of every step this machine can run, alone (n = tried, same = identical pixels):"
+    "\nevery value of every step this machine can run, alone (step, value, and whether its pixels equal the default's):"
 )
 tried = same = 0
 for step, values_of_step in bslz4_to_sparse.describe().items():

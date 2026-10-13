@@ -9,8 +9,8 @@ Each object has a `pipeline` (src/_pipeline.py): one value per processing
 step, resolved when the object is made (0 / None: the best guess for this
 CPU, data and matrix) and kept in `.pipeline`; describe() names the values.
 An automatic mask step on uint16 data with masked pixels is settled by the
-first frame decoded: 'planes' when most masked pixels hold 65535 there,
-'pixel' otherwise.
+first frame decoded: 'planes' when most masked pixels hold 65535 there (and
+the decode block is at most 8192 pixels, a multiple of 64), 'pixel' otherwise.
 Nothing is global, so objects with different pipelines can run in
 different threads.
 
@@ -79,7 +79,7 @@ def build_info():
     if n > buf.size:
         buf = np.zeros(n, np.uint8)
         n = _ext.build_info(buf)
-    return json.loads(bytes(buf[:n]).decode("ascii"))
+    return json.loads(buf[:n].tobytes().decode("ascii"))
 
 
 def detect_codec(ds):
@@ -109,7 +109,7 @@ def _codec_of_chunk(cmp):
     compressed size, data).  A zstd block is a zstd frame and starts with
     the zstd magic number; anything else is taken as lz4.
     """
-    return CODEC_ZSTD if bytes(memoryview(cmp)[16:20]) == _ZSTD_MAGIC else CODEC_LZ4
+    return CODEC_ZSTD if memoryview(cmp)[16:20].tobytes() == _ZSTD_MAGIC else CODEC_LZ4
 
 
 def _codec_from_pipeline(pipeline):
@@ -131,8 +131,8 @@ _DECODE_ERRORS = {
     -2: "a chunk failed to decompress (its compressed data is corrupt)",
     -98: "a chunk's decompressed size does not fit in an int",
     -99: "a chunk's decompressed size needs more pixels than the mask has",
-    -100: "threshold must not be negative",
-    -103: "the workspace is too small",
+    -100: "the cut must not be negative or NaN, and the top_pixels request must be well formed",
+    -103: "the workspace or the output buffer is too small",
     -104: "the untranspose kernel reported a failure (corrupt chunk data)",
     -105: "no chunks were given",
     -106: "the chunks do not share the same total size and block size",
@@ -180,7 +180,7 @@ def _offset_pointers(base, offsets, lengths):
     if rc < 0:
         raise _decode_error(rc)
     o = int(offsets[0])
-    return pointers, lengths, bytes(memoryview(base)[o:o + 20])
+    return pointers, lengths, memoryview(base)[o:o + 20].tobytes()
 
 
 def harvest_chunk_offsets(ds):
@@ -341,7 +341,7 @@ def _decompress(pointers, lengths, cmp, dtype, unshuffle, out, codec):
     dtype = np.dtype(dtype)
     if dtype.itemsize not in (1, 2, 4, 8):
         raise ValueError("dtype %s: pixels of 1, 2, 4 or 8 bytes" % dtype)
-    cmp = bytes(memoryview(cmp)[:20])
+    cmp = memoryview(cmp)[:20].tobytes()
     if len(cmp) < 12:
         raise _decode_error(-107)
     total = struct.unpack(">Q", cmp[:8])[0]
@@ -856,12 +856,13 @@ class chunk2sparseCSC:
 
     def __call__(self, buffer, cut):
         """
-        Decompress buffer and place pixels above cut into (vals, indices)
-        All pixels go into a powder integration (csc product)
+        Decompress one chunk, put the pixels above cut into (values, indices) and every pixel
+        into the matrix product.
 
-        returns npixels, (values[fullsize], indices[fullsize]), powder_sum
-
-        You will need to slice the result values[:npixels] yourself if you need that.
+        returns npixels, (values, indices), powder_sum: values and indices are full-frame-size
+        views of buffers owned by this object, overwritten by the next call (slice
+        values[:npixels] and indices[:npixels]; copy what you keep); powder_sum is float64, or
+        int64 when this object was made with exact=True (powder_scale is the factor to float).
         """
         npx, (values, indices), powder = self.multi([buffer], cut)
         return int(npx[0]), (values[0], indices[0]), powder[0]

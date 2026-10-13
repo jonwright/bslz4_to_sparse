@@ -95,9 +95,7 @@ plt.show()
 
 # Only the powder is wanted? Then no pixel needs collecting: a cut at the dtype's maximum finds none
 # (and howmany=0 would keep none of any that were found).
-nothing = min(
-    np.iinfo(dtype).max, np.iinfo(np.int32).max
-)  # the cut is a C int: for 32-bit pixels, its largest
+nothing = np.iinfo(dtype).max
 only_powder = bslz4_to_sparse.chunk2sparseCSC(mask, engine, dtype=dtype, codec=codec)
 npx, _, powder_only = only_powder(chunk0, nothing)
 assert npx == 0 and np.array_equal(powder_only, powder_sum)

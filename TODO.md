@@ -9,8 +9,6 @@
 - **dummy / dynamic mask.** Kept in the sparse output and removed later. Dropping a pixel
   changes the normalisation per frame: the Integrator would need a per-pixel normalisation
   image, not only the per-bin sums.
-- **Ring ranges.** The rings matrix and its ring ranges (2theta windows per Bragg peak, bins per
-  azimuth) in the Integrator file.
 - **`exact` as the default** for integer pixels: a results change, to be measured first.
 - **Trim the kernels at the end.** Among the cases to review: the `csc-nosplit-moment` dot (a
   moment folded into the matrix) is superseded by the stacked matrix of `IntegratorStack` and
@@ -41,7 +39,7 @@ What it takes (an estimate from reading the code, nothing written):
   each value vector.  The scalar loops stay as they are for one number;
 - the fused u16 low-planes collect compares plane-wise with one number: it is not used with an
   image (an image that is flat and zero is the same as `cut = 0`);
-- the dot kernels (`dot_*.hpp`, 17 places) read the cut as one number to skip pixels that cannot
+- the dot kernels (`dot_*.hpp`, about 18 places) read the cut as one number to skip pixels that cannot
   pass; with an image the early exit `bslz4_cut_above_max` would need a per-block maximum;
 - `read_cut` keeps a pointer when `ncut == NIJ` and each block gets its slice of the image next to
   its slice of the mask; Python `_cut_array` accepts an image of the frame's shape;

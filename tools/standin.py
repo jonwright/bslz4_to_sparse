@@ -26,7 +26,8 @@ MASK = "mask.h5"
 
 
 def make_standin(folder, nfiles=3, nframes=12, dtype=np.uint16, detector="Eiger1M", seed=0):
-    """Write eiger_0000.h5 ... and calib.poni into folder; returns the list of the h5 paths.
+    """Write eiger_0000.h5 ..., calib.poni and mask.h5 into folder; returns the list of the h5 paths.
+    seed: the random generator's, so that the files are the same every time.
     dtype: the pixel type (u16 or u32);  detector: a pyFAI detector name, which gives the shape, the
     module gaps and the geometry of the .poni."""
     import h5py

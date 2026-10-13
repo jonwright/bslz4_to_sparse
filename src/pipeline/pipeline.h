@@ -230,7 +230,7 @@ int bslz4_filter_gt_dispatch(int dtype, void *vals, uint32_t *adr, int n, int64_
 
 /* ---- the frame/block loop (src/pipeline/driver.c) ---- */
 
-/* kind 0: plain sparsify (mat, powder, nout unused); otherwise mat is the
+/* dot step 0 (see bslz4_pipe): plain sparsify (mat, powder, nout unused); otherwise mat is the
  * layout descriptor for p->step[BSLZ4_STEP_DOT] */
 int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                      const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,

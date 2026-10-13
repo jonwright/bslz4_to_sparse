@@ -2,7 +2,7 @@
 """Write the chunk-index sidecar (src/conveyor/_index.py) for HDF5 files: once per file.
 
     BSLZ4_TO_SPARSE_PATH=lib python3 tools/index_chunks.py --files 'GLOB' --dset /entry_0000/... \
-        [--index-dir DIR] [--procs 16] [--force] [--check]
+        [--index-dir DIR] [--procs 16] [--force] [--check] [--limit N]
 
 HDF5 (through h5py) is read here and nowhere else: it takes a global lock, so the files are shared
 out over forked processes, not threads.  Each file costs a few hundred ms cold (dozens of small

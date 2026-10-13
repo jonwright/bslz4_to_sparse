@@ -5,7 +5,7 @@
         --codec zstd --level 2 --block-kb 256
 
 Everything in the file but the frames is copied as it is (lima writes a header of metadata beside
-the data); the frame dataset is written one frame per chunk with the bitshuffle filter: `--codec
+the data), except time_of_frame, which is cut to the same range; the frame dataset is written one frame per chunk with the bitshuffle filter: `--codec
 lz4` (bslz4) or `zstd` (bszstd, at `--level`), with blocks of `--block-kb` kilobytes (8 is the
 bitshuffle default).  A pixel type that cannot hold the values is refused, and every frame written
 is read back and compared, so the result holds exactly the pixels of the source.

@@ -77,8 +77,8 @@ enum {
     BSLZ4_ERR_TOO_MANY_PIXELS = -99,     /* decompressed size needs more room than NIJ */
     BSLZ4_ERR_TOO_LARGE = -98,           /* decompressed size does not fit an int */
     BSLZ4_ERR_DECOMPRESS = -2,           /* LZ4/zstd decompress returned an unexpected size */
-    BSLZ4_ERR_BAD_THRESHOLD = -100,      /* threshold < 0 */
-    BSLZ4_ERR_WORKSPACE_TOO_SMALL = -103,/* caller-supplied workspace smaller than required */
+    BSLZ4_ERR_BAD_THRESHOLD = -100,      /* a negative or NaN cut, or a bad top_pixels request */
+    BSLZ4_ERR_WORKSPACE_TOO_SMALL = -103,/* caller-supplied workspace (or output buffer) smaller than required */
     BSLZ4_ERR_UNTRANSPOSE = -104,        /* backend untranspose kernel reported failure */
     BSLZ4_ERR_BAD_NFRAMES = -105,        /* nframes <= 0 in a multi-frame call */
     BSLZ4_ERR_FRAME_MISMATCH = -106,     /* frames don't share total size/block size */

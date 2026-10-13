@@ -6,10 +6,11 @@ the files in large pieces, keep every core busy, and write the results.  The ste
 1. find where every frame's compressed chunk lies in each file.  `harvest` reads that from HDF5 (it
    returns an Index: the byte offset and length of every chunk, and the shape and dtype of the
    frames) and `write_index` keeps it in a small file beside the data (12 bytes per frame), so that
-   nothing afterwards needs HDF5.  This is the only step that does, and it needs doing once, even
-   at acquisition time;
+   nothing afterwards needs HDF5.  This is the only step that does, it is done once per file, and it
+   could be done as the file is written;
 2. cut the work into work units (nothing to do with pyFAI's radial units): consecutive frames of
-   one file, whole files by default, each read with large reads and decoded by one worker;
+   one file, a whole file unless it is larger than max_unit_bytes (the sparse file writer needs
+   whole files), each read with large reads and decoded by one worker;
 3. run: each worker reads the next unit while it decodes the previous one, a worker that is faster
    takes more units, and the results go to a sink.  The sink here writes one sparse-pixel file per
    data file, in ImageD11's layout.  On a cluster each node would run this script on its share of

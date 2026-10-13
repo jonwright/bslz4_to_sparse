@@ -8,7 +8,8 @@ file, frame0  which file (index into the paths given to make_work_units) and the
 npx           (n,) int32: the number of sparse pixels of each of the n frames
 values        (n, npixels) pixel dtype, indices (n, npixels) uint32: row i holds frame i's pixels in
               its first npx[i] entries
-powder        (n, nbins) float64, or None without a matrix
+powder        (n, nbins) float64 (int64 sums when the backend is exact: meta['powder_scale'] is the
+              factor to float), or None without a matrix
 The arrays are the decoder's own buffers: they are overwritten after write returns, so a sink that
 keeps anything copies it."""
 

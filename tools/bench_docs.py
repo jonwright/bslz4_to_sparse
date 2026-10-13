@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure the speed figures shown on the documentation site.
 
-Three real ID11 Eiger data sets (CASES below), each through four operations:
+Three real ID11 Eiger data sets (CASES below), each through six operations:
 
   sparsify   chunk2sparse: decode, mask, threshold to (values, indices)
   1D         chunk2sparseCSC with a pyFAI 1D bbox matrix (r_mm, one bin per
@@ -120,7 +120,7 @@ def make_ai(shape, masked):
 
 
 def matrices(ai, key):
-    """{op: csc_matrix} for the three matrix operations, cached per data set."""
+    """{op: csc_matrix} for the matrix operations, cached per data set."""
     rp = bs.radial_pixels(ai)
     m1 = bs._cached("docs_%s_1d" % key, lambda: bs._engine_csc(ai, "bbox", 1, rp, "r_mm"))
     m1n = bs._cached("docs_%s_1d_no" % key, lambda: bs._engine_csc(ai, "no", 1, rp, "r_mm"))

@@ -1,7 +1,7 @@
 /* bslz4 (bitshuffle + lz4, 8 kB blocks) -> dense frames on the GPU, then a CSR matrix product
    and/or the pixels above a cut.
 
-   Concatenated by gpusparse.py after nvcomp_lz4.cuh (decompressStream) and shuffle_warp.cuh
+   Concatenated by _gpu.py after nvcomp_lz4.cuh (decompressStream) and shuffle_warp.cuh
    (shuf8/16/32_warp).
 
    unblock     one thread per image walks the block headers
@@ -20,7 +20,7 @@
    was asked for (howmany None or > cap), gets level -1: no list is written and the host makes it
    from the dense frame.
 
-   csr1d accumulators (the `acc` of gpusparse.py): f32 = float weights, float sums; f64 = float
+   csr1d accumulators (the `acc` of _gpu.py): f32 = float weights, float sums; f64 = float
    weights, double sums (pyFAI); i64 = u32 fixed-point weights, int64 sums (exact).
 */
 

@@ -51,7 +51,8 @@ class DecompressBackend(object):
     """The front half alone: bslz4_to_sparse.decompress into a preallocated array, no sparse step.
     unshuffle=False gives each block as stored (before the bit unshuffle); True the pixel values.
     Returns npx = 0 for every frame, values = the decompressed frames, no indices or powder.
-    dtype, shape: pixel type and frame shape; batch: frames per call."""
+    dtype, shape: pixel type and frame shape; batch: the most frames per call (run's batch must
+    not be larger)."""
 
     name = "decompress"
 

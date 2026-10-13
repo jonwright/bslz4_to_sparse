@@ -11,15 +11,15 @@
  * tools/bslz4_power9_collect_probe.c) and NEON (AArch64, ASIMD is
  * ARMv8-A baseline, probe in tools/bslz4_neon_collect_probe.c). The x86
  * tiers carry __attribute__((target(...))), so this file compiles under
- * the project's ordinary -O2; VSX needs setup.py to pass -maltivec -mvsx
+ * the project's ordinary -O2; VSX needs tools/build_extension.py to pass -maltivec -mvsx
  * globally on ppc64le, NEON needs nothing extra on aarch64 (ASIMD is
  * baseline, like SSE2 on x86-64). MSVC has none of these, and the
  * BSLZ4_HAVE_*_COLLECT guards below make this file inert there.
  *
  *   BSLZ4_COLLECT_AVX512CS  AVX-512 F+BW+VL+VBMI2: compress-store of the
  *                           selected pixels and their addresses; u16/u32.
- *   BSLZ4_COLLECT_AVX2CS    AVX2: table-driven compaction of the selected
- *                           lanes; u16/u32.
+ *   BSLZ4_COLLECT_AVX2CS    AVX2: u16 compacts the selected lanes with a table,
+ *                           u32 walks the set bits; u16/u32.
  *   BSLZ4_COLLECT_VSX       POWER8+ (needs -maltivec -mvsx); u16/u32.
  *   BSLZ4_COLLECT_NEON      AArch64 ASIMD (ARMv8-A baseline); u16/u32.
  *   BSLZ4_COLLECT_SSE2      x86-64 baseline, always present; u16/u32.
@@ -87,10 +87,9 @@ static inline bool bslz4_mask_ok(const uint8_t *mask, size_t idx) {
 }
 
 /* Single source of truth for "is this tier actually usable" -- shared
- * by the default-enabled logic below and the Python-visible
- * <tier>_collect_available() query (the bslz4_available_*_collect delegates in
- * src/steps/kernels.cpp call these rather than duplicating the cpuid-check
- * logic). */
+ * by the pipeline's validation and the Python-visible step_available query
+ * (the bslz4_available_*_collect delegates in src/steps/kernels.cpp call
+ * these rather than duplicating the cpuid-check logic). */
 
 inline bool bslz4_avx512_collect_capable() {
 #if BSLZ4_HAVE_AVX512_COLLECT
@@ -727,8 +726,7 @@ inline int bslz4_collect_neon_u32(const uint32_t *BSLZ4_RESTRICT block,
  * specialized for uint16_t/uint32_t to dispatch on the pipeline's
  * collect value (avx512cs, avx2cs, sse2, vsx, neon -- see the top of this
  * file), any other value meaning the scalar loop. Used by the plain sparse
- * route and the CSC dense route (dense_dot / sparse_dot_core in
- * src/steps/dot_csc.hpp).
+ * route and by every dense dot (dot_*.hpp).
  */
 template<typename T>
 inline int bslz4_collect_gt(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,

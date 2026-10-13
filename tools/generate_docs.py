@@ -30,6 +30,7 @@ show an example that does not run.  The bslz4_to_sparse that is imported
 
 import ast
 import glob
+import importlib
 import inspect
 import json
 import os
@@ -201,10 +202,14 @@ PUBLIC_METHODS = ("__call__", "multi", "decode_offsets", "from_frames", "coo")
 
 
 def signature(obj, name):
+    """name(params) as written in the source: a function or class default is shown by its name,
+    not by its repr (which holds a memory address)."""
     try:
-        return "%s%s" % (name, inspect.signature(obj))
+        text = "%s%s" % (name, inspect.signature(obj))
     except (TypeError, ValueError):
         return name
+    text = re.sub(r"<function (\w+) at 0x[0-9a-f]+>", r"\1", text)
+    return re.sub(r"<class '([\w.]+)'>", r"\1", text)
 
 
 def docblock(obj):
@@ -342,7 +347,14 @@ def conveyor_page():
         out.append(docblock(obj))
         if inspect.isclass(obj):
             for m, f in vars(obj).items():
-                if not m.startswith("_") and callable(f):
+                if m.startswith("_"):
+                    continue
+                if isinstance(f, (classmethod, staticmethod)):  # as the user calls it
+                    f = getattr(obj, m)
+                elif isinstance(f, property):
+                    out += ["### %s.%s (property)\n" % (name, m), docblock(f)]
+                    continue
+                if callable(f):
                     out += [
                         "### %s.%s\n" % (name, m),
                         fence("python", signature(f, m)),
@@ -363,6 +375,8 @@ def conveyor_page():
             "Chunk indexes and units",
             (
                 "make_work_units",
+                "WorkUnit",
+                "Index",
                 "read_index",
                 "write_index",
                 "harvest",
@@ -394,8 +408,19 @@ def conveyor_page():
             ("Policy", "OutputRefused", "GuardSink", "stored_size"),
         ),
     )
+    layouts = {  # the module docstrings that hold the file layouts the class docstrings point to
+        "Sinks": ("_sinks", "_sparsefile", "_ringfile"),
+        "Integrator state": ("_integrator",),
+        "Output policy": ("_policy",),
+    }
     for title, names in groups:
         parts.append("# %s\n" % title)
+        for mod in layouts.get(title, ()):
+            m = importlib.import_module("bslz4_to_sparse.conveyor." + mod)
+            parts += [
+                "## Layout and rules: `%s`\n" % mod.lstrip("_"),
+                fence("text", inspect.getdoc(m)),
+            ]
         for name in names:
             parts += section(name, title)
     placed = set(n for _, names in groups for n in names)

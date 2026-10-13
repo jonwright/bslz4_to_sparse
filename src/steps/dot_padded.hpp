@@ -101,7 +101,7 @@ inline void bslz4_padded_rows_avx2(const T *block, size_t i0, const bslz4_mat_pa
 /* Accumulate the rows of the block holding pixel i0 into this frame's bins
  * (block = i0 / block_elems).  The width dispatch happens once per block,
  * keeping the dense loop free of switches.  The tail block is bounded by the
- * matrix's own npix, which the driver checks equals the frame's pixel count.
+ * matrix's own pixel count, which the Python layer checks equals the frame's.
  * Called only with n > 0. */
 template<typename T>
 inline void bslz4_padded_dense_block(const T *block, size_t i0, const bslz4_mat_padded *m,
