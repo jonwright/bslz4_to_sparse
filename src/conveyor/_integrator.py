@@ -9,12 +9,16 @@ keeps what that needs, in one file that results files point to:
     csc       the sparse matrix (bins x pixels), CSC: data, indices, indptr
     norm      sum_normalization of an image of ones, one per bin (float64)
     radial    the bin positions in `unit` (the azimuth too for a 2D matrix);  ring_ranges
-              (nrings, 2) in `unit` when the bins are rings
+              (nrings, 2) in `unit` when the bins are rings;  offset, per bin, added to the
+              normalised intensity (the background of rings)
+
+Rows of the matrix: "powder1d" the radial bins; "powder2d" radial-major, row = radial * nazim +
+azimuth; "rings" azimuth-major, row = azimuth * nrings + ring (reshape to (nazim, nrings)).
 
 File (HDF5; hdf5plugin supplies the bitshuffle filter): attributes bslz4_to_sparse_integrator
 (format version), kind ("powder1d", "rings" or "powder2d"), unit, shape (the detector), nbins,
-bins_shape (rows of the matrix as radial x azimuth, for 2D); datasets poni, norm, radial,
-azimuthal and ring_ranges when present; group csc (attribute format = "CSC", shape = (nbins, npix))
+bins_shape (what the powder of one frame reshapes to); datasets poni, norm, radial,
+azimuthal, ring_ranges and offset when present; group csc (attribute format = "CSC", shape = (nbins, npix))
 with datasets data (float32), indices (int32), indptr (int32), as scipy and pyFAI name them.
 
 Needs pyFAI only for from_pyfai and ai(), h5py only for save and load.
@@ -34,7 +38,8 @@ class Integrator(object):
     shape      (ni, nj) of the detector;  unit  the radial unit (pyFAI name, e.g. "q_nm^-1")
     radial     bin positions in unit: (nrad,) for 1D or rings, with azimuthal (nazim,) for 2D
     kind       "powder1d", "rings" or "powder2d";  poni  text of a .poni file
-    ring_ranges (nrings, 2) lower and upper edge of each ring in unit (kind "rings")"""
+    ring_ranges (nrings, 2) lower and upper edge of each ring in unit (kind "rings");
+    offset     (nbins,) added to the intensity (kind "rings": minus the background of the ring)"""
 
     def __init__(
         self,
@@ -47,6 +52,7 @@ class Integrator(object):
         kind="powder1d",
         poni=None,
         ring_ranges=None,
+        offset=None,
     ):
         self.csc = csc.tocsc()
         self.norm = np.asarray(norm, np.float64).ravel()
@@ -60,10 +66,20 @@ class Integrator(object):
         self.radial = None if radial is None else np.asarray(radial, np.float64)
         self.azimuthal = None if azimuthal is None else np.asarray(azimuthal, np.float64)
         self.ring_ranges = None if ring_ranges is None else np.asarray(ring_ranges, np.float64)
+        self.offset = None if offset is None else np.asarray(offset, np.float64).ravel()
 
     @property
     def nbins(self):
         return self.csc.shape[0]
+
+    @property
+    def bins_shape(self):
+        """The shape the powder of one frame reshapes to (see the rows of the matrix above)."""
+        if self.kind == "powder2d":
+            return (len(self.radial), len(self.azimuthal))
+        if self.kind == "rings":
+            return (len(self.azimuthal), len(self.ring_ranges))
+        return (self.nbins,)
 
     @classmethod
     def from_pyfai(cls, ai, npt, unit="q_nm^-1", npt_azim=None, split="bbox", **integrate):
@@ -119,7 +135,54 @@ class Integrator(object):
             p = p * scale
         out = np.zeros_like(p)
         np.divide(p, self.norm, out=out, where=self.norm > 0)
+        if self.offset is not None:
+            out = out + self.offset
         return out
+
+    def rings(self, ranges, background=None):
+        """A "rings" Integrator from this 2D one: for each (lower, upper) in ranges (in unit),
+        every azimuth bin gets the sum over the radial bins whose centre lies in [lower, upper) of
+        the normalised intensity (summed signal / norm of each bin), minus the sum over them of
+        `background` (a value per radial bin, default none).  The division by each bin's norm is
+        folded into the weights, so the result of the matrix product already is the intensity: use
+        a float dot (not exact), norm is 1.  This is the sum of the normalised 2D cake over each
+        peak window, per azimuth, that texture pipelines compute from pyFAI's integrate2d."""
+        import scipy.sparse as sp
+
+        if self.kind != "powder2d":
+            raise ValueError("rings needs a powder2d integrator, this is %r" % self.kind)
+        nrad, naz = len(self.radial), len(self.azimuthal)
+        ranges = np.asarray(ranges, np.float64).reshape(-1, 2)
+        inv = np.zeros(self.norm.size)
+        np.divide(1.0, self.norm, out=inv, where=self.norm > 0)
+        inv = inv.reshape(nrad, naz)
+        rows, cols, vals = [], [], []
+        offset = np.zeros((naz, len(ranges)))
+        for k, (lo, hi) in enumerate(ranges):
+            inside = np.flatnonzero((self.radial >= lo) & (self.radial < hi))
+            if background is not None:
+                offset[:, k] = -np.asarray(background, np.float64)[inside].sum()
+            a = np.tile(np.arange(naz), len(inside))
+            r = np.repeat(inside, naz)
+            rows.append(a * len(ranges) + k)
+            cols.append(r * naz + a)
+            vals.append(inv[r, a])
+        S = sp.csr_matrix(
+            (np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
+            shape=(naz * len(ranges), nrad * naz),
+        )
+        R = (S @ self.csc.tocsr()).astype(np.float32).tocsc()
+        return Integrator(
+            R,
+            np.ones(R.shape[0]),
+            self.shape,
+            self.unit,
+            azimuthal=self.azimuthal,
+            kind="rings",
+            poni=self.poni,
+            ring_ranges=ranges,
+            offset=offset.ravel(),
+        )
 
     def save(self, path, compression=True):
         """Write the integrator to an HDF5 file (see the module docstring)."""
@@ -135,10 +198,11 @@ class Integrator(object):
             h.attrs["bslz4_to_sparse_integrator"] = VERSION
             h.attrs["kind"], h.attrs["unit"] = self.kind, self.unit
             h.attrs["shape"], h.attrs["nbins"] = np.array(self.shape), self.nbins
+            h.attrs["bins_shape"] = np.array(self.bins_shape)
             if self.poni is not None:
                 h["poni"] = self.poni
             h.create_dataset("norm", data=self.norm)
-            for name in ("radial", "azimuthal", "ring_ranges"):
+            for name in ("radial", "azimuthal", "ring_ranges", "offset"):
                 v = getattr(self, name)
                 if v is not None:
                     h.create_dataset(name, data=v).attrs["unit"] = (
@@ -174,7 +238,7 @@ class Integrator(object):
             csc = sp.csc_matrix(
                 (g["data"][()], g["indices"][()], g["indptr"][()]), shape=tuple(g.attrs["shape"])
             )
-            opt = {n: h[n][()] for n in ("radial", "azimuthal", "ring_ranges") if n in h}
+            opt = {n: h[n][()] for n in ("radial", "azimuthal", "ring_ranges", "offset") if n in h}
             poni = h["poni"][()] if "poni" in h else None
             if isinstance(poni, bytes):
                 poni = poni.decode("utf-8")

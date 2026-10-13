@@ -99,3 +99,39 @@ def test_2d_rows_are_radial_then_azimuth(tmp_path):
     method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=2)
     ref = ai.integrate2d(fr, 20, 8, unit="q_nm^-1", method=method)
     assert np.allclose(got, ref.intensity, rtol=1.2e-7, atol=0)
+
+
+def textom_process_one_frame(ai, image, nrad, naz, ranges, bg, **kw):
+    """The sum over each peak window of the normalised cake, per azimuth, as the texture notebook's
+    process_one_frame computes it from pyFAI's integrate2d (a cake minus a background per radial
+    bin, summed over the bins of each window)."""
+    res = ai.integrate2d(image, nrad, naz, unit="2th_deg", **kw)
+    cake = res.intensity - bg[np.newaxis, :]
+    return np.stack(
+        [cake[:, (res.radial >= lo) & (res.radial < hi)].sum(axis=-1) for lo, hi in ranges], axis=-1
+    )
+
+
+@pytest.mark.parametrize("background", [False, True])
+def test_rings_equal_the_summed_normalised_cake(tmp_path, background):
+    """What a texture pipeline computes frame by frame with pyFAI (peak windows of the cake, per
+    azimuth), from the decoder's matrix product and an Integrator.rings, saved and loaded."""
+    nrad, naz = 70, 12
+    kw = dict(polarization_factor=0.95, radial_range=(0.3, 3.0))
+    ai = masked_ai()
+    integ = cv.Integrator.from_pyfai(ai, nrad, unit="2th_deg", npt_azim=naz, **kw)
+    ranges = [(0.8, 1.0), (1.3, 1.45), (2.1, 2.5)]
+    bg = np.linspace(0.5, 1.5, nrad) if background else np.zeros(nrad)
+    rings = integ.rings(ranges, bg if background else None)
+    rings.save(str(tmp_path / "rings.h5"))
+    rings = cv.Integrator.load(str(tmp_path / "rings.h5"))
+    assert rings.kind == "rings" and rings.bins_shape == (naz, 3) and rings.nbins == naz * 3
+
+    fr = frame()
+    mask = (1 - ai.detector.mask).astype(np.uint8)
+    d = b.chunk2sparseCSC(mask, rings.csc, np.uint16)  # float: the weights are 1/norm
+    powder = d.from_frames(fr[None], 0)[2]
+    got = rings.intensity(powder)[0].reshape(naz, 3)
+    ref = textom_process_one_frame(ai, fr, nrad, naz, ranges, bg, **kw)
+    # measured: 4.5e-8 at most, the float32 rounding of pyFAI's cake (zero bins agree exactly)
+    assert np.allclose(got, ref, rtol=1.2e-7, atol=0)
