@@ -1,80 +1,72 @@
 """Writing results: ImageD11 sparse files with exact powder sums, and the integrator beside them.
 
-One output file per input file (workers never share a file; a later step gathers them), in
-ImageD11's sparse layout.  The powder is kept as exact int64 sums with the power-of-two scale that
-turns them into float.  What turns sums into intensities (the pyFAI geometry, the matrix and the
-normalisation of an image of ones) is saved once, as an Integrator file the results point to.
+One output file per input file (workers never share a file; a later step gathers them), in ImageD11's
+sparse layout.  The powder is kept as exact int64 sums with the power-of-two scale that turns them
+into float, so nothing is lost to rounding.  What turns sums into intensities (the pyFAI geometry,
+the sparse matrix and the normalisation of an image of ones) is saved once, as an Integrator file
+that the results point to.  The conveyor's Policy checks that nothing written is larger than what
+was read.
 """
 
+import glob
 import os
-import tempfile
 
 import h5py
-import hdf5plugin
+import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
 import numpy as np
-from pyFAI.detectors import Detector
-from pyFAI.integrator.azimuthal import AzimuthalIntegrator
+import pyFAI
 from pyFAI.method_registry import IntegrationMethod
 
 from bslz4_to_sparse import conveyor
 
-DSET = "/entry/data"
-shape = (96, 112)
-ai = AzimuthalIntegrator(
-    dist=0.1,
-    poni1=0.004,
-    poni2=0.0045,
-    wavelength=3e-11,
-    detector=Detector(75e-6, 75e-6, max_shape=shape),
+h5pattern = "eiger_*.h5"  # your files: bitshuffle-compressed, one frame per chunk
+h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside each
+poni_filename = "calib.poni"  # your pyFAI geometry
+outdir = "results"
+h5filenames = sorted(glob.glob(h5pattern))
+for name in h5filenames:
+    conveyor.write_index(conveyor.harvest(name, h5dataset), name)
+
+units, shape, dtype = conveyor.make_work_units(h5filenames, h5dataset)
+with h5py.File(h5filenames[0], "r") as h5:
+    frame0 = h5[h5dataset][0]
+bad = frame0 == np.iinfo(dtype).max
+ai = pyFAI.load(poni_filename)
+mask = (~(bad | ai.detector.mask.astype(bool))).astype(np.uint8)
+
+# the integrator: matrix and normalisation from pyFAI, saved once
+os.makedirs(outdir, exist_ok=True)
+integ = conveyor.Integrator.from_pyfai(ai, 500, unit="q_nm^-1", split="bbox", mask=bad)
+integ_path = os.path.join(outdir, "integrator.h5")
+integ.save(integ_path)
+
+# the run: sparse pixels (at most 5000 per frame) and the exact powder sums
+backend = conveyor.CpuBackend(mask, dtype, csc=integ.csc, cut=3, howmany=5000, exact=True)
+result = conveyor.run(
+    units,
+    backend,
+    workers=2,
+    policy=conveyor.Policy(("sparse", "powder1d")),
+    sink=lambda k: conveyor.ImageD11SparseSink(outdir, h5dataset, integrator=integ_path),
 )
-rng = np.random.default_rng(11)
+print(conveyor.report(result))
 
-with tempfile.TemporaryDirectory() as tmp:
-    frames = rng.poisson(0.3 + 4 * np.exp(-0.5 * ((ai.qArray() - 40) / 3) ** 2), (10,) + shape)
-    path = os.path.join(tmp, "scan.h5")
-    with h5py.File(path, "w") as h:
-        h.create_dataset(
-            DSET,
-            data=frames.astype(np.uint16),
-            chunks=(1,) + shape,
-            **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
-        )
-    conveyor.write_index(conveyor.harvest(path, DSET), path)
-
-    # the integrator: matrix and normalisation from pyFAI, saved once
-    integ = conveyor.Integrator.from_pyfai(ai, 50, unit="q_nm^-1", split="bbox")
-    integ_path = os.path.join(tmp, "integrator.h5")
-    integ.save(integ_path)
-
-    # the run: sparse pixels (at most 400 per frame) and the exact powder, size-checked
-    units, frame_shape, dtype = conveyor.make_units([path], DSET)
-    backend = conveyor.CpuBackend(
-        np.ones(shape, np.uint8), dtype, csc=integ.csc, cut=2, howmany=400, exact=True
-    )
-    out = os.path.join(tmp, "sparse")
-    conveyor.run(
-        units,
-        backend,
-        workers=1,
-        policy=conveyor.Policy(("sparse", "powder1d")),
-        sink=lambda k: conveyor.ImageD11SparseSink(out, DSET, integrator=integ_path),
-    )
-
-    # reading it back: intensities from the sums, as pyFAI would give them
-    with h5py.File(os.path.join(out, conveyor.imaged11_name(path)), "r") as h:
-        g = h[DSET.strip("/")]
-        powder, scale = g["powder"][:], g["powder"].attrs["scale"]
-        where = g["powder"].attrs["integrator"]
-        nnz = g["nnz"][:]
-    back = conveyor.Integrator.load(where)
-    intensity = back.intensity(powder, scale)
-    method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
-    ref = ai.integrate1d(frames[3].astype(np.uint16), 50, unit="q_nm^-1", method=method)
-    assert np.allclose(intensity[3], ref.intensity, rtol=1.2e-7, atol=0)
-    assert powder.dtype == np.int64
-
+# reading one file back: intensities from the stored sums, as pyFAI gives them
+with h5py.File(os.path.join(outdir, conveyor.imaged11_name(h5filenames[0])), "r") as h5:
+    g = h5[h5dataset.strip("/")]
+    powder_sums, scale = g["powder"][:], g["powder"].attrs["scale"]
+    where = g["powder"].attrs["integrator"]
+    nnz = g["nnz"][:]
+back = conveyor.Integrator.load(where)
+intensity = back.intensity(powder_sums, scale)  # integer sums times 2**-b, over the normalisation
+method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
+frame3 = None
+with h5py.File(h5filenames[0], "r") as h5:
+    frame3 = h5[h5dataset][3]
+ref = ai.integrate1d(frame3, 500, unit="q_nm^-1", method=method, mask=bad)
+assert np.allclose(intensity[3], ref.intensity, rtol=1.2e-7, atol=0)
 print(
-    "%d frames: %d sparse pixels, powder %s int64 sums, scale 2**%d"
-    % (len(nnz), nnz.sum(), powder.shape, round(np.log2(scale)))
+    "%d frames: %d sparse pixels, powder_sums %s int64 with scale 2**%d"
+    % (len(nnz), nnz.sum(), powder_sums.shape, round(np.log2(scale)))
 )
-print("intensity from the stored sums equals pyFAI's integrate1d")
+print("the intensity from the stored sums equals pyFAI's integrate1d")

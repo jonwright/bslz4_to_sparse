@@ -1,68 +1,77 @@
-"""The conveyor: many files, one reader and one decoder per worker.
+"""Many files: the conveyor, a worked example of the decoders at scale.
 
-The conveyor moves work to the decoders.  Each file's chunk offsets are kept
-beside it in a small index file (written once, here with h5py), so reading
-never needs HDF5.  Every worker owns two buffers and a reader thread: the
-reader takes the next file from a shared queue and reads it with large calls
-while the worker decodes the previous one, so a faster worker takes more
-files.  The sink receives each batch of results; this one only checks them.
+The decoders need nothing around them.  This is what it takes to point them at a whole data set: read
+the files in large pieces, keep every core busy, and write the results.  The steps are
+
+1. find where every frame's compressed chunk lies in each file.  `harvest` reads that from HDF5 (it
+   returns an Index: the byte offset and length of every chunk, and the shape and dtype of the
+   frames) and `write_index` keeps it in a small file beside the data (12 bytes per frame), so that
+   nothing afterwards needs HDF5.  This is the only step that does, and it needs doing once, even
+   at acquisition time;
+2. cut the work into work units (nothing to do with pyFAI's radial units): consecutive frames of
+   one file, whole files by default, each read with large reads and decoded by one worker;
+3. run: each worker reads the next unit while it decodes the previous one, a worker that is faster
+   takes more units, and the results go to a sink.  The sink here writes one sparse-pixel file per
+   data file, in ImageD11's layout.  On a cluster each node would run this script on its share of
+   the files.
 """
 
+import glob
 import os
-import tempfile
 
 import h5py
-import hdf5plugin
+import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
 import numpy as np
 
-import bslz4_to_sparse as b
+import bslz4_to_sparse
 from bslz4_to_sparse import conveyor
 
-DSET = "/entry/data"
-shape = (96, 112)
-rng = np.random.default_rng(5)
-mask = np.ones(shape, np.uint8)
+h5pattern = "eiger_*.h5"  # your files: bitshuffle-compressed, one frame per chunk
+h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside each
+outdir = "sparse_out"  # where the sparse files go
+h5filenames = sorted(glob.glob(h5pattern))
 
-with tempfile.TemporaryDirectory() as tmp:
-    paths = []
-    for k in range(4):
-        frames = np.where(rng.random((25,) + shape) < 0.04, rng.integers(1, 40, (25,) + shape), 0)
-        path = os.path.join(tmp, "scan%d.h5" % k)
-        with h5py.File(path, "w") as h:
-            h.create_dataset(
-                DSET,
-                data=frames.astype(np.uint16),
-                chunks=(1,) + shape,
-                **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
-            )
-        conveyor.write_index(conveyor.harvest(path, DSET), path)  # the only HDF5 reading
-        paths.append(path)
-
-    # what a direct decode of every frame gives, reading the bytes by offset
-    direct = {}
-    dec = b.chunk2sparse(mask, np.uint16, b.CODEC_LZ4)
-    for fi, path in enumerate(paths):
-        ix = conveyor.read_index(path)
-        with open(path, "rb") as fh:
-            for i in range(len(ix.offsets)):
-                fh.seek(int(ix.offsets[i]))
-                n, (v, idx) = dec(fh.read(int(ix.lengths[i])), 0)
-                direct[(fi, i)] = (int(n), int(v[:n].sum(dtype=np.int64)))
-
-    got = {}
-
-    class Check(conveyor.Sink):
-        def write(self, file, frame0, npx, values, indices, powder):
-            for j, n in enumerate(npx):
-                got[(file, frame0 + j)] = (int(n), int(values[j, :n].sum(dtype=np.int64)))
-
-    units, frame_shape, dtype = conveyor.make_units(paths, DSET)  # whole files, from the indexes
-    result = conveyor.run(
-        units, conveyor.CpuBackend(mask, dtype), workers=3, sink=lambda worker: Check()
-    )
-
-assert got == direct
+# 1. the chunk index of every file
+for name in h5filenames:
+    index = conveyor.harvest(name, h5dataset)  # an Index
+    conveyor.write_index(index, name)  # name + ".bslz4idx"
 print(
-    "%d frames from %d files through %d workers, identical to a direct decode"
-    % (result["frames"], len(paths), result["workers"])
+    "%d files; frames of %s %s, %d in the first"
+    % (len(h5filenames), index.shape[1:], index.dtype, index.shape[0])
+)
+
+# 2. the work units, and the frame shape and dtype the index holds
+units, shape, dtype = conveyor.make_work_units(h5filenames, h5dataset)
+print("%d work units" % len(units))
+
+# the mask: pixels holding the detector's bad-pixel value in the first frame
+with h5py.File(h5filenames[0], "r") as h5:
+    frame0 = h5[h5dataset][0]
+mask = (frame0 != np.iinfo(dtype).max).astype(np.uint8)
+
+# 3. run: 3 workers (threads), the pixels above the cut of 3, at most 5000 per frame
+backend = conveyor.CpuBackend(mask, dtype, cut=3, howmany=5000)
+result = conveyor.run(
+    units,
+    backend,
+    workers=3,
+    sink=lambda worker: conveyor.ImageD11SparseSink(outdir, h5dataset),
+    policy=conveyor.Policy("sparse"),
+)
+print(conveyor.report(result))
+
+# check one frame of the first file: the sparse file against a direct decode of the same chunk
+index = conveyor.read_index(h5filenames[0])
+with open(h5filenames[0], "rb") as fh:
+    fh.seek(int(index.offsets[0]))
+    chunk = fh.read(int(index.lengths[0]))
+c2s = bslz4_to_sparse.chunk2sparse(mask, dtype, howmany=5000)
+npx, (values, indices) = c2s(chunk, 3)
+with h5py.File(os.path.join(outdir, conveyor.imaged11_name(h5filenames[0])), "r") as h5:
+    g = h5[h5dataset.strip("/")]
+    n0 = int(g["nnz"][0])
+    row, col = g["row"][:n0], g["col"][:n0]
+assert n0 == npx and (row.astype(np.int64) * shape[1] + col == indices[:npx]).all()
+print(
+    "frame 0 of %s: %d pixels in the sparse file, equal to a direct decode" % (h5filenames[0], n0)
 )

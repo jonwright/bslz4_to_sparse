@@ -80,15 +80,32 @@ def fence(lang, body):
 # ---------------------------------------------------------------- examples
 
 
+_STANDIN = []
+
+
+def standin_folder():
+    """A directory holding the stand-in files (tools/standin.py) the examples are written for; one
+    per documentation build."""
+    if not _STANDIN:
+        import tempfile
+
+        import standin
+
+        d = tempfile.mkdtemp(prefix="bslz4_examples_")
+        standin.make_standin(d)
+        _STANDIN.append(d)
+    return _STANDIN[0]
+
+
 def run_example(path):
-    """stdout of running the example as a user would, in an empty directory."""
+    """stdout of running the example as a user would, in a directory holding the stand-in files."""
     env = dict(os.environ)
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(b.__file__)))
     env["PYTHONPATH"] = os.pathsep.join([pkg_parent] + [p for p in [env.get("PYTHONPATH")] if p])
     r = subprocess.run(
         [sys.executable, path],
         env=env,
-        cwd=os.path.dirname(path),
+        cwd=standin_folder(),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -120,10 +137,9 @@ def example_page(path):
         "# %s\n\n%s\n\n" % (title, body)
         + "Source: [`%s`](%s/blob/main/%s), run as `python %s`.\n\n" % (rel, GITHUB, rel, rel)
         + fence("python", code)
-        + "\nOutput, from running it when this page was built:\n\n"
-        + fence("text", out)
-        + "\n"
-        + provenance()
+        + "\nOutput, from running it when this page was built, on a synthetic stand-in for your files "
+        "(powder rings with noise on an Eiger-like detector, `tools/standin.py`; with your own data "
+        "the numbers are yours):\n\n" + fence("text", out) + "\n" + provenance()
     )
 
 
@@ -294,7 +310,14 @@ def conveyor_page():
     groups = (
         (
             "Chunk indexes and units",
-            ("make_units", "read_index", "write_index", "harvest", "sidecar_path", "StaleIndex"),
+            (
+                "make_work_units",
+                "read_index",
+                "write_index",
+                "harvest",
+                "sidecar_path",
+                "StaleIndex",
+            ),
         ),
         ("Running", ("run", "iterate", "report", "numa_nodes")),
         ("Decoders", ("CpuBackend", "DecompressBackend", "GpuBackend")),
@@ -303,6 +326,7 @@ def conveyor_page():
             (
                 "Sink",
                 "NullSink",
+                "TeeSink",
                 "ImageD11SparseSink",
                 "imaged11_name",
                 "RingSink",
@@ -316,7 +340,7 @@ def conveyor_page():
         ),
         (
             "Output policy",
-            ("Policy", "OutputRefused", "GuardSink", "OutputTooLarge", "stored_size"),
+            ("Policy", "OutputRefused", "GuardSink", "stored_size"),
         ),
     )
     for title, names in groups:
@@ -584,7 +608,7 @@ def acknowledgements_page():
     files = ["LICENSE"] + [
         "licenses/" + f
         for f in sorted(os.listdir(os.path.join(REPO, "licenses")))
-        if f != "README.md"
+        if f != "README.md" and os.path.isfile(os.path.join(REPO, "licenses", f))
     ]
     for rel in files:
         with open(os.path.join(REPO, rel)) as fh:

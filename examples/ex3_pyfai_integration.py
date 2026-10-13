@@ -1,63 +1,86 @@
-"""Azimuthal integration in the same pass: pyFAI's CSC matrix.
+"""A powder pattern from the same pass: pyFAI's sparse matrix in the decoder.
 
-chunk2sparseCSC also multiplies every frame by a sparse matrix while it
-decodes.  pyFAI's CSC integration engine is such a matrix (bins x pixels),
-so the powder pattern comes out of the decompression with no dense frame.
-The result is pyFAI's sum_signal: divide by pyFAI's sum_normalization (from
-integrating an image of ones, done once) for the intensity.
+chunk2sparseCSC is chunk2sparse plus one more output.  While a chunk is decoded, every pixel is also
+multiplied into a sparse matrix (bins x pixels) and added into the bins it falls in.  pyFAI's CSC
+integration engine is exactly such a matrix, so the powder pattern comes out of the decompression
+with no dense frame.  A call returns
+
+    npx            the number of pixels above the cut
+    values, indices  those pixels (values and their flat positions; the first npx entries)
+    powder_sum     for every bin, the sum over its pixels of weight x pixel value: pyFAI's
+                   sum_signal
+
+pyFAI divides powder_sum by sum_normalization, the same sum for an image of ones with the
+corrections (solid angle, polarisation, flat field) folded in, to get the intensity.
+sum_normalization does not depend on the data: it is computed once.
 """
-import h5py
-import hdf5plugin
-import numpy as np
-from pyFAI.detectors import Detector
-from pyFAI.method_registry import IntegrationMethod
 
-try:
-    from pyFAI.integrator.azimuthal import AzimuthalIntegrator
-except ImportError:                                       # older pyFAI
-    from pyFAI.azimuthalIntegrator import AzimuthalIntegrator
+import h5py
+import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
+import numpy as np
+import pyFAI
+from pyFAI.method_registry import IntegrationMethod
 
 import bslz4_to_sparse
 
-shape = (512, 512)
-ai = AzimuthalIntegrator(dist=0.1, poni1=0.02, poni2=0.018, wavelength=3e-11,
-                         detector=Detector(75e-6, 75e-6, max_shape=shape))
+h5filename = "eiger_0000.h5"  # your file: bitshuffle-compressed, one frame per chunk
+h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside it
+poni_filename = "calib.poni"  # your pyFAI geometry
 
-# a powder-ring frame with Poisson noise, stored as the detector would
-q = ai.qArray()
-mean = 0.05 + sum(3.0 * np.exp(-0.5 * ((q - qk) / 0.2) ** 2) for qk in (20, 35, 48, 60))
-frame = np.random.default_rng(1).poisson(mean).astype(np.uint16)
-with h5py.File("rings.h5", "w", driver="core", backing_store=False) as f:
-    f.create_dataset("data", data=frame[None], chunks=(1,) + shape,
-                     **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
-    chunk = f["data"].id.read_direct_chunk((0, 0, 0))[1]
+with h5py.File(h5filename, "r") as h5:
+    ds = h5[h5dataset]
+    dtype, codec = ds.dtype, bslz4_to_sparse.detect_codec(ds)
+    frame0 = ds[0]
+    chunk0 = ds.id.read_direct_chunk((0, 0, 0))[1]
+bad = frame0 == np.iinfo(dtype).max  # detector gaps hold the dtype's maximum
+mask = (~bad).astype(np.uint8)
 
+# pyFAI makes its sparse matrix once, when it first integrates with a sparse method (bbox pixel
+# splitting, CSC layout).  Integrating an image of ones also gives sum_normalization.
+ai = pyFAI.load(poni_filename)
 method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
-ref = ai.integrate1d(frame, 400, unit="q_nm^-1", method=method)      # pyFAI itself
-engine = ai.engines[method].engine                                   # its CSC matrix
-mask = np.ones(shape, np.uint8)
+ones = ai.integrate1d(
+    np.ones(frame0.shape, np.float32), 400, unit="q_nm^-1", method=method, mask=bad
+)
+engine = ai.engines[method].engine  # pyFAI's CSC matrix
+sum_normalization = np.asarray(ones.sum_normalization).ravel()
 
-integ = bslz4_to_sparse.chunk2sparseCSC(mask, engine, dtype=np.uint16)
-npx, (values, indices), powder = integ(chunk, 5)
+# Our object: decode, collect the sparse pixels and multiply into the matrix, all in one pass.
+integ = bslz4_to_sparse.chunk2sparseCSC(mask, engine, dtype=dtype, codec=codec)
+cut = 3
+npx, (values, indices), powder_sum = integ(chunk0, cut)
 print("pipeline dot:", bslz4_to_sparse.describe(integ.pipeline)["dot"])
-print("powder: %d bins; pixels above the cut of 5: %d" % (powder.size, npx))
-assert npx == np.count_nonzero(frame > 5)
+print("sparse pixels above the cut of %d: %d" % (cut, npx))
+print("powder_sum: %d bins" % powder_sum.size)
 
+# the same frame, integrated by pyFAI from the decompressed pixels
+ref = ai.integrate1d(frame0, 400, unit="q_nm^-1", method=method, mask=bad)
+assert npx == np.count_nonzero((frame0 > cut) & ~bad)
 signal = np.asarray(ref.sum_signal).ravel()
-print("max |powder - pyFAI sum_signal| = %.3g (largest bin %.3g)"
-      % (abs(powder - signal).max(), signal.max()))
-assert np.allclose(powder, signal, rtol=1e-5, atol=1e-3)
+print(
+    "largest difference from pyFAI's sum_signal: %.3g (largest bin %.3g)"
+    % (abs(powder_sum - signal).max(), signal.max())
+)
+assert np.allclose(powder_sum, signal, rtol=1e-9, atol=0)
 
-norm = np.asarray(ref.sum_normalization).ravel()
-intensity = np.divide(powder, norm, out=np.zeros_like(powder), where=norm > 0)
-assert np.allclose(intensity, ref.intensity, rtol=1e-4, atol=1e-4)
-print("intensity matches pyFAI's integrate1d")
+intensity = np.divide(
+    powder_sum, sum_normalization, out=np.zeros_like(powder_sum), where=sum_normalization > 0
+)
+assert np.allclose(intensity, ref.intensity, rtol=1.2e-7, atol=0)
+print("intensity = powder_sum / sum_normalization equals pyFAI's integrate1d")
 
-# 2D (radial x azimuth): the matrix has nrad * nazim rows
+# Only the powder is wanted? Then no pixel needs collecting: a cut at the dtype's maximum finds none
+# (and howmany=0 would keep none of any that were found).
+only_powder = bslz4_to_sparse.chunk2sparseCSC(mask, engine, dtype=dtype, codec=codec)
+npx, _, powder_only = only_powder(chunk0, np.iinfo(dtype).max)
+assert npx == 0 and np.array_equal(powder_only, powder_sum)
+print("with the cut at the dtype maximum: no pixels, the same powder_sum")
+
+# 2D (radial x azimuth): the matrix has nrad * nazim rows, in radial-major order
 method2 = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=2)
-ref2 = ai.integrate2d(frame, 200, 36, unit="q_nm^-1", method=method2)
-integ2 = bslz4_to_sparse.chunk2sparseCSC(mask, ai.engines[method2].engine, dtype=np.uint16)
-_, _, powder2 = integ2(chunk, 5)
-cake = powder2.reshape(200, 36).T                     # pyFAI's (azimuth, radial) layout
-assert np.allclose(cake, ref2.sum_signal, rtol=1e-5, atol=1e-3)
+ref2 = ai.integrate2d(frame0, 100, 18, unit="q_nm^-1", method=method2, mask=bad)
+integ2 = bslz4_to_sparse.chunk2sparseCSC(mask, ai.engines[method2].engine, dtype=dtype, codec=codec)
+_, _, powder_sum2 = integ2(chunk0, np.iinfo(dtype).max)
+cake = powder_sum2.reshape(100, 18).T  # pyFAI's (azimuth, radial) layout
+assert np.allclose(cake, ref2.sum_signal, rtol=1e-9, atol=0)
 print("2D cake", cake.shape, "matches pyFAI's integrate2d sum_signal")

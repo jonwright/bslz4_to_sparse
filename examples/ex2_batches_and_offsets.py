@@ -1,44 +1,55 @@
-"""Batches of frames, and reading chunks by file offset.
+"""Without HDF5 in the loop: find the chunks once, then read the file and decode by byte offset.
 
-multi() decodes a list of chunks in one call (one GIL release for the whole
-batch).  decode_offsets() does the same for chunks given as byte offsets
-into one buffer, such as a memory-mapped HDF5 file: harvest_chunk_offsets
-finds where each frame's chunk is, so no h5py call happens per frame.
-Here the file lives in memory; with a file on disk the buffer would be
-np.memmap(filename, dtype=np.uint8, mode="r").
+HDF5 stores each frame's compressed chunk somewhere in the file.  harvest_chunk_offsets finds where
+(one pass through h5py, and the only use of HDF5 here: the result could be kept beside the file).
+After that the file is read with ordinary file reads, and decode_offsets decodes a batch of frames
+straight from the bytes read, with one release of the GIL for the whole batch.
 """
+
 import h5py
-import hdf5plugin
+import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
 import numpy as np
 
 import bslz4_to_sparse
 
-rng = np.random.default_rng(7)
-frames = rng.poisson(0.05, (10, 256, 256)).astype(np.uint16)
-mask = np.ones((256, 256), np.uint8)
-c2s = bslz4_to_sparse.chunk2sparse(mask, dtype=np.uint16)
+h5filename = "eiger_0000.h5"  # your file: bitshuffle-compressed, one frame per chunk
+h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside it
 
-with h5py.File("frames.h5", "w", driver="core", backing_store=False) as f:
-    ds = f.create_dataset("data", data=frames, chunks=(1, 256, 256),
-                          **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
-    f.flush()
-    file_bytes = np.frombuffer(f.id.get_file_image(), np.uint8)   # the whole file
-    # 1. a batch of chunks read with h5py
-    chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(ds.shape[0])]
-    offsets = bslz4_to_sparse.harvest_chunk_offsets(ds)    # {frame: (offset, size)}
+# 1. once, with HDF5: where is each chunk, and what are the shape and dtype of the frames?
+with h5py.File(h5filename, "r") as h5:
+    ds = h5[h5dataset]
+    nframes, shape, dtype = ds.shape[0], ds.shape[1:], ds.dtype
+    codec = bslz4_to_sparse.detect_codec(ds)
+    where = bslz4_to_sparse.harvest_chunk_offsets(ds)  # {frame: (byte offset, byte size)}
+    frame0 = ds[0]  # for the mask, and to check the result
+print(
+    "%d frames of %s %s; frame 0 is %d bytes at offset %d"
+    % ((nframes, shape, dtype) + (where[0][1], where[0][0]))
+)
+mask = (frame0 != np.iinfo(dtype).max).astype(np.uint8)
 
-npx, (values, indices) = c2s.multi(chunks, 0)
-print("multi: npx per frame", npx.tolist())
-print("values/indices arrays:", values.shape, indices.shape)
-batch_npx = npx.copy()          # the next call on c2s reuses these buffers
+# 2. no HDF5 from here on: the file is read as bytes
+file_bytes = np.fromfile(h5filename, dtype=np.uint8)
+nbatch = min(nframes, 8)  # the output buffers have one full-size row per frame of the batch
+offsets, lengths = bslz4_to_sparse.pack_offsets_lengths(where, range(nbatch))
 
-# 2. the same frames by byte offset into the file's bytes
-offs, lens = bslz4_to_sparse.pack_offsets_lengths(offsets, range(10))
-npx, (values, indices) = c2s.decode_offsets(file_bytes, offs, lens, 0)
-print("decode_offsets: npx per frame", npx.tolist())
+c2s = bslz4_to_sparse.chunk2sparse(mask, dtype=dtype, codec=codec)
+cut = 3
+npx, (values, indices) = c2s.decode_offsets(file_bytes, offsets, lengths, cut)
+print("pixels above the cut of %d, per frame:" % cut, npx.tolist())
+print("values and indices have one row per frame:", values.shape, indices.shape)
+# the buffers belong to c2s and are reused by its next call: copy what you keep
+
+with h5py.File(h5filename, "r") as h5:  # only to check the result
+    frames = h5[h5dataset][:nbatch]
+for k in range(nbatch):
+    ref = np.flatnonzero((frames[k].ravel() > cut) & (mask.ravel() > 0))
+    assert (indices[k, : npx[k]] == ref).all()
+print("every frame matches numpy on the frames HDF5 decompressed")
+
+# A list of chunks held in memory goes through multi() in the same way
+chunks = [file_bytes[o : o + n].tobytes() for o, n in zip(offsets.tolist(), lengths.tolist())]
+batch_npx = npx.copy()
+npx, _ = c2s.multi(chunks, cut)
 assert (npx == batch_npx).all()
-
-for k in range(10):
-    ref = np.flatnonzero(frames[k].ravel() > 0)
-    assert (indices[k, :npx[k]] == ref).all()
-print("every frame matches numpy")
+print("multi() on the same chunks gives the same counts")
