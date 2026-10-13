@@ -88,6 +88,8 @@ def _effective(thr, cut, dtype):
     exactly, anything beyond 2**62, or an infinite threshold for float and 64-bit pixels (smaller
     integer types can never exceed one, so it is clamped)."""
     big = 2**62
+    if dtype.kind == "f" and (math.isinf(cut) or float(cut) != math.floor(cut)):
+        return None  # a fractional or infinite cut: C holds it in the pixel type, not as an int64
     out = []
     for t in thr:
         if t == float("-inf"):

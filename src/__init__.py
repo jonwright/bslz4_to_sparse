@@ -27,6 +27,7 @@ Sharing an object between threads, or breaking these rules, gives wrong
 results or a crash rather than an error.
 """
 import json
+import math
 import os
 import struct
 
@@ -145,6 +146,7 @@ _DECODE_ERRORS = {
     -111: "a pipeline step value is unknown, auto (0: resolve it first) or not valid here",
     -112: "a pipeline step value needs an instruction set this CPU/build lacks",
     -113: "the pixel dtype is out of range or unsupported",
+    -114: "the cut must be one element of the pixel type",
 }
 _CORRUPT_CODES = (-2, -104, -107, -108)
 
@@ -270,6 +272,35 @@ def _mask_auto_pending(pipeline, dtype, mask):
             and not bool((mask != 0).all()))
 
 
+def _cut_array(cut, dtype):
+    """The cut as a contiguous one-element array of the pixel dtype, which is how the C code takes
+    it (it is compared in the pixel type).  A Python number or a 0-d / one-element array.  Integer
+    pixels: a fractional cut is floored (pixel > 2.5 is pixel > 2) and a cut above the type's
+    maximum becomes the maximum (nothing is above it).  Negative cuts and NaN are refused."""
+    dtype = np.dtype(dtype)
+    c = np.asarray(cut)
+    if c.size != 1:
+        raise ValueError("the cut must be one number, got %d values" % c.size)
+    c = c.reshape(-1)[0]
+    if dtype.kind == "f":
+        v = float(c)
+        if v != v:
+            raise ValueError("the cut must not be NaN")
+        if v < 0:
+            raise _decode_error(-100, batch=False)
+        return np.array([v], dtype)
+    if isinstance(c, (np.integer, int, bool, np.bool_)):
+        v = int(c)
+    else:
+        f = float(c)
+        if f != f:
+            raise ValueError("the cut must not be NaN")
+        v = int(math.floor(f)) if abs(f) != float("inf") else (1 << 70) * (1 if f > 0 else -1)
+    if v < 0:
+        raise _decode_error(-100, batch=False)
+    return np.array([min(v, int(np.iinfo(dtype).max))], dtype)
+
+
 def _settle_mask(obj, pointers, lengths, cmp):
     """Decode the first chunk once with no mask and keep only the pixels at
     65535: if most masked pixels hold it, switch obj's mask step to 'planes'."""
@@ -290,7 +321,7 @@ def _settle_mask(obj, pointers, lengths, cmp):
         values,
         adr,
         npx,
-        65534,
+        np.array([65534], np.uint16),
         np.empty(3 * _blocksize_bytes(cmp), np.uint8),
         np.empty(1, np.int64),
         _toppix.EMPTY_TOP,
@@ -402,6 +433,10 @@ class chunk2sparse:
     thresholds = None: max(cut, 1) * 2**i for i in 0..15, or up to 16 sorted
             values.  Only used when howmany is set.
 
+    cut is compared in the pixel type: for integer pixels a fractional cut is
+    floored and a cut above the type's maximum selects nothing; a negative cut
+    is an error.
+
     c(chunk, cut) -> npixels, (values, indices) for one frame (the arrays
     are full size: slice [:npixels]); c.multi(chunks, cut) -> the same per
     frame for a batch, npixels an array and the arrays (nframes, ni*nj).
@@ -464,7 +499,8 @@ class chunk2sparse:
                 _settle_mask(self, pointers, lengths, cmp)
             self._ensure_capacity(len(pointers), cmp)
             pipe = self.pipeline  # after the settling above: the first chunk may change it
-        req = _toppix.Request(self.howmany, self.thresholds, cut, self.dtype, len(pointers))
+        cut_a = _cut_array(cut, self.dtype)
+        req = _toppix.Request(self.howmany, self.thresholds, cut_a[0].item(), self.dtype, len(pointers))
         ret = _ext.sparsify(
             pointers,
             lengths,
@@ -472,7 +508,7 @@ class chunk2sparse:
             self._values.ravel(),
             self._indices.ravel(),
             self._npx,
-            cut,
+            cut_a,
             self._workspace,
             self._cursors,
             req.top,
@@ -553,7 +589,7 @@ def bslz4_to_sparse(ds, num, cut, mask=None, pixelbuffer=None, workspace=None, c
 
     ds = hdf5 dataset containing [nframes, ni, nj] pixels
     num = frame number to read
-    cut = threshold, pixels below this value are ignored
+    cut = threshold, pixels not above this value are ignored (compared in the pixel type)
     mask = detector mask. Active pixels > 0.
     pixelbuffer = None or (values, indices) storage space
     workspace = None or a uint8 array to use as decode scratch space
@@ -585,7 +621,7 @@ def bslz4_to_sparse(ds, num, cut, mask=None, pixelbuffer=None, workspace=None, c
         values,
         indices,
         npx_out,
-        cut,
+        _cut_array(cut, values.dtype),
         workspace,
         cursors,
         _toppix.EMPTY_TOP,
@@ -744,9 +780,10 @@ class chunk2sparseCSC:
             pipe = self.pipeline  # after the settling above: the first chunk may change it
         lay = self._layout
         a = lay.args()
-        req = _toppix.Request(self.howmany, self.thresholds, cut, self.dtype, len(pointers))
+        cut_a = _cut_array(cut, self.dtype)
+        req = _toppix.Request(self.howmany, self.thresholds, cut_a[0].item(), self.dtype, len(pointers))
         head = (pointers, lengths, self.mask, self._values.ravel(), self._indices.ravel(),
-                self._npx, cut, self._powder.ravel())
+                self._npx, cut_a, self._powder.ravel())
         tail = (self._di, pipe)
         if lay.entry == "csc":
             ret = _ext.sparsify_and_dot(

@@ -83,3 +83,26 @@ def test_a_negative_cut_is_still_refused():
     chunk = chunks_of(np.ones((1,) + SHAPE), np.uint16)[0]
     with pytest.raises(Exception, match="negative"):
         c(chunk, -1)
+
+
+@pytest.mark.parametrize("cut", [0, 0.5, 2.5, 100.25, 1e10])
+def test_float_pixels_with_a_fractional_cut(cut):
+    rng = np.random.default_rng(4)
+    frames = (rng.random((2,) + SHAPE) * 200).astype(np.float32)
+    frames[0, 0, :3] = [2.5, np.float32(100.25), np.float32(100.26)]
+    c = b.chunk2sparse(np.ones(SHAPE, np.uint8), np.float32)
+    npx, (values, indices) = c.multi(chunks_of(frames, np.float32), cut)
+    for i in range(2):
+        ref = np.flatnonzero(frames[i].ravel() > np.float32(cut))
+        assert npx[i] == len(ref) and (indices[i, : npx[i]] == ref).all()
+        assert (values[i, : npx[i]] == frames[i].ravel()[ref]).all()
+
+
+def test_an_integer_cut_is_floored_and_clipped():
+    rng = np.random.default_rng(5)
+    frames = rng.integers(0, 10, (2,) + SHAPE)
+    c = b.chunk2sparse(np.ones(SHAPE, np.uint8), np.uint8)
+    chunks = chunks_of(frames, np.uint8)
+    for cut, eff in [(2.5, 2), (np.array(3), 3), (300, 255), (1e30, 255)]:
+        npx, _ = c.multi(chunks, cut)
+        assert [int(n) for n in npx] == [int((f > eff).sum()) for f in frames]
