@@ -74,3 +74,17 @@ ref = ai.integrate1d(frame0, npt, unit="q_nm^-1", method=method, mask=bad)
 assert np.allclose(intensity[0], ref.intensity, rtol=1.2e-7, atol=0)
 assert npixels[0] == np.count_nonzero((frame0 > cut) & ~bad)
 print("frame 0 matches pyFAI's integrate1d, and numpy's count above the cut")
+
+# A picture: the mean powder pattern of the frames, and the sparse pixels each frame gave.
+import matplotlib.pyplot as plt
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 3.5))
+axes[0].plot(ones.radial, mean)
+axes[0].set_xlabel("q (nm$^{-1}$)")
+axes[0].set_ylabel("mean intensity")
+axes[0].set_title("powder pattern, mean of %d frames" % nframes)
+axes[1].plot(npixels, "o-")
+axes[1].set_xlabel("frame")
+axes[1].set_title("pixels above the cut of %d" % cut)
+plt.tight_layout()
+plt.show()

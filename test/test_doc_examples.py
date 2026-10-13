@@ -26,7 +26,9 @@ def _needs(path):
     with open(path) as fh:
         src = fh.read()
     return [
-        m for m in ("h5py", "hdf5plugin", "pyFAI") if "import %s" % m in src or "from %s" % m in src
+        m
+        for m in ("h5py", "hdf5plugin", "pyFAI", "matplotlib")
+        if "import %s" % m in src or "from %s" % m in src
     ]
 
 
@@ -47,9 +49,12 @@ def standin_folder(tmp_path_factory):
 def test_example_runs(path, standin_folder):
     for mod in _needs(path):
         pytest.importorskip(mod)
-    env = dict(os.environ)
+    env = dict(os.environ, MPLBACKEND="Agg")
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(bslz4_to_sparse.__file__)))
-    env["PYTHONPATH"] = os.pathsep.join([pkg_parent] + [p for p in [env.get("PYTHONPATH")] if p])
+    tools_dir = os.path.join(REPO, "tools")
+    env["PYTHONPATH"] = os.pathsep.join(
+        [pkg_parent, tools_dir] + [p for p in [env.get("PYTHONPATH")] if p]
+    )
     r = subprocess.run(
         [sys.executable, path],
         env=env,

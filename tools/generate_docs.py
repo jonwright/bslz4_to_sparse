@@ -101,7 +101,10 @@ def run_example(path):
     """stdout of running the example as a user would, in a directory holding the stand-in files."""
     env = dict(os.environ)
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(b.__file__)))
-    env["PYTHONPATH"] = os.pathsep.join([pkg_parent] + [p for p in [env.get("PYTHONPATH")] if p])
+    tools_dir = os.path.join(REPO, "tools")
+    env["PYTHONPATH"] = os.pathsep.join(
+        [pkg_parent, tools_dir] + [p for p in [env.get("PYTHONPATH")] if p]
+    )
     r = subprocess.run(
         [sys.executable, path],
         env=env,
@@ -128,18 +131,66 @@ def split_docstring(source):
 
 
 def example_page(path):
+    """(title, markdown) of an example: its notebook, run on the stand-in files, with its output
+    and figures; its script's own output where the notebook tools are not installed."""
     with open(path) as fh:
         source = fh.read()
     title, body, code = split_docstring(source)
-    out = run_example(path)
     rel = os.path.relpath(path, REPO)
-    return title, (
-        "# %s\n\n%s\n\n" % (title, body)
-        + "Source: [`%s`](%s/blob/main/%s), run as `python %s`.\n\n" % (rel, GITHUB, rel, rel)
-        + fence("python", code)
-        + "\nOutput, from running it when this page was built, on a synthetic stand-in for your files "
+    head = "# %s\n\n%s\n\n" % (title, body)
+    note = (
+        "Output, from running it when this page was built, on a synthetic stand-in for your files "
         "(powder rings with noise on an Eiger-like detector, `tools/standin.py`; with your own data "
-        "the numbers are yours):\n\n" + fence("text", out) + "\n" + provenance()
+        "the numbers are yours):"
+    )
+    link = "Source: [`%s`](%s/blob/main/%s), run as `python %s`" % (rel, GITHUB, rel, rel)
+    try:
+        import make_notebooks as mn
+
+        mn.build_notebook  # noqa: B018
+        import nbclient  # noqa: F401
+        import nbformat
+    except ImportError:
+        mn = None
+    if mn is None:  # no notebook tools: the script's printed output only
+        return title, (
+            head
+            + link
+            + ".\n\n"
+            + fence("python", code)
+            + "\n"
+            + note
+            + "\n\n"
+            + fence("text", run_example(path))
+            + "\n"
+            + provenance()
+        )
+    name = os.path.splitext(os.path.basename(path))[0]
+    outdir = os.path.join(GEN, "examples")
+    os.makedirs(outdir, exist_ok=True)
+    env_before = dict(os.environ)
+    pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(b.__file__)))
+    os.environ["PYTHONPATH"] = os.pathsep.join(
+        [pkg_parent, os.path.join(REPO, "tools")] + [p for p in [env_before.get("PYTHONPATH")] if p]
+    )
+    try:
+        nb = mn.build_notebook(path)
+        mn.run_notebook(nb, standin_folder())
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit("notebook of example %s failed: %s" % (rel, e))
+    finally:
+        os.environ.clear()
+        os.environ.update(env_before)
+    nbformat.write(nb, os.path.join(outdir, name + ".ipynb"))
+    # the first cell is the docstring: the page already has it as its head
+    md = mn.notebook_to_markdown(
+        nb, os.path.join(outdir, name + "_files"), name + "_files", skip_first=True
+    )
+    return title, (
+        head
+        + link
+        + ", or download the [notebook](%s.ipynb) (figures and output as run when this page was "
+        "built).\n\n" % name + note + "\n\n" + md + "\n" + provenance()
     )
 
 

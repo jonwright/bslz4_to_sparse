@@ -74,3 +74,30 @@ assert (per_bin[1::3] > per_bin[0::3]).all() and (
     per_bin[1::3] > per_bin[2::3]
 ).all()  # ring over background
 print("intensity %s: frames, windows %s, azimuth bins" % (intensity.shape, list(roles)))
+
+# A picture, and the reason the windows are normalised.  Left: the windows on the powder pattern.
+# Middle: how many pixels (weighted) each window collects at each azimuth: the module gaps and the
+# detector edge take pixels away at some azimuths, so a raw sum would show them as dips in the ring
+# that are not there in the sample.  Right: the normalised intensity of each window of frame 0,
+# which is what the file holds.
+import matplotlib.pyplot as plt
+
+azimuth = cake.azimuthal
+fig, axes = plt.subplots(1, 3, figsize=(14, 3.8))
+axes[0].plot(pattern.radial, pattern.intensity)
+for (lo, hi), r in zip(ranges, role):
+    axes[0].axvspan(lo, hi, color="C1" if r == 0 else "0.8", alpha=0.5)
+axes[0].set_xlabel("q (nm$^{-1}$)")
+axes[0].set_title("frame 0: ring windows (orange) and backgrounds (grey)")
+pixels = cake.norm.reshape(len(cake.radial), len(azimuth))  # pixels per (radial, azimuth) bin
+for w, (lo, hi) in enumerate(ranges):
+    inside = (cake.radial >= lo) & (cake.radial < hi)
+    axes[1].plot(azimuth, pixels[inside].sum(axis=0), color="C1" if role[w] == 0 else "0.6")
+axes[1].set_xlabel("azimuth (deg)")
+axes[1].set_title("pixels collected by each window")
+for w in range(len(ranges)):
+    axes[2].plot(azimuth, intensity[0, w], color="C1" if role[w] == 0 else "0.6")
+axes[2].set_xlabel("azimuth (deg)")
+axes[2].set_title("normalised intensity of each window, frame 0")
+plt.tight_layout()
+plt.show()

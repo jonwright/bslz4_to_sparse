@@ -69,6 +69,26 @@ intensity = np.divide(
 assert np.allclose(intensity, ref.intensity, rtol=1.2e-7, atol=0)
 print("intensity = powder_sum / sum_normalization equals pyFAI's integrate1d")
 
+# A picture: why powder_sum is divided by sum_normalization.  The raw sum in a bin grows with the
+# number of pixels that fall in it (more pixels at large radius, none in the module gaps); the
+# normalisation counts them (weighted), and the ratio is the intensity.
+import matplotlib.pyplot as plt
+
+q = ones.radial
+fig, axes = plt.subplots(1, 3, figsize=(12, 3.5))
+axes[0].plot(q, powder_sum)
+axes[0].set_title("powder_sum: sum of pixel values in each bin")
+axes[1].plot(q, sum_normalization)
+axes[1].set_title("sum_normalization: pixels in each bin")
+axes[2].plot(q, intensity, label="powder_sum / sum_normalization")
+axes[2].plot(q, ref.intensity, "--", label="pyFAI integrate1d")
+axes[2].set_title("intensity")
+axes[2].legend()
+for ax in axes:
+    ax.set_xlabel("q (nm$^{-1}$)")
+plt.tight_layout()
+plt.show()
+
 # Only the powder is wanted? Then no pixel needs collecting: a cut at the dtype's maximum finds none
 # (and howmany=0 would keep none of any that were found).
 only_powder = bslz4_to_sparse.chunk2sparseCSC(mask, engine, dtype=dtype, codec=codec)

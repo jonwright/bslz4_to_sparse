@@ -55,6 +55,7 @@ nav:
       - The firehose, as a for loop: gen/examples/ex9_firehose.md
       - Writing results and the integrator: gen/examples/ex10_write_results.md
       - Rings per frame for texture work: gen/examples/ex11_rings_per_frame.md
+      - Timing the decode: gen/examples/ex12_decode_timing.md
   - Performance:
       - Three data sets: gen/performance.md
       - Every pipeline: gen/kernels.md

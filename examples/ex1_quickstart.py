@@ -44,3 +44,16 @@ print("same pixels as numpy finds in the frame HDF5 decompressed")
 # coo() returns (row, column, value) copies instead, safe to keep
 npx, row, col, vals = c2s.coo(chunk0, cut)
 print("as (row, col, value):", list(zip(row[:3].tolist(), col[:3].tolist(), vals[:3].tolist())))
+
+# A picture: the frame, and the sparse pixels that were kept from it.
+import matplotlib.pyplot as plt
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+axes[0].imshow(np.ma.masked_where(mask == 0, frame0), vmin=0, vmax=10)
+axes[0].set_title("frame 0, as HDF5 decompresses it (masked pixels blank)")
+axes[1].plot(col, row, ".", ms=1)
+axes[1].set_xlim(0, mask.shape[1])
+axes[1].set_ylim(mask.shape[0], 0)
+axes[1].set_aspect("equal")
+axes[1].set_title("the %d pixels above the cut of %d, from the compressed chunk" % (npx, cut))
+plt.show()
