@@ -56,7 +56,7 @@ def available_dots():
 
 def make_integ(mask, M, codec, dot, route=None):
     return b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec,
-                             pipeline={"dot": dot, "route": route})
+                             pipeline={"dot": dot, "route": route}, exact=False)
 
 
 def make_ai():

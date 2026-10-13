@@ -121,27 +121,6 @@ def _fixed_np(dt):
     return ACC[dt][2]
 
 
-def _fixed_point_bits(_matrix, nm, dtype, maxval=None):
-    """As bslz4_to_sparse._matrix._fixed_point_bits for u32 weights, but for pixels up to maxval
-    (default: the dtype's largest): fractional bits b so that every int64 bin sum of round(w * 2**b)
-    * pixel is exact."""
-    dt = np.dtype(dtype)
-    if maxval is None:
-        return _matrix._fixed_point_bits(nm, dt, 32)
-    w = np.abs(nm.data.astype(np.float64))
-    wmax = float(w.max()) if w.size else 1.0
-    rowsum = np.bincount(nm.indices, weights=w, minlength=nm.nbins)
-    rmax = float(rowsum.max()) if rowsum.size else 1.0
-    b = min(
-        int(np.floor(np.log2((2.0**32 - 1) / max(wmax, 1e-30)))),
-        int(np.floor(62 - np.log2(max(int(maxval), 1) + 1) - np.log2(max(rmax, 1e-30)))),
-        40,
-    )
-    if b < 4:
-        raise ValueError("no room for fixed-point weights (%d fractional bits)" % b)
-    return b
-
-
 def _chunk_header(cmp):
     """(total bytes, block bytes) from the 12-byte bitshuffle header."""
     h = bytes(memoryview(cmp)[:12])
@@ -540,9 +519,12 @@ class chunk2sparseCSC(chunk2sparse):
     frame (mask folded into the matrix: masked pixels contribute nothing).
 
     exact=True (integer pixels): the powder is returned as the int64 sums of the fixed-point dot
-    (acc 'i64', the default then), not converted to float: float powder = powder * powder_scale.
-    The weights and sums are the CPU class's (chunk2sparseCSC(exact=True)), so for the same matrix
-    the two give the same integers."""
+    (acc 'i64'), not converted to float: float powder = powder * powder_scale.  The weights and
+    sums are the CPU class's (chunk2sparseCSC(exact=True)), so for the same matrix the two give the
+    same integers.  The default (exact=None, acc=None) is exact for 8 and 16-bit integer pixels, and
+    for wider ones when maxval (the largest value the data can hold: more fractional bits, see the
+    CPU class) is given, else float sums; exact=False or an explicit acc asks for float.  A matrix
+    that cannot be fixed-point falls back to float sums."""
 
     def __init__(
         self,
@@ -552,17 +534,32 @@ class chunk2sparseCSC(chunk2sparse):
         codec=None,
         pipeline=None,
         batch=16,
-        acc="f64",
+        acc=None,
         maxval=None,
         howmany=None,
         thresholds=None,
-        exact=False,
+        exact=None,
     ):
+        dt = np.dtype(dtype)
+        if exact is None and acc is None:  # as the CPU class: integer sums for 16-bit pixels
+            if dt.kind in "ui" and (dt.itemsize <= 2 or maxval is not None):
+                try:
+                    self._setup(
+                        mask, csc, dtype, codec, pipeline, batch, "i64", maxval, howmany, thresholds, True
+                    )
+                    return
+                except ValueError:  # a matrix that cannot be fixed-point: float sums
+                    pass
+        self._setup(
+            mask, csc, dtype, codec, pipeline, batch, acc or "f64", maxval, howmany, thresholds, exact
+        )
+
+    def _setup(self, mask, csc, dtype, codec, pipeline, batch, acc, maxval, howmany, thresholds, exact):
         import scipy.sparse as ss
 
         self._exact = bool(exact)
         if self._exact:
-            if acc not in ("f64", "i64"):  # f64 is the default: exact means i64
+            if acc not in ("f64", "i64"):  # exact means i64
                 raise ValueError("exact needs acc='i64'")
             acc = "i64"
         if acc not in ACC:
@@ -586,7 +583,7 @@ class chunk2sparseCSC(chunk2sparse):
         )
         self.scale = None
         if acc == "i64":
-            self.shift = _fixed_point_bits(_matrix, nm, self.dtype, maxval)
+            self.shift = _matrix._fixed_point_bits(nm, self.dtype, 32, maxval)
             data = _matrix._quantise(nm, self.shift, np.uint32).astype(np.int64)
             self.scale = 2.0**-self.shift
         else:

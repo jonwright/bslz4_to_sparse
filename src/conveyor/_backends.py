@@ -7,8 +7,10 @@ import numpy as np
 class CpuBackend(object):
     """bslz4_to_sparse.chunk2sparse, or chunk2sparseCSC with a matrix (the GIL is released).
     mask, dtype: the detector mask and pixel type; csc: a pyFAI CSC matrix or None; cut, howmany,
-    thresholds: as chunk2sparse; pipeline: passed through to it; exact: integer pixels, the powder
-    is the int64 fixed-point sums (see chunk2sparseCSC), its scale in the sink's meta."""
+    thresholds: as chunk2sparse; pipeline: passed through to it; exact, maxval: as chunk2sparseCSC:
+    by default the powder is int64 fixed-point sums for 16-bit pixels (the scale goes to the sink's
+    meta as powder_scale) and float64 sums otherwise; exact=False for a matrix that is not a sum of
+    counts (rings, q-weighted rows)."""
 
     name = "cpu"
 
@@ -21,10 +23,11 @@ class CpuBackend(object):
         howmany=None,
         thresholds=None,
         pipeline=None,
-        exact=False,
+        exact=None,
+        maxval=None,
     ):
         self.mask, self.csc, self.dtype, self.cut = mask, csc, np.dtype(dtype), cut
-        self.exact = exact
+        self.exact, self.maxval = exact, maxval
         self.howmany, self.thresholds, self.pipeline = howmany, thresholds, pipeline
 
     def make_worker(self):
@@ -36,7 +39,9 @@ class CpuBackend(object):
         if self.csc is None:
             c = b.chunk2sparse(self.mask, self.dtype, **kw)
         else:
-            c = b.chunk2sparseCSC(self.mask, self.csc, self.dtype, exact=self.exact, **kw)
+            c = b.chunk2sparseCSC(
+                self.mask, self.csc, self.dtype, exact=self.exact, maxval=self.maxval, **kw
+            )
         cut = self.cut
 
         def run(buf, offsets, lengths):
@@ -89,8 +94,8 @@ class GpuBackend(object):
     """bslz4_to_sparse.cuda (cupy): one decoder per worker, each with its own CUDA stream.
     Build the workers after any fork: CUDA must be initialised in the process that uses it.
     mask, dtype, csc, cut: as CpuBackend; batch: frames per call; acc: accumulator type of the CSC
-    sum ("f64"); howmany, thresholds: as chunk2sparse; exact: integer pixels, the powder is the
-    int64 fixed-point sums, as CpuBackend(exact=True) gives for the same matrix.
+    sum (None: 'i64' where exact applies, else 'f64'); howmany, thresholds: as chunk2sparse; exact,
+    maxval: as CpuBackend, with the same integers for the same matrix.
     """
 
     name = "gpu"
@@ -102,13 +107,14 @@ class GpuBackend(object):
         csc=None,
         cut=0,
         batch=16,
-        acc="f64",
+        acc=None,
         howmany=None,
         thresholds=None,
-        exact=False,
+        exact=None,
+        maxval=None,
     ):
         self.mask, self.csc, self.dtype, self.cut = mask, csc, np.dtype(dtype), cut
-        self.exact = exact
+        self.exact, self.maxval = exact, maxval
         self.batch, self.acc, self.howmany, self.thresholds = batch, acc, howmany, thresholds
 
     def make_worker(self):
@@ -121,7 +127,13 @@ class GpuBackend(object):
             c = cuda.chunk2sparse(self.mask, self.dtype, **kw)
         else:
             c = cuda.chunk2sparseCSC(
-                self.mask, self.csc, self.dtype, acc=self.acc, exact=self.exact, **kw
+                self.mask,
+                self.csc,
+                self.dtype,
+                acc=self.acc,
+                exact=self.exact,
+                maxval=self.maxval,
+                **kw
             )
         cut = self.cut
 

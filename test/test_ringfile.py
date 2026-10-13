@@ -56,7 +56,7 @@ def test_ring_files_follow_the_input_files(tmp_path):
     out = str(tmp_path / "rings")
     cv.run(
         units,
-        cv.CpuBackend(mask, dtype, csc=integ.csc, cut=200, howmany=500),
+        cv.CpuBackend(mask, dtype, csc=integ.csc, cut=200, howmany=500, exact=False),
         workers=2,
         sink=lambda k: cv.TeeSink(
             cv.RingSink(integ, out, DSET, ring, role, integrator_path="i.h5"),
@@ -112,7 +112,7 @@ def test_dense_frames_lose_their_pixels_but_not_their_rings(tmp_path):
     with pytest.warns(UserWarning, match="not sparse"):
         r = cv.run(
             units,
-            cv.CpuBackend(np.ones(ti.SHAPE, np.uint8), dtype, csc=integ.csc),
+            cv.CpuBackend(np.ones(ti.SHAPE, np.uint8), dtype, csc=integ.csc, exact=False),
             workers=1,
             sink=lambda k: cv.TeeSink(
                 cv.RingSink(integ, out, DSET, ring, role), cv.ImageD11SparseSink(out, DSET)
@@ -144,7 +144,7 @@ def test_everything_in_one_pass_through_the_conveyor(tmp_path):
     out = str(tmp_path / "all")
     r = cv.run(
         units,
-        cv.CpuBackend(mask, dtype, csc=stack.csc, cut=200, howmany=2000),
+        cv.CpuBackend(mask, dtype, csc=stack.csc, cut=200, howmany=2000, exact=False),
         workers=2,
         sink=lambda k: cv.TeeSink(
             cv.ImageD11SparseSink(out, DSET, stack=stack, integrator="stack.h5"),

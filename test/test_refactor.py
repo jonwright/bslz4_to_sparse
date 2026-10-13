@@ -114,7 +114,7 @@ def test_pipeline_defaults_and_rejects():
             b.chunk2sparse(mask, pipeline={step: "bogus"})
     for step in ("route", "dot"):
         with pytest.raises(ValueError, match="is unknown"):
-            b.chunk2sparseCSC(mask, _csc(), pipeline={step: 99})
+            b.chunk2sparseCSC(mask, _csc(), pipeline={step: 99}, exact=False)
         # route and dot need a matrix
         with pytest.raises(ValueError, match="this object has no matrix"):
             b.chunk2sparse(mask, pipeline={step: 1})
@@ -154,7 +154,7 @@ def test_pipeline_forces_collect_value():
 @pytest.mark.parametrize("route", ["sparse", "dense"])
 def test_counters_every_route_and_tail(route):
     c = b.chunk2sparseCSC(np.ones((1, NPIX), np.uint8), _csc(), dtype=np.uint16,
-                          pipeline={"route": route})
+                          pipeline={"route": route}, exact=False)
     names = b.describe(c.pipeline)
     if names["collect"] == "scalar":
         pytest.skip("no SIMD collect value on this CPU/build")
@@ -216,7 +216,7 @@ def test_resolution_errors():
     mask = np.zeros(NPIX, np.uint8)
     pipe = b.chunk2sparse(np.ones((1, NPIX), np.uint8)).pipeline
     cpipe = b.chunk2sparseCSC(np.ones((1, NPIX), np.uint8), _csc(),
-                              pipeline={"dot": "csc"}).pipeline
+                              pipeline={"dot": "csc"}, exact=False).pipeline
 
     # dtype out of range -> ERR_DTYPE (-113)
     assert _ext.sparsify(ptr, lens, mask, np.zeros(NPIX, np.uint16),
@@ -291,7 +291,7 @@ def test_dot_values_agree(tmp_path):
 
     def _run(dot, route):
         c = b.chunk2sparseCSC(mask, csc, dtype=np.uint16,
-                              pipeline={"dot": dot, "route": route})
+                              pipeline={"dot": dot, "route": route}, exact=False)
         assert c.dot == dot
         _testing.reset_counters()
         npx, (vals, adr), powder = c.multi(chunks, 1)

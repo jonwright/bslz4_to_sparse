@@ -8,7 +8,10 @@ with no dense frame.  A call returns
     npx            the number of pixels above the cut
     values, indices  those pixels (values and their flat positions; the first npx entries)
     powder_sum     for every bin, the sum over its pixels of weight x pixel value: pyFAI's
-                   sum_signal
+                   sum_signal.  For 8 and 16-bit pixels these are exact integer sums (int64) of
+                   fixed-point weights, and integ.powder_scale, a power of two, turns them into
+                   the float sum_signal; for 32-bit pixels they are float64 sums and
+                   integ.powder_scale is None (see exact= and maxval= in the class docstring).
 
 pyFAI divides powder_sum by sum_normalization, the same sum for an image of ones with the
 corrections (solid angle, polarisation, flat field) folded in, to get the intensity.
@@ -55,7 +58,12 @@ cut = 3
 npx, (values, indices), powder_sum = integ(chunk0, cut)
 print("pipeline dot:", bslz4_to_sparse.describe(integ.pipeline)["dot"])
 print("sparse pixels above the cut of %d: %d" % (cut, npx))
-print("powder_sum: %d bins" % powder_sum.size)
+print(
+    "powder_sum: %d bins of %s, powder_scale %s"
+    % (powder_sum.size, powder_sum.dtype, integ.powder_scale)
+)
+scale = integ.powder_scale or 1.0  # integers times 2**-b, or already float
+sum_signal = powder_sum * scale
 
 # the same frame, integrated by pyFAI from the decompressed pixels
 ref = ai.integrate1d(frame0, 400, unit="q_nm^-1", method=method, mask=bad)
@@ -63,12 +71,12 @@ assert npx == np.count_nonzero((frame0 > cut) & ~bad)
 signal = np.asarray(ref.sum_signal).ravel()
 print(
     "largest difference from pyFAI's sum_signal: %.3g (largest bin %.3g)"
-    % (abs(powder_sum - signal).max(), signal.max())
+    % (abs(sum_signal - signal).max(), signal.max())
 )
-assert np.allclose(powder_sum, signal, rtol=1e-9, atol=0)
+assert np.allclose(sum_signal, signal, rtol=1e-9, atol=0)
 
 intensity = np.divide(
-    powder_sum, sum_normalization, out=np.zeros_like(powder_sum), where=sum_normalization > 0
+    sum_signal, sum_normalization, out=np.zeros_like(sum_signal), where=sum_normalization > 0
 )
 assert np.allclose(intensity, ref.intensity, rtol=1.2e-7, atol=0)
 print("intensity = powder_sum / sum_normalization equals pyFAI's integrate1d")
@@ -80,8 +88,8 @@ import matplotlib.pyplot as plt
 
 q = ones.radial
 fig, axes = plt.subplots(1, 3, figsize=(12, 3.5))
-axes[0].plot(q, powder_sum)
-axes[0].set_title("powder_sum: sum of pixel values in each bin")
+axes[0].plot(q, sum_signal)
+axes[0].set_title("powder_sum x scale: sum of pixel values in each bin")
 axes[1].plot(q, sum_normalization)
 axes[1].set_title("sum_normalization: pixels in each bin")
 axes[2].plot(q, intensity, label="powder_sum / sum_normalization")
@@ -106,6 +114,6 @@ method2 = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=
 ref2 = ai.integrate2d(frame0, 100, 18, unit="q_nm^-1", method=method2, mask=bad)
 integ2 = bslz4_to_sparse.chunk2sparseCSC(mask, ai.engines[method2].engine, dtype=dtype, codec=codec)
 _, _, powder_sum2 = integ2(chunk0, nothing)
-cake = powder_sum2.reshape(100, 18).T  # pyFAI's (azimuth, radial) layout
+cake = (powder_sum2 * scale).reshape(100, 18).T  # pyFAI's (azimuth, radial) layout
 assert np.allclose(cake, ref2.sum_signal, rtol=1e-9, atol=0)
 print("2D cake", cake.shape, "matches pyFAI's integrate2d sum_signal")

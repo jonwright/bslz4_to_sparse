@@ -109,7 +109,16 @@ def _codec_of_chunk(cmp):
     compressed size, data).  A zstd block is a zstd frame and starts with
     the zstd magic number; anything else is taken as lz4.
     """
-    return CODEC_ZSTD if memoryview(cmp)[16:20].tobytes() == _ZSTD_MAGIC else CODEC_LZ4
+    return CODEC_ZSTD if memoryview(cmp)[16:20] == _ZSTD_MAGIC else CODEC_LZ4
+
+
+_INT_DOTS = ("csc-int", "csc-run-int", "csc-run-int16")
+
+
+def _allows_int_dot(pipeline):
+    """True when the pipeline leaves the dot to be chosen or names a fixed-point one."""
+    name = _pipeline.NAMES["dot"][_pipeline.parse(pipeline)[_pipeline.DOT]]
+    return name == "auto" or name in _INT_DOTS
 
 
 def _codec_from_pipeline(pipeline):
@@ -123,7 +132,7 @@ def _codec_from_pipeline(pipeline):
 def _blocksize_bytes(cmp):
     if len(cmp) < 12:
         return DEFAULT_BLOCK_BYTES
-    blocksize = struct.unpack(">I", cmp[8:12])[0]
+    blocksize = struct.unpack_from(">I", cmp, 8)[0]
     return blocksize if blocksize else DEFAULT_BLOCK_BYTES
 
 
@@ -180,7 +189,7 @@ def _offset_pointers(base, offsets, lengths):
     if rc < 0:
         raise _decode_error(rc)
     o = int(offsets[0])
-    return pointers, lengths, memoryview(base)[o:o + 20].tobytes()
+    return pointers, lengths, memoryview(base)[o:o + 20]
 
 
 def harvest_chunk_offsets(ds):
@@ -341,7 +350,7 @@ def _decompress(pointers, lengths, cmp, dtype, unshuffle, out, codec):
     dtype = np.dtype(dtype)
     if dtype.itemsize not in (1, 2, 4, 8):
         raise ValueError("dtype %s: pixels of 1, 2, 4 or 8 bytes" % dtype)
-    cmp = memoryview(cmp)[:20].tobytes()
+    cmp = memoryview(cmp)[:20]
     if len(cmp) < 12:
         raise _decode_error(-107)
     total = struct.unpack(">Q", cmp[:8])[0]
@@ -646,11 +655,24 @@ class chunk2sparseCSC:
           matrix layout (auto: from what the matrix is)
     howmany, thresholds: as chunk2sparse; they limit the pixels returned
           only: the powder always uses every unmasked pixel
-    exact: integer pixels only.  The powder is returned as the int64 sums of the dot with
-          fixed-point integer weights, not converted to float: float powder = powder *
-          powder_scale (a power of two, 2**-b).  With a matrix of weight 1 per pixel (no pixel
-          splitting) these are exactly the photon counts summed per bin.  The array is the object's
-          own and is overwritten by the next call.  The pipeline's dot step defaults to "csc-int".
+    exact: integer pixels only.  The powder is the int64 sums of the dot with fixed-point integer
+          weights, not converted to float: float powder = powder * powder_scale (a power of two,
+          2**-b).  With a matrix of weight 1 per pixel (no pixel splitting) these are exactly the
+          photon counts summed per bin.  The array is the object's own and is overwritten by the
+          next call.  The pipeline's dot step defaults to "csc-int".  The default, exact=None, is
+          exact for 8 and 16-bit integer pixels (and for wider ones when maxval is given), and
+          float otherwise: when the pipeline names a float dot, the matrix cannot be fixed-point
+          (negative weights, no room), or the pixels are float or 32-bit.  exact=False asks for
+          float64 sums, as for a matrix that is not a sum of counts (q-weighted rows, normalised
+          rows, rings with their normalisation folded in).  powder_scale tells which: None for
+          float.
+    maxval: the largest pixel value the data can hold, for integer pixels, to give the weights
+          more fractional bits.  The weights get b bits, b <= 32 (their width), and
+          b <= 62 - log2(maxval) - log2(the largest sum of weights in a bin) so that the int64
+          sums cannot overflow: each doubling of maxval costs a bit, and for 32-bit pixels at their
+          dtype maximum b is about 17 for a 1D matrix (the weight step 2**-17, a relative error of
+          a few 1e-6 in a bin sum), against 31 for 16-bit pixels.  Pixels above maxval can overflow
+          the sums, silently: it is a promise about the data.
 
     The mask is folded into the matrix once, here: masked pixels contribute
     nothing to the powder.  c(chunk, cut) -> npixels, (values, indices),
@@ -666,9 +688,27 @@ class chunk2sparseCSC:
         pipeline=None,
         howmany=None,
         thresholds=None,
-        exact=False,
+        exact=None,
+        maxval=None,
     ):
+        dt = np.dtype(dtype)
+        if exact is None:  # see the class docstring
+            if (
+                dt.kind in "ui"
+                and (dt.itemsize <= 2 or maxval is not None)
+                and _allows_int_dot(pipeline)
+            ):
+                try:
+                    self._setup(mask, csc, dtype, codec, pipeline, howmany, thresholds, True, maxval)
+                    return
+                except ValueError:  # a matrix that cannot be fixed-point: float sums
+                    pass
+            exact = False
+        self._setup(mask, csc, dtype, codec, pipeline, howmany, thresholds, exact, maxval)
+
+    def _setup(self, mask, csc, dtype, codec, pipeline, howmany, thresholds, exact, maxval):
         self.howmany, self.thresholds = _toppix.check(howmany, thresholds)
+        self._maxval = maxval
         self._exact = bool(exact)
         if self._exact:
             if np.dtype(dtype).kind not in "ui":
@@ -727,7 +767,7 @@ class chunk2sparseCSC:
 
     def _build(self, block_elems):
         try:
-            return _matrix.build(self.dot, self._nm, block_elems, self.dtype)
+            return _matrix.build(self.dot, self._nm, block_elems, self.dtype, self._maxval)
         except ValueError as e:
             raise ValueError(
                 "pipeline['dot']=%r cannot represent this matrix: %s (auto picks %r)"

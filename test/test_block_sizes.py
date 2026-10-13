@@ -118,7 +118,7 @@ def test_every_dot_matches_numpy_or_is_refused(cname, block, kind):
         for route in ("dense", "sparse"):
             try:
                 integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec,
-                                          pipeline={"dot": dot, "route": route})
+                                          pipeline={"dot": dot, "route": route}, exact=False)
             except ValueError:                      # cannot represent this matrix
                 continue
             try:
@@ -182,7 +182,7 @@ def test_auto_dot_falls_back_on_large_blocks():
     ref = reference(M, frames, mask)
     for nelems_bytes, want_fallback in ((8192, False), (1024 * 1024, True)):
         chunks, codec = write_chunks(frames, "lz4", nelems_bytes)
-        integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec)
+        integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec, exact=False)
         assert integ.dot == "bsb-csr-nosplit"
         _npx, _vp, p = integ.multi(chunks, 0)
         assert (integ.dot == "csc-nosplit") == want_fallback

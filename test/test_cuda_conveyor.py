@@ -77,3 +77,33 @@ def test_gpu_exact_equals_cpu_exact(tmp_path, weights):
     for k in cpu[0]:
         assert cpu[0][k].dtype == np.int64 and gpu[0][k].dtype == np.int64
         assert np.array_equal(cpu[0][k], gpu[0][k]), k
+
+
+def test_the_default_is_exact_for_16_bit_pixels_on_both_and_float_for_32_bit(tmp_path):
+    """CpuBackend() and GpuBackend() with no exact or acc: the same integers and scale for 16-bit
+    pixels, float sums for 32-bit ones."""
+    paths = make_files(tmp_path)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
+    mask = np.ones(SHAPE, np.uint8)
+    npix = SHAPE[0] * SHAPE[1]
+    m = split_matrix()
+    res = {}
+    for name, be in (
+        ("cpu", cv.CpuBackend(mask, dtype, csc=m)),
+        ("gpu", cv.GpuBackend(mask, dtype, csc=m)),
+    ):
+        Powder.out = {}
+        scales = []
+
+        class Sink(Powder):
+            def begin(self, meta):
+                scales.append(meta["powder_scale"])
+
+        cv.run(units, be, workers=2, sink=lambda k: Sink(), batch=8)
+        res[name] = (dict(Powder.out), scales[0])
+    assert res["cpu"][1] is not None and res["cpu"][1] == res["gpu"][1]
+    for k, v in res["cpu"][0].items():
+        assert v.dtype == np.int64 and np.array_equal(v, res["gpu"][0][k])
+    # 32-bit pixels: float on both
+    for be in (cv.CpuBackend(mask, np.uint32, csc=m), cv.GpuBackend(mask, np.uint32, csc=m)):
+        assert be.make_worker().powder_scale is None

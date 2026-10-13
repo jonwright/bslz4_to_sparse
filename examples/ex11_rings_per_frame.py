@@ -54,7 +54,8 @@ print("ring centres (q, nm^-1):", np.round(centres, 2).tolist())
 cake = conveyor.Integrator.from_pyfai(ai, 400, unit="q_nm^-1", npt_azim=36, mask=bad)
 rings = cake.rings(ranges)
 
-backend = conveyor.CpuBackend(mask, dtype, csc=rings.csc, cut=3, howmany=5000)
+# exact=False: the ring weights fold in the normalisation, they are not a sum of counts
+backend = conveyor.CpuBackend(mask, dtype, csc=rings.csc, cut=3, howmany=5000, exact=False)
 result = conveyor.run(
     units,
     backend,

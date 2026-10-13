@@ -259,7 +259,7 @@ def _counts(nm):
     return np.diff(nm.indptr.astype(np.int64))
 
 
-def _runs(nm, what):
+def _runs(nm):
     """First bin per pixel (0 for empty), refusing pixels whose bins are not
     one ascending run of consecutive bins."""
     indptr = nm.indptr.astype(np.int64)
@@ -278,7 +278,7 @@ def _runs(nm, what):
     return starts, n
 
 
-def _histogram_bins(nm, what):
+def _histogram_bins(nm):
     """The one bin of each pixel (-1 for none); weights must be exactly 1."""
     n = _counts(nm)
     if (n > 1).any():
@@ -290,13 +290,21 @@ def _histogram_bins(nm, what):
     return bins
 
 
-def _fixed_point_bits(nm, dtype, wbits):
+def _fixed_point_bits(nm, dtype, wbits, maxval=None):
     """Fractional bits b for weights stored as round(w * 2**b) in a wbits-bit
-    unsigned integer, keeping every int64 bin sum of w * pixel exact."""
+    unsigned integer, keeping every int64 bin sum of w * pixel exact.  Two
+    limits: the weights must fit wbits bits (b <= log2((2**wbits - 1) / the
+    largest weight)), and the sum of w * pixel over the pixels of a bin must
+    fit int64 (b <= 62 - log2(the largest pixel value) - log2(the largest sum
+    of the weights of a bin)).  The largest pixel value is the dtype's unless
+    maxval says what the data can reach: pixels above maxval can then overflow
+    the sums, silently."""
     dt = np.dtype(dtype)
     if dt.kind not in "ui":
         raise ValueError("integer weights need an integer pixel dtype, not %s" % dt)
     pbits = dt.itemsize * 8 - (1 if dt.kind == "i" else 0)
+    if maxval is not None:
+        pbits = np.log2(float(int(maxval) + 1))
     w = np.abs(nm.data.astype(np.float64))
     wmax = float(w.max()) if w.size else 1.0
     rowsum = np.bincount(nm.indices, weights=w, minlength=nm.nbins)
@@ -348,7 +356,7 @@ def _quantise(nm, b, wtype):
 def _permute_bins(nm):
     """FAZIT: every pixel reaches its own bin (a permutation of the unmasked
     pixels), weight 1; the output is the pixel values in bin order."""
-    bins = _histogram_bins(nm, "csc-permute")
+    bins = _histogram_bins(nm)
     used = bins[bins >= 0]
     if np.unique(used).size != used.size:
         raise ValueError("%d bins are reached by more than one pixel"
@@ -423,7 +431,7 @@ class Layout(object):
         return self._args
 
 
-def build(dot, nm, block_elems, dtype):
+def build(dot, nm, block_elems, dtype, maxval=None):
     """The Layout of a mask-folded _NormalMatrix for one dot.  Raises
     ValueError (without the step context) if the dot cannot represent it."""
     nbins = nm.nbins
@@ -438,8 +446,8 @@ def build(dot, nm, block_elems, dtype):
                       powder_dtype=np.dtype(dtype))
     if dot in ("csc-int", "csc-run-int", "csc-run-int16"):
         wbits, wtype = (16, np.uint16) if dot == "csc-run-int16" else (32, np.uint32)
-        idx = nm.indices if dot == "csc-int" else _runs(nm, dot)[0].astype(np.uint32)
-        b = _fixed_point_bits(nm, dtype, wbits)
+        idx = nm.indices if dot == "csc-int" else _runs(nm)[0].astype(np.uint32)
+        b = _fixed_point_bits(nm, dtype, wbits, maxval)
         return Layout(dot, "csc", (_quantise(nm, b, wtype), idx, nm.indptr), nbins,
                       powder_dtype=np.int64, scale=2.0 ** -b)
     if dot in ("padded", "padded-avx2"):

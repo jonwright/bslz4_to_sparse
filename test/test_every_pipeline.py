@@ -166,7 +166,7 @@ def test_every_dot_and_route(data, variant, fill):
         for dot, route in itertools.product(usable("dot"), usable("route")):
             p = {"dot": dot, "route": route}
             try:
-                c = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec, pipeline=p)
+                c = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec, pipeline=p, exact=False)
                 npx, (v, i), powder = c.multi(chunks, 0)
             except ValueError as e:
                 refused.append((mname, p, str(e)))
@@ -217,7 +217,7 @@ def test_automatic_dot_any_block_size(data, variant):
     for mname, M in matrices().items():
         if mname == "permute":
             continue                      # auto never picks csc-permute (it changes the output type)
-        c = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec)
+        c = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec, exact=False)
         npx, (v, i), powder = c.multi(chunks, 0)
         ref = np.stack([M.astype(np.float64) @ fr for fr in masked_frames])
         got = np.asarray(powder, np.float64).reshape(ref.shape)
@@ -262,8 +262,7 @@ def test_every_dot_and_route_on_uncompressed_frames(data, fill):
         for dot, route in itertools.product(usable("dot"), usable("route")):
             try:
                 c = b.chunk2sparseCSC(
-                    mask, M, np.uint16, b.CODEC_LZ4, pipeline={"dot": dot, "route": route}
-                )
+                    mask, M, np.uint16, b.CODEC_LZ4, pipeline={"dot": dot, "route": route}, exact=False)
             except ValueError as e:
                 assert accepted_refusal(str(e), fill), str(e)
                 continue

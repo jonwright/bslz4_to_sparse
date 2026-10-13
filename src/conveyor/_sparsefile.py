@@ -138,6 +138,17 @@ class ImageD11SparseSink(Sink):
                 v, ix = v[keep], ix[keep]
             self.held.append((len(v), v, ix))
         if powder is not None:
+            if self.stack is not None and powder.dtype.kind in "iu":
+                float_blocks = [
+                    k
+                    for k, b in self.stack.blocks.items()
+                    if b.kind not in ("powder1d", "powder2d")
+                ]
+                if float_blocks:
+                    raise ValueError(
+                        "the blocks %s of the stack are not sums of counts: make the backend with "
+                        "exact=False" % float_blocks
+                    )
             self.powder.append(powder.copy())
 
     def end_unit(self, unit):

@@ -58,6 +58,6 @@ def test_coo_methods(tmp_path):
     assert n == want_r.size and (r == want_r).all() and (c == want_c).all()
     assert (v == frame[want_r, want_c]).all()
     M = sp.random(20, frame.size, density=0.05, format="csc", random_state=1, dtype=np.float32)
-    n, r, c, v, p = b.chunk2sparseCSC(mask, M, codec=codec).coo(chunk, 0)
+    n, r, c, v, p = b.chunk2sparseCSC(mask, M, codec=codec, exact=False).coo(chunk, 0)
     assert n == want_r.size and (r == want_r).all() and (c == want_c).all()
     assert np.allclose(p, M @ frame.ravel().astype(np.float64))

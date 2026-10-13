@@ -97,6 +97,10 @@ class RingSink(Sink):
 
     def write(self, file, frame0, npx, values, indices, powder):
         """Normalise the batch and keep it as (frames, windows, azimuth) until the file is done."""
+        if powder.dtype.kind in "iu":
+            raise ValueError(
+                "ring sums are float: make the backend with exact=False (its powder is fixed-point)"
+            )
         naz, nw = self.integ.bins_shape
         if self.rows is not None:
             powder = powder[:, self.rows]
