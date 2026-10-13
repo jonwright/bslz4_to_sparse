@@ -69,7 +69,7 @@ def test_the_intensity_equals_pyfais(tmp_path, split, corrections, flat):
 
     fr = frame()
     mask = (1 - ai.detector.mask).astype(np.uint8)  # the decoder's: 1 = use the pixel
-    d = b.chunk2sparseCSC(mask, back.csc, np.uint16, exact=True)
+    d = b.chunk2sparseCSC(mask, b.fixed_point_matrix(back.csc, mask, np.uint16), np.uint16)
     _, _, powder = d.from_frames(fr[None], 0)
     assert powder.dtype == np.int64
     got = back.intensity(powder, d.powder_scale)[0]
@@ -84,7 +84,7 @@ def test_the_intensity_equals_pyfais(tmp_path, split, corrections, flat):
     assert ref.intensity.dtype == np.float32
     assert np.allclose(got, ref.intensity, rtol=1.2e-7, atol=0)
     # the float powder and the integer one give the same intensity
-    pf = b.chunk2sparseCSC(mask, back.csc, np.uint16, exact=False).from_frames(fr[None], 0)[2]
+    pf = b.chunk2sparseCSC(mask, back.csc, np.uint16).from_frames(fr[None], 0)[2]
     assert np.allclose(back.intensity(pf)[0], got, rtol=1e-9, atol=0)
 
 
@@ -93,7 +93,8 @@ def test_2d_rows_are_radial_then_azimuth(tmp_path):
     integ = cv.Integrator.from_pyfai(ai, 20, unit="q_nm^-1", npt_azim=8)
     assert integ.kind == "powder2d" and integ.nbins == 20 * 8 and len(integ.azimuthal) == 8
     fr = frame()
-    d = b.chunk2sparseCSC(np.ones(SHAPE, np.uint8), integ.csc, np.uint16, exact=True)
+    ones = np.ones(SHAPE, np.uint8)
+    d = b.chunk2sparseCSC(ones, b.fixed_point_matrix(integ.csc, ones, np.uint16), np.uint16)
     powder = d.from_frames(fr[None], 0)[2]
     got = integ.intensity(powder, d.powder_scale)[0].reshape(20, 8).T
     method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=2)
@@ -129,7 +130,7 @@ def test_rings_equal_the_summed_normalised_cake(tmp_path, background):
 
     fr = frame()
     mask = (1 - ai.detector.mask).astype(np.uint8)
-    d = b.chunk2sparseCSC(mask, rings.csc, np.uint16, exact=False)  # float: the weights are 1/norm
+    d = b.chunk2sparseCSC(mask, rings.csc, np.uint16)  # float: the weights are 1/norm
     powder = d.from_frames(fr[None], 0)[2]
     got = rings.intensity(powder)[0].reshape(naz, 3)
     ref = textom_process_one_frame(ai, fr, nrad, naz, ranges, bg, **kw)
@@ -146,7 +147,7 @@ def test_first_moment_is_the_mean_q_of_the_signal():
     assert mom.kind == "moment" and mom.nbins == 100 and mom.bins_shape == (2, 50)
     fr = frame()
     mask = (1 - ai.detector.mask).astype(np.uint8)
-    p = b.chunk2sparseCSC(mask, mom.csc, np.uint16, exact=False).from_frames(fr[None], 0)[2]
+    p = b.chunk2sparseCSC(mask, mom.csc, np.uint16).from_frames(fr[None], 0)[2]
     q = ai.array_from_unit(shape=SHAPE, typ="center", unit="q_nm^-1")
     method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
     ref = ai.integrate1d(fr, 50, unit="q_nm^-1", method=method)
@@ -176,11 +177,11 @@ def test_one_pass_for_everything(tmp_path):
     assert stack.nbins == 50 + 16 + 100 and list(stack.slices) == ["powder1d", "rings", "moment"]
     fr = frame()
     mask = (1 - ai.detector.mask).astype(np.uint8)
-    d = b.chunk2sparseCSC(mask, stack.csc, np.uint16, exact=False)
+    d = b.chunk2sparseCSC(mask, stack.csc, np.uint16)
     powder = d.from_frames(fr[None], 0)[2]
     out = stack.split(powder)
     alone = {
-        k: b.chunk2sparseCSC(mask, blk.csc, np.uint16, exact=False).from_frames(fr[None], 0)[2]
+        k: b.chunk2sparseCSC(mask, blk.csc, np.uint16).from_frames(fr[None], 0)[2]
         for k, blk in stack.blocks.items()
     }
     for k, blk in stack.blocks.items():

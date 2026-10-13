@@ -118,7 +118,7 @@ def run_all_dots(mask, M, frames, chunks, codec, dt):
         for route in ROUTES:
             try:
                 integ = b.chunk2sparseCSC(mask, M, dtype=dt, codec=codec,
-                                          pipeline={"dot": dot, "route": route}, exact=False)
+                                          pipeline={"dot": dot, "route": route})
             except ValueError:      # padded refusing a general matrix
                 continue
             npx, (_v, adr), p = integ.multi(chunks, 0)
@@ -174,7 +174,7 @@ def test_whole_number_of_blocks(tmp_path):
     for dot, route, p, _npx, _adr, integ in run_all_dots(mask, M, frames, chunks, codec, np.uint16):
         r, tol = expected(integ, frames, ref)
         assert np.abs(p - r).max() < tol * max(np.abs(r).max(), 1.0), (dot, route)
-    integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, pipeline={"dot": "bsb-csr"}, exact=False)
+    integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, pipeline={"dot": "bsb-csr"})
     blk_ptr = integ._layout.args()[0]
     assert len(blk_ptr) == npix // integ._layout.block_elems + 1
 
@@ -189,7 +189,7 @@ def test_frame_smaller_than_mask_is_an_error(tmp_path):
     for dot in available_dots():
         try:
             integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec,
-                                      pipeline={"dot": dot}, exact=False)
+                                      pipeline={"dot": dot})
         except ValueError:      # a dot that cannot represent M (csc-nosplit)
             continue
         with pytest.raises(Exception, match="-110"):
@@ -228,7 +228,7 @@ def test_malformed_layout_arrays_are_refused(tmp_path):
                          "csc_indices", "csc_indptr", "block_elems")}
 
     def make(dot):
-        integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec, pipeline={"dot": dot}, exact=False)
+        integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec, pipeline={"dot": dot})
         integ.multi(chunks, 0)                    # allocate buffers
         return integ
 

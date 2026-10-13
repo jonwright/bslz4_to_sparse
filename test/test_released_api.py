@@ -1,8 +1,6 @@
-"""The names of the released versions (0.0.15, 0.0.16) keep working: the calls below are the ones
-of those releases' tests and README, unchanged.  chunk2sparseCSC is the one exception: since 0.0.22
-its default for 8 and 16-bit pixels is an exact int64 powder (see exact=), so the old float
-powder is asked for with exact=False.
-"""
+"""chunk2sparse, bslz4_to_sparse and chunk2sparseCSC of the released versions (0.0.15, 0.0.16) keep
+working: the calls below are the ones of those releases' tests and README, unchanged (the raw
+bslz4_*_t functions, npbuf and buffer_from_memory are gone: the classes replace them)."""
 
 import os
 import sys
@@ -72,7 +70,7 @@ def test_chunk2sparseCSC(tmp_path, dtype):
     with h5py.File(name, "r") as f:
         ds = f["d"]
         for csc in (mat, mat2):
-            obj = b.chunk2sparseCSC(mask, csc, np.dtype(ds.dtype), exact=False)
+            obj = b.chunk2sparseCSC(mask, csc, np.dtype(ds.dtype))
             for num in range(len(frames)):
                 _, chunk = ds.id.read_direct_chunk((num, 0, 0))
                 npx, (cv, ci), powder = obj(chunk, 1)
@@ -83,50 +81,3 @@ def test_chunk2sparseCSC(tmp_path, dtype):
                 assert np.abs(powder - want).max() < 1e-3 * max(1.0, np.abs(want).max())
                 n, row, col, val, p2 = obj.coo(chunk, 1)
                 assert n == len(pv) and (val == pv).all() and (p2 == powder).all()
-
-
-@pytest.mark.parametrize("dtype", DTYPES)
-def test_raw_functions_and_helpers(tmp_path, dtype):
-    name, frames = make(tmp_path, dtype)
-    mask = np.ones(SHAPE, np.uint8)
-    mask[3, 4] = 0
-    mat = sp.random(30, mask.size, density=0.1, format="csc", random_state=3, dtype=np.float32)
-    raw = getattr(b, "bslz4_%s_t" % np.dtype(dtype).name)
-    rawcsc = getattr(b, "bslz4_csc_%s_t" % np.dtype(dtype).name)
-    with h5py.File(name, "r") as f:
-        ds = f["d"]
-        _, chunk = ds.id.read_direct_chunk((1, 0, 0))
-        assert isinstance(chunk, bytes)  # read only: npbuf makes it a writable-typed uint8 array
-        cmp = b.npbuf(chunk)
-        assert cmp.dtype == np.uint8 and b.npbuf(cmp) is cmp
-        assert (b.npbuf(memoryview(chunk)) == cmp).all()
-        values = np.empty(mask.size, dtype)
-        indices = np.empty(mask.size, np.uint32)
-        npx = raw(cmp, mask.ravel(), values, indices, 0)
-        pv, pi = reference(frames[1], mask, 0)
-        assert npx == len(pv) and (values[:npx] == pv).all() and (indices[:npx] == pi).all()
-        powder = np.empty(30, np.float64)
-        npx = rawcsc(
-            cmp,
-            mask.ravel(),
-            values,
-            indices,
-            0,
-            powder,
-            mat.data,
-            mat.indices.astype(np.uint32),
-            mat.indptr.astype(np.uint32),
-        )
-        assert npx == len(pv) and (values[:npx] == pv).all() and (indices[:npx] == pi).all()
-        want = mat @ (frames[1] * mask).ravel().astype(np.float64)
-        assert np.abs(powder - want).max() < 1e-3 * max(1.0, np.abs(want).max())
-
-
-def test_buffer_from_memory():
-    buf = b"abcdef"
-    if not hasattr(b.buffer_from_memory, "argtypes"):
-        pytest.skip("python 2.7 path")
-    import ctypes
-
-    mv = b.buffer_from_memory(ctypes.cast(ctypes.c_char_p(buf), ctypes.c_void_p), len(buf), 0x200)
-    assert bytes(mv) == buf

@@ -12,22 +12,21 @@ clipped frames gives, in integer arithmetic, with the same weights.  The normali
 import numpy as np
 
 
-def fixed_weights(csc, mask, dtype):
-    """(W, scale): the integer weights chunk2sparseCSC(exact=True) uses for this matrix, mask and
-    pixel dtype (the "csc-int" dot), as a scipy CSC matrix of int64, and the scale of its sums."""
+def fixed_weights(csc, mask, dtype, maxval=None):
+    """(W, scale): the integer weights of bslz4_to_sparse.fixed_point_matrix(csc, mask, dtype,
+    maxval) (what the "csc-int" dot uses), as a scipy CSC matrix of int64, and the scale of its
+    sums."""
     import scipy.sparse as sp
 
-    from bslz4_to_sparse import _matrix
+    from bslz4_to_sparse import fixed_point_matrix
 
-    mask = np.asarray(mask)
-    nm = _matrix._fold_mask(_matrix.normalise_matrix(csc, npix=mask.size), mask.ravel())
-    b = _matrix._fixed_point_bits(nm, np.dtype(dtype), 32)
-    q = _matrix._quantise(nm, b, np.uint32)
+    fp = fixed_point_matrix(csc, mask, dtype, maxval)
+    nm = fp.nm
     W = sp.csc_matrix(
-        (q.astype(np.int64), nm.indices.astype(np.int64), nm.indptr.astype(np.int64)),
+        (fp.data.astype(np.int64), nm.indices.astype(np.int64), nm.indptr.astype(np.int64)),
         shape=nm.shape,
     )
-    return W, 2.0**-b
+    return W, fp.scale
 
 
 def clip_exact_powder(powder, npx, values, indices, wtmax, weights, in_place=False):

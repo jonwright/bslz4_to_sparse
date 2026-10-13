@@ -10,12 +10,11 @@ Differences from the CPU classes:
   * lz4 only, 8 kB blocks (the bitshuffle default), pixels u8/u16/u32/i8/i16/i32/f32; `pipeline` is
     accepted and ignored;
   * `acc` chooses the accumulator of the matrix product: 'f64' (default: f32 weights, f64 sums as
-    pyFAI), 'i64' (u32 fixed-point weights, exact integer sums; `maxval`, the largest pixel value,
-    gives more fractional bits), 'f32' (fast; relative error about 1e-6); `exact=True` selects 'i64'
-    and returns the int64 sums, whose factor to float is `powder_scale`;
+    pyFAI), 'f32' (fast; relative error about 1e-6); a matrix from fixed_point_matrix is summed as
+    'i64' (exact integer sums, returned as int64: the factor to float is `powder_scale`);
   * `batch` = frames per GPU launch.  The result arrays are numpy (as the CPU classes) and are
     overwritten by the next call.
-  * the matrix is the one chunk2sparseCSC takes (scipy csc / pyFAI CSC engine); normalise_matrix and
+  * the matrix is the one chunk2sparseCSC takes (scipy csc / pyFAI CSC engine, or fixed_point_matrix); normalise_matrix and
     the mask folding are bslz4_to_sparse._matrix's. Per batch: decompress into dense frames in GPU
     memory, then the matrix product (CSR, one thread block per bin, no atomics) and the collect of
     the pixels above the cut, as separate kernels (bslz4_split.cu).
@@ -518,13 +517,11 @@ class chunk2sparseCSC(chunk2sparse):
     """As chunk2sparse, and every frame also goes through the sparse matrix product powder = csc @
     frame (mask folded into the matrix: masked pixels contribute nothing).
 
-    exact=True (integer pixels): the powder is returned as the int64 sums of the fixed-point dot
-    (acc 'i64'), not converted to float: float powder = powder * powder_scale.  The weights and
-    sums are the CPU class's (chunk2sparseCSC(exact=True)), so for the same matrix the two give the
-    same integers.  The default (exact=None, acc=None) is exact for 8 and 16-bit integer pixels, and
-    for wider ones when maxval (the largest value the data can hold: more fractional bits, see the
-    CPU class) is given, else float sums; exact=False or an explicit acc asks for float.  A matrix
-    that cannot be fixed-point falls back to float sums."""
+    csc: a scipy csc / pyFAI CSC engine, used as it is (float32 weights; acc 'f64' sums by default,
+    or 'f32'), or the result of bslz4_to_sparse.fixed_point_matrix: the powder is then the int64
+    sums of its integer weights (acc 'i64'), not converted to float: float powder = powder *
+    powder_scale.  They are the CPU class's integers for the same matrix.  The matrix is not
+    changed here."""
 
     def __init__(
         self,
@@ -535,59 +532,43 @@ class chunk2sparseCSC(chunk2sparse):
         pipeline=None,
         batch=16,
         acc=None,
-        maxval=None,
         howmany=None,
         thresholds=None,
-        exact=None,
     ):
-        dt = np.dtype(dtype)
-        if exact is None and acc is None:  # as the CPU class: integer sums for 16-bit pixels
-            if dt.kind in "ui" and (dt.itemsize <= 2 or maxval is not None):
-                try:
-                    self._setup(
-                        mask, csc, dtype, codec, pipeline, batch, "i64", maxval, howmany, thresholds, True
-                    )
-                    return
-                except ValueError:  # a matrix that cannot be fixed-point: float sums
-                    pass
-        self._setup(
-            mask, csc, dtype, codec, pipeline, batch, acc or "f64", maxval, howmany, thresholds, exact
-        )
-
-    def _setup(self, mask, csc, dtype, codec, pipeline, batch, acc, maxval, howmany, thresholds, exact):
         import scipy.sparse as ss
 
-        self._exact = bool(exact)
-        if self._exact:
-            if acc not in ("f64", "i64"):  # exact means i64
-                raise ValueError("exact needs acc='i64'")
+        fixed = csc if isinstance(csc, _matrix.FixedPointMatrix) else None
+        if fixed is not None:
+            if acc not in (None, "i64"):
+                raise ValueError("a fixed_point_matrix is summed with acc='i64'")
             acc = "i64"
+        else:
+            acc = acc or "f64"
+            if acc == "i64":
+                raise ValueError("acc='i64' needs a matrix from fixed_point_matrix")
         if acc not in ACC:
             raise ValueError("acc must be one of %s" % list(ACC))
         self.acc = acc
         super().__init__(mask, dtype, codec, pipeline, batch, howmany, thresholds)
         if self.kind == 2 and acc == "i64":
             raise ValueError("acc='i64' needs integer pixels")
-        nm = _matrix._fold_mask(_matrix.normalise_matrix(csc, npix=self.npix), self.mask)
+        if fixed is not None:
+            fixed.check(self.dtype, self.npix)
+            nm = fixed.nm
+        else:
+            nm = _matrix._fold_mask(_matrix.normalise_matrix(csc, npix=self.npix), self.mask)
         self.nbins = nm.nbins
         M = ss.csc_matrix(
-            (nm.data, nm.indices.astype(np.int64), nm.indptr.astype(np.int64)), shape=nm.shape
+            (
+                nm.data if fixed is None else fixed.data,
+                nm.indices.astype(np.int64),
+                nm.indptr.astype(np.int64),
+            ),
+            shape=nm.shape,
         )
         M.sort_indices()
-        nm = self._nm = _matrix._NormalMatrix(
-            M.data.astype(np.float32),
-            M.indices.astype(np.uint32),
-            M.indptr.astype(np.uint32),
-            nm.nbins,
-            nm.npix,
-        )
-        self.scale = None
-        if acc == "i64":
-            self.shift = _matrix._fixed_point_bits(nm, self.dtype, 32, maxval)
-            data = _matrix._quantise(nm, self.shift, np.uint32).astype(np.int64)
-            self.scale = 2.0**-self.shift
-        else:
-            data = M.data.astype(np.float32)
+        self.scale = None if fixed is None else fixed.scale
+        data = M.data
         # the GPU wants rows = bins (CSR): one thread block per bin reads its entries, no atomics
         R = ss.csc_matrix((data, M.indices, M.indptr), shape=M.shape).tocsr()
         R.sort_indices()
@@ -646,16 +627,15 @@ class chunk2sparseCSC(chunk2sparse):
 
     def _prepare_outputs(self, nf):
         if getattr(self, "_powder_buf", None) is None or self._powder_buf.shape[0] < nf:
-            self._powder_buf = np.empty((nf, self.nbins), np.int64 if self._exact else np.float64)
+            self._powder_buf = np.empty(
+                (nf, self.nbins), np.int64 if self.acc == "i64" else np.float64
+            )
         self._powder_out = self._powder_buf[:nf]
 
     def _fetch_powder(self, f0, n):
         h = self.h_powder[:n]
         self.d_powder[:n].get(out=h)  # into pinned memory: no allocation per batch
-        if self.scale is None or self._exact:
-            self._powder_out[f0 : f0 + n] = h[:, : self.nbins]
-        else:
-            np.multiply(h[:, : self.nbins], self.scale, out=self._powder_out[f0 : f0 + n])
+        self._powder_out[f0 : f0 + n] = h[:, : self.nbins]
 
     def _extra(self):
         return (self._powder_out,)

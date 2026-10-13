@@ -92,7 +92,7 @@ def test_csc(tmp_path, cname, codec):
     chunks = write(tmp_path / "c.h5", frames, cname)
     npix = SHAPE[0] * SHAPE[1]
     M = sp.random(50, npix, density=0.02, format="csc", random_state=1, dtype=np.float32)
-    c = b.chunk2sparseCSC(MASK, M, dtype=np.uint16, exact=False)
+    c = b.chunk2sparseCSC(MASK, M, dtype=np.uint16)
     ref = np.array([M @ (f.ravel().astype(np.float64) * MASK.ravel()) for f in frames])
     n, (vals, adr), p = c.multi(chunks, 0)
     assert c.codec == codec

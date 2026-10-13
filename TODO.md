@@ -1,10 +1,10 @@
 # To do
 
-- **u32 precision, maxval and wtmax.** The exact sums are the default for 8 and 16-bit pixels and
-  float for 32-bit ones, because the fixed-point weights must leave int64 headroom for the largest
+- **u32 precision, maxval and wtmax.** The conveyor backends' exact sums (via `fixed_point_matrix`) are the default for 8 and 16-bit
+  pixels and float for 32-bit ones, because the fixed-point weights must leave int64 headroom for the largest
   pixel value: for u32 at its dtype maximum a 1D matrix gets 15 to 17 fractional bits (the
   weights' step 2^-15 to 2^-17, bin sums off by up to a few 1e-6), for 16-bit pixels 31 or 32
-  (tools/fixed_point_precision.py prints this for your matrix and data).  `maxval=` gives the
+  (tools/fixed_point_precision.py prints this for your matrix and data).  `maxval=` of `fixed_point_matrix` gives the
   weights more bits when the data cannot reach the dtype maximum, as a promise: pixels above it can
   overflow the sums silently.  A safe form needs the u32 kernels to clip pixel values inside the
   dot (ImageD11's wtmax); until then wtmax is applied afterwards, bit for bit, with

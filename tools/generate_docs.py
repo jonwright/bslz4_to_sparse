@@ -438,7 +438,7 @@ def pipelines_page():
         "Every value of every step: what it does, from the comments in the C sources "
         "(linked), and what it needs, from `VALUES` in `src/_pipeline.py`.  Value 0 "
         "(`auto`) is resolved when an object is made; `describe()` shows which values "
-        "the running machine can use (see the [pipelines example](examples/ex5_pipelines.md)), "
+        "the running machine can use (see the [pipelines example](examples/ex4_pipelines.md)), "
         "and the [kernel page](kernels.md) times them all.\n",
         step_values_section("##"),
         "\n" + provenance(),

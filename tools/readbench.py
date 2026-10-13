@@ -20,7 +20,7 @@ link when reads overlap with compute: report() ends with that budget.
 record() appends one JSON line per (reader, case) for the current machine and build, replacing any
 earlier line with the same machine, sources, pipeline, data, case and reader (so rerunning does not
 pile up duplicates). report() prints every machine/build/pipeline in the file as its own table of
-ms per frame, then the network budget.  See examples/ex13_decode_timing.py for a run and its output;
+ms per frame, then the network budget.  See examples/ex12_decode_timing.py for a run and its output;
 the file lives in tools/ of the repository (put that directory on PYTHONPATH).
 """
 from __future__ import print_function

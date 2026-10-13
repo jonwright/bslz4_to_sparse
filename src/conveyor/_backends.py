@@ -4,6 +4,31 @@
 import numpy as np
 
 
+def _prepared_matrix(mask, csc, dtype, exact, maxval, float_asked=False):
+    """The matrix a backend gives the decoder: the demo's policy for exact sums.  exact=None:
+    bslz4_to_sparse.fixed_point_matrix for 8 and 16-bit integer pixels (and wider ones when maxval
+    is given), unless float_asked or the matrix cannot be fixed-point, then csc as it is;
+    exact=True: fixed_point_matrix or an error; exact=False: csc as it is."""
+    import bslz4_to_sparse as b
+
+    dt = np.dtype(dtype)
+    if exact is None:
+        if float_asked or dt.kind not in "ui" or (dt.itemsize > 2 and maxval is None):
+            return csc
+        try:
+            return b.fixed_point_matrix(csc, mask, dt, maxval)
+        except ValueError:
+            return csc
+    return b.fixed_point_matrix(csc, mask, dt, maxval) if exact else csc
+
+
+def _names_float_dot(pipeline):
+    import bslz4_to_sparse as b
+
+    name = b._pipeline.NAMES["dot"][b._pipeline.parse(pipeline)[b._pipeline.DOT]]
+    return name != "auto" and name not in b._matrix.INT_DOTS
+
+
 class CpuBackend(object):
     """bslz4_to_sparse.chunk2sparse, or chunk2sparseCSC with a matrix (the GIL is released).
     mask, dtype: the detector mask and pixel type; csc: a pyFAI CSC matrix or None; cut, howmany,
@@ -29,6 +54,19 @@ class CpuBackend(object):
         self.mask, self.csc, self.dtype, self.cut = mask, csc, np.dtype(dtype), cut
         self.exact, self.maxval = exact, maxval
         self.howmany, self.thresholds, self.pipeline = howmany, thresholds, pipeline
+        self._fixed = None
+
+    def _matrix(self):
+        if self._fixed is None:  # once, shared by the workers
+            self._fixed = _prepared_matrix(
+                self.mask,
+                self.csc,
+                self.dtype,
+                self.exact,
+                self.maxval,
+                float_asked=_names_float_dot(self.pipeline),
+            )
+        return self._fixed
 
     def make_worker(self):
         """A decoder for one worker: fn(buffer, offsets, lengths) -> (npx, values, indices,
@@ -39,9 +77,7 @@ class CpuBackend(object):
         if self.csc is None:
             c = b.chunk2sparse(self.mask, self.dtype, **kw)
         else:
-            c = b.chunk2sparseCSC(
-                self.mask, self.csc, self.dtype, exact=self.exact, maxval=self.maxval, **kw
-            )
+            c = b.chunk2sparseCSC(self.mask, self._matrix(), self.dtype, **kw)
         cut = self.cut
 
         def run(buf, offsets, lengths):
@@ -116,6 +152,19 @@ class GpuBackend(object):
         self.mask, self.csc, self.dtype, self.cut = mask, csc, np.dtype(dtype), cut
         self.exact, self.maxval = exact, maxval
         self.batch, self.acc, self.howmany, self.thresholds = batch, acc, howmany, thresholds
+        self._fixed = None
+
+    def _matrix(self):
+        if self._fixed is None:  # once, shared by the workers
+            self._fixed = _prepared_matrix(
+                self.mask,
+                self.csc,
+                self.dtype,
+                self.exact,
+                self.maxval,
+                float_asked=self.acc not in (None, "i64"),
+            )
+        return self._fixed
 
     def make_worker(self):
         """A GPU decoder for one worker: fn(buffer, offsets, lengths) -> (npx, values, indices,
@@ -127,13 +176,7 @@ class GpuBackend(object):
             c = cuda.chunk2sparse(self.mask, self.dtype, **kw)
         else:
             c = cuda.chunk2sparseCSC(
-                self.mask,
-                self.csc,
-                self.dtype,
-                acc=self.acc,
-                exact=self.exact,
-                maxval=self.maxval,
-                **kw
+                self.mask, self._matrix(), self.dtype, acc=self.acc, **kw
             )
         cut = self.cut
 

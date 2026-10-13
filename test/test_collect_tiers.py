@@ -92,7 +92,7 @@ def test_powder_same_for_every_tier(tmp_path, dt, route):
     for tier in TIERS:
         integ = b.chunk2sparseCSC(mask, M, dtype=dt, codec=codec,
                                   pipeline={"collect": tier, "untranspose": "kcb",
-                                            "route": route}, exact=False)
+                                            "route": route})
         npx, (vals, adr), p = integ.multi(chunks, 0)
         res[tier] = (p.copy(), npx.copy())
     ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])

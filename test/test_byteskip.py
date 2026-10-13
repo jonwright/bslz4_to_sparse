@@ -130,7 +130,7 @@ def test_powder_identical_for_every_untranspose(tmp_path, kind, route):
     names = untransposes(frames.dtype)
     for skip in names:
         integ = b.chunk2sparseCSC(mask, M, dtype=frames.dtype, codec=codec,
-                                  pipeline={"untranspose": skip, "route": route}, exact=False)
+                                  pipeline={"untranspose": skip, "route": route})
         out[skip] = integ.multi(chunks, 0)[2].copy()
     ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
     for skip in names:

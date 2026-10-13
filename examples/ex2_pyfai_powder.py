@@ -12,10 +12,9 @@ powder pattern comes out of the decompression with no dense frame.  A call retur
 
 pyFAI divides powder_sum by sum_normalization, the same sum for an image of ones with the
 corrections (solid angle, polarisation, flat field) folded in, to get the intensity.
-sum_normalization does not depend on the data: it is computed once.  One change since the
-releases: for 8 and 16-bit pixels the powder defaults to exact integer sums now, so the float64 of
-the released versions is asked for with exact=False, as here; the last part of this example shows
-the new default.
+sum_normalization does not depend on the data: it is computed once.  The matrix is used as it is
+given, as in the released versions.  The last part of this example shows what is new in 0.0.22:
+fixed_point_matrix prepares the matrix for exact integer sums.
 """
 
 import h5py
@@ -53,7 +52,7 @@ engine = ai.engines[method].engine  # pyFAI's CSC matrix
 sum_normalization = np.asarray(ones.sum_normalization).ravel()
 
 # Our object: decode, collect the sparse pixels and multiply into the matrix, all in one pass.
-integ = bslz4_to_sparse.chunk2sparseCSC(mask, engine, dtype, exact=False)
+integ = bslz4_to_sparse.chunk2sparseCSC(mask, engine, dtype)
 cut = 3
 npx, (values, indices), powder_sum = integ(chunk0, cut)
 print("pipeline dot:", bslz4_to_sparse.describe(integ.pipeline)["dot"])
@@ -100,7 +99,7 @@ plt.show()
 # Only the powder is wanted? Then no pixel needs collecting: a cut at the dtype's maximum finds none
 # (and howmany=0 would keep none of any that were found).
 nothing = np.iinfo(dtype).max
-only_powder = bslz4_to_sparse.chunk2sparseCSC(mask, engine, dtype, exact=False)
+only_powder = bslz4_to_sparse.chunk2sparseCSC(mask, engine, dtype)
 npx, _, powder_only = only_powder(chunk0, nothing)
 assert npx == 0 and np.array_equal(powder_only, powder_sum)
 print("with the cut at the dtype maximum: no pixels, the same powder_sum")
@@ -108,17 +107,18 @@ print("with the cut at the dtype maximum: no pixels, the same powder_sum")
 # 2D (radial x azimuth): the matrix has nrad * nazim rows, in radial-major order
 method2 = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=2)
 ref2 = ai.integrate2d(frame0, 100, 18, unit="q_nm^-1", method=method2, mask=bad)
-integ2 = bslz4_to_sparse.chunk2sparseCSC(mask, ai.engines[method2].engine, dtype, exact=False)
+integ2 = bslz4_to_sparse.chunk2sparseCSC(mask, ai.engines[method2].engine, dtype)
 _, _, powder_sum2 = integ2(chunk0, nothing)
 cake = powder_sum2.reshape(100, 18).T  # pyFAI's (azimuth, radial) layout
 assert np.allclose(cake, ref2.sum_signal, rtol=1e-9, atol=0)
 print("2D cake", cake.shape, "matches pyFAI's integrate2d sum_signal")
 
-# New in 0.0.22, and the default for 8 and 16-bit pixels: exact sums.  The powder is then int64, the
-# sums of fixed-point integer weights, and powder_scale (a power of two) turns it into float; for
-# 32-bit pixels (or exact=False) the sums are float64 and powder_scale is None.
-exact = bslz4_to_sparse.chunk2sparseCSC(mask, engine, dtype)
+# New in 0.0.22: exact sums.  fixed_point_matrix folds the mask into the matrix and stores its
+# weights as fixed-point integers; chunk2sparseCSC given it returns the int64 sums of integer
+# weight x pixel, and powder_scale (a power of two) turns them into float.  Integer pixels only;
+# for 32-bit pixels the weights get fewer bits, unless maxval says how large the data can be.
+fixed = bslz4_to_sparse.fixed_point_matrix(engine, mask, dtype)
+exact = bslz4_to_sparse.chunk2sparseCSC(mask, fixed, dtype)
 _, _, powder_int = exact(chunk0, nothing)
-print("default: powder %s, powder_scale %s" % (powder_int.dtype, exact.powder_scale))
-if exact.powder_scale is not None:
-    assert np.allclose(powder_int * exact.powder_scale, powder_sum, rtol=1e-6, atol=0)
+print("fixed point: powder %s, scale 2**-%d" % (powder_int.dtype, fixed.bits))
+assert np.allclose(powder_int * exact.powder_scale, powder_sum, rtol=1e-6, atol=0)

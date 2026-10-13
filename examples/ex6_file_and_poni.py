@@ -2,7 +2,7 @@
 
 Open the file, take the geometry from the .poni, build the integrator once, then for every frame get
 the pixels above the cut and the powder pattern straight from the compressed chunks, read by offset.
-Nothing is written here: what to do with the results is up to you (examples 9, 11 and 12 write results, example 10 iterates over them).
+Nothing is written here: what to do with the results is up to you (examples 8, 10 and 11 write results, example 9 iterates over them).
 """
 
 import os
@@ -44,7 +44,6 @@ ones = ai.integrate1d(
 sum_normalization = np.asarray(ones.sum_normalization).ravel()
 integ = bslz4_to_sparse.chunk2sparseCSC(mask, ai.engines[method].engine, dtype=dtype, codec=codec)
 
-scale = integ.powder_scale or 1.0  # integer sums (16-bit pixels) times 2**-b, or already float
 npixels = np.empty(nframes, np.int64)
 powder_sums = np.empty((nframes, npt))
 fd = os.open(h5filename, os.O_RDONLY)
@@ -53,7 +52,7 @@ for i in range(nframes):
     offset, size = where[i]
     npx, (values, indices), powder_sum = integ(os.pread(fd, size, offset), cut)
     npixels[i] = npx
-    powder_sums[i] = powder_sum * scale
+    powder_sums[i] = powder_sum
     # values[:npx], indices[:npx] are this frame's sparse pixels: use or copy them here, the next
     # call overwrites them
 elapsed = time.perf_counter() - t0

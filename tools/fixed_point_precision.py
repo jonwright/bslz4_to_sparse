@@ -4,8 +4,8 @@
     python3 tools/fixed_point_precision.py --h5 eiger_0000.h5 --dset /entry_0000/ESRF-ID11/eiger/data \
         --poni calib.poni --mask mask.h5 [--npt 500] [--frames 8]
 
-chunk2sparseCSC sums pixel x weight in int64, with the weights rounded to integers, round(w * 2**b),
-stored in 32 bits.  The number of fractional bits b is the smaller of
+fixed_point_matrix rounds the weights to integers, round(w * 2**b), stored in 32 bits, and
+chunk2sparseCSC given it sums pixel x weight in int64.  The number of fractional bits b is the smaller of
 
   * the weights' width:        b <= floor(log2((2**32 - 1) / the largest weight))
   * the accumulator's headroom: b <= floor(62 - log2(the largest pixel value + 1)
@@ -17,7 +17,7 @@ pixels are limited by the width of the weights (b = 31 or 32), 32-bit pixels by 
 weights moves a bin sum by about 2**-b relative to the weights, so this tool prints, for your
 matrix: b for several largest pixel values, and what rounding to b bits does to the bin sums of a real
 frame of your data (the largest and the median relative difference from float64 sums with the same
-weights).  maxval= tells chunk2sparseCSC the largest value the data can reach, to get more bits.
+weights).  maxval= tells fixed_point_matrix the largest value the data can reach, to get more bits.
 
 Needs pyFAI, h5py, hdf5plugin and scipy.
 """

@@ -129,7 +129,7 @@ def test_powder_unchanged(tmp_path, dt, kind, route):
     for dec, unt, msk in itertools.product(DECODES, untransposes(dt), MASKS):
         integ = b.chunk2sparseCSC(mask, M, dtype=dt, codec=codec,
                                   pipeline={"decode": dec, "untranspose": unt, "mask": msk,
-                                            "route": route}, exact=False)
+                                            "route": route})
         npx, (vals, adr), p = integ.multi(chunks, 0)
         tag = (kind, route, dec, unt, msk)
         assert np.allclose(p, ref, rtol=1e-9, atol=1e-9), tag

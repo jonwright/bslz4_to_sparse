@@ -353,6 +353,66 @@ def _quantise(nm, b, wtype):
 
 
 
+INT_DOTS = ("csc-int", "csc-run-int", "csc-run-int16")
+
+
+class FixedPointMatrix(object):
+    """A csc matrix prepared for the integer dots: the mask folded in and the weights stored as
+    round(w * 2**bits) integers (data, uint32 or uint16), so that a chunk2sparseCSC given it
+    returns the int64 sums of integer weight times pixel, exact; powder * scale is the float sum
+    (scale = 2**-bits).  Made by fixed_point_matrix; the decoder uses it as it is."""
+
+    def __init__(self, nm, data, bits, dtype, maxval):
+        self.nm = nm  # the mask-folded float32 matrix the weights were made from
+        self.data = data
+        self.bits = int(bits)
+        self.scale = 2.0 ** -self.bits
+        self.nbins = nm.nbins
+        self.npix = nm.npix
+        self.dtype = np.dtype(dtype)
+        self.maxval = maxval
+
+    def check(self, dtype, npix):
+        """ValueError unless this matrix can be used for pixels of dtype in frames of npix."""
+        dtype = np.dtype(dtype)
+        if dtype.kind not in "ui":
+            raise ValueError("a fixed_point_matrix needs integer pixels, not %s" % dtype)
+        if npix != self.npix:
+            raise ValueError("the mask has %d pixels, the matrix %d" % (npix, self.npix))
+        if dtype.itemsize > self.dtype.itemsize:
+            raise ValueError(
+                "the matrix was made for %s pixels: its sums could overflow for %s" % (self.dtype, dtype)
+            )
+
+
+def fixed_point_matrix(csc, mask, dtype, maxval=None, wbits=32):
+    """
+    Prepare a csc matrix (scipy csc, pyFAI CSC engine, ...) for exact integer sums: fold the mask
+    in (masked pixels add nothing), then store the weights as fixed-point integers of wbits (32
+    or 16) bits.  Give the result to chunk2sparseCSC in place of the matrix.
+
+    dtype: the pixel dtype of the data (integer).  The weights get b fractional bits, b <= wbits
+    (their width) and b <= 62 - log2(maxval + 1) - log2(the largest sum of weights in a bin), so
+    that the int64 sums cannot overflow; each doubling of maxval costs a bit.  maxval is the
+    dtype's maximum unless given: the largest value the data can hold.  For 16-bit pixels b is
+    about 31, for 32-bit pixels at their maximum about 17 for a 1D matrix (weight step 2**-17: a
+    relative error of a few 1e-6 in a bin sum).  Pixels above maxval can overflow the sums,
+    silently: it is a promise about the data.  tools/fixed_point_precision.py prints b for a
+    matrix and data.
+
+    Raises ValueError for a matrix that cannot be fixed-point (negative weights beyond rounding
+    noise, no room for 4 fractional bits).  The result has .scale (2**-b), .bits and .nbins.
+    """
+    mask = np.asarray(mask)
+    dtype = np.dtype(dtype)
+    if wbits not in (16, 32):
+        raise ValueError("wbits must be 16 or 32")
+    nm = _fold_mask(normalise_matrix(csc, npix=mask.size), mask.ravel())
+    b = _fixed_point_bits(nm, dtype, wbits, maxval)
+    data = _quantise(nm, b, np.uint16 if wbits == 16 else np.uint32)
+    return FixedPointMatrix(nm, data, b, dtype, maxval)
+
+
 def _permute_bins(nm):
     """FAZIT: every pixel reaches its own bin (a permutation of the unmasked
     pixels), weight 1; the output is the pixel values in bin order."""
@@ -392,7 +452,7 @@ def auto_dot(info, padded_avx2, block_elems=None):
     bsb-csr; runs of 9-64 bins -> padded for decode blocks of <= 8192 pixels, csc for larger ones
     (csc-run was never the best); else csc.  Decode blocks over BSB_MAX_BLOCK_ELEMS pixels rule
     the bsb-csr dots out (csc-nosplit, csc instead).  Never csc-permute (it changes the output) or
-    the integer dots: chunk2sparseCSC chooses those itself, for its exact sums."""
+    the integer dots, which need a matrix from fixed_point_matrix."""
     bsb = block_elems is None or block_elems <= BSB_MAX_BLOCK_ELEMS
     if info["nosplit"]:
         return "bsb-csr-nosplit" if bsb else "csc-nosplit"
@@ -430,10 +490,13 @@ class Layout(object):
         return self._args
 
 
-def build(dot, nm, block_elems, dtype, maxval=None):
-    """The Layout of a mask-folded _NormalMatrix for one dot.  Raises
+def build(dot, nm, block_elems, dtype, fixed=None):
+    """The Layout of a mask-folded _NormalMatrix for one dot (the integer dots take the
+    FixedPointMatrix made from it).  Raises
     ValueError (without the step context) if the dot cannot represent it."""
     nbins = nm.nbins
+    if fixed is not None and dot not in INT_DOTS:
+        raise ValueError("a fixed_point_matrix needs an integer dot (csc-int, ...), not %s" % dot)
     if dot == "csc":
         return Layout(dot, "csc", (nm.data, nm.indices, nm.indptr), nbins)
     if dot == "csc-run":
@@ -443,12 +506,18 @@ def build(dot, nm, block_elems, dtype, maxval=None):
     if dot == "csc-permute":
         return Layout(dot, "csc", (nm.data, _permute_bins(nm), nm.indptr), nbins,
                       powder_dtype=np.dtype(dtype))
-    if dot in ("csc-int", "csc-run-int", "csc-run-int16"):
-        wbits, wtype = (16, np.uint16) if dot == "csc-run-int16" else (32, np.uint32)
+    if dot in INT_DOTS:
+        if fixed is None:
+            raise ValueError("%s needs the matrix prepared by fixed_point_matrix" % dot)
+        wtype = np.uint16 if dot == "csc-run-int16" else np.uint32
+        if fixed.data.dtype != wtype:
+            raise ValueError(
+                "%s takes %s weights, the matrix has %s (fixed_point_matrix wbits)"
+                % (dot, np.dtype(wtype), fixed.data.dtype)
+            )
         idx = nm.indices if dot == "csc-int" else _runs(nm)[0].astype(np.uint32)
-        b = _fixed_point_bits(nm, dtype, wbits, maxval)
-        return Layout(dot, "csc", (_quantise(nm, b, wtype), idx, nm.indptr), nbins,
-                      powder_dtype=np.int64, scale=2.0 ** -b)
+        return Layout(dot, "csc", (fixed.data, idx, nm.indptr), nbins,
+                      powder_dtype=np.int64, scale=fixed.scale)
     if dot in ("padded", "padded-avx2"):
         p = _padded_from_csc(nm, block_elems)
         return Layout(dot, "padded", (p.base, p._weights_flat, p._pixels_arg, p._rowmap_arg,

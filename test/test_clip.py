@@ -37,7 +37,7 @@ def test_clip_afterwards_equals_clipping_first(dtype, wtmax):
     mask[3, :] = 0
     m = split_matrix()
     cut = 5  # at most wtmax: every pixel above wtmax is in the sparse output
-    e = b.chunk2sparseCSC(mask, m, dtype, exact=True)
+    e = b.chunk2sparseCSC(mask, b.fixed_point_matrix(m, mask, dtype), dtype)
     npx, (values, indices), powder = e.from_frames(fr, cut)
     powder = powder.copy()
     values, indices = values.copy(), indices.copy()
@@ -45,7 +45,7 @@ def test_clip_afterwards_equals_clipping_first(dtype, wtmax):
     assert scale == e.powder_scale
     got = cv.clip_exact_powder(powder, npx, values, indices, wtmax, W)
     ref = (
-        b.chunk2sparseCSC(mask, m, dtype, exact=True)
+        b.chunk2sparseCSC(mask, b.fixed_point_matrix(m, mask, dtype), dtype)
         .from_frames(np.minimum(fr, wtmax).astype(dtype), cut)[2]
         .copy()
     )

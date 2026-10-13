@@ -34,6 +34,17 @@ SPLITS = ("no", "bbox", "full")
 BINS_PER_PIXEL = (1, 5)
 
 
+def prepared(mask, M, dot, dtype=np.uint16):
+    """M as it is for a float dot; for an integer dot, fixed_point_matrix of it (what that dot
+    needs).  A matrix it cannot make is refused as a dot refuses one."""
+    if dot not in ("csc-int", "csc-run-int", "csc-run-int16"):
+        return M
+    try:
+        return b.fixed_point_matrix(M, mask, dtype, wbits=16 if dot == "csc-run-int16" else 32)
+    except ValueError as e:
+        raise ValueError("cannot represent this matrix: %s" % e)
+
+
 def expected(integ, frames, ref):
     """(reference powder, relative tolerance) for this integrator's dot.  The
     fixed-point dots sum exact integers, so they are checked against numpy
@@ -55,8 +66,8 @@ def available_dots():
 
 
 def make_integ(mask, M, codec, dot, route=None):
-    return b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec,
-                             pipeline={"dot": dot, "route": route}, exact=False)
+    return b.chunk2sparseCSC(mask, prepared(mask, M, dot), dtype=np.uint16, codec=codec,
+                             pipeline={"dot": dot, "route": route})
 
 
 def make_ai():
@@ -113,6 +124,7 @@ def test_every_dot_on_pyfai_matrix(setup, split, bpp):
             except ValueError:
                 continue
             _npx, _sparse, p = integ.multi(chunks, 0)
+            p = p * integ.powder_scale if integ.powder_scale else p
             seen.add(dot)
             r, tol = expected(integ, frames * keep.reshape(frames.shape[1:]), ref)
             err = np.abs(p - r).max() / scale
@@ -173,6 +185,7 @@ def test_ring_first_moment(setup, split, order):
             except ValueError:
                 continue
             _npx, _sparse, p = integ.multi(chunks, 0)
+            p = p * integ.powder_scale if integ.powder_scale else p
             seen.add(dot)
             r, tol = expected(integ, frames * keep.reshape(frames.shape[1:]), ref)
             err = np.abs(p - r).max() / scale
@@ -194,6 +207,7 @@ def run_dots(mask, M, frames, chunks, codec, dots):
             except ValueError:
                 continue
             _npx, _sparse, p = integ.multi(chunks, 0)
+            p = p * integ.powder_scale if integ.powder_scale else p
             r, tol = expected(integ, frames * mask, ref)
             err = np.abs(p - r).max() / scale
             assert err < tol, (dot, route, err)
@@ -255,6 +269,7 @@ def test_fazit_permutation(setup):
     assert "csc-permute" in seen and "csc-nosplit" in seen
     integ = make_integ(mask, M, codec, "csc-permute")
     _npx, _sparse, p = integ.multi(chunks, 0)
+    p = p * integ.powder_scale if integ.powder_scale else p
     assert p.dtype == np.uint16
     want = np.array([f.ravel()[pix[order]] for f in frames])
     assert (p == want).all()
@@ -286,4 +301,5 @@ def test_tiled_fazit_runs(setup, fast):
     for route in ROUTES:
         integ = make_integ(mask, M, codec, "csc-permute", route)
         _npx, _sparse, p = integ.multi(chunks, 0)
+        p = p * integ.powder_scale if integ.powder_scale else p
         assert (p == want).all(), route

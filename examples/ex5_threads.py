@@ -4,7 +4,7 @@ The decode releases the GIL (and on free-threaded Python 3.14t/3.15t there is no
 decode in parallel, and so does reading a file with os.pread.  Objects keep and reuse their own work
 and output buffers and nothing is locked, so each thread owns one object and copies what it keeps
 before its next call.  Here every thread reads its own frames from the file by offset (the offsets
-are found once, see example 4) and decodes them, with no HDF5 call in the loop.
+are found once, see example 3) and decodes them, with no HDF5 call in the loop.
 """
 
 import os

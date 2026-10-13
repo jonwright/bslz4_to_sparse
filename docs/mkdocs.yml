@@ -47,18 +47,17 @@ nav:
       - "Released API (0.0.15, 0.0.16), unchanged":
           - "1: Sparse pixels": gen/examples/ex1_sparse_pixels.md
           - "2: Powder with pyFAI": gen/examples/ex2_pyfai_powder.md
-          - "3: The raw functions": gen/examples/ex3_raw_functions.md
       - "New in 0.0.22":
-          - "4: Batches and file offsets": gen/examples/ex4_batches_and_offsets.md
-          - "5: Pipelines": gen/examples/ex5_pipelines.md
-          - "6: Threads": gen/examples/ex6_threads.md
-          - "7: Your file and a .poni": gen/examples/ex7_file_and_poni.md
-          - "8: Limit pixels, uncompressed frames, decompress alone": gen/examples/ex8_limit_pixels_and_frames.md
-          - "9: The conveyor": gen/examples/ex9_conveyor.md
-          - "10: The firehose, as a for loop": gen/examples/ex10_firehose.md
-          - "11: Writing results and the integrator": gen/examples/ex11_write_results.md
-          - "12: Rings per frame for texture work": gen/examples/ex12_rings_per_frame.md
-          - "13: Timing the decode": gen/examples/ex13_decode_timing.md
+          - "3: Batches and file offsets": gen/examples/ex3_batches_and_offsets.md
+          - "4: Pipelines": gen/examples/ex4_pipelines.md
+          - "5: Threads": gen/examples/ex5_threads.md
+          - "6: Your file and a .poni": gen/examples/ex6_file_and_poni.md
+          - "7: Limit pixels, uncompressed frames, decompress alone": gen/examples/ex7_limit_pixels_and_frames.md
+          - "8: The conveyor": gen/examples/ex8_conveyor.md
+          - "9: The firehose, as a for loop": gen/examples/ex9_firehose.md
+          - "10: Writing results and the integrator": gen/examples/ex10_write_results.md
+          - "11: Rings per frame for texture work": gen/examples/ex11_rings_per_frame.md
+          - "12: Timing the decode": gen/examples/ex12_decode_timing.md
   - Performance:
       - Three data sets: gen/performance.md
       - Every pipeline: gen/kernels.md

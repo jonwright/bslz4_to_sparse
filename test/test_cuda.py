@@ -169,8 +169,13 @@ def test_matrices(tmp_path, dt, kind, acc):
         kind
     ]()  # more bins than a uint16
     mv = int(frames[:, mask > 0].max()) if np.dtype(dt).kind != "f" else None
-    c = g.chunk2sparseCSC(mask, M, dt, codec, acc=acc, maxval=mv, exact=False)
+    if acc == "i64":  # integer sums need the matrix prepared
+        c = g.chunk2sparseCSC(mask, b.fixed_point_matrix(M, mask, dt, maxval=mv), dt, codec)
+    else:
+        c = g.chunk2sparseCSC(mask, M, dt, codec, acc=acc)
     npx, (v, idx), p = c.multi(chunks, 0)
+    if c.powder_scale is not None:
+        p = p * c.powder_scale
     ref = reference(M, frames, mask)
     assert np.abs(p - ref).max() / max(np.abs(ref).max(), 1.0) < TOL[acc]
 
@@ -215,8 +220,8 @@ def test_howmany_matches_the_cpu_classes(tmp_path, dt):
         (cap + 10, [2, 4]),
     )
     for howmany, thresholds in cases:
-        gpu = g.chunk2sparseCSC(mask, M, dt, codec, howmany=howmany, thresholds=thresholds, exact=False)
-        cpu = b.chunk2sparseCSC(mask, M, dt, codec, howmany=howmany, thresholds=thresholds, exact=False)
+        gpu = g.chunk2sparseCSC(mask, M, dt, codec, howmany=howmany, thresholds=thresholds)
+        cpu = b.chunk2sparseCSC(mask, M, dt, codec, howmany=howmany, thresholds=thresholds)
         for cut in (0, 2):  # the CPU classes take an integer cut
             n1, (v1, i1), p1 = gpu.multi(chunks, cut)
             n0, (v0, i0), p0 = cpu.multi(chunks, cut)
@@ -262,7 +267,7 @@ def test_single_offsets_coo(tmp_path):
     mask = np.ones(shape, np.uint8)
     frames = rng.poisson(0.3, (5,) + shape).astype(np.uint16)
     chunks, codec = write_chunks(tmp_path / "f.h5", frames)
-    c = g.chunk2sparseCSC(mask, make_split_1d(mask.size, 50, 1), np.uint16, codec, exact=False)
+    c = g.chunk2sparseCSC(mask, make_split_1d(mask.size, 50, 1), np.uint16, codec)
     n1, (v1, i1), p1 = c(chunks[1], 1)
     npx, (v, i), p = c.multi(chunks, 1)
     assert (

@@ -114,7 +114,7 @@ def test_pipeline_defaults_and_rejects():
             b.chunk2sparse(mask, pipeline={step: "bogus"})
     for step in ("route", "dot"):
         with pytest.raises(ValueError, match="is unknown"):
-            b.chunk2sparseCSC(mask, _csc(), pipeline={step: 99}, exact=False)
+            b.chunk2sparseCSC(mask, _csc(), pipeline={step: 99})
         # route and dot need a matrix
         with pytest.raises(ValueError, match="this object has no matrix"):
             b.chunk2sparse(mask, pipeline={step: 1})
@@ -154,7 +154,7 @@ def test_pipeline_forces_collect_value():
 @pytest.mark.parametrize("route", ["sparse", "dense"])
 def test_counters_every_route_and_tail(route):
     c = b.chunk2sparseCSC(np.ones((1, NPIX), np.uint8), _csc(), dtype=np.uint16,
-                          pipeline={"route": route}, exact=False)
+                          pipeline={"route": route})
     names = b.describe(c.pipeline)
     if names["collect"] == "scalar":
         pytest.skip("no SIMD collect value on this CPU/build")
@@ -216,7 +216,7 @@ def test_resolution_errors():
     mask = np.zeros(NPIX, np.uint8)
     pipe = b.chunk2sparse(np.ones((1, NPIX), np.uint8)).pipeline
     cpipe = b.chunk2sparseCSC(np.ones((1, NPIX), np.uint8), _csc(),
-                              pipeline={"dot": "csc"}, exact=False).pipeline
+                              pipeline={"dot": "csc"}).pipeline
 
     # dtype out of range -> ERR_DTYPE (-113)
     assert _ext.sparsify(ptr, lens, mask, np.zeros(NPIX, np.uint16),
@@ -290,15 +290,17 @@ def test_dot_values_agree(tmp_path):
         np.add.at(ref[f], indices, arr[f].ravel().astype(np.float64))
 
     def _run(dot, route):
-        c = b.chunk2sparseCSC(mask, csc, dtype=np.uint16,
-                              pipeline={"dot": dot, "route": route}, exact=False)
+        fixed = dot in ("csc-int", "csc-run-int", "csc-run-int16")
+        c = b.chunk2sparseCSC(mask, b.fixed_point_matrix(csc, mask, np.uint16,
+                              wbits=16 if dot == "csc-run-int16" else 32) if fixed else csc,
+                              dtype=np.uint16, pipeline={"dot": dot, "route": route})
         assert c.dot == dot
         _testing.reset_counters()
         npx, (vals, adr), powder = c.multi(chunks, 1)
         cnt = _testing.counters()["dot"]
         assert cnt.get(dot, 0) > 0, (dot, "selected dot did not run", cnt)
         assert set(cnt) == {dot}, (dot, "another dot ran", cnt)
-        return npx.copy(), vals.copy(), adr.copy(), np.asarray(powder, np.float64).copy()
+        return npx.copy(), vals.copy(), adr.copy(), np.asarray(powder, np.float64) * (c.powder_scale or 1.0)
 
     usable = [d for d in DOTS if d in _usable("dot")]
     for route in ("dense", "sparse"):

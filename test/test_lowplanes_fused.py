@@ -99,7 +99,7 @@ def test_csc_sparse_route(tmp_path, kind, mname):
     for skip in LOWPLANES + ["kcb"]:
         # every block takes the sparse route
         integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec,
-                                  pipeline={"untranspose": skip, "route": "sparse"}, exact=False)
+                                  pipeline={"untranspose": skip, "route": "sparse"})
         for cut in (0, 7, 255):
             npx, (vals, adr), p = integ.multi(chunks, cut)
             assert np.allclose(p, ref, rtol=1e-9, atol=1e-9), (kind, mname, skip, cut)
