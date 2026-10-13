@@ -229,6 +229,7 @@ def run(
     reader_cpus=None,
     io_bytes=0,
     meta=None,
+    policy=None,
     start_timeout=900,
 ):
     """Run the units through the conveyor; returns a dict of what it took.
@@ -243,6 +244,8 @@ def run(
     worker_cpus   list: worker k is pinned to worker_cpus[k % len]; None leaves it to the OS
     reader_cpus   list: every reader may run on any of these; None leaves it to the OS
     io_bytes      size of each read call (0: the whole unit in one call)
+    policy        a Policy: refuse an output that is not allowed before starting, and guard the
+                  sink on the compressed size of each unit
     """
     if not units:
         raise ValueError("no units")
@@ -251,6 +254,9 @@ def run(
         raise ValueError("mode must be 'threads' or 'processes'")
     ctx = ctx or _ForkContext()
     sink = sink or (lambda k: NullSink())
+    if policy is not None:
+        policy.check(backend, units)
+        sink = policy.wrap(sink)
     S = slots_per_worker
     slot_bytes = (max(u.span for u in units) + 4095) // 4096 * 4096
     mm = mmap.mmap(-1, workers * S * slot_bytes, flags=mmap.MAP_SHARED | mmap.MAP_ANONYMOUS)

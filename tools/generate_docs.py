@@ -296,9 +296,13 @@ def conveyor_page():
             "Chunk indexes and units",
             ("make_units", "read_index", "write_index", "harvest", "sidecar_path", "StaleIndex"),
         ),
-        ("Running", ("run", "report", "numa_nodes")),
+        ("Running", ("run", "iterate", "report", "numa_nodes")),
         ("Decoders", ("CpuBackend", "DecompressBackend", "GpuBackend")),
-        ("Sinks", ("Sink", "NullSink", "GuardSink", "OutputTooLarge", "stored_size")),
+        ("Sinks", ("Sink", "NullSink")),
+        (
+            "Output policy",
+            ("Policy", "OutputRefused", "GuardSink", "OutputTooLarge", "stored_size"),
+        ),
     )
     for title, names in groups:
         parts.append("# %s\n" % title)

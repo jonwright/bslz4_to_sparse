@@ -60,7 +60,9 @@ synchronisation is about once per file.  The conveyor is pure Python 3.
 
 Every run reports the compressed bytes read, the bytes of results and the rates.
 A guard sink measures the results compressed as they would be stored and refuses
-to write anything larger than the compressed input it came from.
+to write anything larger than the compressed input it came from.  A policy states what
+the conveyor agrees to write, and results can also be taken in memory as a plain
+iterator, which is how to read them without choosing a file format.
 
 ## Where to look
 

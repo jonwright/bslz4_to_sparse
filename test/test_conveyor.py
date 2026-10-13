@@ -333,3 +333,60 @@ def test_report_and_the_size_guard(tmp_path):
     # without a guard the report has no stored size
     r = cv.run(units, backend, workers=2, batch=8)
     assert r["stored_bytes"] is None and "stored" not in cv.report(r)
+
+
+def test_policy_allows_sparse_and_powder_and_refuses_the_rest(tmp_path):
+    import scipy.sparse as sp
+
+    paths = make_files(tmp_path)
+    units, shape, dtype = cv.make_units(paths, DSET)
+    mask = np.ones(SHAPE, np.uint8)
+    npix = int(np.prod(SHAPE))
+    for k in ("2d", "fazit", "decompress"):
+        with pytest.raises(NotImplementedError, match="memory"):
+            cv.Policy(k)
+    with pytest.raises(ValueError):
+        cv.Policy("nonsense")
+    # sparse: howmany must be set, and may be capped
+    with pytest.raises(cv.OutputRefused, match="howmany"):
+        cv.Policy("sparse").check(cv.CpuBackend(mask, dtype), units)
+    cv.Policy("sparse").check(cv.CpuBackend(mask, dtype, howmany=100), units)
+    with pytest.raises(cv.OutputRefused, match="limit"):
+        cv.Policy("sparse", max_howmany=50).check(cv.CpuBackend(mask, dtype, howmany=100), units)
+    # powder: needs a matrix, and its dense bins must be smaller than the compressed frame
+    with pytest.raises(cv.OutputRefused, match="matrix"):
+        cv.Policy("powder1d").check(cv.CpuBackend(mask, dtype), units)
+    mean_in = sum(int(u.lengths.sum()) for u in units) / sum(u.n for u in units)
+    for nbins, ok in ((4, True), (int(mean_in // 8) + 50, False)):
+        rows = np.arange(npix) % nbins
+        m = sp.csc_matrix((np.ones(npix, np.float32), (rows, np.arange(npix))), (nbins, npix))
+        pol = cv.Policy(("powder1d", "sparse"))
+        be = cv.CpuBackend(mask, dtype, csc=m, howmany=10)
+        if ok:
+            pol.check(be, units)
+        else:
+            with pytest.raises(cv.OutputRefused, match="not a reduction"):
+                pol.check(be, units)
+
+
+def test_iterate_gives_every_frame_and_stops_cleanly(tmp_path):
+    paths = make_files(tmp_path)
+    units, shape, dtype = cv.make_units(paths, DSET, max_bytes=3000)
+    mask = np.ones(SHAPE, np.uint8)
+    want = direct(paths, mask)
+    got = {}
+    for file, frame0, npx, values, indices, powder in cv.iterate(
+        units, cv.CpuBackend(mask, dtype), workers=3, batch=4
+    ):
+        for j, n in enumerate(npx):
+            got[(file, frame0 + j)] = (
+                int(n),
+                int(values[j, :n].sum(dtype=np.int64)),
+                int(indices[j, :n].sum(dtype=np.int64)),
+            )
+    assert got == want
+    it = cv.iterate(units, cv.CpuBackend(mask, dtype), workers=3, batch=2, depth=1)
+    next(it)
+    it.close()  # breaking out must not hang or raise
+    with pytest.raises(ValueError, match="threads"):
+        next(cv.iterate(units, cv.CpuBackend(mask, dtype), workers=2, mode="processes"))

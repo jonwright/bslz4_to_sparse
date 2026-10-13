@@ -22,6 +22,8 @@ from ._index import read_index, write_index, harvest, sidecar_path, StaleIndex
 from ._source import make_units
 from ._sinks import Sink, NullSink, GuardSink, OutputTooLarge, stored_size
 from ._backends import CpuBackend, DecompressBackend, GpuBackend
+from ._policy import Policy, OutputRefused
+from ._iter import iterate
 from ._engine import run, report, numa_nodes
 
 __all__ = [
@@ -34,12 +36,15 @@ __all__ = [
     "Sink",
     "NullSink",
     "GuardSink",
+    "Policy",
+    "OutputRefused",
     "OutputTooLarge",
     "stored_size",
     "CpuBackend",
     "DecompressBackend",
     "GpuBackend",
     "run",
+    "iterate",
     "report",
     "numa_nodes",
 ]

@@ -48,7 +48,7 @@ def matrices(shape, mask):
     return {"1d": m["1D"][0], "2d": m["2D"][0], "rings": m["2D+rings"][0], "fazit": fz}
 
 
-def backend(op, dtype, shape, mask, mats, cut, gpu=False, batch=16, acc="f64"):
+def backend(op, dtype, shape, mask, mats, cut, gpu=False, batch=16, acc="f64", dot=None):
     if (
         gpu
     ):  # decompress alone is not an operation of the GPU decoder; fazit is not a matrix product
@@ -59,7 +59,7 @@ def backend(op, dtype, shape, mask, mats, cut, gpu=False, batch=16, acc="f64"):
         return conveyor.DecompressBackend(dtype, shape, unshuffle=op == "unshuffle")
     if op == "sparsify":
         return conveyor.CpuBackend(mask, dtype, cut=cut)
-    pipe = {"dot": "csc-permute"} if op == "fazit" else None
+    pipe = {"dot": "csc-permute"} if op == "fazit" else ({"dot": dot} if dot else None)
     return conveyor.CpuBackend(mask, dtype, csc=mats[op], cut=cut, pipeline=pipe)
 
 
@@ -127,6 +127,7 @@ def main():
         "--backend", default="cpu", choices=["cpu", "gpu"], help="gpu: bslz4_to_sparse.cuda"
     )
     ap.add_argument("--acc", default="f64", help="gpu matrix product accumulator: f64, i64 or f32")
+    ap.add_argument("--dot", default=None, help="the dot layout of 1d/2d/rings (default: auto)")
     ap.add_argument("--dset", default=DSET)
     ap.add_argument("--tag", default="")
     a = ap.parse_args()
@@ -142,7 +143,7 @@ def main():
     mats = matrices(shape, mask) if set(ops) & {"1d", "2d", "rings", "fazit"} else {}
     npix = int(np.prod(shape))
     for op in ops:
-        be = backend(op, dtype, shape, mask, mats, a.cut, a.backend == "gpu", a.batch, a.acc)
+        be = backend(op, dtype, shape, mask, mats, a.cut, a.backend == "gpu", a.batch, a.acc, a.dot)
         if be is None:
             continue
         for W in wlist:
@@ -183,6 +184,7 @@ def main():
                 link_gbs=a.link,
                 cut=a.cut,
                 backend=a.backend,
+                dot=a.dot,
                 batch=a.batch,
             )
             print("RESULT " + json.dumps(row), flush=True)

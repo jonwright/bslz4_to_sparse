@@ -52,6 +52,7 @@ nav:
       - Your file and a .poni: gen/examples/ex6_file_and_poni.md
       - Limit pixels, uncompressed frames, decompress alone: gen/examples/ex7_limit_pixels_and_frames.md
       - The conveyor: gen/examples/ex8_conveyor.md
+      - The firehose, as a for loop: gen/examples/ex9_firehose.md
   - Performance:
       - Three data sets: gen/performance.md
       - Every pipeline: gen/kernels.md
