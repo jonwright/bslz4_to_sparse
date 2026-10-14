@@ -23,6 +23,14 @@ extern int c2py_arm64_sha1;
 extern int c2py_arm64_sha2;
 extern int c2py_arm64_crc32;
 
+/* Optional extensions (Linux HWCAP bits; 0 on Apple and Windows for now) */
+extern int c2py_arm64_atomics;   /* LSE */
+extern int c2py_arm64_fphp;
+extern int c2py_arm64_asimdhp;
+extern int c2py_arm64_asimddp;   /* dot product */
+extern int c2py_arm64_i8mm;
+extern int c2py_arm64_bf16;
+
 /* Scalable Vector Extension */
 extern int c2py_arm64_sve;
 extern int c2py_arm64_sve2;

@@ -17,8 +17,8 @@ all. c2py23 is still needed as a developer tool to *regenerate*
 embedded in `src/bslz4_to_sparse.c` -- see the C2PY_BEGIN block there
 and `tools/regenerate_wrapper.py`.
 
-Source: https://github.com/jonwright/c2py23, `v0.5.8`,
-commit `ee81c975bfd05ef4649dd3d1d4ef5a9facd018aa`. Since v0.5.5:
+Source: https://github.com/jonwright/c2py23, `v0.5.9`,
+commit `28675f86b8b1d12fc59f48ee2d3c49c8578f121e`. Since v0.5.5:
 v0.5.6 fixes the loader's "overwriting existing module" check to sample
 `sys.modules` before `module_from_spec()` (this repo carried that as a
 `LOCAL PATCH`; `src/c2py_loader.py` is now upstream again); v0.5.7 makes
@@ -28,7 +28,11 @@ conditions; v0.5.8 is the generated-wrapper size work -- shared
 METH_VARARGS shim over METH_FASTCALL, per-function docstrings emitted once,
 and an opt-in `check_aliasing: false`. v0.5.5 fixed the `_variants_*`
 callable segfaulting on Python 2.7 (the dlsym runtime resolved
-`PyBytes_FromStringAndSize` with no `PyString_*` fallback). License: MIT
+`PyBytes_FromStringAndSize` with no `PyString_*` fallback). v0.5.9 reworks the CPU flags: a flag is 1 only if
+the CPU has the feature, the OS saves the register state (XCR0) and the features it builds on are
+present; new x86 flags (VBMI, VBMI2, GFNI, VNNI, BITALG, VPOPCNTDQ, popcnt, bmi, vendor and others)
+and more ARM HWCAP bits; the runtime builds with MSVC 2008. This repo reads them instead of
+`__builtin_cpu_supports`. License: MIT
 (see `c2py23`'s own `LICENSE`; same terms as this project).
 
 To update: pull a newer c2py23 tag, copy its `c2py23/runtime/*.c` and

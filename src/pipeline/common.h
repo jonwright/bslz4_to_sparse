@@ -18,7 +18,7 @@
 #endif
 
 /* AVX-512 VBMI/VBMI2 and GFNI need gcc >= 8 or clang >= 7 (target
- * attributes, intrinsics, __builtin_cpu_supports names); older compilers
+ * attributes, intrinsics); older compilers
  * build without those paths and pick the AVX2 ones at run time.
  * BSLZ4_NO_VBMI_GFNI forces them off (to test the fallback). */
 #ifndef BSLZ4_HAVE_VBMI_GFNI
@@ -30,8 +30,7 @@
 #endif
 #endif
 
-/* x86-64 with gcc/clang: the SIMD paths use target attributes and
- * __builtin_cpu_supports, so they are built only there (MSVC builds the
+/* x86-64 with gcc/clang: the SIMD paths use target attributes, so they are built only there (MSVC builds the
  * portable C ones). */
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
 #define BSLZ4_X86_SIMD 1

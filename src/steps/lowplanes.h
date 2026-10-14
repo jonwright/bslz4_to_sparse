@@ -112,16 +112,7 @@ static int bslz4_all_zero_avx512(const uint8_t *BSLZ4_RESTRICT p, size_t n) {
 
 static int bslz4_lowplanes_u16_capable(void) {
 #if BSLZ4_HAVE_VBMI_GFNI
-    /* Racing first calls (free-threaded Python) all store the same value;
-     * relaxed atomics make that defined and compile to plain loads/stores. */
-    static int cached = -1;
-    int c = __atomic_load_n(&cached, __ATOMIC_RELAXED);
-    if (c < 0) {
-        c = c2py_amd64_avx512f && c2py_amd64_avx512bw && __builtin_cpu_supports("avx512vbmi") &&
-            __builtin_cpu_supports("gfni");
-        __atomic_store_n(&cached, c, __ATOMIC_RELAXED);
-    }
-    return c;
+    return (c2py_amd64_avx512f && c2py_amd64_avx512bw && c2py_amd64_avx512vbmi && c2py_amd64_gfni) != 0;
 #else
     return 0;
 #endif
@@ -277,14 +268,8 @@ static int bslz4_lowplanes_collect_u16(uint8_t *raw, size_t ne, size_t nz_end, c
 
 static int bslz4_lowplanes_collect_capable(void) {
 #if BSLZ4_HAVE_VBMI_GFNI
-    static int cached = -1;                       /* as bslz4_lowplanes_u16_capable */
-    int c = __atomic_load_n(&cached, __ATOMIC_RELAXED);
-    if (c < 0) {
-        c = bslz4_lowplanes_u16_capable() && c2py_amd64_avx512vl &&
-            __builtin_cpu_supports("avx512vbmi2") && __builtin_cpu_supports("popcnt");
-        __atomic_store_n(&cached, c, __ATOMIC_RELAXED);
-    }
-    return c;
+    return (bslz4_lowplanes_u16_capable() && c2py_amd64_avx512vl && c2py_amd64_avx512vbmi2 &&
+            c2py_amd64_popcnt) != 0;
 #else
     return 0;
 #endif
@@ -469,7 +454,7 @@ static inline int bslz4_lowplanes_capable(int value) {
 #endif
     case BSLZ4_UNTRANSPOSE_LOWPLANES_AVX2:
 #if BSLZ4_X86_SIMD
-        return c2py_amd64_avx2 && __builtin_cpu_supports("popcnt");
+        return (c2py_amd64_avx2 && c2py_amd64_popcnt) != 0;
 #else
         return 0;
 #endif

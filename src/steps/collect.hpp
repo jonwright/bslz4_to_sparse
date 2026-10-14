@@ -29,7 +29,7 @@
  * The value actually used is pipeline[BSLZ4_STEP_COLLECT], validated by
  * bslz4_resolve (src/pipeline/registry.c).  Availability is decided by
  * bslz4_<tier>_collect_capable(), which reads c2py23's cpuid-equivalent
- * globals (c2py_amd64_avx512f/bw/vl, c2py_amd64_avx2, c2py_ppc64_vsx,
+ * globals (c2py_amd64_avx512f/bw/vl/vbmi2, c2py_amd64_avx2/popcnt, c2py_ppc64_vsx,
  * c2py_arm64_asimd; SSE2 needs no check); capable() is the single source of
  * truth, shared with bslz4_step_available (registry.c), which Python sees as
  * step_available / _pipeline.available().  AVX-512 can
@@ -100,12 +100,10 @@ inline bool bslz4_avx512_collect_capable() {
 }
 
 /* The compress-store tier (collect avx512cs, BSLZ4_COLLECT_AVX512CS) also
- * needs AVX-512 VBMI2 for the 16-bit compress; c2py_amd64.h has no flag for it, so ask the compiler's
- * cpu probe (gcc/clang, the only compilers this tier is built with). */
+ * needs AVX-512 VBMI2 for the 16-bit compress. */
 inline bool bslz4_avx512cs_collect_capable() {
 #if BSLZ4_HAVE_AVX512_COLLECT && BSLZ4_HAVE_VBMI_GFNI
-    return bslz4_avx512_collect_capable() && __builtin_cpu_supports("avx512vbmi2") &&
-           __builtin_cpu_supports("popcnt");
+    return bslz4_avx512_collect_capable() && c2py_amd64_avx512vbmi2 != 0 && c2py_amd64_popcnt != 0;
 #else
     return false;
 #endif
@@ -113,7 +111,7 @@ inline bool bslz4_avx512cs_collect_capable() {
 
 inline bool bslz4_avx2cs_collect_capable() {
 #if BSLZ4_HAVE_AVX2_COLLECT
-    return c2py_amd64_avx2 != 0 && __builtin_cpu_supports("popcnt");
+    return c2py_amd64_avx2 != 0 && c2py_amd64_popcnt != 0;
 #else
     return false;
 #endif
