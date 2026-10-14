@@ -172,20 +172,23 @@ def test_lowplanes_tiles(nelems, masked):
     assert ran >= 1
 
 
-def test_auto_dot_falls_back_on_large_blocks():
+@pytest.mark.parametrize("dtype", (np.float32, np.uint16))
+def test_auto_dot_falls_back_on_large_blocks(dtype):
     """An auto dot that is bsb-csr on the default block becomes the csc form
-    on a 1 MB block, and is right; an explicit bsb-csr still refuses."""
+    on a 1 MB block, and is right; an explicit bsb-csr still refuses.  Integer pixels of at most
+    32 bits take csc-nosplit-int, which has no block limit: it stays."""
     rng = np.random.default_rng(14)
-    frames = rng.poisson(0.3, (2,) + SHAPE).astype(np.uint16)
+    frames = rng.poisson(0.3, (2,) + SHAPE).astype(dtype)
     mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)
     M = make_nosplit(NPIX, 250, 8)
     ref = reference(M, frames, mask)
+    first = "bsb-csr-nosplit" if dtype == np.float32 else "csc-nosplit-int"
     for nelems_bytes, want_fallback in ((8192, False), (1024 * 1024, True)):
         chunks, codec = write_chunks(frames, "lz4", nelems_bytes)
-        integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec)
-        assert integ.dot == "bsb-csr-nosplit"
+        integ = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec)
+        assert integ.dot == first
         _npx, _vp, p = integ.multi(chunks, 0)
-        assert (integ.dot == "csc-nosplit") == want_fallback
+        assert (integ.dot == "csc-nosplit") == (want_fallback and dtype == np.float32)
         assert _pipeline.NAMES["dot"][integ.pipeline[_pipeline.DOT]] == integ.dot
         r, tol = expected(integ, frames * (mask > 0), ref)
         assert np.abs(p - r).max() / max(np.abs(r).max(), 1.0) < tol

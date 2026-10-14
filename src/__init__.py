@@ -653,10 +653,10 @@ class chunk2sparseCSC:
     dtype, codec, pipeline: as chunk2sparse; pipeline's dot step picks the
           matrix layout (auto: from what the matrix is; "csc-int" for a
           fixed_point_matrix, which also takes csc-run-int and, made with wbits=16,
-          csc-run-int16).  A matrix of weight 1 and one bin per pixel (a histogram) also
-          takes "csc-nosplit-int": the sums are accumulated in int64 (no weights, no
-          conversion to float) and returned as float64 like any float dot; a bin sum above
-          2**53 is rounded in that last cast (integer pixels of at most 32 bits)
+          csc-run-int16).  A matrix of weight 1 and one bin per pixel (a histogram) of integer
+          pixels of at most 32 bits is auto "csc-nosplit-int": the sums are accumulated in int64
+          (no weights, no conversion to float) and returned as float64 like any float dot; a bin
+          sum above 2**53 is rounded in that last cast
     howmany, thresholds: as chunk2sparse; they limit the pixels returned
           only: the powder always uses every unmasked pixel
 
@@ -721,7 +721,11 @@ class chunk2sparseCSC:
         return _pipeline.resolve(
             self._pipeline_arg, self.dtype, self.codec, self.mask, matrix=True,
             dot_auto=lambda: _matrix.auto_dot(_matrix.analyse(nm), padded_avx2,
-                                              DEFAULT_BLOCK_BYTES // self.dtype.itemsize))
+                                              DEFAULT_BLOCK_BYTES // self.dtype.itemsize,
+                                              self._int_pixels()))
+
+    def _int_pixels(self):
+        return self.dtype.kind in "ui" and self.dtype.itemsize <= 4
 
     def _settle_codec(self, cmp):
         """The first chunk decides the codec when it was not given (the codec
@@ -738,7 +742,7 @@ class chunk2sparseCSC:
         except ValueError as e:
             raise ValueError(
                 "pipeline['dot']=%r cannot represent this matrix: %s (auto picks %r)"
-                % (self.dot, e, _matrix.auto_dot(_matrix.analyse(self._nm), False))
+                % (self.dot, e, _matrix.auto_dot(_matrix.analyse(self._nm), False, None, self._int_pixels()))
             )
 
     def _ensure_capacity(self, nframes, cmp, blocksize=None):
@@ -758,7 +762,8 @@ class chunk2sparseCSC:
             # (C also refuses a mismatch with -109).  An automatic dot is
             # chosen again for this block size (bsb-csr takes <= 65536 pixels).
             if self._dot_is_auto:
-                dot = _matrix.auto_dot(_matrix.analyse(self._nm), self._padded_avx2, be)
+                dot = _matrix.auto_dot(_matrix.analyse(self._nm), self._padded_avx2, be,
+                                       self._int_pixels())
                 if dot != self.dot:
                     self.dot = dot
                     self.pipeline[_pipeline.DOT] = _pipeline.NAMES["dot"].index(dot)

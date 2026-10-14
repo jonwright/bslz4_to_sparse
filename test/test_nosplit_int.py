@@ -1,4 +1,5 @@
-"""csc-nosplit-int: csc-nosplit's histogram summed in int64 and returned as float64.
+"""csc-nosplit-int (the automatic dot of a histogram of integer pixels): csc-nosplit's histogram summed in
+int64 and returned as float64.
 
 It must be a drop-in for the float csc-nosplit: the same float64 powder (the sums are exact for these
 sizes) on both routes, for every integer pixel type of at most 32 bits, with a frame that ends in a
@@ -103,10 +104,24 @@ def test_refuses_a_matrix_that_splits_pixels():
                           pipeline={"dot": DOT})
 
 
-def test_automatic_dot_is_unchanged():
-    """The automatic dot does not pick it: it is for the user to ask for."""
+@pytest.mark.parametrize("dtype,want", ((np.uint8, DOT), (np.uint16, DOT), (np.int32, DOT), (np.uint32, DOT),
+                                        (np.uint64, "bsb-csr-nosplit"), (np.int64, "bsb-csr-nosplit"),
+                                        (np.float32, "bsb-csr-nosplit")))
+def test_automatic_dot(dtype, want):
+    """A histogram of integer pixels of at most 32 bits takes it; wider and float pixels do not."""
     mask = np.ones((16, 64), np.uint8)
-    c = b.chunk2sparseCSC(mask, histogram((16, 64), 4), dtype=np.uint16, codec=b.CODEC_LZ4)
+    c = b.chunk2sparseCSC(mask, histogram((16, 64), 4), dtype=dtype, codec=b.CODEC_LZ4)
+    assert c.dot == want
+
+
+def test_automatic_dot_for_a_split_matrix():
+    shape = (16, 64)
+    npix = 16 * 64
+    pix = np.arange(npix)
+    split = sp.csc_matrix((np.full(2 * npix, 0.5, np.float32),
+                           (np.concatenate([pix % 5, pix % 5 + 1]), np.concatenate([pix, pix]))),
+                          shape=(6, npix))
+    c = b.chunk2sparseCSC(np.ones(shape, np.uint8), split, dtype=np.uint16, codec=b.CODEC_LZ4)
     assert c.dot != DOT
 
 

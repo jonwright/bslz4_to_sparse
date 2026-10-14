@@ -446,16 +446,21 @@ def analyse(nm):
 BSB_MAX_BLOCK_ELEMS = 65536   # bsb-csr's in-block pixel index is uint16
 
 
-def auto_dot(info, padded_avx2, block_elems=None):
+def auto_dot(info, padded_avx2, block_elems=None, int_pixels=False):
     """The float dot to use for a matrix, from the kernels measured by tools/bench_kernels.py (the
-    Every pipeline page of the documentation): a histogram -> bsb-csr-nosplit; one run of <= 8
+    Every pipeline page of the documentation): a histogram -> csc-nosplit-int for integer pixels of at
+    most 32 bits (u32: 5 to 30 % over bsb-csr-nosplit on 1 core of an EPYC and of a Xeon, u16 on the
+    sparse route a tie), else bsb-csr-nosplit; one run of <= 8
     bins per pixel -> padded-avx2 (on dense frames) or padded; else few occupied pixels (rings) ->
     bsb-csr; runs of 9-64 bins -> padded for decode blocks of <= 8192 pixels, csc for larger ones
     (csc-run was never the best); else csc.  Decode blocks over BSB_MAX_BLOCK_ELEMS pixels rule
     the bsb-csr dots out (csc-nosplit, csc instead).  Never csc-permute (it changes the output) or
-    the integer dots, which need a matrix from fixed_point_matrix."""
+    the fixed-point integer dots, which need a matrix from fixed_point_matrix.  int_pixels: the pixels
+    are integers of at most 32 bits."""
     bsb = block_elems is None or block_elems <= BSB_MAX_BLOCK_ELEMS
     if info["nosplit"]:
+        if int_pixels:
+            return "csc-nosplit-int"
         return "bsb-csr-nosplit" if bsb else "csc-nosplit"
     if info["runs"] and info["max_bins"] <= 8:
         return "padded-avx2" if padded_avx2 else "padded"
