@@ -100,7 +100,7 @@ def standin_folder():
 
 def run_example(path):
     """stdout of running the example as a user would, in a directory holding the stand-in files."""
-    env = dict(os.environ)
+    env = dict(os.environ, MPLBACKEND="Agg")  # figures are not shown: no window waits to be closed
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(b.__file__)))
     tools_dir = os.path.join(REPO, "tools")
     env["PYTHONPATH"] = os.pathsep.join(

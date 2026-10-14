@@ -103,11 +103,11 @@ def run_notebook(nb, cwd, timeout=900):
     """Execute the notebook in cwd (nbclient); the outputs stay in it."""
     from nbclient import NotebookClient
 
-    env = dict(os.environ)
-    env.setdefault("MPLBACKEND", "module://matplotlib_inline.backend_inline")
+    # the kernel draws inline, whatever backend the caller's environment names (no windows)
+    env = dict(os.environ, MPLBACKEND="module://matplotlib_inline.backend_inline")
     NotebookClient(
         nb, timeout=timeout, kernel_name="python3", resources={"metadata": {"path": cwd}}
-    ).execute()
+    ).execute(env=env)
     return nb
 
 
