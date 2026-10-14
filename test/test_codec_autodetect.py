@@ -74,14 +74,14 @@ def test_multi_and_offsets(tmp_path, cname, codec):
     assert c.codec == codec
     ref = b.chunk2sparse(MASK, dtype=np.uint16, codec=codec).multi(chunks, 0)
     assert (npx == ref[0]).all()
-    # decode_offsets: the first chunk is only seen as a short header
+    # from_buffer: the first chunk is only seen as a short header
     with h5py.File(str(path), "r") as f:
-        offs = b.harvest_chunk_offsets(f["d"])
+        offs = b.locate_chunks(f["d"])
     with open(str(path), "rb") as fh:
         data = np.frombuffer(fh.read(), np.uint8)
-    o, l = b.pack_offsets_lengths(offs, sorted(offs))
+    o, l = b.offsets_lengths(offs, sorted(offs))
     c2 = b.chunk2sparse(MASK, dtype=np.uint16)
-    npx2, _ = c2.decode_offsets(data, o, l, 0)
+    npx2, _ = c2.from_buffer(data, o, l, 0)
     assert c2.codec == codec
     assert (npx2 == ref[0]).all()
 

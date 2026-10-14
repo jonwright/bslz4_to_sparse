@@ -15,6 +15,7 @@
 extern int bslz4_lowplanes_available(int value);
 
 uint64_t bslz4_counters[BSLZ4_NSTEPS][BSLZ4_VALUE_SLOTS];
+int bslz4_counters_on = 0;
 
 typedef char bslz4_value_slots_cover_every_step
     [(BSLZ4_DECODE_N <= BSLZ4_VALUE_SLOTS && BSLZ4_MASK_N <= BSLZ4_VALUE_SLOTS &&
@@ -24,6 +25,7 @@ typedef char bslz4_value_slots_cover_every_step
 /* dtype masks: bit d set => pixel dtype index d accepted */
 #define BSLZ4_ALL_DTYPES 0x3FFu
 #define BSLZ4_INT_DTYPES 0x0FFu                 /* u8 .. i64 */
+#define BSLZ4_INT32_DTYPES 0x077u               /* u8 u16 u32 i8 i16 i32: sums of 2**31 values fit int64 */
 #define BSLZ4_U16_U32 ((1u << 1) | (1u << 2))
 #define BSLZ4_U16 (1u << 1)
 
@@ -66,10 +68,6 @@ static int bslz4_always(void) { return 1; }
  *                      the nested CSC.
  *   BSLZ4_DOT_BSBCSR_NOSPLIT  bsb-csr for a histogram (one bin per pixel,
  *                      weight 1).
- *   BSLZ4_DOT_CSC_NOSPLIT_MOMENT  a histogram with a first moment: each
- *                      pixel reaches no bin or the pair b, b+1 with weights
- *                      exactly 1 and q; the output interleaves sum I and
- *                      sum qI.  Stores b and q per pixel.
  *   BSLZ4_DOT_CSC_PERMUTE  a permutation: each pixel its own bin, weight 1;
  *                      the pixel value is stored (not added) at its bin, so
  *                      the output is the re-ordered image, in the pixel
@@ -81,6 +79,14 @@ static int bslz4_always(void) { return 1; }
  *   BSLZ4_DOT_CSC_RUN_INT  csc-run's layout (first bin per pixel) with u32
  *                      fixed-point weights and an int64 powder, as csc-int.
  *   BSLZ4_DOT_CSC_RUN_INT16  as csc-run-int with u16 weights.
+ *   BSLZ4_DOT_CSC_NOSPLIT_INT  csc-nosplit's layout (one bin per pixel, weight 1)
+ *                      summed in int64: no weights, no multiply, no float
+ *                      conversion; the dense route walks tiles of a block in
+ *                      strided passes.  Pixels of at most 32 bits, so the sums
+ *                      cannot overflow.  The sums are int64 in the powder
+ *                      buffer; the driver converts each frame in place to
+ *                      float64 once its last block is in (a sum above 2**53
+ *                      is rounded there), so the result is a float64 powder.
  *
  * The integer values choose b so every sum stays exact in int64 and give each
  * pixel's weights the rounding residual so they sum to round(sum w * 2**b).
@@ -94,11 +100,11 @@ static const bslz4_dot_desc bslz4_dots[BSLZ4_DOT_N] = {
     /* csc-nosplit           */ {BSLZ4_LAYOUT_CSC,    BSLZ4_ALL_DTYPES, 8, bslz4_always},
     /* bsb-csr               */ {BSLZ4_LAYOUT_BSBCSR, BSLZ4_ALL_DTYPES, 8, bslz4_always},
     /* bsb-csr-nosplit       */ {BSLZ4_LAYOUT_BSBCSR, BSLZ4_ALL_DTYPES, 8, bslz4_always},
-    /* csc-nosplit-moment    */ {BSLZ4_LAYOUT_CSC,    BSLZ4_ALL_DTYPES, 8, bslz4_always},
     /* csc-permute           */ {BSLZ4_LAYOUT_CSC,    BSLZ4_ALL_DTYPES, 0, bslz4_always},
     /* csc-int               */ {BSLZ4_LAYOUT_CSC,    BSLZ4_INT_DTYPES, 8, bslz4_always},
     /* csc-run-int           */ {BSLZ4_LAYOUT_CSC,    BSLZ4_INT_DTYPES, 8, bslz4_always},
     /* csc-run-int16         */ {BSLZ4_LAYOUT_CSC,    BSLZ4_INT_DTYPES, 8, bslz4_always},
+    /* csc-nosplit-int       */ {BSLZ4_LAYOUT_CSC,    BSLZ4_INT32_DTYPES, 8, bslz4_always},
 };
 
 int bslz4_dot_layout(int dot) {
@@ -185,6 +191,11 @@ int bslz4_resolve(int dtype, const uint16_t *pipeline, int layout, bslz4_pipe *B
 
 void bslz4_reset_counters(void) {
     memset(bslz4_counters, 0, sizeof(bslz4_counters));
+    bslz4_counters_on = 1; /* counting starts here: see bslz4_counters_bump in pipeline.h */
+}
+
+void bslz4_set_counters(int on) {
+    bslz4_counters_on = on != 0;
 }
 
 int bslz4_read_counters(uint64_t *BSLZ4_RESTRICT out, int n) {

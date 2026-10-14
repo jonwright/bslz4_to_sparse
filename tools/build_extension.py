@@ -271,7 +271,7 @@ def _write_build_info_c(builddir, info):
 # The C++ is template expansion only: no libstdc++ types, no new/delete, no
 # exceptions, no RTTI.  The one hidden libstdc++ dependency is
 # __cxa_guard_acquire/release, emitted for thread-safe function-local statics
-# (the idempotent SIMD capability probes), so turn that off too.  With these
+# (the AVX2 lane table of the collect kernel), so turn that off too.  With these
 # flags the .so needs only libc/libm and is linked with the C driver.
 _CXX_FLAGS = ["-std=c++11", "-fno-threadsafe-statics", "-fno-exceptions", "-fno-rtti"]
 

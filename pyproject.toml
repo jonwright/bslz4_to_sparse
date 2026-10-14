@@ -8,3 +8,7 @@ build-backend = "setuptools.build_meta"
 testpaths = [
     "test",
 ]
+
+
+[tool.black]
+line-length = 100

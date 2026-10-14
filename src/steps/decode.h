@@ -16,14 +16,17 @@
  *                           runs) and on dense ones (literal heavy; it never
  *                           writes the empty high byte-planes), but blocks of
  *                           ~8-24x are many short sequences (~90-130 per
- *                           8 kB) where stock's loop is faster: Zen 5 8-16x
- *                           2408 vs 3142 cycles; Zen 4 9 % frames +16-21 %
- *                           with the zero decoder everywhere (2026-10-06).
+ *                           8 kB) where stock's loop is faster.  Measured by
+ *                           tools/bench_kernels.py, see the Every pipeline
+ *                           page of the documentation.
  *   BSLZ4_DECODE_LZ4_ZERO   the zero-aware decoder for every block: POWER9,
- *                           where stock lz4 is slower in every band (8-16x
- *                           3781 vs 4812 ns/block), and Cascade Lake.
+ *                           where stock lz4 is slower in every band, and
+ *                           Cascade Lake.
  *   BSLZ4_DECODE_LZ4_STOCK  LZ4_decompress_safe.
  *   BSLZ4_DECODE_ZSTD       ZSTD_decompress.
+ *   BSLZ4_DECODE_PIXELS     no decode: the input is uncompressed pixel frames (from_frames), so the
+ *                           block loop reads each frame's blocks where they lie and runs only the
+ *                           mask, collect and dot steps.
  *
  * *nz_end returns how many leading bytes of raw are valid: the zero-aware
  * decoder leaves the zero tail of the block unwritten (raw[nz_end..) is zero
@@ -50,7 +53,15 @@
 #define BSLZ4_LZ4ZERO_DENSE 8
 #endif
 
-/* The plain codec call: decoded size (== cap) or a negative value. */
+/* The plain codec call: decoded size (== cap) or a negative value.
+ *
+ * zstd: ZSTD_decompress() builds a ZSTD_DCtx on the heap for every call (ZSTD_HEAPMODE 1). The
+ * context is opaque: ZSTD_estimateDCtxSize() is 96 kB in zstd 1.5.7, and it is not safe to share
+ * between threads. The allocation is a small part of the time of a block, about the same as
+ * ZSTD_decompressDCtx() with one reused context. So it is not cached here. If that ever matters: one context per driver call,
+ * as bslz4_driver_decompress does, or ZSTD_initStaticDCtx() on workspace memory (needs
+ * ZSTD_STATIC_LINKING_ONLY; no free, but the size must be passed in). Other allocators not
+ * measured. */
 static inline int bslz4_decode_plain(int decode, const char *BSLZ4_RESTRICT src, int n,
                                      char *BSLZ4_RESTRICT dst, int cap) {
     if (decode == BSLZ4_DECODE_ZSTD) {

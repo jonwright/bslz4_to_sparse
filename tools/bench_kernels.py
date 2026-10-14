@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Each pipeline step on real data, one step at a time.
 
-Two data sets of tools/bench_docs.py: WAu5um_DT3 (sparse) and kevlar
-(dense, cropped to the same 2162 x 2068 pixels so both use one set of
-pyFAI matrices).  FRAMES frames of each are decoded and re-encoded in memory
+The two example files of tools/example_data.py: silicon (sparse) and ceo2 (dense), which share one
+geometry and mask (calib.poni, mask.h5) and so one set of pyFAI matrices.  FRAMES frames of each
+are decoded and re-encoded in memory
 (bitshuffle-LZ4 and bitshuffle-zstd level 2, with 8 kB and 256 kB blocks;
 DATASETS says which encodings each data set and table uses).  The C code
 composes a pipeline at run time (a switch per step per block, templates
@@ -12,9 +12,10 @@ a product: starting from the automatic pipeline, each step's values are
 timed with the other steps held there.
 
   sparsify   the decode, mask, untranspose and collect axes (chunk2sparse),
-             on the masked frames (masked pixels at 65535, with the mask)
-             and on the same frames not masked (masked pixels set to 0, no
-             mask: where the mask step 'none' applies).  The collect axis
+             on the masked frames (the lz4mask variant of the data: masked
+             pixels at -1 in the pixel type, with the mask) and on the same
+             frames not masked (the lz4 variant, masked pixels 0, no mask:
+             where the mask step 'none' applies).  The collect axis
              holds untranspose at kcb: the low-planes values fuse the
              collect, so beside them the collect value is not used.
   matrices   the dot axis (route automatic) and the route axis (dot
@@ -45,6 +46,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_docs as bd  # noqa: E402  (bench_suite, lib/ on sys.path, pyFAI)
+import example_data as ed  # noqa: E402
 
 import numpy as np  # noqa: E402
 import h5py  # noqa: E402
@@ -52,7 +54,6 @@ import hdf5plugin  # noqa: E402
 import bslz4_to_sparse as b  # noqa: E402
 from bslz4_to_sparse import _pipeline as P  # noqa: E402
 
-GEOMETRY_CASE = "WAu5um_DT3"          # its shape and mask define the matrices
 ENC = {  # key: (codec name, zstd level, block bytes)
     "lz4 8k": ("lz4", None, 8192),
     "lz4 256k": ("lz4", None, 262144),
@@ -60,8 +61,8 @@ ENC = {  # key: (codec name, zstd level, block bytes)
     "zstd-2 256k": ("zstd", 2, 262144),
 }
 DATASETS = [  # (case key, encodings for sparsify, encodings for the matrices)
-    ("WAu5um_DT3", ["lz4 8k", "lz4 256k", "zstd-2 8k", "zstd-2 256k"], ["lz4 8k", "zstd-2 256k"]),
-    ("kevlar", ["lz4 8k", "zstd-2 256k"], ["lz4 8k"]),
+    ("silicon", ["lz4 8k", "lz4 256k", "zstd-2 8k", "zstd-2 256k"], ["lz4 8k", "zstd-2 256k"]),
+    ("ceo2", ["lz4 8k", "zstd-2 256k"], ["lz4 8k"]),
 ]
 SPARSIFY_STEPS = ("decode", "mask", "untranspose", "collect")
 FRAMES = 25
@@ -116,15 +117,6 @@ def same_sparse(a, ref):
                                       for (va, ia), (vr, ir) in zip(a, ref))
 
 
-def load(case, nframes, shape):
-    """nframes frames spread over the file, cropped to shape."""
-    with h5py.File(case["file"], "r") as f:
-        ds = f[case["dataset"]]
-        idx = np.linspace(0, ds.shape[0] - 1, nframes).round().astype(int)
-        frames = np.stack([ds[int(i)][:shape[0], :shape[1]] for i in idx])
-        return frames, int(ds.shape[0]), list(ds.shape[1:])
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", required=True, help="docs/bench/kernels_<cpu>.json")
@@ -133,19 +125,19 @@ def main():
     t_start = time.perf_counter()
     cases = {c["key"]: c for c in bd.CASES}
 
-    geo, _, _ = load(cases[GEOMETRY_CASE], 1, (10 ** 6, 10 ** 6))
-    geo_masked = geo[0] == bd.MASK_VALUE
-    shape = list(geo.shape[1:])
-    ai = bd.make_ai(shape, geo_masked)
-    mats = bd.matrices(ai, GEOMETRY_CASE)
+    ai = ed.integrator()
+    geo_masked = ai.detector.mask != 0
+    shape = list(ai.detector.shape)
+    mats = bd.matrices(ai)
 
     out = {"schema": 2, "tool": "tools/bench_kernels.py",
            "date_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M"),
            "machine": bd.machine(),
            "method": {"frames": args.frames, "batch": BATCH, "repeats": REPEATS, "gb": 1e9,
-                      "geometry": bd.GEOMETRY, "shape": shape,
-                      "mask": "pixels == %d in the first frame" % bd.MASK_VALUE,
-                      "no_mask": "the same frames with the masked pixels set to 0 and an "
+                      "geometry": bd.geometry(ai), "shape": shape,
+                      "mask": "mask.h5 of the example data; the masked pixels of the "
+                              "frames are -1 in the pixel type",
+                      "no_mask": "the same frames with the masked pixels 0 and an "
                                  "all-valid mask"},
            "ops": {k: bd.OP_TEXT[k] for k in bd.OPS},
            "matrices": {op: bd.matrix_info(M, s, float((~geo_masked).sum()))
@@ -157,16 +149,16 @@ def main():
 
     for key, sp_encs, mat_encs in DATASETS:
         case = cases[key]
-        frames, nfile, orig_shape = load(case, args.frames, shape)
-        masked = frames[0] == bd.MASK_VALUE
+        frames, nfile = ed.frames(key, args.frames, "lz4mask")
+        frames_nomask, _ = ed.frames(key, args.frames, "lz4")
+        orig_shape = list(frames.shape[1:])
+        masked = geo_masked
         mask = (~masked).astype(np.uint8)
         ones = np.ones_like(mask)
-        frames_nomask = frames.copy()
-        frames_nomask[:, masked] = 0
         dtype, cut = frames.dtype, case["cut"]
         pbytes = frames.size * dtype.itemsize
-        dset = {"key": key, "label": case["label"], "file": case["file"],
-                "dataset": case["dataset"], "frames_in_file": nfile, "shape": orig_shape,
+        dset = {"key": key, "label": case["label"], "file": os.path.basename(ed.path(key, "lz4mask")),
+                "dataset": ed.DSET, "frames_in_file": nfile, "shape": orig_shape,
                 "dtype": str(dtype), "cut": cut, "masked_pixels": int(masked.sum()),
                 "sparsify_encodings": sp_encs, "matrix_encodings": mat_encs, "encodings": []}
         out["datasets"].append(dset)

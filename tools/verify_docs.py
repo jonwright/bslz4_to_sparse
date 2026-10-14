@@ -9,6 +9,8 @@
   5. every docs/bench/real_data_*.json (one per machine) covers every case
      and operation of tools/bench_docs.py, with every figure present, and
      all of them measured the same data, cuts and method
+  6. every pipeline value has its ` *   BSLZ4_STEP_...` block in the C comments
+  7. every docs/bench/kernels_*.json has the current schema and cases
 
 Exits non-zero listing every problem found.
 

@@ -18,7 +18,7 @@
 #endif
 
 /* AVX-512 VBMI/VBMI2 and GFNI need gcc >= 8 or clang >= 7 (target
- * attributes, intrinsics, __builtin_cpu_supports names); older compilers
+ * attributes, intrinsics); older compilers
  * build without those paths and pick the AVX2 ones at run time.
  * BSLZ4_NO_VBMI_GFNI forces them off (to test the fallback). */
 #ifndef BSLZ4_HAVE_VBMI_GFNI
@@ -30,8 +30,7 @@
 #endif
 #endif
 
-/* x86-64 with gcc/clang: the SIMD paths use target attributes and
- * __builtin_cpu_supports, so they are built only there (MSVC builds the
+/* x86-64 with gcc/clang: the SIMD paths use target attributes, so they are built only there (MSVC builds the
  * portable C ones). */
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
 #define BSLZ4_X86_SIMD 1
@@ -77,8 +76,8 @@ enum {
     BSLZ4_ERR_TOO_MANY_PIXELS = -99,     /* decompressed size needs more room than NIJ */
     BSLZ4_ERR_TOO_LARGE = -98,           /* decompressed size does not fit an int */
     BSLZ4_ERR_DECOMPRESS = -2,           /* LZ4/zstd decompress returned an unexpected size */
-    BSLZ4_ERR_BAD_THRESHOLD = -100,      /* threshold < 0 */
-    BSLZ4_ERR_WORKSPACE_TOO_SMALL = -103,/* caller-supplied workspace smaller than required */
+    BSLZ4_ERR_BAD_THRESHOLD = -100,      /* a negative or NaN cut, or a bad top_pixels request */
+    BSLZ4_ERR_WORKSPACE_TOO_SMALL = -103,/* caller-supplied workspace (or output buffer) smaller than required */
     BSLZ4_ERR_UNTRANSPOSE = -104,        /* backend untranspose kernel reported failure */
     BSLZ4_ERR_BAD_NFRAMES = -105,        /* nframes <= 0 in a multi-frame call */
     BSLZ4_ERR_FRAME_MISMATCH = -106,     /* frames don't share total size/block size */
@@ -89,6 +88,7 @@ enum {
     BSLZ4_ERR_BAD_PIPELINE = -111,       /* a pipeline step value is unknown, 0 (auto: resolve it first) or invalid here */
     BSLZ4_ERR_UNAVAILABLE = -112,        /* a known step value needs an instruction set this CPU/build lacks */
     BSLZ4_ERR_DTYPE = -113,              /* dtype index out of range or unsupported */
+    BSLZ4_ERR_BAD_CUT = -114,            /* the cut buffer does not hold exactly one pixel-typed element */
 };
 
 #endif /* BSLZ4_COMMON_H */

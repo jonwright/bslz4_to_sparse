@@ -11,15 +11,15 @@
  * tools/bslz4_power9_collect_probe.c) and NEON (AArch64, ASIMD is
  * ARMv8-A baseline, probe in tools/bslz4_neon_collect_probe.c). The x86
  * tiers carry __attribute__((target(...))), so this file compiles under
- * the project's ordinary -O2; VSX needs setup.py to pass -maltivec -mvsx
+ * the project's ordinary -O2; VSX needs tools/build_extension.py to pass -maltivec -mvsx
  * globally on ppc64le, NEON needs nothing extra on aarch64 (ASIMD is
  * baseline, like SSE2 on x86-64). MSVC has none of these, and the
  * BSLZ4_HAVE_*_COLLECT guards below make this file inert there.
  *
  *   BSLZ4_COLLECT_AVX512CS  AVX-512 F+BW+VL+VBMI2: compress-store of the
  *                           selected pixels and their addresses; u16/u32.
- *   BSLZ4_COLLECT_AVX2CS    AVX2: table-driven compaction of the selected
- *                           lanes; u16/u32.
+ *   BSLZ4_COLLECT_AVX2CS    AVX2: u16 compacts the selected lanes with a table,
+ *                           u32 walks the set bits; u16/u32.
  *   BSLZ4_COLLECT_VSX       POWER8+ (needs -maltivec -mvsx); u16/u32.
  *   BSLZ4_COLLECT_NEON      AArch64 ASIMD (ARMv8-A baseline); u16/u32.
  *   BSLZ4_COLLECT_SSE2      x86-64 baseline, always present; u16/u32.
@@ -29,7 +29,7 @@
  * The value actually used is pipeline[BSLZ4_STEP_COLLECT], validated by
  * bslz4_resolve (src/pipeline/registry.c).  Availability is decided by
  * bslz4_<tier>_collect_capable(), which reads c2py23's cpuid-equivalent
- * globals (c2py_amd64_avx512f/bw/vl, c2py_amd64_avx2, c2py_ppc64_vsx,
+ * globals (c2py_amd64_avx512f/bw/vl/vbmi2, c2py_amd64_avx2/popcnt, c2py_ppc64_vsx,
  * c2py_arm64_asimd; SSE2 needs no check); capable() is the single source of
  * truth, shared with bslz4_step_available (registry.c), which Python sees as
  * step_available / _pipeline.available().  AVX-512 can
@@ -87,10 +87,9 @@ static inline bool bslz4_mask_ok(const uint8_t *mask, size_t idx) {
 }
 
 /* Single source of truth for "is this tier actually usable" -- shared
- * by the default-enabled logic below and the Python-visible
- * <tier>_collect_available() query (the bslz4_available_*_collect delegates in
- * src/steps/kernels.cpp call these rather than duplicating the cpuid-check
- * logic). */
+ * by the pipeline's validation and the Python-visible step_available query
+ * (the bslz4_available_*_collect delegates in src/steps/kernels.cpp call
+ * these rather than duplicating the cpuid-check logic). */
 
 inline bool bslz4_avx512_collect_capable() {
 #if BSLZ4_HAVE_AVX512_COLLECT
@@ -101,12 +100,10 @@ inline bool bslz4_avx512_collect_capable() {
 }
 
 /* The compress-store tier (collect avx512cs, BSLZ4_COLLECT_AVX512CS) also
- * needs AVX-512 VBMI2 for the 16-bit compress; c2py_amd64.h has no flag for it, so ask the compiler's
- * cpu probe (gcc/clang, the only compilers this tier is built with). */
+ * needs AVX-512 VBMI2 for the 16-bit compress. */
 inline bool bslz4_avx512cs_collect_capable() {
 #if BSLZ4_HAVE_AVX512_COLLECT && BSLZ4_HAVE_VBMI_GFNI
-    return bslz4_avx512_collect_capable() && __builtin_cpu_supports("avx512vbmi2") &&
-           __builtin_cpu_supports("popcnt");
+    return bslz4_avx512_collect_capable() && c2py_amd64_avx512vbmi2 != 0 && c2py_amd64_popcnt != 0;
 #else
     return false;
 #endif
@@ -114,7 +111,7 @@ inline bool bslz4_avx512cs_collect_capable() {
 
 inline bool bslz4_avx2cs_collect_capable() {
 #if BSLZ4_HAVE_AVX2_COLLECT
-    return c2py_amd64_avx2 != 0 && __builtin_cpu_supports("popcnt");
+    return c2py_amd64_avx2 != 0 && c2py_amd64_popcnt != 0;
 #else
     return false;
 #endif
@@ -154,7 +151,7 @@ inline bool bslz4_neon_collect_capable() {
  * (vpcompressw / vpcompressd), stored with plain full-width stores, and the
  * output advanced by popcnt -- no per-pixel loop, so no data-dependent
  * branch per selected pixel.  (Compress-to-register then store: the
- * compress-to-memory form is slow on Zen 4.)
+ * compress-to-memory form is slow on AMD CPUs.)
  *
  * The full-width stores write up to 32 entries past the last selected one.
  * That stays inside the caller's buffers: before group j, at most j of this
@@ -270,9 +267,8 @@ inline int bslz4_collect_avx512cs_u32(const uint32_t *BSLZ4_RESTRICT block,
  * bytes 2k, 2k+1).  Both are stored full width and the output advances by
  * popcount(m).  The full-width stores reach 8 entries past the count: as
  * for avx512cs, before group j at most j of this block's pixels were
- * selected, so a store ends before i0 + j + 16 <= i0 + block_elems.  On
- * EPYC 7543 (no AVX-512) a bit loop per selected pixel was 27-70 % of
- * sparsify. */
+ * selected, so a store ends before i0 + j + 16 <= i0 + block_elems.  Without
+ * AVX-512 a bit loop per selected pixel is a large part of sparsify. */
 #ifndef BSLZ4_AVX2CS_SCALAR_MAX
 #define BSLZ4_AVX2CS_SCALAR_MAX 1
 #endif
@@ -501,21 +497,21 @@ inline int bslz4_collect_sse2_u32(const uint32_t *BSLZ4_RESTRICT block,
  * chunk instead: if no lane exceeds cut, the mask cannot change that
  * (mask>0 & value>cut needs value>cut), so the per-lane extraction is
  * skipped entirely. Real detector data is mostly exact zeros, so the
- * gate fires for nearly every chunk -- 3.75-8.2x faster than scalar on
- * real POWER9 hardware, where an ungated version is ~2x slower.
+ * gate fires for nearly every chunk -- much faster than scalar on
+ * POWER9, where an ungated version is slower than scalar.
  *
  * When the gate does not fire, per-lane extraction is vec_extract in a
  * small fixed-trip loop (8 iterations for u16, 4 for u32).
  *
  * Dense data defeats the gate: with pixels above the cut placed at random
- * the vector loop is slower than the scalar one from ~2% (u16) / ~3% (u32)
- * of pixels kept, up to 1.75x slower (POWER9, 2026-10-10).  So the block is
+ * the vector loop is slower than the scalar one once a few percent of
+ * pixels are kept.  So the block is
  * walked in windows of BSLZ4_VSX_WINDOW pixels, each running the vector or
  * the scalar loop by the pixels the previous window kept, with hysteresis
  * (bslz4_vsx_next_dense: to scalar above 5%, back to vector below 2%):
  * sparse stretches keep the gate, dense ones (rings, a low cut) go scalar,
  * at one compare per window.  The mode restarts as vector every block, so
- * the window is kept short (a 512 window left dense data ~10% slower than
+ * the window is kept short (a longer window left dense data slower than
  * scalar).
  *
  * __vector/__bool, not bare vector/bool: <altivec.h> defines the bare
@@ -642,8 +638,7 @@ inline int bslz4_collect_vsx_u32(const uint32_t *BSLZ4_RESTRICT block,
  * vmaxvq_u16/u32 (AArch64-only) reduces a compare result to its max
  * lane in one instruction: if that max is 0, no lane exceeded cut, so
  * the whole per-lane extraction is safe to skip -- the same gate VSX
- * uses via vec_any_gt, real-hardware-measured on a Cortex-A72 at
- * 4.18x/4.38x (u16/u32) over scalar, see
+ * uses via vec_any_gt, faster than scalar on a Cortex-A72, see
  * tools/bslz4_neon_collect_probe.c.
  *
  * vgetq_lane_u16/u32 need a compile-time-constant lane index (a real
@@ -727,8 +722,7 @@ inline int bslz4_collect_neon_u32(const uint32_t *BSLZ4_RESTRICT block,
  * specialized for uint16_t/uint32_t to dispatch on the pipeline's
  * collect value (avx512cs, avx2cs, sse2, vsx, neon -- see the top of this
  * file), any other value meaning the scalar loop. Used by the plain sparse
- * route and the CSC dense route (dense_dot / sparse_dot_core in
- * src/steps/dot_csc.hpp).
+ * route and by every dense dot (dot_*.hpp).
  */
 template<typename T>
 inline int bslz4_collect_gt(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,

@@ -7,8 +7,8 @@
  * width - 1, zero padded where the pixel touches fewer bins.  A pixel value
  * v adds v * weights[k] to out[base + k]: one destination and a small vector
  * multiply-add, no index read per entry.  _padded_from_csc (Python) checks
- * the matrix once.  The best 1D split layout measured (2026-10-06, Zen 4,
- * default route): 9 % frames 3.1 ms vs 3.9 csc, WAu0012 0.79 vs 0.99.
+ * the matrix once.  The best 1D split layout measured, faster than csc (tools/bench_kernels.py,
+ * see the Every pipeline page of the documentation).
  *
  * The mask is folded into the matrix first, so a masked pixel's row has
  * zero weights (implicit layout) or no row (listed layout): no mask tests.
@@ -101,7 +101,7 @@ inline void bslz4_padded_rows_avx2(const T *block, size_t i0, const bslz4_mat_pa
 /* Accumulate the rows of the block holding pixel i0 into this frame's bins
  * (block = i0 / block_elems).  The width dispatch happens once per block,
  * keeping the dense loop free of switches.  The tail block is bounded by the
- * matrix's own npix, which the driver checks equals the frame's pixel count.
+ * matrix's own pixel count, which the Python layer checks equals the frame's.
  * Called only with n > 0. */
 template<typename T>
 inline void bslz4_padded_dense_block(const T *block, size_t i0, const bslz4_mat_padded *m,
@@ -140,7 +140,7 @@ inline void bslz4_padded_dense_block(const T *block, size_t i0, const bslz4_mat_
 template<typename T>
 static inline
 int padded_dense(const bslz4_work *BSLZ4_RESTRICT w, bool avx2) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;
@@ -162,7 +162,7 @@ int padded_dense(const bslz4_work *BSLZ4_RESTRICT w, bool avx2) {
 template<typename T>
 static inline
 int padded_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
-    const T cut = (T) w->threshold;
+    const T cut = bslz4_cut_of<T>(w);
     const T *px = (const T *) w->block;
     const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
     const size_t i0 = w->i0, n = w->n;

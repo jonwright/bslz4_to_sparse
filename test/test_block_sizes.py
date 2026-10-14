@@ -32,8 +32,7 @@ sp = pytest.importorskip("scipy.sparse")
 
 import bslz4_to_sparse as b
 from bslz4_to_sparse import _pipeline
-from test_layouts import (available_dots, expected, make_nosplit,
-                          make_nosplit_moment, reference)
+from test_layouts import (available_dots, expected, make_nosplit, reference)
 
 SHAPE = (1100, 1200)      # 1.32 Mpx: 2 blocks + a tail at 1 MB (u16), more for smaller
 NPIX = SHAPE[0] * SHAPE[1]
@@ -104,15 +103,14 @@ def test_sparsify_every_step_matches_numpy(cname, block, dt):
 
 @pytest.mark.parametrize("block", sorted(BLOCK_BYTES))
 @pytest.mark.parametrize("cname", CODECS)
-@pytest.mark.parametrize("kind", ["split1d", "nosplit", "moment"])
+@pytest.mark.parametrize("kind", ["split1d", "nosplit"])
 def test_every_dot_matches_numpy_or_is_refused(cname, block, kind):
     rng = np.random.default_rng(12)
     frames = rng.poisson(0.3, (2,) + SHAPE).astype(np.uint16)
     chunks, codec = write_chunks(frames, cname, BLOCK_BYTES[block])
     mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)
     M = {"split1d": lambda: make_split_1d(NPIX, 200, 4),
-         "nosplit": lambda: make_nosplit(NPIX, 250, 8),
-         "moment": lambda: make_nosplit_moment(NPIX, 240, 9)}[kind]()
+         "nosplit": lambda: make_nosplit(NPIX, 250, 8)}[kind]()
     ref = reference(M, frames, mask)
     keep = mask > 0
     ok, refused_at_run = set(), set()
@@ -174,20 +172,23 @@ def test_lowplanes_tiles(nelems, masked):
     assert ran >= 1
 
 
-def test_auto_dot_falls_back_on_large_blocks():
+@pytest.mark.parametrize("dtype", (np.float32, np.uint16))
+def test_auto_dot_falls_back_on_large_blocks(dtype):
     """An auto dot that is bsb-csr on the default block becomes the csc form
-    on a 1 MB block, and is right; an explicit bsb-csr still refuses."""
+    on a 1 MB block, and is right; an explicit bsb-csr still refuses.  Integer pixels of at most
+    32 bits take csc-nosplit-int, which has no block limit: it stays."""
     rng = np.random.default_rng(14)
-    frames = rng.poisson(0.3, (2,) + SHAPE).astype(np.uint16)
+    frames = rng.poisson(0.3, (2,) + SHAPE).astype(dtype)
     mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)
     M = make_nosplit(NPIX, 250, 8)
     ref = reference(M, frames, mask)
+    first = "bsb-csr-nosplit" if dtype == np.float32 else "csc-nosplit-int"
     for nelems_bytes, want_fallback in ((8192, False), (1024 * 1024, True)):
         chunks, codec = write_chunks(frames, "lz4", nelems_bytes)
-        integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec)
-        assert integ.dot == "bsb-csr-nosplit"
+        integ = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec)
+        assert integ.dot == first
         _npx, _vp, p = integ.multi(chunks, 0)
-        assert (integ.dot == "csc-nosplit") == want_fallback
+        assert (integ.dot == "csc-nosplit") == (want_fallback and dtype == np.float32)
         assert _pipeline.NAMES["dot"][integ.pipeline[_pipeline.DOT]] == integ.dot
         r, tol = expected(integ, frames * (mask > 0), ref)
         assert np.abs(p - r).max() / max(np.abs(r).max(), 1.0) < tol

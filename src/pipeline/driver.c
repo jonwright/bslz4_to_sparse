@@ -21,6 +21,9 @@
  *                      otherwise.  Well-compressed blocks are mostly zero,
  *                      so a list of the few non-zero pixels is cheaper than
  *                      a pass over the block.
+ *   BSLZ4_ROUTE_BPP_RULE  as the ratio rule, in bits per pixel: the sparse route when the block is
+ *                      compressed below BSLZ4_ROUTE_BPP (2) bits per pixel, whatever the pixel
+ *                      width (the ratio rule's 8x is 2 bits per pixel for u16 only).
  *   BSLZ4_ROUTE_DENSE  every block untransposed to the pixel block and the
  *                      dot taken over every pixel of it.
  *   BSLZ4_ROUTE_SPARSE  every block reduced to the list of its non-zero
@@ -38,6 +41,20 @@
 #include <string.h>
 
 int bslz4_lowplanes_available(int value) { return bslz4_lowplanes_capable(value); }
+
+/* csc-nosplit-int sums in int64 in the powder buffer, which is 8 bytes per bin like float64: once a
+ * frame's last block is in, convert it in place (memcpy keeps it clear of the aliasing rules; it
+ * compiles to a load, a convert and a store). */
+static void bslz4_powder_i64_to_f64(void *powder, int nout) {
+    unsigned char *p = (unsigned char *) powder;
+    for (int i = 0; i < nout; i++) {
+        int64_t v;
+        double d;
+        memcpy(&v, p + (size_t) i * 8, 8);
+        d = (double) v;
+        memcpy(p + (size_t) i * 8, &d, 8);
+    }
+}
 
 static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                                       const int32_t *BSLZ4_RESTRICT compressed_lengths,
@@ -84,14 +101,58 @@ static inline int bslz4_untranspose_full(const bslz4_pipe *BSLZ4_RESTRICT p, uin
     return bslz4_untranspose_backend(u, block, raw, scratch, ne, NB) < 0 ? -1 : 0;
 }
 
+/* top_pixels (see bslz4_top in pipeline.h): a frame's current threshold, and the move to the next
+ * level(s) while its list is over the limit.  The first level, the call's cut, is level -1. */
+static inline int64_t top_thr(const bslz4_top *BSLZ4_RESTRICT top, int f, int64_t cut) {
+    const int l = top->level[f];
+    return l < 0 ? cut : top->thr[l];
+}
+
+static int32_t top_raise(const bslz4_top *BSLZ4_RESTRICT top, int dtype, int f, int32_t n,
+                         void *vals, uint32_t *adr) {
+    int lev = top->level[f];
+    for (;;) {
+        const int over = lev < 0 ? n > top->howmany : n >= top->howmany;
+        if (!over || lev + 1 >= top->nthr) break;
+        lev++;
+        n = bslz4_filter_gt_dispatch(dtype, vals, adr, n, top->thr[lev]);
+    }
+    top->level[f] = lev;
+    return n;
+}
+
+/* The cut: one element of the pixel type (dtype index as in bslz4_resolve). Integer types give
+ * *ci (u64: the bit pattern, which the kernels cast back); f32/f64 give *cf. A negative or NaN cut
+ * is refused. A later version may take one cut per pixel: ncut is the element count. */
+static int read_cut(int dtype, const void *cut, size_t ncut, int64_t *ci, double *cf) {
+    *ci = 0;
+    *cf = 0.0;
+    if (!cut || ncut != 1) return BSLZ4_ERR_BAD_CUT;
+    switch (dtype) {
+    case 0: *ci = *(const uint8_t *) cut; return 0;
+    case 1: *ci = *(const uint16_t *) cut; return 0;
+    case 2: *ci = *(const uint32_t *) cut; return 0;
+    case 3: *ci = (int64_t) *(const uint64_t *) cut; return 0;
+    case 4: *ci = *(const int8_t *) cut; break;
+    case 5: *ci = *(const int16_t *) cut; break;
+    case 6: *ci = *(const int32_t *) cut; break;
+    case 7: *ci = *(const int64_t *) cut; break;
+    case 8: *cf = (double) *(const float *) cut; break;
+    case 9: *cf = *(const double *) cut; break;
+    default: return BSLZ4_ERR_DTYPE;
+    }
+    if (dtype >= 8 ? !(*cf >= 0.0) : *ci < 0) return BSLZ4_ERR_BAD_THRESHOLD;
+    return 0;
+}
+
 int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                      const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,
-                     const uint8_t *BSLZ4_RESTRICT mask, int NIJ,
-                     void *BSLZ4_RESTRICT outpx, uint32_t *BSLZ4_RESTRICT output_adr,
-                     int32_t *BSLZ4_RESTRICT npx_out, int threshold,
-                     void *BSLZ4_RESTRICT powder, int nout, const void *BSLZ4_RESTRICT mat,
-                     uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len,
-                     int64_t *BSLZ4_RESTRICT cursors, const bslz4_pipe *BSLZ4_RESTRICT p) {
+                     const uint8_t *BSLZ4_RESTRICT mask, int NIJ, void *BSLZ4_RESTRICT outpx,
+                     uint32_t *BSLZ4_RESTRICT output_adr, int32_t *BSLZ4_RESTRICT npx_out,
+                     const void *cut, size_t ncut, void *BSLZ4_RESTRICT powder, int nout,
+                     const void *BSLZ4_RESTRICT mat, uint8_t *BSLZ4_RESTRICT workspace,
+                     size_t workspace_len, int64_t *BSLZ4_RESTRICT cursors,
+                     const bslz4_pipe *BSLZ4_RESTRICT p, const bslz4_top *BSLZ4_RESTRICT top) {
     const size_t NB = p->elem_size;
     const int decode = p->step[BSLZ4_STEP_DECODE];
     const int untranspose = p->step[BSLZ4_STEP_UNTRANSPOSE];
@@ -102,12 +163,37 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     int out_size = is_dot ? bslz4_dot_out_size(dot) : 0;
     if (is_dot && out_size == 0) out_size = (int) NB;     /* packed output: the pixel dtype */
 
-    if (threshold < 0) return BSLZ4_ERR_BAD_THRESHOLD;
+    int64_t cut_i;
+    double cut_f;
+    {
+        const int rc_cut = read_cut(p->dtype, cut, ncut, &cut_i, &cut_f);
+        if (rc_cut) return rc_cut;
+    }
+    const int is_float = p->dtype >= 8;
+    if (top && (top->howmany < 0 || top->nthr < 0)) return BSLZ4_ERR_BAD_THRESHOLD;
 
+    /* decode == PIXELS: the input frames are uncompressed pixels (NIJ * NB bytes each), so there is
+     * no header, no decode, no untranspose and no plane mask: the collect and dot kernels read each
+     * frame's blocks where they lie. The block size is the default one, which is also the one the
+     * matrix layouts are built at. */
+    const int pixels = decode == BSLZ4_DECODE_PIXELS;
     uint64_t total_output_length;
     size_t blocksize;
-    int rc = bslz4_driver_check_frames(compressed_ptrs, compressed_lengths, nframes,
+    int rc = 0;
+    if (pixels) {
+        if (nframes <= 0) return BSLZ4_ERR_BAD_NFRAMES;
+        for (int f = 0; f < nframes; f++)
+            if (compressed_lengths[f] < 0 ||
+                (uint64_t) compressed_lengths[f] != (uint64_t) NIJ * NB)
+                return (uint64_t) compressed_lengths[f] > (uint64_t) NIJ * NB
+                           ? BSLZ4_ERR_TOO_MANY_PIXELS
+                           : BSLZ4_ERR_TOO_FEW_PIXELS;
+        total_output_length = (uint64_t) NIJ * NB;
+        blocksize = BSLZ4_DEFAULT_BLOCK_BYTES;
+    } else {
+        rc = bslz4_driver_check_frames(compressed_ptrs, compressed_lengths, nframes,
                                        &total_output_length, &blocksize);
+    }
     if (rc) return rc;
 
     /* A frame must hold exactly NIJ pixels (frame shape == mask shape): the
@@ -120,8 +206,9 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     const size_t block_elems = blocksize / NB;
     const uint8_t *BSLZ4_RESTRICT emask = p->step[BSLZ4_STEP_MASK] == BSLZ4_MASK_NONE ? NULL : mask;
     /* mask in the bit-plane domain: needs blocks of <= 8192 pixels */
-    const int maskplanes = p->step[BSLZ4_STEP_MASK] == BSLZ4_MASK_PLANES && emask != NULL &&
-                           block_elems <= BSLZ4_MASKPLANE_MAX_ELEMS && block_elems % 64 == 0;
+    const int maskplanes = !pixels && p->step[BSLZ4_STEP_MASK] == BSLZ4_MASK_PLANES &&
+                           emask != NULL && block_elems <= BSLZ4_MASKPLANE_MAX_ELEMS &&
+                           block_elems % 64 == 0;
     uint64_t maskbits[BSLZ4_MASKPLANE_MAX_ELEMS / 64];
     const int lowplanes = untranspose <= BSLZ4_UNTRANSPOSE_LOWPLANES_C;
 
@@ -162,7 +249,11 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             memset(outf, 0, (size_t) nout * (size_t) out_size);
         }
         npx_out[f] = 0;
-        cursors[f] = 12;
+        cursors[f] = pixels ? 0 : 12;
+        if (top) {
+            top->level[f] = -1;
+            top->nabove[f] = 0;
+        }
     }
 
     /* Filled once; n, i0, out_vals, out_adr, route and powder are set per
@@ -172,7 +263,8 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     wbase.collect = collect;
     wbase.dot = dot;
     wbase.no_mask = emask == NULL;
-    wbase.threshold = (int64_t) threshold;
+    wbase.threshold = cut_i;
+    wbase.cutf = cut_f;
     wbase.block = block;
     wbase.mask = mask;
     wbase.mat = mat;
@@ -189,33 +281,51 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         for (int f = 0; f < nframes; f++) {
             const char *BSLZ4_RESTRICT cf = (const char *) (intptr_t) compressed_ptrs[f];
             const int64_t clen = compressed_lengths[f];
-            int64_t pos = cursors[f];
-            if (BSLZ4_UNLIKELY(clen - pos < 4)) return BSLZ4_ERR_CORRUPT_CHUNK;
-            uint32_t nbytes = bslz4_read_be32((const uint8_t *) cf + pos);
-            if (BSLZ4_UNLIKELY((int64_t) nbytes > clen - pos - 4)) return BSLZ4_ERR_CORRUPT_CHUNK;
-            cursors[f] = pos + (int64_t) nbytes + 4;
+            uint32_t nbytes = 0;
+            size_t nz_end = blocksize;
+            if (!pixels) {
+                int64_t pos = cursors[f];
+                if (BSLZ4_UNLIKELY(clen - pos < 4)) return BSLZ4_ERR_CORRUPT_CHUNK;
+                nbytes = bslz4_read_be32((const uint8_t *) cf + pos);
+                if (BSLZ4_UNLIKELY((int64_t) nbytes > clen - pos - 4))
+                    return BSLZ4_ERR_CORRUPT_CHUNK;
+                cursors[f] = pos + (int64_t) nbytes + 4;
 
-            /* decode: raw[nz_end..blocksize) is zero, maybe unwritten */
-            size_t nz_end;
-            if (BSLZ4_UNLIKELY(bslz4_decode_block(decode, (const uint8_t *) cf + pos + 4, nbytes, raw,
-                                                  blocksize, &nz_end) != (int) blocksize))
-                return BSLZ4_ERR_DECOMPRESS;
-            bslz4_counters_bump(BSLZ4_STEP_DECODE, decode);
+                /* decode: raw[nz_end..blocksize) is zero, maybe unwritten */
+                if (BSLZ4_UNLIKELY(bslz4_decode_block(decode, (const uint8_t *) cf + pos + 4,
+                                                      nbytes, raw, blocksize,
+                                                      &nz_end) != (int) blocksize))
+                    return BSLZ4_ERR_DECOMPRESS;
+                bslz4_counters_bump(BSLZ4_STEP_DECODE, decode);
+            }
 
             /* mask: masked pixels are 0 from here, no per-pixel tests */
             if (maskplanes && !block_unmasked)
                 bslz4_mask_planes(raw, maskbits, block_elems / 8, nz_end);
             const uint8_t *BSLZ4_RESTRICT bmask = maskplanes ? NULL : emask;
 
+            /* pixels: nothing says how sparse a block is, so only an explicit sparse route takes
+             * the list */
             const int sparse = !is_dot || route == BSLZ4_ROUTE_SPARSE ||
-                               (route == BSLZ4_ROUTE_RATIO_RULE && blocksize > BSLZ4_ROUTE_RATIO * (size_t) nbytes);
+                               (!pixels && route == BSLZ4_ROUTE_RATIO_RULE &&
+                                blocksize > BSLZ4_ROUTE_RATIO * (size_t) nbytes) ||
+                               (!pixels && route == BSLZ4_ROUTE_BPP_RULE &&
+                                BSLZ4_ROUTE_BPP_SPARSE(nbytes, NB, blocksize));
+            if (top) /* the previous block may have taken this frame's list over the limit */
+                npx_out[f] = top_raise(top, p->dtype, f, npx_out[f],
+                                       (uint8_t *) outpx + (size_t) f * NIJ * NB,
+                                       output_adr + (size_t) f * NIJ);
             const int32_t npx0 = npx_out[f];
+            const int64_t thr_f = top ? top_thr(top, f, cut_i) : cut_i;
             uint8_t *BSLZ4_RESTRICT out_vals = (uint8_t *) outpx + ((size_t) f * NIJ + (size_t) npx0) * NB;
             uint32_t *BSLZ4_RESTRICT out_adr = output_adr + (size_t) f * NIJ + npx0;
             bslz4_work w = wbase;
+            w.threshold = thr_f;
+            if (is_float && top && top->level[f] >= 0) w.cutf = (double) thr_f;
             if (maskplanes) w.no_mask = 1;
             w.n = block_elems;
             w.i0 = (size_t) i0;
+            if (pixels) w.block = (const uint8_t *) cf + (size_t) i0 * NB;
             w.out_vals = out_vals;
             w.out_adr = out_adr;
             if (is_dot) {
@@ -226,13 +336,15 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             /* untranspose + collect fused, for u16 blocks < 256 that need
              * only the list: the plain sparsify's > cut pixels, or the sparse
              * route's non-zero ones */
-            if (lowplanes && sparse) {
-                const int r = is_dot
-                    ? bslz4_lowplanes_list(untranspose, raw, block_elems, nz_end, nbytes, blocksize, scratch,
-                                           bmask, (size_t) i0, 0u, (uint16_t *) tval, tidx)
-                    : bslz4_lowplanes_list(untranspose, raw, block_elems, nz_end, nbytes, blocksize, scratch,
-                                           bmask, (size_t) i0, (unsigned) threshold,
-                                           (uint16_t *) (void *) out_vals, out_adr);
+            if (lowplanes && sparse && !pixels) {
+                const int r =
+                    is_dot ? bslz4_lowplanes_list(untranspose, raw, block_elems, nz_end, nbytes,
+                                                  blocksize, scratch, bmask, (size_t) i0, 0u,
+                                                  (uint16_t *) tval, tidx)
+                           : bslz4_lowplanes_list(untranspose, raw, block_elems, nz_end, nbytes,
+                                                  blocksize, scratch, bmask, (size_t) i0,
+                                                  thr_f > 65535 ? 65535u : (unsigned) thr_f,
+                                                  (uint16_t *) (void *) out_vals, out_adr);
                 if (r >= 0) {
                     bslz4_counters_bump(BSLZ4_STEP_UNTRANSPOSE, untranspose);
                     bslz4_counters_bump(BSLZ4_STEP_COLLECT, collect);
@@ -250,9 +362,12 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             }
 
             /* untranspose to the block, then collect (and dot) over it */
-            if (BSLZ4_UNLIKELY(bslz4_untranspose_full(p, block, raw, scratch, block_elems, nz_end) < 0))
-                return BSLZ4_ERR_UNTRANSPOSE;
-            bslz4_counters_bump(BSLZ4_STEP_UNTRANSPOSE, untranspose);
+            if (!pixels) {
+                if (BSLZ4_UNLIKELY(
+                        bslz4_untranspose_full(p, block, raw, scratch, block_elems, nz_end) < 0))
+                    return BSLZ4_ERR_UNTRANSPOSE;
+                bslz4_counters_bump(BSLZ4_STEP_UNTRANSPOSE, untranspose);
+            }
             bslz4_counters_bump(BSLZ4_STEP_COLLECT, collect);
             if (is_dot) {
                 bslz4_counters_bump(BSLZ4_STEP_ROUTE, sparse ? BSLZ4_ROUTE_SPARSE : BSLZ4_ROUTE_DENSE);
@@ -269,7 +384,10 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
      * like the others) and any remainder stored raw at the chunk's end. */
     const int tail_decode = decode == BSLZ4_DECODE_ZSTD ? BSLZ4_DECODE_ZSTD : BSLZ4_DECODE_LZ4_STOCK;
     const int tail_untranspose = lowplanes ? BSLZ4_UNTRANSPOSE_KCB : untranspose;
-    size_t tail_block = (8 * NB) * ((size_t) remaining / (8 * NB));
+    size_t tail_block =
+        pixels
+            ? 0
+            : (8 * NB) * ((size_t) remaining / (8 * NB)); /* pixels: all raw, at the frame's end */
     for (int f = 0; f < nframes; f++) {
         const char *BSLZ4_RESTRICT cf = (const char *) (intptr_t) compressed_ptrs[f];
         uint32_t tail_nbytes = 0;
@@ -290,14 +408,23 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             bslz4_counters_bump(BSLZ4_STEP_UNTRANSPOSE, untranspose);
         }
         int64_t rem_f = remaining - (int64_t) tail_block;
-        if (rem_f > 0) {
+        if (rem_f > 0 && !pixels) {
             if (BSLZ4_UNLIKELY(compressed_lengths[f] < rem_f ||
                                cursors[f] > (int64_t) compressed_lengths[f] - rem_f))
                 return BSLZ4_ERR_CORRUPT_CHUNK;
             memcpy(block + tail_block, cf + compressed_lengths[f] - rem_f, (size_t) rem_f);
         }
+        if (top)
+            npx_out[f] =
+                top_raise(top, p->dtype, f, npx_out[f], (uint8_t *) outpx + (size_t) f * NIJ * NB,
+                          output_adr + (size_t) f * NIJ);
         const int32_t npx0 = npx_out[f];
         bslz4_work w = wbase;
+        w.threshold = top ? top_thr(top, f, cut_i) : cut_i;
+        if (is_float && top && top->level[f] >= 0) w.cutf = (double) w.threshold;
+        if (pixels)
+            w.block =
+                (const uint8_t *) cf + (size_t) i0 * NB; /* the frame's last pixels, in place */
         w.n = ((size_t) rem_f + tail_block) / NB;
         w.i0 = (size_t) i0;
         w.out_vals = (uint8_t *) outpx + ((size_t) f * NIJ + (size_t) npx0) * NB;
@@ -306,15 +433,111 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         if (is_dot) {
             /* a pure raw remainder is trivially cheap either way */
             w.route = route == BSLZ4_ROUTE_SPARSE ||
-                      (route == BSLZ4_ROUTE_RATIO_RULE &&
-                       (tail_block == 0 || tail_block > BSLZ4_ROUTE_RATIO * (size_t) tail_nbytes));
+                      (!pixels && route == BSLZ4_ROUTE_RATIO_RULE &&
+                       (tail_block == 0 || tail_block > BSLZ4_ROUTE_RATIO * (size_t) tail_nbytes)) ||
+                      (!pixels && route == BSLZ4_ROUTE_BPP_RULE &&
+                       (tail_block == 0 || BSLZ4_ROUTE_BPP_SPARSE(tail_nbytes, NB, tail_block)));
             w.powder = (uint8_t *) powder + (size_t) f * nout * (size_t) out_size;
             bslz4_counters_bump(BSLZ4_STEP_ROUTE, w.route ? BSLZ4_ROUTE_SPARSE : BSLZ4_ROUTE_DENSE);
             bslz4_counters_bump(BSLZ4_STEP_DOT, dot);
             npx_out[f] = npx0 + bslz4_sparse_dot_dispatch(&w);
+            if (dot == BSLZ4_DOT_CSC_NOSPLIT_INT) bslz4_powder_i64_to_f64(w.powder, nout);
         } else {
             npx_out[f] = npx0 + bslz4_sparse_dispatch(&w);
         }
+        if (top) { /* the last move to a threshold, then at most howmany pixels, the first ones */
+            npx_out[f] =
+                top_raise(top, p->dtype, f, npx_out[f], (uint8_t *) outpx + (size_t) f * NIJ * NB,
+                          output_adr + (size_t) f * NIJ);
+            top->nabove[f] = npx_out[f];
+            if (npx_out[f] > top->howmany) npx_out[f] = top->howmany;
+        }
     }
     return 0;
+}
+
+/* ---- the front half alone ---- */
+
+int bslz4_driver_decompress(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
+                            const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,
+                            uint8_t *BSLZ4_RESTRICT out, size_t out_len,
+                            uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len, int elem_size,
+                            int decode, int untranspose, int unshuffle) {
+    const size_t NB = (size_t) elem_size;
+    if (NB != 1 && NB != 2 && NB != 4 && NB != 8) return BSLZ4_ERR_DTYPE;
+    if (decode != BSLZ4_DECODE_LZ4_STOCK && decode != BSLZ4_DECODE_ZSTD)
+        return BSLZ4_ERR_BAD_PIPELINE;
+    uint64_t total;
+    size_t blocksize;
+    int rc =
+        bslz4_driver_check_frames(compressed_ptrs, compressed_lengths, nframes, &total, &blocksize);
+    if (rc) return rc;
+    if (total > (uint64_t) INT32_MAX) return BSLZ4_ERR_TOO_LARGE;
+    if ((uint64_t) nframes * total > (uint64_t) out_len) return BSLZ4_ERR_WORKSPACE_TOO_SMALL;
+    const size_t wsz =
+        blocksize < total ? blocksize : (size_t) total; /* no block is larger than the data */
+    if (unshuffle && blocksize % (8 * NB))
+        return BSLZ4_ERR_CORRUPT_CHUNK; /* the bit transpose needs whole groups of 8 */
+    if (unshuffle && workspace_len < 3 * wsz) return BSLZ4_ERR_WORKSPACE_TOO_SMALL;
+    uint8_t *BSLZ4_RESTRICT raw = workspace;
+    uint8_t *BSLZ4_RESTRICT scratch = workspace + wsz;
+    uint8_t *BSLZ4_RESTRICT block = workspace + 2 * wsz;
+
+    /* one zstd context for every block of the call (what it saves: see the note in steps/decode.h) */
+    ZSTD_DCtx *zctx = decode == BSLZ4_DECODE_ZSTD ? ZSTD_createDCtx() : NULL;
+    if (decode == BSLZ4_DECODE_ZSTD && !zctx) return BSLZ4_ERR_DECOMPRESS;
+    const size_t full = (size_t) (total / blocksize);
+    const size_t remaining = (size_t) (total - (uint64_t) full * blocksize);
+    const size_t tail_block = (8 * NB) * (remaining / (8 * NB));
+    rc = 0;
+    for (int f = 0; f < nframes && rc == 0; f++) {
+        const uint8_t *BSLZ4_RESTRICT cf = (const uint8_t *) (intptr_t) compressed_ptrs[f];
+        const int64_t clen = compressed_lengths[f];
+        uint8_t *BSLZ4_RESTRICT dst = out + (size_t) f * (size_t) total;
+        int64_t pos = 12;
+        size_t off = 0;
+        for (size_t b = 0; b < full + (tail_block > 0) && rc == 0; b++) {
+            const size_t size = b < full ? blocksize : tail_block;
+            if (BSLZ4_UNLIKELY(clen - pos < 4)) {
+                rc = BSLZ4_ERR_CORRUPT_CHUNK;
+                break;
+            }
+            const uint32_t nbytes = bslz4_read_be32(cf + pos);
+            if (BSLZ4_UNLIKELY((int64_t) nbytes > clen - pos - 4)) {
+                rc = BSLZ4_ERR_CORRUPT_CHUNK;
+                break;
+            }
+            uint8_t *into = unshuffle ? raw : dst + off;
+            const int64_t got =
+                zctx ? (int64_t) ZSTD_decompressDCtx(zctx, into, size, cf + pos + 4, nbytes)
+                     : (int64_t) LZ4_decompress_safe((const char *) cf + pos + 4, (char *) into,
+                                                     (int) nbytes, (int) size);
+            if (BSLZ4_UNLIKELY(got != (int64_t) size)) {
+                rc = BSLZ4_ERR_DECOMPRESS;
+                break;
+            }
+            if (unshuffle) {
+                if (BSLZ4_UNLIKELY(bslz4_untranspose_backend(untranspose, block, raw, scratch,
+                                                             size / NB, NB) < 0)) {
+                    rc = BSLZ4_ERR_UNTRANSPOSE;
+                    break;
+                }
+                memcpy(dst + off, block, size);
+            }
+            pos += (int64_t) nbytes + 4;
+            off += size;
+        }
+        if (rc) break;
+        const int64_t rem_f =
+            (int64_t) (remaining - tail_block); /* stored raw at the chunk's end */
+        if (rem_f > 0) {
+            if (BSLZ4_UNLIKELY(clen < rem_f || pos > clen - rem_f)) {
+                rc = BSLZ4_ERR_CORRUPT_CHUNK;
+                break;
+            }
+            memcpy(dst + off, cf + clen - rem_f, (size_t) rem_f);
+        }
+    }
+    if (zctx) ZSTD_freeDCtx(zctx);
+    return rc;
 }

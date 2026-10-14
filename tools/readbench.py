@@ -1,6 +1,14 @@
 """
 Record and compare decode timings across machines, builds and pipelines.
 
+What is timed: the decode of frames already in memory (compressed chunks, or an h5py read), on one
+core, with nothing else running in the timed block: no file reads, no writing.  Every "reader" (a
+function that does the whole job for the batch of frames) is run `repeats` times, round-robin with
+the others so that slow drift of a shared machine hits all alike, and the best time is kept.
+`pinned()` keeps the process on one core, as `taskset -c` would.  The decode is single threaded, so
+what this gives is the cost of one core per frame, and with it how many cores keep up with a network
+link when reads overlap with compute: report() ends with that budget.
+
     times, results = readbench.time_interleaved(runs, repeats=5)
     readbench.record('timings.jsonl', times, nframes=nf, bytes_per_frame=...,
                      cases={...}, data={...}, pipeline_used=integ.pipeline)
@@ -9,13 +17,11 @@ Record and compare decode timings across machines, builds and pipelines.
     with readbench.pinned() as cpu:   # like `taskset -c cpu` for the timed block
         ...
 
-record() appends one JSON line per (reader, case) for the current machine
-and build, replacing any earlier line with the same machine, sources,
-pipeline, data, case and reader (so rerunning a notebook does not pile up
-duplicates). report() prints every machine/build/pipeline in the file as its
-own table, followed by what a network link would need: the decode here is
-single threaded, so with reads overlapped with compute one core keeps up with
-the link only if it decodes faster than frames arrive.
+record() appends one JSON line per (reader, case) for the current machine and build, replacing any
+earlier line with the same machine, sources, pipeline, data, case and reader (so rerunning does not
+pile up duplicates). report() prints every machine/build/pipeline in the file as its own table of
+ms per frame, then the network budget.  See examples/ex12_decode_timing.py for a run and its output;
+the file lives in tools/ of the repository (put that directory on PYTHONPATH).
 """
 from __future__ import print_function
 

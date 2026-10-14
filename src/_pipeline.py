@@ -35,6 +35,7 @@ VALUES = {
         ("lz4-zero", "lz4: zero-aware decoder for every block"),
         ("lz4-stock", "lz4: LZ4_decompress_safe"),
         ("zstd", "zstd"),
+        ("pixels", "no decode: uncompressed pixel frames (from_frames); not for chunks"),
     ),
     "mask": (
         "auto",
@@ -66,6 +67,7 @@ VALUES = {
         ("ratio", "per block: sparse when compressed more than 8x"),
         ("dense", "dot over every pixel of every block"),
         ("sparse", "dot over the non-zero pixels of every block"),
+        ("bpp", "per block: sparse when compressed below 2 bits per pixel"),
     ),
     "dot": (
         "auto",
@@ -76,23 +78,16 @@ VALUES = {
         ("csc-nosplit", "at most one bin per pixel, weight 1 (a histogram)"),
         ("bsb-csr", "any matrix; for few occupied pixels (rings)"),
         ("bsb-csr-nosplit", "as csc-nosplit"),
-        ("csc-nosplit-moment", "0 or 2 bins per pixel: (b, 1), (b+1, q)"),
         ("csc-permute", "a permutation: one bin per pixel, weight 1, each bin used once; output in the pixel dtype"),
         ("csc-int", "integer pixels; fixed-point u32 weights, exact int64 sums"),
         ("csc-run-int", "integer pixels; as csc-run with fixed-point u32 weights"),
         ("csc-run-int16", "integer pixels; as csc-run with fixed-point u16 weights"),
+        ("csc-nosplit-int", "integer pixels of at most 32 bits; csc-nosplit summed in int64, "
+                            "returned as float64 (one cast at the end)"),
     ),
 }
 
 NAMES = {s: tuple(v if isinstance(v, str) else v[0] for v in VALUES[s]) for s in STEPS}
-
-# the matrix layouts the dots read (src/_matrix.py) and the C entry each uses
-DOT_ENTRY = {
-    "csc": "csc", "csc-run": "csc", "csc-nosplit": "csc", "csc-nosplit-moment": "csc",
-    "csc-permute": "csc", "csc-int": "csc", "csc-run-int": "csc", "csc-run-int16": "csc",
-    "padded": "padded", "padded-avx2": "padded",
-    "bsb-csr": "bsb-csr", "bsb-csr-nosplit": "bsb-csr",
-}
 
 DTYPE_INDEX = {"u8": 0, "u16": 1, "u32": 2, "u64": 3, "i8": 4, "i16": 5, "i32": 6, "i64": 7,
                "f32": 8, "f64": 9}
@@ -192,7 +187,7 @@ def auto_step(step, suffix, codec, mask_all_valid):
                     return NAMES[step].index(n)
         return NAMES[step].index("scalar")
     if step == "route":
-        return NAMES[step].index("ratio")
+        return NAMES[step].index("bpp")
     raise ValueError(step)
 
 
@@ -220,6 +215,10 @@ def resolve(pipeline, dtype, codec, mask, dot_auto=None, matrix=False):
         _check_cpu(step, vals[s])
     # what the data and the dtype allow
     dname = NAMES["decode"][vals[DECODE]]
+    if dname == "pixels":
+        raise ValueError(
+            "pipeline['decode']='pixels' is for uncompressed frames: call from_frames() instead"
+        )
     if codec == CODEC_ZSTD and dname != "zstd":
         raise ValueError("pipeline['decode']=%r: the data is zstd compressed (use 'zstd')" % dname)
     if codec != CODEC_ZSTD and dname == "zstd":
@@ -244,12 +243,15 @@ def resolve(pipeline, dtype, codec, mask, dot_auto=None, matrix=False):
         if dot in ("csc-int", "csc-run-int", "csc-run-int16") and suffix[0] not in "ui":
             raise ValueError("pipeline['dot']=%r needs integer pixels, not %s"
                              % (dot, np.dtype(dtype)))
+        if dot == "csc-nosplit-int" and (suffix[0] not in "ui" or np.dtype(dtype).itemsize > 4):
+            raise ValueError("pipeline['dot']='csc-nosplit-int' needs integer pixels of at most "
+                             "32 bits, not %s" % np.dtype(dtype))
     return np.array(vals, dtype=np.uint16)
 
 
 def describe(pipeline=None):
-    """The step names of a pipeline (a dict step -> name; None for the route
-    and dot of a plain sparsify), or, with no argument, every step's values
+    """The step names of a pipeline (a dict step -> name; None for a step left
+    auto (0), or not used), or, with no argument, every step's values
     with whether this CPU/build can run them (a dict step -> list of
     (value, name, usable, what it needs))."""
     if pipeline is None:

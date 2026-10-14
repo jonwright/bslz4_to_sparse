@@ -5,6 +5,8 @@ Every layout is exact (or, for the fixed-point dots, within their stated
 rounding) and is refused, with the reason, for a matrix it cannot
 represent.  The C side of each layout is in src/steps/dot_*.hpp.
 """
+import threading
+
 import numpy as np
 
 _PADDED_MAX_WIDTH = 64
@@ -72,6 +74,10 @@ def normalise_matrix(csc, npix=None):
         nbins,
         len(indptr) - 1,
     )
+
+
+def _copy_normal(nm):
+    return _NormalMatrix(nm.data.copy(), nm.indices.copy(), nm.indptr.copy(), nm.nbins, nm.npix)
 
 
 def _fold_mask(nm, mask):
@@ -222,32 +228,6 @@ def _nosplit_bins(nm):
     return bins
 
 
-def _nosplit_moment(nm):
-    """(data, indices) for the csc-nosplit-moment dot: a histogram with a first
-    moment beside each output, i.e. every pixel reaches either no bin or the
-    pair b, b+1 with weights exactly 1 (sum I) and q (sum qI) -- the
-    interleaved [I, qI, I, qI, ...] order.  indices[p] = b (_NO_BIN for none),
-    data[p] = q (npix entries each).  Raises ValueError otherwise."""
-    indptr = nm.indptr.astype(np.int64)
-    n = np.diff(indptr)
-    if ((n != 0) & (n != 2)).any():
-        raise ValueError("%d pixels do not reach exactly 0 or 2 bins"
-                         % int(((n != 0) & (n != 2)).sum()))
-    has = n == 2
-    k0 = indptr[:-1][has]
-    b0 = nm.indices[k0].astype(np.int64)
-    b1 = nm.indices[k0 + 1].astype(np.int64)
-    w0 = nm.data[k0]
-    bad = int(((b1 != b0 + 1) | (w0 != 1)).sum())
-    if bad:
-        raise ValueError("%d pixels are not (bin b, weight 1), (bin b+1, q)" % bad)
-    bins = np.full(nm.npix, _NO_BIN, dtype=np.uint32)
-    bins[has] = b0
-    q = np.zeros(nm.npix, dtype=np.float32)
-    q[has] = nm.data[k0 + 1]
-    return q, bins
-
-
 def _bsb_csr_from_csc(nm, block_elems):
     """Build a _BsbCSR from a _NormalMatrix: CSC entries sorted by
     (pixel//block_elems, bin), grouped per (block, bin).  General (works for
@@ -285,7 +265,7 @@ def _counts(nm):
     return np.diff(nm.indptr.astype(np.int64))
 
 
-def _runs(nm, what):
+def _runs(nm):
     """First bin per pixel (0 for empty), refusing pixels whose bins are not
     one ascending run of consecutive bins."""
     indptr = nm.indptr.astype(np.int64)
@@ -304,7 +284,7 @@ def _runs(nm, what):
     return starts, n
 
 
-def _histogram_bins(nm, what):
+def _histogram_bins(nm):
     """The one bin of each pixel (-1 for none); weights must be exactly 1."""
     n = _counts(nm)
     if (n > 1).any():
@@ -316,13 +296,21 @@ def _histogram_bins(nm, what):
     return bins
 
 
-def _fixed_point_bits(nm, dtype, wbits):
+def _fixed_point_bits(nm, dtype, wbits, maxval=None):
     """Fractional bits b for weights stored as round(w * 2**b) in a wbits-bit
-    unsigned integer, keeping every int64 bin sum of w * pixel exact."""
+    unsigned integer, keeping every int64 bin sum of w * pixel exact.  Two
+    limits: the weights must fit wbits bits (b <= log2((2**wbits - 1) / the
+    largest weight)), and the sum of w * pixel over the pixels of a bin must
+    fit int64 (b <= 62 - log2(the largest pixel value) - log2(the largest sum
+    of the weights of a bin)).  The largest pixel value is the dtype's unless
+    maxval says what the data can reach: pixels above maxval can then overflow
+    the sums, silently."""
     dt = np.dtype(dtype)
     if dt.kind not in "ui":
         raise ValueError("integer weights need an integer pixel dtype, not %s" % dt)
     pbits = dt.itemsize * 8 - (1 if dt.kind == "i" else 0)
+    if maxval is not None:
+        pbits = np.log2(float(int(maxval) + 1))
     w = np.abs(nm.data.astype(np.float64))
     wmax = float(w.max()) if w.size else 1.0
     rowsum = np.bincount(nm.indices, weights=w, minlength=nm.nbins)
@@ -371,10 +359,79 @@ def _quantise(nm, b, wtype):
 
 
 
+INT_DOTS = ("csc-int", "csc-run-int", "csc-run-int16")
+
+
+class FixedPointMatrix(object):
+    """A csc matrix prepared for the integer dots: the mask folded in and the weights stored as
+    round(w * scale) integers (data, uint32 or uint16), so that a chunk2sparseCSC given it
+    returns the int64 sums of integer weight times pixel, exact; powder / scale is the float sum.
+    scale is an integer power of two, 2**b.  Made by fixed_point_matrix; the decoder uses it as
+    it is."""
+
+    def __init__(self, nm, data, nbits, dtype, maxval):
+        self.nm = nm  # the mask-folded float32 matrix the weights were made from
+        self.data = data
+        self.scale = 1 << int(nbits)
+        self.nbins = nm.nbins
+        self.npix = nm.npix
+        self.dtype = np.dtype(dtype)
+        self.maxval = maxval
+
+    def _snapshot(self):
+        """A copy that shares no array with this one."""
+        c = FixedPointMatrix.__new__(FixedPointMatrix)
+        c.__dict__.update(self.__dict__)
+        c.nm = _copy_normal(self.nm)
+        c.data = self.data.copy()
+        return c
+
+    def check(self, dtype, npix):
+        """ValueError unless this matrix can be used for pixels of dtype in frames of npix."""
+        dtype = np.dtype(dtype)
+        if dtype.kind not in "ui":
+            raise ValueError("a fixed_point_matrix needs integer pixels, not %s" % dtype)
+        if npix != self.npix:
+            raise ValueError("the mask has %d pixels, the matrix %d" % (npix, self.npix))
+        if dtype.itemsize > self.dtype.itemsize:
+            raise ValueError(
+                "the matrix was made for %s pixels: its sums could overflow for %s" % (self.dtype, dtype)
+            )
+
+
+def fixed_point_matrix(csc, mask, dtype, maxval=None, wbits=32):
+    """
+    Prepare a csc matrix (scipy csc, pyFAI CSC engine, ...) for exact integer sums: fold the mask
+    in (masked pixels add nothing), then store the weights as fixed-point integers of wbits (32
+    or 16) bits.  Give the result to chunk2sparseCSC in place of the matrix.
+
+    dtype: the pixel dtype of the data (integer).  The weights get b fractional bits, b <= wbits
+    (their width) and b <= 62 - log2(maxval + 1) - log2(the largest sum of weights in a bin), so
+    that the int64 sums cannot overflow; each doubling of maxval costs a bit.  maxval is the
+    dtype's maximum unless given: the largest value the data can hold.  For 16-bit pixels b is
+    about 31, for 32-bit pixels at their maximum about 17 for a 1D matrix (weight step 2**-17: a
+    relative error of a few 1e-6 in a bin sum).  Pixels above maxval can overflow the sums,
+    silently: it is a promise about the data.  tools/fixed_point_precision.py prints b for a
+    matrix and data.
+
+    Raises ValueError for a matrix that cannot be fixed-point (negative weights beyond rounding
+    noise, no room for 4 fractional bits).  The result has .scale (the integer 2**b to divide the
+    int64 sums by) and .nbins.
+    """
+    mask = np.asarray(mask)
+    dtype = np.dtype(dtype)
+    if wbits not in (16, 32):
+        raise ValueError("wbits must be 16 or 32")
+    nm = _fold_mask(normalise_matrix(csc, npix=mask.size), mask.ravel())
+    b = _fixed_point_bits(nm, dtype, wbits, maxval)
+    data = _quantise(nm, b, np.uint16 if wbits == 16 else np.uint32)
+    return FixedPointMatrix(nm, data, b, dtype, maxval)
+
+
 def _permute_bins(nm):
     """FAZIT: every pixel reaches its own bin (a permutation of the unmasked
     pixels), weight 1; the output is the pixel values in bin order."""
-    bins = _histogram_bins(nm, "csc-permute")
+    bins = _histogram_bins(nm)
     used = bins[bins >= 0]
     if np.unique(used).size != used.size:
         raise ValueError("%d bins are reached by more than one pixel"
@@ -397,32 +454,28 @@ def analyse(nm):
         info["runs"] = True
     except ValueError:
         info["runs"] = False
-    try:
-        _nosplit_moment(nm)
-        info["moment"] = True
-    except ValueError:
-        info["moment"] = False
     return info
 
 
 BSB_MAX_BLOCK_ELEMS = 65536   # bsb-csr's in-block pixel index is uint16
 
 
-def auto_dot(info, padded_avx2, block_elems=None):
-    """The best measured choice (tools/bench_kernels.py, Xeon Gold 6248 and
-    EPYC 9655, 2026-10-10): a histogram -> bsb-csr-nosplit; moment pairs ->
-    csc-nosplit-moment; few occupied pixels (rings) -> bsb-csr; one run of <= 8
-    bins per pixel -> padded-avx2 (1.4-1.9x on dense frames, the AVX2 rows) or
-    padded; runs of 9-64 bins -> padded for decode blocks of <= 8192 pixels,
-    csc for larger ones (csc-run was never the best); else csc.  Decode blocks
-    over BSB_MAX_BLOCK_ELEMS pixels rule the bsb-csr dots out (csc-nosplit,
-    csc instead).  Never csc-permute or the integer dots: they change the
-    output type."""
+def auto_dot(info, padded_avx2, block_elems=None, int_pixels=False):
+    """The float dot to use for a matrix, from the kernels measured by tools/bench_kernels.py (the
+    Every pipeline page of the documentation): a histogram -> csc-nosplit-int for integer pixels of at
+    most 32 bits (u32: 5 to 30 % over bsb-csr-nosplit on 1 core of an EPYC and of a Xeon, u16 on the
+    sparse route a tie), else bsb-csr-nosplit; one run of <= 8
+    bins per pixel -> padded-avx2 (on dense frames) or padded; else few occupied pixels (rings) ->
+    bsb-csr; runs of 9-64 bins -> padded for decode blocks of <= 8192 pixels, csc for larger ones
+    (csc-run was never the best); else csc.  Decode blocks over BSB_MAX_BLOCK_ELEMS pixels rule
+    the bsb-csr dots out (csc-nosplit, csc instead).  Never csc-permute (it changes the output) or
+    the fixed-point integer dots, which need a matrix from fixed_point_matrix.  int_pixels: the pixels
+    are integers of at most 32 bits."""
     bsb = block_elems is None or block_elems <= BSB_MAX_BLOCK_ELEMS
     if info["nosplit"]:
+        if int_pixels:
+            return "csc-nosplit-int"
         return "bsb-csr-nosplit" if bsb else "csc-nosplit"
-    if info["moment"]:
-        return "csc-nosplit-moment"
     if info["runs"] and info["max_bins"] <= 8:
         return "padded-avx2" if padded_avx2 else "padded"
     if info["occupancy"] < 0.5 and bsb:
@@ -437,9 +490,10 @@ def auto_dot(info, padded_avx2, block_elems=None):
 
 class Layout(object):
     """The arrays one dot reads, ready for its C entry ("csc", "padded" or
-    "bsb-csr"): args() is what follows the powder in the call.  nout is the
-    powder length, powder_dtype its type (scale turns an int64 powder back
-    into float; None for the float ones), block_elems the decode block size
+    "bsb-csr"): args() are the layout's arrays, which follow the powder in the call
+    for "csc" and are split around the workspace arguments for the others.  nout is the
+    powder length, powder_dtype its type (an int64 powder divided by scale
+    is float; scale is None for the float ones), block_elems the decode block size
     it was built for (None when it does not depend on it)."""
 
     def __init__(self, dot, entry, args, nout, powder_dtype=np.float64, scale=None,
@@ -456,28 +510,36 @@ class Layout(object):
         return self._args
 
 
-def build(dot, nm, block_elems, dtype):
-    """The Layout of a mask-folded _NormalMatrix for one dot.  Raises
+def build(dot, nm, block_elems, dtype, fixed=None):
+    """The Layout of a mask-folded _NormalMatrix for one dot (the integer dots take the
+    FixedPointMatrix made from it).  Raises
     ValueError (without the step context) if the dot cannot represent it."""
     nbins = nm.nbins
+    if fixed is not None and dot not in INT_DOTS:
+        raise ValueError("a fixed_point_matrix needs an integer dot (csc-int, ...), not %s" % dot)
     if dot == "csc":
         return Layout(dot, "csc", (nm.data, nm.indices, nm.indptr), nbins)
     if dot == "csc-run":
         return Layout(dot, "csc", (nm.data, _run_starts(nm), nm.indptr), nbins)
     if dot == "csc-nosplit":
         return Layout(dot, "csc", (nm.data, _nosplit_bins(nm), nm.indptr), nbins)
-    if dot == "csc-nosplit-moment":
-        q, bins = _nosplit_moment(nm)
-        return Layout(dot, "csc", (q, bins, nm.indptr), nbins)
+    if dot == "csc-nosplit-int":
+        return Layout(dot, "csc", (nm.data, _nosplit_bins(nm), nm.indptr), nbins)
     if dot == "csc-permute":
         return Layout(dot, "csc", (nm.data, _permute_bins(nm), nm.indptr), nbins,
                       powder_dtype=np.dtype(dtype))
-    if dot in ("csc-int", "csc-run-int", "csc-run-int16"):
-        wbits, wtype = (16, np.uint16) if dot == "csc-run-int16" else (32, np.uint32)
-        idx = nm.indices if dot == "csc-int" else _runs(nm, dot)[0].astype(np.uint32)
-        b = _fixed_point_bits(nm, dtype, wbits)
-        return Layout(dot, "csc", (_quantise(nm, b, wtype), idx, nm.indptr), nbins,
-                      powder_dtype=np.int64, scale=2.0 ** -b)
+    if dot in INT_DOTS:
+        if fixed is None:
+            raise ValueError("%s needs the matrix prepared by fixed_point_matrix" % dot)
+        wtype = np.uint16 if dot == "csc-run-int16" else np.uint32
+        if fixed.data.dtype != wtype:
+            raise ValueError(
+                "%s takes %s weights, the matrix has %s (fixed_point_matrix wbits)"
+                % (dot, np.dtype(wtype), fixed.data.dtype)
+            )
+        idx = nm.indices if dot == "csc-int" else _runs(nm)[0].astype(np.uint32)
+        return Layout(dot, "csc", (fixed.data, idx, nm.indptr), nbins,
+                      powder_dtype=np.int64, scale=fixed.scale)
     if dot in ("padded", "padded-avx2"):
         p = _padded_from_csc(nm, block_elems)
         return Layout(dot, "padded", (p.base, p._weights_flat, p._pixels_arg, p._rowmap_arg,
@@ -498,3 +560,83 @@ def build(dot, nm, block_elems, dtype):
         return Layout(dot, "bsb-csr", (q.blk_ptr, q.bins, q.bin_ptr, q.idx, q.data) + csc +
                       (q.block_elems,), nbins, block_elems=block_elems)
     raise ValueError("unknown dot %r" % (dot,))
+
+
+# ---- what sibling chunk2sparseCSC objects share ------------------------------
+
+_BLOCK_DOTS = ("padded", "padded-avx2", "bsb-csr", "bsb-csr-nosplit")   # layouts that depend on the block size
+
+
+class _Family(object):
+    """What the chunk2sparseCSC objects of one plan share: the plan's own copy of the matrix (nm,
+    mask-folded, and fixed: the FixedPointMatrix it came from, copied, or None) and of the mask,
+    the analysis of the matrix and the layouts built so far, each built once (one lock; a layout
+    already built is read without it).  Read by the objects, changed only by adding a layout.  Every
+    array it holds is read-only (flags.writeable False), so a stray write raises."""
+
+    def __init__(self, csc, mask):
+        mask = np.array(mask)               # the family's own copy
+        self.mask = mask.reshape(-1)
+        self.shape = mask.shape
+        if isinstance(csc, FixedPointMatrix):
+            self.fixed = csc._snapshot()
+            self.nm = self.fixed.nm
+            if self.nm.npix != self.mask.size:
+                raise ValueError("the mask has %d pixels, the matrix %d" % (self.mask.size, self.nm.npix))
+        else:
+            self.fixed = None
+            self.nm = _fold_mask(normalise_matrix(csc, npix=self.mask.size), self.mask)
+        self.nbins = self.nm.nbins
+        self._info = None
+        self._layouts = {}
+        self._lock = threading.Lock()
+        self._freeze()
+
+    def _freeze(self):
+        arrays = [self.mask, self.nm.data, self.nm.indices, self.nm.indptr]
+        if self.fixed is not None:
+            arrays += [self.fixed.data, self.fixed.nm.data, self.fixed.nm.indices, self.fixed.nm.indptr]
+        for lay in self._layouts.values():
+            arrays += [a for a in lay.args() if isinstance(a, np.ndarray)]
+        for a in arrays:
+            a.flags.writeable = False
+
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        state["_lock"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
+        self._freeze()           # unpickled arrays are writeable
+
+    @property
+    def info(self):
+        """analyse(nm), computed once"""
+        info = self._info
+        if info is None:
+            with self._lock:
+                if self._info is None:
+                    self._info = analyse(self.nm)
+                info = self._info
+        return info
+
+    def layout(self, dot, block_elems, dtype):
+        """The Layout for a dot, built on the first request and the same object after that: the
+        block size only matters to the padded and bsb-csr dots, the pixel dtype to csc-permute.
+        ValueError (not kept) if the dot cannot represent the matrix."""
+        dtype = np.dtype(dtype)
+        key = (dot, block_elems if dot in _BLOCK_DOTS else None,
+               dtype.str if dot == "csc-permute" else None)
+        lay = self._layouts.get(key)
+        if lay is None:
+            with self._lock:
+                lay = self._layouts.get(key)
+                if lay is None:
+                    lay = build(dot, self.nm, block_elems, dtype, self.fixed)
+                    for a in lay.args():
+                        if isinstance(a, np.ndarray):
+                            a.flags.writeable = False
+                    self._layouts[key] = lay
+        return lay

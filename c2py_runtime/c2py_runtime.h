@@ -1203,8 +1203,8 @@ static inline void c2py_perf_reset(c2py_perf_t *p)
         memset(p, 0, sizeof(c2py_perf_t));
         p->variant = -1;       /* unset */
         p->group_idx = -1;     /* flat */
-        p->t_c_min = UINT64_MAX;
-        p->t_wrap_min = UINT64_MAX;
+        p->t_c_min = ~(uint64_t)0;
+        p->t_wrap_min = ~(uint64_t)0;
     }
 }
 

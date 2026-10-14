@@ -5,10 +5,10 @@
  * bslz4_sparse_dispatch / bslz4_sparse_dot_dispatch, one call per block.
  *
  *   collect.hpp         block -> pixel list, per collect value
- *   dot_csc.hpp         csc, csc-run, csc-nosplit, csc-nosplit-moment
+ *   dot_csc.hpp         csc, csc-run, csc-nosplit
  *   dot_padded.hpp      padded, padded-avx2
  *   dot_bsbcsr.hpp      bsb-csr, bsb-csr-nosplit
- *   dot_fixed.hpp       csc-permute, csc-int, csc-run-int, csc-run-int16
+ *   dot_fixed.hpp       csc-permute, csc-int, csc-run-int, csc-run-int16, csc-nosplit-int
  *   lowplanes_avx2.hpp  the AVX2 fused low-planes collect (C entry below)
  *
  * Each dtype's entry is a noinline instance, so each is register-allocated
@@ -54,7 +54,7 @@ template<typename T>
 BSLZ4_NOINLINE int bslz4_sparse_block(const bslz4_work *BSLZ4_RESTRICT w) {
     if (bslz4_cut_above_max<T>(w)) return 0;
     return bslz4_collect_gt<T>((const T *) w->block, w->no_mask ? NULL : w->mask, w->i0,
-                               w->n, (T) w->threshold, w->collect, (T *) w->out_vals, w->out_adr);
+                               w->n, bslz4_cut_of<T>(w), w->collect, (T *) w->out_vals, w->out_adr);
 }
 
 /* sparsify + dot: the dot's dense or sparse route (w->route) */
@@ -69,7 +69,6 @@ BSLZ4_NOINLINE int bslz4_sparse_dot_block(const bslz4_work *BSLZ4_RESTRICT w) {
     case BSLZ4_DOT_CSC_NOSPLIT:        return sparse ? nosplit_sparse<T>(w) : nosplit_dense<T>(w);
     case BSLZ4_DOT_BSBCSR:             return sparse ? bsbcsr_sparse<T>(w) : bsbcsr_dense<T>(w);
     case BSLZ4_DOT_BSBCSR_NOSPLIT:     return sparse ? bsbcsr_nosplit_sparse<T>(w) : bsbcsr_nosplit_dense<T>(w);
-    case BSLZ4_DOT_CSC_NOSPLIT_MOMENT: return sparse ? nosplit_moment_sparse<T>(w) : nosplit_moment_dense<T>(w);
     default:                           return bslz4v::dispatch<T>(w);
     }
 }
@@ -95,6 +94,53 @@ template int bslz4_sparse_dot_block<int32_t>(const bslz4_work *);
 template int bslz4_sparse_dot_block<int64_t>(const bslz4_work *);
 template int bslz4_sparse_dot_block<float>(const bslz4_work *);
 template int bslz4_sparse_dot_block<double>(const bslz4_work *);
+
+/* ---- top_pixels: raise a frame's cut and filter its list in place ---- */
+
+template <typename T>
+BSLZ4_NOINLINE int bslz4_filter_gt(void *vals_, uint32_t *adr, int n, int64_t thr) {
+    T *vals = (T *) vals_;
+    if (std::numeric_limits<T>::is_integer && thr >= (int64_t) std::numeric_limits<T>::max() &&
+        std::numeric_limits<T>::digits < 63)
+        return 0; /* nothing can be above it */
+    const T cut = (T) thr;
+    int k = 0;
+    for (int i = 0; i < n; i++) {
+        if (vals[i] > cut) {
+            vals[k] = vals[i];
+            adr[k] = adr[i];
+            k++;
+        }
+    }
+    return k;
+}
+
+extern "C" int bslz4_filter_gt_dispatch(int dtype, void *vals, uint32_t *adr, int n, int64_t thr) {
+    switch (dtype) {
+    case 0:
+        return bslz4_filter_gt<uint8_t>(vals, adr, n, thr);
+    case 1:
+        return bslz4_filter_gt<uint16_t>(vals, adr, n, thr);
+    case 2:
+        return bslz4_filter_gt<uint32_t>(vals, adr, n, thr);
+    case 3:
+        return bslz4_filter_gt<uint64_t>(vals, adr, n, thr);
+    case 4:
+        return bslz4_filter_gt<int8_t>(vals, adr, n, thr);
+    case 5:
+        return bslz4_filter_gt<int16_t>(vals, adr, n, thr);
+    case 6:
+        return bslz4_filter_gt<int32_t>(vals, adr, n, thr);
+    case 7:
+        return bslz4_filter_gt<int64_t>(vals, adr, n, thr);
+    case 8:
+        return bslz4_filter_gt<float>(vals, adr, n, thr);
+    case 9:
+        return bslz4_filter_gt<double>(vals, adr, n, thr);
+    default:
+        return -1;
+    }
+}
 
 /* ---- the dtype switches the driver calls ---- */
 

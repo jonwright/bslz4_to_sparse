@@ -12,7 +12,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+/* MSVC before 2010 (_MSC_VER 1600) has no <stdint.h>.  Provide only what
+ * c2py needs; user C code that includes <stdint.h> still needs its own
+ * shim on the include path for these compilers. */
+#ifndef C2PY_STDINT_DEFINED
+#define C2PY_STDINT_DEFINED
+#if defined(_MSC_VER) && _MSC_VER < 1600
+typedef signed char        int8_t;
+typedef unsigned char      uint8_t;
+typedef short              int16_t;
+typedef unsigned short     uint16_t;
+typedef int                int32_t;
+typedef unsigned int       uint32_t;
+typedef __int64            int64_t;
+typedef unsigned __int64   uint64_t;
+#else
 #include <stdint.h>
+#endif
+#endif /* C2PY_STDINT_DEFINED */
 #include <limits.h>
 #include <stdio.h>
 #ifdef _WIN32
@@ -44,6 +61,30 @@ extern "C" {
  * __inline is the MSVC equivalent (also recognised by MinGW). */
 #ifdef _MSC_VER
 #define inline __inline
+/* MSVC spells C99 restrict __restrict (the keyword is always available). */
+#ifndef restrict
+#define restrict __restrict
+#endif
+/* The CRT "unsafe function" deprecation (_vsnprintf below) cannot
+ * be silenced by a macro here: stdio.h is already included by the wrapper. */
+#pragma warning(disable:4996)
+#endif
+
+/* snprintf arrived in MSVC 2015 (_MSC_VER 1900).  Older compilers have
+ * only _vsnprintf, which does not NUL-terminate on truncation. */
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#include <stdarg.h>
+static int c2py_snprintf(char *buf, size_t n, const char *fmt, ...)
+{
+    va_list ap;
+    int r;
+    va_start(ap, fmt);
+    r = _vsnprintf(buf, n, fmt, ap);
+    va_end(ap);
+    if (n > 0) buf[n - 1] = '\0';
+    return r;
+}
+#define snprintf c2py_snprintf
 #endif
 
 /* DLL export attribute for module init functions.

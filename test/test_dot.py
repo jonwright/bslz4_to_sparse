@@ -87,7 +87,7 @@ def testfun( ):
         dt, shp, chunklist = chunks[name]
         c2s = chunk2sparseCSC( 1-ai.mask,
                                ai.engines[method].engine,
-                               dtype=np.dtype(dt) )
+                               dtype=np.dtype(dt))
         tims = []
         for i,(filt, chunk) in enumerate(chunklist):
             t0 = timeit.default_timer()
@@ -300,12 +300,12 @@ def test_u64_i64_and_signed_negative_values():
 # for callers who already hold the whole HDF5 file as one buffer.
 #
 # _gather_chunks() is exercised by every test above.
-# harvest_chunk_offsets()/pack_offsets_lengths()/decode_offsets have no
+# locate_chunks()/offsets_lengths()/from_buffer have no
 # other coverage, so they are checked here against .multi reading the very
 # same chunks.
 # ---------------------------------------------------------------------------
 
-from bslz4_to_sparse import harvest_chunk_offsets, pack_offsets_lengths
+from bslz4_to_sparse import locate_chunks, offsets_lengths
 
 
 def test_decode_offsets_matches_call():
@@ -317,12 +317,12 @@ def test_decode_offsets_matches_call():
             for name in chunks:
                 dt, shp, chunklist = chunks[name]
                 frames = list(range(len(chunklist)))
-                offsets, lengths = pack_offsets_lengths(harvest_chunk_offsets(h5f[name]), frames)
+                offsets, lengths = offsets_lengths(locate_chunks(h5f[name]), frames)
                 saved = offsets.copy()
                 c2sm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine,
                                        dtype=np.dtype(dt))
                 # copies: the next call reuses the same output arrays
-                npx, (val, adr), powder = c2sm.decode_offsets(mm, offsets, lengths, 1)
+                npx, (val, adr), powder = c2sm.from_buffer(mm, offsets, lengths, 1)
                 npx, val, adr, powder = npx.copy(), val.copy(), adr.copy(), powder.copy()
                 assert np.array_equal(offsets, saved), "caller's offsets were modified"
                 npx_ref, (val_ref, adr_ref), powder_ref = c2sm.multi([c for (filt, c) in chunklist], 1)
@@ -334,12 +334,12 @@ def test_decode_offsets_matches_call():
                 assert np.array_equal(powder, powder_ref), name
                 for i in frames:
                     e = R(powder[i], reference_results[i].sum_signal)
-                    assert e[0] < 1e-4, (name, i, "decode_offsets powder vs pyFAI", e)
+                    assert e[0] < 1e-4, (name, i, "from_buffer powder vs pyFAI", e)
 
                 bad = offsets.copy()
                 bad[-1] = len(mm) - lengths[-1] + 1        # runs one byte past the end
                 try:
-                    c2sm.decode_offsets(mm, bad, lengths, 1)
+                    c2sm.from_buffer(mm, bad, lengths, 1)
                 except Exception as e:
                     assert "-108" in str(e), e
                 else:
@@ -464,5 +464,5 @@ test_plain_multi_matches_single()
 test_u64_i64_and_signed_negative_values()
 test_decode_offsets_matches_call()
 test_every_available_untranspose_matches()
-print("all multi-frame / dense-sparse-route / u64-i64 / decode_offsets tests passed")
+print("all multi-frame / dense-sparse-route / u64-i64 / from_buffer tests passed")
 print("(SIMD collect tests only run under pytest -- see test_simd_collect_matches_scalar)")

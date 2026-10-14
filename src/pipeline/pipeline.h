@@ -40,11 +40,13 @@ enum {
 /* decode: the codec is a property of the data (lz4 or zstd); for lz4 the
  * decoder is a choice */
 enum {
-    BSLZ4_DECODE_LZ4_BAND = 1,    /* zero-aware decoder below 8x and above 24x, stock in between */
-    BSLZ4_DECODE_LZ4_ZERO = 2,    /* zero-aware decoder (src/steps/lz4zero.h) for every block */
-    BSLZ4_DECODE_LZ4_STOCK = 3,   /* LZ4_decompress_safe */
+    BSLZ4_DECODE_LZ4_BAND = 1,  /* zero-aware decoder below 8x and above 24x, stock in between */
+    BSLZ4_DECODE_LZ4_ZERO = 2,  /* zero-aware decoder (src/steps/lz4zero.h) for every block */
+    BSLZ4_DECODE_LZ4_STOCK = 3, /* LZ4_decompress_safe */
     BSLZ4_DECODE_ZSTD = 4,
-    BSLZ4_DECODE_N = 5
+    BSLZ4_DECODE_PIXELS =
+        5, /* no decode: the "chunks" are uncompressed pixel frames (the back half only) */
+    BSLZ4_DECODE_N = 6
 };
 
 enum {
@@ -83,9 +85,14 @@ enum {
     BSLZ4_ROUTE_RATIO_RULE = 1,   /* sparse for blocks compressed more than BSLZ4_ROUTE_RATIO */
     BSLZ4_ROUTE_DENSE = 2,
     BSLZ4_ROUTE_SPARSE = 3,
-    BSLZ4_ROUTE_N = 4
+    BSLZ4_ROUTE_BPP_RULE = 4,     /* sparse for blocks compressed below BSLZ4_ROUTE_BPP bits per pixel */
+    BSLZ4_ROUTE_N = 5
 };
 #define BSLZ4_ROUTE_RATIO 8
+#define BSLZ4_ROUTE_BPP 2
+/* the bpp rule: compressed bits per pixel = 8 * nbytes * NB / blocksize */
+#define BSLZ4_ROUTE_BPP_SPARSE(nbytes, NB, blocksize) \
+    (8 * (size_t) (nbytes) * (NB) < BSLZ4_ROUTE_BPP * (size_t) (blocksize))
 
 /* dot: each value names a layout of the matrix arrays (src/_matrix.py) */
 enum {
@@ -96,11 +103,11 @@ enum {
     BSLZ4_DOT_CSC_NOSPLIT = 5,
     BSLZ4_DOT_BSBCSR = 6,
     BSLZ4_DOT_BSBCSR_NOSPLIT = 7,
-    BSLZ4_DOT_CSC_NOSPLIT_MOMENT = 8,
-    BSLZ4_DOT_CSC_PERMUTE = 9,
-    BSLZ4_DOT_CSC_INT = 10,
-    BSLZ4_DOT_CSC_RUN_INT = 11,
-    BSLZ4_DOT_CSC_RUN_INT16 = 12,
+    BSLZ4_DOT_CSC_PERMUTE = 8,
+    BSLZ4_DOT_CSC_INT = 9,
+    BSLZ4_DOT_CSC_RUN_INT = 10,
+    BSLZ4_DOT_CSC_RUN_INT16 = 11,
+    BSLZ4_DOT_CSC_NOSPLIT_INT = 12,
     BSLZ4_DOT_N = 13
 };
 
@@ -147,6 +154,22 @@ typedef struct bslz4_pipe {
     size_t elem_size;            /* sizeof(pixel dtype) */
 } bslz4_pipe;
 
+/* top_pixels inside the block loop (ImageD11's rules, see src/_toppix.py).  Each frame starts at
+ * the call's cut (level -1); whenever its list reaches the limit (more than howmany at the cut,
+ * howmany or more at a threshold) the frame moves to the next threshold and its list is filtered in
+ * place, so a list never grows past howmany + one block.  The answer equals "all pixels above the
+ * cut, then top_pixels", because a prefix that is over the limit stays over it.  thr[k] is the
+ * effective threshold of level k, max(cut, floor(t_k)), non-decreasing.  After the call level[f] is
+ * the level the frame ended at, nabove[f] its pixel count at that level before truncation to
+ * howmany. */
+typedef struct bslz4_top {
+    int howmany;
+    int nthr;
+    const int64_t *thr;
+    int32_t *level;
+    int32_t *nabove;
+} bslz4_top;
+
 /* One block (or the tail) handed to the dtype-generic collect / dot kernels
  * (src/steps/kernels.cpp). */
 typedef struct bslz4_work {
@@ -157,7 +180,8 @@ typedef struct bslz4_work {
     int    no_mask;                  /* skip all mask tests */
     size_t n;                        /* pixels in this block/tail */
     size_t i0;                       /* global pixel offset of block start */
-    int64_t threshold;
+    int64_t threshold;               /* the cut, integer pixel types (u64: the bit pattern) */
+    double  cutf;                    /* the cut, f32/f64 pixels */
     const void   *BSLZ4_RESTRICT block;    /* decoded + untransposed block */
     const uint8_t *BSLZ4_RESTRICT mask;
     void          *BSLZ4_RESTRICT out_vals;/* sparse output values */
@@ -197,25 +221,42 @@ int bslz4_dot_layout(int dot);
 int bslz4_dot_out_size(int dot);
 
 /* test instrumentation: blocks run per (step, value) */
-void bslz4_reset_counters(void);
+void bslz4_reset_counters(void); /* zero them and start counting */
+void bslz4_set_counters(int on); /* 0: stop counting (the default), 1: count */
 int  bslz4_read_counters(uint64_t *BSLZ4_RESTRICT out, int n);   /* flattened [step][value] */
 
 /* ---- dtype-generic kernels (src/steps/kernels.cpp) ---- */
 int bslz4_sparse_dispatch(const bslz4_work *BSLZ4_RESTRICT w);
 int bslz4_sparse_dot_dispatch(const bslz4_work *BSLZ4_RESTRICT w);
 
+/* keep the entries of (vals, adr)[0..n) with value > thr (the collect's own comparison), in order;
+ * returns the new n */
+int bslz4_filter_gt_dispatch(int dtype, void *vals, uint32_t *adr, int n, int64_t thr);
+
 /* ---- the frame/block loop (src/pipeline/driver.c) ---- */
 
-/* kind 0: plain sparsify (mat, powder, nout unused); otherwise mat is the
+/* dot step 0 (see bslz4_pipe): plain sparsify (mat, powder, nout unused); otherwise mat is the
  * layout descriptor for p->step[BSLZ4_STEP_DOT] */
 int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                      const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,
-                     const uint8_t *BSLZ4_RESTRICT mask, int NIJ,
-                     void *BSLZ4_RESTRICT outpx, uint32_t *BSLZ4_RESTRICT output_adr,
-                     int32_t *BSLZ4_RESTRICT npx_out, int threshold,
-                     void *BSLZ4_RESTRICT powder, int nout, const void *BSLZ4_RESTRICT mat,
-                     uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len,
-                     int64_t *BSLZ4_RESTRICT cursors, const bslz4_pipe *BSLZ4_RESTRICT p);
+                     const uint8_t *BSLZ4_RESTRICT mask, int NIJ, void *BSLZ4_RESTRICT outpx,
+                     uint32_t *BSLZ4_RESTRICT output_adr, int32_t *BSLZ4_RESTRICT npx_out,
+                     const void *cut, size_t ncut, void *BSLZ4_RESTRICT powder, int nout,
+                     const void *BSLZ4_RESTRICT mat, uint8_t *BSLZ4_RESTRICT workspace,
+                     size_t workspace_len, int64_t *BSLZ4_RESTRICT cursors,
+                     const bslz4_pipe *BSLZ4_RESTRICT p,
+                     const bslz4_top *BSLZ4_RESTRICT top); /* NULL: every pixel above the cut */
+
+/* The front half alone: decode the chunks (lz4 or zstd, `decode` = BSLZ4_DECODE_LZ4_STOCK or
+ * BSLZ4_DECODE_ZSTD) into out, frame f at out + f * (the chunks' decoded size), and with unshuffle
+ * != 0 also undo the bit shuffle (`untranspose` is the step value for it), giving the pixel bytes;
+ * unshuffle == 0 leaves each block as the HDF5 filter's decompressor yields it, before the
+ * unshuffle.  elem_size is the pixel size in bytes. */
+int bslz4_driver_decompress(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
+                            const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,
+                            uint8_t *BSLZ4_RESTRICT out, size_t out_len,
+                            uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len, int elem_size,
+                            int decode, int untranspose, int unshuffle);
 
 #ifdef __cplusplus
 }
@@ -225,10 +266,17 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
  * (step, value)); the array lives in registry.c.  Deliberately a plain,
  * unsynchronised increment (an atomic one is a locked RMW per block): the
  * counters are test instrumentation and only exact while one decode runs at
- * a time; concurrent decodes may lose counts, never corrupt the output. */
+ * a time; concurrent decodes may lose counts, never corrupt the output.
+ *
+ * They count only between bslz4_reset_counters() (or set_counters(1)) and
+ * bslz4_set_counters(0), and are off in a fresh process.  While off the flag is read-only, so
+ * decoding threads share no written cache line: with the counters always on, every block of every
+ * thread wrote the same few lines and 32 threads ran much slower than 32 processes
+ * (with the counters off, threads and processes were equal). */
 extern uint64_t bslz4_counters[BSLZ4_NSTEPS][BSLZ4_VALUE_SLOTS];
+extern int bslz4_counters_on;
 static inline void bslz4_counters_bump(int step, int value) {
-    bslz4_counters[(unsigned) step][(unsigned) value]++;
+    if (BSLZ4_UNLIKELY(bslz4_counters_on)) bslz4_counters[(unsigned) step][(unsigned) value]++;
 }
 
 #endif /* BSLZ4_PIPELINE_H */

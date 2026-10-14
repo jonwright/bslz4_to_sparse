@@ -76,21 +76,6 @@ def make_nosplit(npix, nbins, seed):
                           indptr.astype(np.int32)), shape=(nbins, npix))
 
 
-def make_nosplit_moment(npix, nbins, seed):
-    """A histogram with a first moment: each pixel reaches no bin or the pair
-    (2k, 2k+1) with weights 1 (sum I) and its q (sum qI)."""
-    rng = np.random.default_rng(seed)
-    has = rng.random(npix) > 0.1
-    n = np.where(has, 2, 0)
-    k = rng.integers(0, nbins // 2, npix)
-    q = rng.uniform(1.0, 30.0, npix).astype(np.float32)
-    indptr = np.concatenate(([0], np.cumsum(n)))
-    indices = np.stack([2 * k, 2 * k + 1], axis=1)[has].ravel()
-    data = np.stack([np.ones(npix, np.float32), q], axis=1)[has].ravel()
-    return sp.csc_matrix((data, indices.astype(np.int32), indptr.astype(np.int32)),
-                         shape=(nbins, npix))
-
-
 def make_general(npix, nbins, seed):
     """Pixels reach arbitrary bins (padded must refuse it)."""
     rng = np.random.default_rng(seed)
@@ -120,7 +105,7 @@ def expected(integ, frames, ref):
     lay = integ._layout
     if lay.scale is not None:
         nm = integ._nm
-        Mq = sp.csc_matrix((lay.args()[0].astype(np.float64) * lay.scale, nm.indices, nm.indptr),
+        Mq = sp.csc_matrix((lay.args()[0].astype(np.float64) * (1.0 / lay.scale), nm.indices, nm.indptr),
                            shape=nm.shape)
         return np.array([Mq @ f.ravel().astype(np.float64) for f in frames]), 1e-12
     return ref, 1e-9
@@ -141,7 +126,7 @@ def run_all_dots(mask, M, frames, chunks, codec, dt):
 
 
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32, np.int32, np.float32])
-@pytest.mark.parametrize("kind", ["split1d", "general", "nosplit", "moment"])
+@pytest.mark.parametrize("kind", ["split1d", "general", "nosplit"])
 def test_every_dot_matches_numpy_with_masked_big_values(tmp_path, dt, kind):
     shape = (61, 83)                              # 5063 px: a raw tail for every dtype
     npix = shape[0] * shape[1]
@@ -152,8 +137,7 @@ def test_every_dot_matches_numpy_with_masked_big_values(tmp_path, dt, kind):
     chunks, codec = write_chunks(tmp_path / "f.h5", frames)
     M = {"split1d": lambda: make_split_1d(npix, 200, 4),
          "general": lambda: make_general(npix, 300, 5),
-         "nosplit": lambda: make_nosplit(npix, 250, 8),
-         "moment": lambda: make_nosplit_moment(npix, 240, 9)}[kind]()
+         "nosplit": lambda: make_nosplit(npix, 250, 8)}[kind]()
     ref = reference(M, frames, mask)
     seen = set()
     keep = (mask > 0)
@@ -174,9 +158,6 @@ def test_every_dot_matches_numpy_with_masked_big_values(tmp_path, dt, kind):
         assert "csc-run" in seen and "csc-nosplit" in seen and "bsb-csr-nosplit" in seen
     else:
         assert "bsb-csr-nosplit" not in seen
-    assert ("csc-nosplit-moment" in seen) == (kind == "moment")
-    if kind == "moment":
-        assert "csc-run" in seen and "csc-nosplit" not in seen
 
 
 def test_whole_number_of_blocks(tmp_path):

@@ -36,6 +36,10 @@ NPIX = (BS + TAIL) // NB            # 4196
 NBINS = 10
 
 
+NOTOP = np.zeros(0, np.int64)      # no top_pixels request (src/_toppix.py)
+NOOUT = np.zeros(0, np.int32)
+
+
 def _lz4_zeros(n):
     """LZ4 block holding n zero bytes as one literal-only sequence."""
     ext = n - 15
@@ -216,15 +220,15 @@ def test_resolution_errors():
 
     # dtype out of range -> ERR_DTYPE (-113)
     assert _ext.sparsify(ptr, lens, mask, np.zeros(NPIX, np.uint16),
-                         np.empty(NPIX, np.uint32), np.empty(1, np.int32), 0,
+                         np.empty(NPIX, np.uint32), np.empty(1, np.int32), np.zeros(1, np.uint16),
                          np.zeros(3 * BS, np.uint8), np.empty(1, np.int64),
-                         11, pipe) == -113
+                         NOTOP, NOOUT, 11, pipe) == -113
 
     # an unresolved (auto) pipeline is refused by C -> -111
     assert _ext.sparsify(ptr, lens, mask, np.zeros(NPIX, np.uint16),
-                         np.empty(NPIX, np.uint32), np.empty(1, np.int32), 0,
+                         np.empty(NPIX, np.uint32), np.empty(1, np.int32), np.zeros(1, np.uint16),
                          np.zeros(3 * BS, np.uint8), np.empty(1, np.int64),
-                         1, np.zeros(6, np.uint16)) == -111
+                         NOTOP, NOOUT, 1, np.zeros(6, np.uint16)) == -111
 
     # int64 indices / indptr arrays are rejected at the boundary
     ws = np.zeros(3 * BS + (BS // NB) * (4 + NB), np.uint8)
@@ -233,18 +237,18 @@ def test_resolution_errors():
     indptr = np.arange(NPIX + 1, dtype=np.int32)
     with pytest.raises(Exception):
         _ext.sparsify_and_dot(ptr, lens, mask, np.zeros(NPIX, np.uint16),
-                              np.empty(NPIX, np.uint32), np.empty(1, np.int32), 0,
+                              np.empty(NPIX, np.uint32), np.empty(1, np.int32), np.zeros(1, np.uint16),
                               np.zeros(NBINS, np.float64), data, ind64, indptr,
-                              ws, np.empty(1, np.int64), NBINS, 1, cpipe)
+                              ws, np.empty(1, np.int64), NOTOP, NOOUT, NBINS, 1, cpipe)
 
     # wrong matrix size (indptr not npix+1) is rejected
     with pytest.raises(Exception):
         _ext.sparsify_and_dot(ptr, lens, mask, np.zeros(NPIX, np.uint16),
-                              np.empty(NPIX, np.uint32), np.empty(1, np.int32), 0,
+                              np.empty(NPIX, np.uint32), np.empty(1, np.int32), np.zeros(1, np.uint16),
                               np.zeros(NBINS, np.float64), data,
                               np.arange(NPIX, dtype=np.uint32),
                               np.arange(NPIX, dtype=np.uint32),
-                              ws, np.empty(1, np.int64), NBINS, 1, cpipe)
+                              ws, np.empty(1, np.int64), NOTOP, NOOUT, NBINS, 1, cpipe)
 
 
 # ---- dot values: the per-dtype/kernel mechanism ------------------------------
@@ -286,15 +290,17 @@ def test_dot_values_agree(tmp_path):
         np.add.at(ref[f], indices, arr[f].ravel().astype(np.float64))
 
     def _run(dot, route):
-        c = b.chunk2sparseCSC(mask, csc, dtype=np.uint16,
-                              pipeline={"dot": dot, "route": route})
+        fixed = dot in ("csc-int", "csc-run-int", "csc-run-int16")
+        c = b.chunk2sparseCSC(mask, b.fixed_point_matrix(csc, mask, np.uint16,
+                              wbits=16 if dot == "csc-run-int16" else 32) if fixed else csc,
+                              dtype=np.uint16, pipeline={"dot": dot, "route": route})
         assert c.dot == dot
         _testing.reset_counters()
         npx, (vals, adr), powder = c.multi(chunks, 1)
         cnt = _testing.counters()["dot"]
         assert cnt.get(dot, 0) > 0, (dot, "selected dot did not run", cnt)
         assert set(cnt) == {dot}, (dot, "another dot ran", cnt)
-        return npx.copy(), vals.copy(), adr.copy(), np.asarray(powder, np.float64).copy()
+        return npx.copy(), vals.copy(), adr.copy(), np.asarray(powder, np.float64) * (1.0 / (c.powder_scale or 1))
 
     usable = [d for d in DOTS if d in _usable("dot")]
     for route in ("dense", "sparse"):
@@ -308,3 +314,42 @@ def test_dot_values_agree(tmp_path):
                 np.testing.assert_array_equal(v0[i][:n], v1[i][:n])
                 np.testing.assert_array_equal(a0[i][:n], a1[i][:n])
             np.testing.assert_array_equal(p0, p1, err_msg="%s %s" % (dot, route))
+
+
+def test_counters_do_not_count_until_reset():
+    """Decoding threads must not write shared counters unless a test asked for them (cache-line ping-pong made 32
+    threads run at a third of the speed of 32 processes): a fresh process counts nothing until reset_counters().
+    """
+    import subprocess
+    import sys
+
+    code = r"""
+import sys
+sys.path.insert(0, sys.argv[1])
+import numpy as np, h5py, hdf5plugin, bslz4_to_sparse as b
+from bslz4_to_sparse import _testing
+fr = (np.random.default_rng(0).random((1, 64, 64)) < 0.1).astype(np.uint16)
+with h5py.File("c.h5", "w", driver="core", backing_store=False) as f:
+    ds = f.create_dataset("d", data=fr, chunks=(1, 64, 64), **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
+    chunk = ds.id.read_direct_chunk((0, 0, 0))[1]
+c = b.chunk2sparse(np.ones((64, 64), np.uint8), np.uint16, b.CODEC_LZ4)
+c(chunk, 0)
+assert not any(_testing.counters().values()), _testing.counters()
+_testing.reset_counters()
+c(chunk, 0)
+assert any(_testing.counters().values()), _testing.counters()
+_testing.stop_counters()                      # off again: a further decode changes nothing
+before = _testing.counters()
+c(chunk, 0)
+assert _testing.counters() == before
+with _testing.counting():                     # zeroed on entry, off on exit
+    c(chunk, 0)
+    inside = _testing.counters()
+assert any(inside.values())
+c(chunk, 0)
+assert _testing.counters() == inside
+print("ok")
+"""
+    path = os.path.dirname(os.path.dirname(os.path.abspath(b.__file__)))
+    r = subprocess.run([sys.executable, "-c", code, path], capture_output=True, text=True)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stdout + r.stderr

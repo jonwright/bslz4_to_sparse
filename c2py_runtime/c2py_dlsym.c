@@ -40,10 +40,10 @@ static int _resolve(void **ptr, const char *name)
  * call sites that need the PyPy fallback). */
 static void *_resolve_raw(const char *name)
 {
-    void *p = C2PY_RESOLVE(C2PY.dl_handle, name);
-    if (p) return p;
     char pypy_name[256];
     int prefix_len = (name[0] == '_') ? 3 : 2;
+    void *p = C2PY_RESOLVE(C2PY.dl_handle, name);
+    if (p) return p;
     snprintf(pypy_name, sizeof(pypy_name), "%.*sPy%s",
              prefix_len, name, name + prefix_len);
     return C2PY_RESOLVE(C2PY.dl_handle, pypy_name);
@@ -71,15 +71,18 @@ _init_module_2_7(const char *name, PyMethodDef *methods)
     /* Try Py_InitModule4 first (Python 2.7 preferred) */
     typedef PyObject* (*init4_fn)(const char*, PyMethodDef*, const char*,
                                    PyObject*, int);
-    init4_fn fn4 = (init4_fn)_resolve_raw("Py_InitModule4_64");
+    typedef PyObject* (*init3_fn)(const char*, PyMethodDef*, const char*);
+    init4_fn fn4;
+    init3_fn fn3;
+
+    fn4 = (init4_fn)_resolve_raw("Py_InitModule4_64");
     if (fn4 == NULL) fn4 = (init4_fn)_resolve_raw("Py_InitModule4");
     if (fn4 != NULL) {
         return fn4(name, methods, NULL, NULL, 1013 /* PYTHON_API_VERSION */);
     }
 
     /* Fallback: Py_InitModule3 */
-    typedef PyObject* (*init3_fn)(const char*, PyMethodDef*, const char*);
-    init3_fn fn3 = (init3_fn)_resolve_raw("Py_InitModule3");
+    fn3 = (init3_fn)_resolve_raw("Py_InitModule3");
     if (fn3 != NULL) {
         return fn3(name, methods, NULL);
     }
@@ -141,6 +144,8 @@ _init_module_2_7(const char *name, PyMethodDef *methods)
 #endif
 static void _c2py_runtime_init_once(void)
 {
+    void *dl;
+
     _c2py_init_result = -1;  /* assume failure until full success */
 
     /* CPU feature probing runs first -- does not depend on Python */
@@ -233,7 +238,7 @@ static void _c2py_runtime_init_once(void)
     }
 #endif
 
-    void *dl = C2PY.dl_handle;
+    dl = C2PY.dl_handle;
 
     /* --- Detect Python version --- */
     {
@@ -299,14 +304,6 @@ static void _c2py_runtime_init_once(void)
     if (C2PY.is_pypy) goto ft_detection_done;
     {
         int found_ft = 0;
-        const char *force_ft = getenv("C2PY_FORCE_FT");
-        if (force_ft != NULL) {
-            if (force_ft[0] == '1') {
-                found_ft = 1;
-            }
-            C2PY.is_free_threaded = found_ft;
-            goto ft_detection_done;
-        }
         {
             typedef const char* (*ver_fn)(void);
             ver_fn getver = (ver_fn)C2PY_RESOLVE(dl, "Py_GetVersion");
@@ -519,9 +516,10 @@ static void _c2py_runtime_init_once(void)
         Py_buffer *pb = (Py_buffer*)probe;
         typedef PyObject* (*bytes_fn)(const char*, Py_ssize_t);
         bytes_fn mkbytes = (bytes_fn)_resolve_raw("PyBytes_FromStringAndSize");
+        PyObject *by;
         if (!mkbytes)
             mkbytes = (bytes_fn)_resolve_raw("PyString_FromStringAndSize");
-        PyObject *by = mkbytes ? mkbytes("x", 1) : NULL;
+        by = mkbytes ? mkbytes("x", 1) : NULL;
         if (by) {
             memset(probe, 0xAA, sizeof(probe));
             if (C2PY.GetBuffer(by, pb, PyBUF_STRIDES | PyBUF_FORMAT) == 0) {

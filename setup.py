@@ -114,13 +114,15 @@ with open(os.path.join(HERE, "src", "__init__.py"), "r") as f:
 
 setup(
     name="bslz4_to_sparse",
-    packages=["bslz4_to_sparse"],
+    packages=["bslz4_to_sparse", "bslz4_to_sparse.cuda", "bslz4_to_sparse.conveyor"],
     package_dir={"bslz4_to_sparse": "src"},
     package_data={
         "bslz4_to_sparse": [
             "_bslz4_to_sparse.c2py23-*.so",
             "_bslz4_to_sparse.c2py23-*.pyd",
         ],
+        # optional GPU decoder (needs cupy at run time); the kernels are compiled by NVRTC when first used
+        "bslz4_to_sparse.cuda": ["*.cu", "*.cuh"],
     },
     distclass=PlatlibDistribution,
     cmdclass=_cmdclass,

@@ -35,12 +35,13 @@ the full sweep).  Each result is checked against the csc kernel.  A matrix-struc
 (entries per pixel, consecutive runs, active pixels) is printed per case so
 the timings can be read against what the matrix looks like.
 
-Generated frames and pyFAI matrices are cached in $BSLZ4_BENCH_DIR (default
-/tmp/$USER/bslz4_bench).  Results are appended as JSON lines to --out.
+Generated frames and pyFAI matrices are cached in example_data.cache_dir() ($BSLZ4_BENCH_DIR, else the
+folder of the example data).  A cache folder that is read-only is used as it is; what is
+missing from it is built and not kept.  Results are appended as JSON lines to --out.
 
 Usage:
   python3 tools/bench_suite.py [--det 4M,16M] [--centre mid,corner]
-        [--cases default|all|"1D bbox x1,rings"] [--dots csc,csc-run,...|all] [--frames 25] [--cpu 7]
+        [--cases default|all|"1D bbox x1,rings"] [--dots csc,csc-run,...|all] [--frames 100] [--batch 25] [--cpu 7]
         [--out examples/dot_suite.jsonl]
 """
 import argparse
@@ -64,8 +65,9 @@ import pyFAI
 from pyFAI.calibrant import get_calibrant
 from pyFAI.method_registry import IntegrationMethod
 import bslz4_to_sparse as b
+import example_data
 
-CACHE = os.environ.get("BSLZ4_BENCH_DIR", "/tmp/%s/bslz4_bench" % os.environ.get("USER", "u"))
+CACHE = example_data.cache_dir()
 DETECTORS = {"4M": "Eiger2_4M", "16M": "Eiger2_16M"}
 NFRAMES = {"4M": 100, "16M": 50}   # generated and cached; --frames picks how many are timed
 DEFAULT_CASES = ("1D no x1", "1D bbox x1", "1D bbox x5",
@@ -73,7 +75,7 @@ DEFAULT_CASES = ("1D no x1", "1D bbox x1", "1D bbox x5",
                  "rings", "rings+mom inter", "rings no", "rings+mom inter no", "fazit")
 FAZIT_DOTS = ("csc-nosplit", "bsb-csr-nosplit", "csc-permute")
 CORE_DOTS = ("csc", "padded", "padded-avx2", "csc-run", "csc-nosplit", "bsb-csr",
-             "bsb-csr-nosplit", "csc-nosplit-moment", "csc-permute", "csc-int", "csc-run-int",
+             "bsb-csr-nosplit", "csc-permute", "csc-int", "csc-run-int",
              "csc-run-int16")
 BATCH = 25
 NAZIM = 360
@@ -167,10 +169,13 @@ def _cached(key, build):
         z = np.load(fname)
         return sp.csc_matrix((z["data"], z["indices"], z["indptr"]), shape=tuple(z["shape"]))
     M = build()
-    os.makedirs(CACHE, exist_ok=True)
-    np.savez(fname + ".tmp.npz", data=M.data, indices=M.indices, indptr=M.indptr,
-             shape=np.array(M.shape))
-    os.rename(fname + ".tmp.npz", fname)
+    try:
+        os.makedirs(CACHE, exist_ok=True)
+        np.savez(fname + ".tmp.npz", data=M.data, indices=M.indices, indptr=M.indptr,
+                 shape=np.array(M.shape))
+        os.rename(fname + ".tmp.npz", fname)
+    except OSError as e:  # a read-only cache folder: use what was built, do not keep it
+        print("not cached (%s): %s" % (CACHE, e))
     return M
 
 
@@ -431,7 +436,7 @@ def main():
                     scale = objs["dense"]._layout.scale
                     rtol = 1e-9
                     if scale is not None:
-                        rtol = 4 * scale * max(1, int(np.diff(M.indptr).max()))
+                        rtol = 4 / scale * max(1, int(np.diff(M.indptr).max()))
                     for route, _rv in routes:
                         integ = objs[route].multi
                         t, p = time_dot(integ, chunks)

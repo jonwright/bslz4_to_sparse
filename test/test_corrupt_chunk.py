@@ -146,7 +146,7 @@ def test_damaged_chunk_raises_not_crashes(name, kind):
 # --- base-buffer variant: offsets/sizes come from HDF5 metadata -------------
 
 def _base_call(base, offsets, lengths):
-    """Run chunk2sparseCSC.decode_offsets over `base`; returns (ret,
+    """Run chunk2sparseCSC.from_buffer over `base`; returns (ret,
     offsets_after) with ret 0 on success, else the error code from the
     raised message ("Error decoding ...: <code>: ...")."""
     import re
@@ -164,7 +164,7 @@ def _base_call(base, offsets, lengths):
     dec = b.chunk2sparseCSC(np.ones((NROW, NCOL), np.uint8), csc, dtype=np.uint16,
                             pipeline={"dot": "csc"})
     try:
-        dec.decode_offsets(base, offsets, lengths, 0)
+        dec.from_buffer(base, offsets, lengths, 0)
         ret = 0
     except Exception as e:
         m = re.match(r"Error decoding \w+: (-?\d+):", str(e))

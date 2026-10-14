@@ -97,6 +97,17 @@ def matrices():
     return {"split": split, "hist": hist, "moment": moment, "permute": perm}
 
 
+def prepared(mask, M, dot, dtype=np.uint16):
+    """M as it is for a float dot; for an integer dot, fixed_point_matrix of it (what that dot
+    needs).  A matrix it cannot make is refused as a dot refuses one."""
+    if dot not in ("csc-int", "csc-run-int", "csc-run-int16"):
+        return M
+    try:
+        return b.fixed_point_matrix(M, mask, dtype, wbits=16 if dot == "csc-run-int16" else 32)
+    except ValueError as e:
+        raise ValueError("cannot represent this matrix: %s" % e)
+
+
 def accepted_refusal(msg, fill):
     """The documented refusals, raised by the Python layer with the reason:
     mask 'none' with masked pixels, and a dot that cannot represent the
@@ -124,7 +135,9 @@ def test_every_sparsify_pipeline(data, variant, fill):
     mask, frames, chunks = data[(fill, variant)]
     codec = b.CODEC_ZSTD if variant[0] == "zstd" else b.CODEC_LZ4
     ref = [np.flatnonzero((f.ravel() > 0) & (mask.ravel() > 0)) for f in frames]
-    decodes = [d for d in usable("decode") if (d == "zstd") == (variant[0] == "zstd")]
+    decodes = [
+        d for d in usable("decode") if d != "pixels" and (d == "zstd") == (variant[0] == "zstd")
+    ]
     ran, refused, wrong = 0, [], []
     for combo in itertools.product(decodes, usable("mask"), usable("untranspose"), usable("collect")):
         p = dict(zip(("decode", "mask", "untranspose", "collect"), combo))
@@ -164,12 +177,12 @@ def test_every_dot_and_route(data, variant, fill):
         for dot, route in itertools.product(usable("dot"), usable("route")):
             p = {"dot": dot, "route": route}
             try:
-                c = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec, pipeline=p)
+                c = b.chunk2sparseCSC(mask, prepared(mask, M, dot), dtype=np.uint16, codec=codec, pipeline=p)
                 npx, (v, i), powder = c.multi(chunks, 0)
             except ValueError as e:
                 refused.append((mname, p, str(e)))
                 continue
-            got = np.asarray(powder, np.float64).reshape(ref.shape)
+            got = np.asarray(powder, np.float64).reshape(ref.shape) * (1.0 / (c.powder_scale or 1))
             tol = 1e-3 if dot.endswith(("int", "int16")) else 1e-6
             if np.abs(got - ref).max() > tol * max(1.0, np.abs(ref).max()):
                 wrong.append((mname, p, float(np.abs(got - ref).max())))
@@ -218,7 +231,58 @@ def test_automatic_dot_any_block_size(data, variant):
         c = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec)
         npx, (v, i), powder = c.multi(chunks, 0)
         ref = np.stack([M.astype(np.float64) @ fr for fr in masked_frames])
-        got = np.asarray(powder, np.float64).reshape(ref.shape)
+        got = np.asarray(powder, np.float64).reshape(ref.shape) * (1.0 / (c.powder_scale or 1))
         assert np.abs(got - ref).max() <= 1e-6 * max(1.0, np.abs(ref).max()), (mname, c.dot)
         if variant[2] // 2 > 65536:
             assert not c.dot.startswith("bsb"), (mname, c.dot)
+
+
+# ---- the back half alone: every collect / mask value, every dot and route, on uncompressed frames
+# ----
+
+
+@pytest.mark.parametrize("fill", FILLS)
+def test_every_collect_and_mask_on_uncompressed_frames(data, fill):
+    mask, frames, _ = data[(fill, VARIANTS[0])]
+    ref = [np.flatnonzero((f.ravel() > 0) & (mask.ravel() > 0)) for f in frames]
+    ran = 0
+    for mval, col in itertools.product(usable("mask"), usable("collect")):
+        try:
+            c = b.chunk2sparse(
+                mask, np.uint16, b.CODEC_LZ4, pipeline={"mask": mval, "collect": col}
+            )
+        except ValueError as e:
+            assert accepted_refusal(str(e), fill), str(e)
+            continue
+        npx, (v, i) = c.from_frames(frames, 0)
+        for k, f in enumerate(frames):
+            assert np.array_equal(i[k, : npx[k]], ref[k]) and np.array_equal(
+                v[k, : npx[k]], f.ravel()[ref[k]]
+            ), (mval, col, k)
+        ran += 1
+    assert ran > 0
+
+
+@pytest.mark.parametrize("fill", ("max", "valid"))
+def test_every_dot_and_route_on_uncompressed_frames(data, fill):
+    mask, frames, _ = data[(fill, VARIANTS[0])]
+    masked_frames = frames.reshape(len(frames), -1).astype(np.float64) * (mask.ravel() > 0)
+    ran, wrong = set(), []
+    for mname, M in matrices().items():
+        ref = np.stack([M.astype(np.float64) @ fr for fr in masked_frames])
+        for dot, route in itertools.product(usable("dot"), usable("route")):
+            try:
+                c = b.chunk2sparseCSC(
+                    mask, prepared(mask, M, dot), np.uint16, b.CODEC_LZ4,
+                    pipeline={"dot": dot, "route": route})
+            except ValueError as e:
+                assert accepted_refusal(str(e), fill), str(e)
+                continue
+            npx, (v, i), powder = c.from_frames(frames, 0)
+            got = np.asarray(powder, np.float64).reshape(ref.shape) * (1.0 / (c.powder_scale or 1))
+            tol = 1e-3 if dot.endswith(("int", "int16")) else 1e-6
+            if np.abs(got - ref).max() > tol * max(1.0, np.abs(ref).max()):
+                wrong.append((mname, dot, route, float(np.abs(got - ref).max())))
+            ran.add(dot)
+    assert not wrong, wrong
+    assert set(usable("dot")) <= ran, sorted(set(usable("dot")) - ran)

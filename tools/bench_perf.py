@@ -12,7 +12,8 @@ the frames and the matrix are loaded and the integrator built and warmed up
 first, and only then is perf counting switched on (perf --control fifo), so
 the counters cover the timed decode+dot loop and nothing else.
 
-  cut "max"  : threshold above the dtype maximum -> no sparse output (powder only)
+  cut "max"  : a cut at or above the dtype maximum (a larger one is clamped to it) -> no sparse
+               output (powder only)
   cut "on"   : the sparse output at a level that makes sense for the data
                (sparse: every non-zero pixel; medium: > 4; dense: > 200)
   dot "none" : the plain sparsify (no matrix) -- decode + untranspose
@@ -43,9 +44,9 @@ import bslz4_to_sparse as b  # noqa: E402
 
 DATASETS = ("sparse", "medium", "dense")
 CASES = ("1D bbox x1", "1D no x1", "rings")
-DOTS = {"1D bbox x1": ("csc", "csc-run", "csc-run-int", "padded-sse2", "padded-avx2", "bsb-csr"),
-        "1D no x1": ("csc", "csc-nosplit", "padded-sse2", "bsb-csr-nosplit"),
-        "rings": ("csc", "padded-sse2", "padded-avx2", "bsb-csr")}
+DOTS = {"1D bbox x1": ("csc", "csc-run", "csc-run-int", "padded", "padded-avx2", "bsb-csr"),
+        "1D no x1": ("csc", "csc-nosplit", "padded", "bsb-csr-nosplit"),
+        "rings": ("csc", "padded", "padded-avx2", "bsb-csr")}
 CUT_ON = {"sparse": 0, "medium": 4, "dense": 200}
 EVENTS = ("cycles:u", "instructions:u", "ex_ret_brn_misp:u",
           "ls_any_fills_from_sys.local_l2:u", "ls_any_fills_from_sys.local_ccx:u",
@@ -222,8 +223,7 @@ def cmd_sweep(a):
 
 GROUPS = (("lz4", ("LZ4_",)),
           ("untranspose", ("bitshuf", "bshuf", "kcb", "untranspose")),
-          ("collect", ("collect_nz", "collect_gt", "bslz4_sparse_u", "bslz4_sparse_i",
-                       "bslz4_sparse_f")),
+          ("collect", ("collect_nz", "collect_gt", "bslz4_sparse_block")),
           ("dot", ("bslz4_sparse_dot_", "bslz4v::", "padded", "bsbcsr", "nosplit_", "run_dense",
                    "run_sparse")),
           ("driver", ("bslz4_driver", "bslz4_sparsify")),

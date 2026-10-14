@@ -31,18 +31,57 @@ or sparse product with the matrix.  Each step has several implementations
 one is chosen automatically and can be overridden.
 
 One compiled module serves every Python version from 2.7 to 3.15, including
-the free-threaded builds.  Decoding releases the GIL, and objects are not
+the free-threaded builds (the GPU decoder and the conveyor need Python 3).
+Decoding releases the GIL, and objects are not
 shared between threads: use one per thread.
+
+## More than sparse pixels
+
+A processor can limit how many pixels a frame returns.  The pixels are chosen as
+ImageD11 does it: a frame with too many above the cut moves to the first of a
+list of higher thresholds that leaves few enough.  The selection happens inside
+the decode, so a crowded frame costs little.
+
+The two halves of the work can also be used alone.  The front half decompresses
+chunks, with or without undoing the bit shuffle, without any sparse step and
+without HDF5, releasing the GIL.  The back half takes frames that were never
+compressed, so every collecting and integrating step can be tested, and used, on
+plain images.  The same processing exists on a CUDA GPU behind the same calls
+(Python 3 with cupy).
+
+## Moving many files
+
+The decoders do not need anything around them, but a worked example shows them at scale. For a
+whole data set the conveyor keeps decoders busy: each worker owns two
+buffers and a reader, and the reader fills one with a unit of work (consecutive frames of one file, a whole file when it
+fits), in large reads,
+while the worker decodes the other.  Where every chunk lies in a file is kept
+once in a small index file beside it, so reading never calls HDF5, which takes a
+global lock.  A faster worker simply takes more files, and the only
+synchronisation is about once per file.  The conveyor is pure Python 3.
+
+Every run reports the compressed bytes read, the bytes of results and the rates.
+A guard sink measures the sparse pixels compressed as they would be stored and, for a
+file where they are not sparse, does not write them and says so, while the powder and
+ring sums of the same frames are written as usual.  A policy states what
+the conveyor agrees to write, and results can also be taken in memory as a plain
+iterator, which is how to read them without choosing a file format.  For writing there is
+one sparse file per input file in ImageD11's layout, with the powder kept, for 16-bit
+pixels, as integer sums and a power-of-two scale (float sums for wider pixels), and a small
+integrator file (geometry, sparse matrix, normalisation) that turns the sums into pyFAI's
+intensities.  For texture work there is a ring writer: per frame, for
+every ring and azimuth bin, the sum over the ring's window and over a background
+window either side, in the frame order of each input file.
 
 ## Where to look
 
 - **Examples**: short programs that run as shown; each page includes the
   output of running it when the site was built.
-- **Performance**: speed on three real data sets, measured on a stated
-  machine and recorded in the repository.
-- **Reference**: the API, read from the docstrings, every pipeline step
-  value, and the acknowledgements and licences.  This package is mostly a
-  regrouping of other people's work: bitshuffle, LZ4, Zstandard, pyFAI's
-  matrices and the c2py23 wrappers; please cite them too.
+- **Performance**: speed on three real data sets, and the time of every pipeline of
+  kernels, measured on stated machines and recorded in the repository.
+- **Reference**: the API, the GPU decoder and the conveyor, all read from the
+  docstrings, every pipeline step value, and the acknowledgements and licences.  This package is mostly a
+  regrouping of other people's work: bitshuffle, LZ4, Zstandard, NVIDIA's nvcomp (the
+  optional GPU decoder), pyFAI's matrices and the c2py23 wrappers; please cite them too.
 
 The source is on [GitHub](https://github.com/jonwright/bslz4_to_sparse).
