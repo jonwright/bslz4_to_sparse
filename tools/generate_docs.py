@@ -502,6 +502,15 @@ def stale_warning(bench, here, here_py):
     )
 
 
+RACE_OPS = {
+    "sparsify": "the pixels above a cut of 1 (masked: the pixels at the dtype maximum of the "
+    "first frame)",
+    "1d": "the same, and a pyFAI 1D bbox matrix (pixel splitting)",
+    "1d-nosplit": "the same, and a pyFAI 1D no-split matrix (a histogram: one bin per pixel, "
+    "weight 1)",
+}
+
+
 def race_section():
     """The conveyor drag race (tools/bench_race.py): one table per machine, every point as run."""
     parts = []
@@ -510,32 +519,41 @@ def race_section():
             r = json.load(fh)
         m, d = r["machine"], r["data"]
         rel = os.path.relpath(path, REPO)
-        link = r.get("link_gbps")
-        parts.append("## The conveyor on %s%s\n" % (cpu_label(m["cpu"]), " + " + r["gpu"] if r.get("gpu") else ""))
+        link = None if d.get("in_memory") else r.get("link_gbps")
+        ops = []
+        for p in r["results"]:
+            if p["op"] not in ops:
+                ops.append(p["op"])
+        parts.append("## The conveyor on %s%s\n"
+                     % (cpu_label(m["cpu"]), " + " + r["gpu"] if r.get("gpu") else ""))
+        where = ("copied to `/dev/shm` first, so that the file system and the network are not "
+                 "timed" if d.get("in_memory") else "read from the file system")
         parts.append(
-            "Files read from the file system by the conveyor (`src/conveyor`, threads), decoded, "
-            "and the results dropped (a null sink): %d files of `%s`, %.1f GB compressed, the same "
-            "files for every point, in the order of the table.  Workers and their readers share %d "
-            "cores.  The GPU points ran twice before the CPU points and twice after them, so a "
-            "file system cache would show as a difference between the passes.  *sparsify*: the pixels "
-            "above a cut of 1 (masked: the pixels at the dtype maximum of the first frame); *1d*: "
-            "the same and a pyFAI 1D bbox matrix built for that mask, with the approximate "
-            "geometry of `tools/calib.poni` (the work of a 1D integration of this detector, not "
-            "a calibrated pattern of these files).%s  Measured %s UTC, "
-            "build %s `%s`; [`%s`](%s/blob/main/%s).\n"
-            % (d["files"], os.path.dirname(os.path.dirname(d["first"])), d["bytes"] / 1e9,
+            "The conveyor (`src/conveyor`, threads) on %d files of %s, %.1f GB "
+            "compressed, %s; the results are dropped (a null sink).  The same files for every "
+            "point, in the order of the table; workers and their readers share %d cores.  The GPU "
+            "points ran twice before the CPU points and twice after them.  %s.  The matrices are "
+            "built for that mask with the approximate geometry of `tools/calib.poni`: the work of "
+            "an integration of this detector, not a calibrated pattern of these files.%s  "
+            "Measured %s UTC, build %s `%s`; [`%s`](%s/blob/main/%s).\n"
+            % (d["files"], d.get("label", "`%s`" % os.path.dirname(d["first"])), d["bytes"] / 1e9, where,
                m["cores_usable"],
+               "Operations: " + "; ".join("*%s*, %s" % (o, RACE_OPS.get(o, o)) for o in ops),
                "  The network link is %g Gb/s (%.2f GB/s): a point that read faster than that "
                "took part of its input from a cache on this machine, not from the network, and "
                "is marked *cached*." % (link, link / 8.0) if link else "",
                r["date_utc"], m["version"], m["git"], os.path.basename(path), GITHUB, rel)
         )
-        table = ("| pass | decoder | operation | workers | frames/s | compressed GB/s | %s"
-                 "worker cores | seconds |\n|---|---|---|---:|---:|---:|%s---:|---:|\n"
+        table = ("| pass | decoder | operation | workers | frames/s | frames/s per CPU worker | "
+                 "compressed GB/s | %sworker cores | seconds |\n"
+                 "|---|---|---|---:|---:|---:|---:|%s---:|---:|\n"
                  % ("of the link | " if link else "", "---:|" if link else ""))
         for p in r["results"]:
-            table += "| %s | %s | %s | %d | %.0f | %.2f | %s%.1f | %.1f |\n" % (
-                p["rep"], p["backend"].upper(), p["op"], p["workers"], p["fps"], p["in_gbs"],
+            cpu = p["backend"] == "cpu"
+            table += "| %s | %s | %s | %d | %.0f | %s | %.2f | %s%.1f | %.1f |\n" % (
+                p["rep"], p["backend"].upper(), p["op"], p["workers"], p["fps"],
+                "%.0f" % (p["fps"] / p["workers"]) if cpu else "",
+                p["in_gbs"],
                 ("%.0f %%%s | " % (100 * p["in_gbs"] * 8 / link,
                                    ", *cached*" if p["in_gbs"] * 8 > link else "")) if link else "",
                 p["worker_cpu_cores"], p["wall_s"])

@@ -9,7 +9,7 @@
            system cache for everything after it), then the list wraps.
 --layout   free (the OS places threads), interleave (workers on the CPUs of the list that
            alternates between NUMA nodes) or pack (a node is filled before the next one starts).
---op       decompress, unshuffle, sparsify, 1d, 2d, rings, fazit (tools/bench_ops.py: the same stages and
+--op       decompress, unshuffle, sparsify, 1d, 1d-nosplit, 2d, rings, fazit (tools/bench_ops.py: the same stages and
            pyFAI matrices); --backend gpu for the CUDA decoder.
 One JSON line per point, prefixed RESULT.  Never run it in CI."""
 
@@ -61,7 +61,7 @@ def main():
     ap.add_argument(
         "--op",
         default="sparsify",
-        choices=["decompress", "unshuffle", "sparsify", "1d", "2d", "rings", "fazit"],
+        choices=["decompress", "unshuffle", "sparsify", "1d", "1d-nosplit", "2d", "rings", "fazit"],
     )
     ap.add_argument("--backend", default="cpu", choices=["cpu", "gpu"])
     ap.add_argument("--acc", default="f64", help="gpu matrix accumulator")
@@ -98,7 +98,7 @@ def main():
             chunk0 = fh.read(int(u0.lengths[0]))
         f0 = b.decompress([chunk0], dtype)[0]
         mask = (f0 != np.iinfo(dtype).max).astype(np.uint8).reshape(shape)
-        mats = bo.matrices(shape, mask, a.example_geometry) if a.op in ("1d", "2d", "rings", "fazit") else {}
+        mats = bo.matrices(shape, mask, a.example_geometry) if a.op in ("1d", "1d-nosplit", "2d", "rings", "fazit") else {}
         be = bo.backend(a.op, dtype, shape, mask, mats, a.cut, a.backend == "gpu", a.batch)
         if be is None:
             raise SystemExit("%s is not available on the %s backend" % (a.op, a.backend))

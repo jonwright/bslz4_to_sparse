@@ -15,6 +15,7 @@ batches the conveyor uses.  Stages, each including the ones before it:
   unshuffle   decompress and the bit unshuffle: the pixel values
   sparsify    ... and the pixels above --cut (default 1, so that at most ~1 % of the pixels remain)
   1d          ... and a 1D powder (pyFAI bbox matrix)       2d     ... and a 2D powder (72 azimuth bins)
+  1d-nosplit  ... and a 1D histogram (pyFAI no-split matrix: one bin per pixel, weight 1)
   rings       ... and 8 ring windows x 72 azimuth bins       fazit  ... and the FAZIT permutation
 Prints per stage and worker count: frames/s per worker, GB/s of compressed input per worker, and the
 workers needed for --link GB/s (25 GbE is 3.125 GB/s of line rate).  One JSON line per point."""
@@ -43,7 +44,7 @@ NAZIM = 72
 
 
 def matrices(shape, mask, own_mask=False):
-    """{op: csc matrix} for 1d, 2d, rings and fazit (cached like the docs benchmark's).  own_mask:
+    """{op: csc matrix} for 1d, 1d-nosplit, 2d, rings and fazit (cached like the docs benchmark's).  own_mask:
     frames of the same detector with a mask of their own: the matrices are built for that mask
     with the example data's approximate geometry (tools/calib.poni), cached per mask."""
     import hashlib
@@ -61,7 +62,8 @@ def matrices(shape, mask, own_mask=False):
         sys.exit("the frames are not the example data's mask (tools/example_data.py)")
     m = bd.matrices(ai, key)
     fz = bs._cached("docs_%s_fazit" % (key or "ex" + ed.geometry_tag()), lambda: bs.fazit_matrix(ai))
-    return {"1d": m["1D"][0], "2d": m["2D"][0], "rings": m["2D+rings"][0], "fazit": fz}
+    return {"1d": m["1D"][0], "1d-nosplit": m["1D no-split"][0], "2d": m["2D"][0],
+            "rings": m["2D+rings"][0], "fazit": fz}
 
 
 def backend(op, dtype, shape, mask, mats, cut, gpu=False, batch=16, acc="f64", dot=None):
@@ -156,7 +158,7 @@ def main():
         f0 = b.decompress([fh.read(int(u0.lengths[0]))], dtype)[0]
     mask = (f0 != np.iinfo(dtype).max).astype(np.uint8).reshape(shape)
     ops = a.ops.split(",")
-    mats = matrices(shape, mask) if set(ops) & {"1d", "2d", "rings", "fazit"} else {}
+    mats = matrices(shape, mask) if set(ops) & {"1d", "1d-nosplit", "2d", "rings", "fazit"} else {}
     npix = int(np.prod(shape))
     for op in ops:
         be = backend(op, dtype, shape, mask, mats, a.cut, a.backend == "gpu", a.batch, a.acc, a.dot)

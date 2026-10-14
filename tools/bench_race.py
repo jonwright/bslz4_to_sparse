@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""The conveyor drag race shown on the performance page: real files from the file system, CPU and GPU.
+"""The conveyor drag race shown on the performance page: CPU and GPU decoders on real files.
 
-    BSLZ4_TO_SPARSE_PATH=lib python3 tools/bench_race.py --files 'GLOB' --nfiles 250 \
+    BSLZ4_TO_SPARSE_PATH=lib python3 tools/bench_race.py --files GLOB --nfiles 250 --label TEXT \
         --index-dir DIR --cpus 12-23 --out docs/bench/conveyor_<cpu>.json
 
 Every point decodes the same NFILES files (the first of GLOB, sorted), read with the conveyor
-(tools/bench_conveyor.py, one process per point) on the CPUs of --cpus, workers and readers alike.
-The order is fixed: the GPU points twice (--gpu-workers each, ops sparsify and 1d), the CPU points
-(--cpu-workers each, the same ops), then the GPU points twice again, so that whatever the file system
-caches is visible as a difference between the first and the last GPU passes.  Each point records
-frames/s, the compressed GB/s read and the cores the workers used; the JSON adds the machine, the
-GPU, the network link speed and the files.  Needs the chunk indexes (tools/index_chunks.py) and, for
-the GPU points, cupy.  The matrix operations use matrices built for the frames' own mask (the pixels
-at the dtype maximum, tools/bench_conveyor.py) with the example data's approximate geometry
-(tools/calib.poni): the work of a 1D integration of this detector and mask, but not a calibrated
-pattern of these files.  Never run it in CI."""
+(tools/bench_conveyor.py, one process per point) on the CPUs of --cpus, workers and readers
+alike.  The order is fixed: the GPU points twice (--gpu-workers each, --ops), the CPU points
+(--cpu-workers each, the same ops), then the GPU points twice again, so that whatever a file
+system caches shows as a difference between the first and the last GPU passes.  Each point
+records frames/s, the compressed GB/s read and the cores the workers used; the JSON adds the
+machine, the GPU, the network link speed, the files, and whether they are in memory (in /dev/shm:
+copy them there to time the decoders without the file system).  Needs the chunk indexes
+(tools/index_chunks.py) and, for the GPU points, cupy.  The matrix operations use matrices built
+for the frames' own mask (the pixels at the dtype maximum, tools/bench_conveyor.py) with the
+example data's approximate geometry (tools/calib.poni): the work of an integration of this
+detector and mask, not a calibrated pattern of these files.  Never run it in CI."""
 
 import argparse
 import datetime
@@ -89,8 +90,9 @@ def main():
     ap.add_argument("--cpus", required=True, help="CPUs for every point, e.g. 12-23")
     ap.add_argument("--cpu-workers", default="4,8,12")
     ap.add_argument("--gpu-workers", default="1,2,4")
-    ap.add_argument("--ops", default="sparsify,1d")
+    ap.add_argument("--ops", default="sparsify,1d-nosplit")
     ap.add_argument("--out", required=True, help="docs/bench/conveyor_<cpu>.json")
+    ap.add_argument("--label", required=True, help="what the files are, for the page")
     a = ap.parse_args()
     cpus = cpu_list(a.cpus)
     files = sorted(glob.glob(a.files))[: a.nfiles]
@@ -103,8 +105,10 @@ def main():
            "date_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M"),
            "machine": dict(bd.machine(), cores_usable=len(cpus)), "gpu": gpu_name(),
            "link_gbps": link_gbps(),
-           "data": {"files": len(files), "bytes": sum(os.path.getsize(f) for f in files),
-                    "first": files[0], "last": files[-1], "dataset": a.dset},
+           "data": {"label": a.label, "files": len(files),
+                    "bytes": sum(os.path.getsize(f) for f in files),
+                    "first": files[0], "last": files[-1], "dataset": a.dset,
+                    "in_memory": os.path.realpath(files[0]).startswith("/dev/shm/")},
            "results": []}
     plan = ([("gpu%d" % k, "gpu", op, w) for k in (1, 2) for op in ops for w in gw]
             + [("cpu", "cpu", op, w) for op in ops for w in cw]
