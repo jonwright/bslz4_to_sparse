@@ -42,15 +42,25 @@ DSET = "/entry_0000/ESRF-ID11/eiger/data"
 NAZIM = 72
 
 
-def matrices(shape, mask):
-    """{op: csc matrix} for 1d, 2d, rings and fazit (cached like the docs benchmark's)."""
+def matrices(shape, mask, own_mask=False):
+    """{op: csc matrix} for 1d, 2d, rings and fazit (cached like the docs benchmark's).  own_mask:
+    frames of the same detector with a mask of their own: the matrices are built for that mask
+    with the example data's approximate geometry (tools/calib.poni), cached per mask."""
+    import hashlib
+
     import bench_docs as bd
 
     ai = ed.integrator()
-    if tuple(shape) != tuple(ai.detector.shape) or ((mask == 0) != (ai.detector.mask != 0)).any():
-        sys.exit("the frames are not the example data's shape and mask (tools/example_data.py)")
-    m = bd.matrices(ai)
-    fz = bs._cached("docs_ex%s_fazit" % ed.geometry_tag(), lambda: bs.fazit_matrix(ai))
+    key = None
+    if tuple(shape) != tuple(ai.detector.shape):
+        sys.exit("the frames are not the example data's shape (tools/example_data.py)")
+    if own_mask:
+        ai.detector.mask = (np.asarray(mask) == 0).astype(np.int8)
+        key = "mask" + hashlib.sha256(np.ascontiguousarray(ai.detector.mask).tobytes()).hexdigest()[:12]
+    elif ((mask == 0) != (ai.detector.mask != 0)).any():
+        sys.exit("the frames are not the example data's mask (tools/example_data.py)")
+    m = bd.matrices(ai, key)
+    fz = bs._cached("docs_%s_fazit" % (key or "ex" + ed.geometry_tag()), lambda: bs.fazit_matrix(ai))
     return {"1d": m["1D"][0], "2d": m["2D"][0], "rings": m["2D+rings"][0], "fazit": fz}
 
 

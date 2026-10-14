@@ -43,6 +43,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(REPO, "docs")
 GEN = os.path.join(DOCS, "gen")
 BENCH_GLOB = os.path.join(DOCS, "bench", "real_data_*.json")
+RACE_GLOB = os.path.join(DOCS, "bench", "conveyor_*.json")
 _path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
 if _path:
     sys.path.insert(0, _path)
@@ -501,6 +502,47 @@ def stale_warning(bench, here, here_py):
     )
 
 
+def race_section():
+    """The conveyor drag race (tools/bench_race.py): one table per machine, every point as run."""
+    parts = []
+    for path in sorted(glob.glob(RACE_GLOB)):
+        with open(path) as fh:
+            r = json.load(fh)
+        m, d = r["machine"], r["data"]
+        rel = os.path.relpath(path, REPO)
+        link = r.get("link_gbps")
+        parts.append("## The conveyor on %s%s\n" % (cpu_label(m["cpu"]), " + " + r["gpu"] if r.get("gpu") else ""))
+        parts.append(
+            "Files read from the file system by the conveyor (`src/conveyor`, threads), decoded, "
+            "and the results dropped (a null sink): %d files of `%s`, %.1f GB compressed, the same "
+            "files for every point, in the order of the table.  Workers and their readers share %d "
+            "cores.  The GPU points ran twice before the CPU points and twice after them, so a "
+            "file system cache would show as a difference between the passes.  *sparsify*: the pixels "
+            "above a cut of 1 (masked: the pixels at the dtype maximum of the first frame); *1d*: "
+            "the same and a pyFAI 1D bbox matrix built for that mask, with the approximate "
+            "geometry of `tools/calib.poni` (the work of a 1D integration of this detector, not "
+            "a calibrated pattern of these files).%s  Measured %s UTC, "
+            "build %s `%s`; [`%s`](%s/blob/main/%s).\n"
+            % (d["files"], os.path.dirname(os.path.dirname(d["first"])), d["bytes"] / 1e9,
+               m["cores_usable"],
+               "  The network link is %g Gb/s (%.2f GB/s): a point that read faster than that "
+               "took part of its input from a cache on this machine, not from the network, and "
+               "is marked *cached*." % (link, link / 8.0) if link else "",
+               r["date_utc"], m["version"], m["git"], os.path.basename(path), GITHUB, rel)
+        )
+        table = ("| pass | decoder | operation | workers | frames/s | compressed GB/s | %s"
+                 "worker cores | seconds |\n|---|---|---|---:|---:|---:|%s---:|---:|\n"
+                 % ("of the link | " if link else "", "---:|" if link else ""))
+        for p in r["results"]:
+            table += "| %s | %s | %s | %d | %.0f | %.2f | %s%.1f | %.1f |\n" % (
+                p["rep"], p["backend"].upper(), p["op"], p["workers"], p["fps"], p["in_gbs"],
+                ("%.0f %%%s | " % (100 * p["in_gbs"] * 8 / link,
+                                   ", *cached*" if p["in_gbs"] * 8 > link else "")) if link else "",
+                p["worker_cpu_cores"], p["wall_s"])
+        parts.append(table)
+    return parts
+
+
 def performance_page():
     benches = []
     for path in bench_files():
@@ -636,8 +678,10 @@ def performance_page():
                     r["pixel_gbs"],
                 )
         parts.append(table)
+    parts += race_section()
     parts.append(
-        "Written by `%s`; one JSON per machine in `docs/bench/`.\n\n" % ref["tool"] + provenance()
+        "Written by `%s` and `tools/bench_race.py`; one JSON per machine in `docs/bench/`.\n\n"
+        % ref["tool"] + provenance()
     )
     return "\n".join(p.rstrip("\n") + "\n" for p in parts)
 

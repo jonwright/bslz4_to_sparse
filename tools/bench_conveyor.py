@@ -77,6 +77,12 @@ def main():
     ap.add_argument("--cut", type=int, default=1)
     ap.add_argument("--dset", default=DSET)
     ap.add_argument("--tag", default="")
+    ap.add_argument(
+        "--example-geometry",
+        action="store_true",
+        help="matrix ops on frames of another run: the example geometry, matrices built for the "
+        "frames' own mask",
+    )
     a = ap.parse_args()
     allfiles = sorted(glob.glob(a.files))[a.skip :]
     pos = 0
@@ -92,7 +98,7 @@ def main():
             chunk0 = fh.read(int(u0.lengths[0]))
         f0 = b.decompress([chunk0], dtype)[0]
         mask = (f0 != np.iinfo(dtype).max).astype(np.uint8).reshape(shape)
-        mats = bo.matrices(shape, mask) if a.op in ("1d", "2d", "rings", "fazit") else {}
+        mats = bo.matrices(shape, mask, a.example_geometry) if a.op in ("1d", "2d", "rings", "fazit") else {}
         be = bo.backend(a.op, dtype, shape, mask, mats, a.cut, a.backend == "gpu", a.batch)
         if be is None:
             raise SystemExit("%s is not available on the %s backend" % (a.op, a.backend))
