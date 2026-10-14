@@ -5,7 +5,8 @@
     python3 tools/example_data.py repack SRC DST [--frames 510:760] [--dtype uint16] \
         [--codec zstd --level 2 --block-kb 256] [--mask mask.h5]
 
-The download (a folder, $BSLZ4_EXAMPLES, default DEFAULT_DIR) holds
+The download (https://doi.org/10.5281/zenodo.23361659; a folder, $BSLZ4_EXAMPLES, default
+DEFAULT_DIR) holds
 
     ceo2_u32_zstd2_256k.h5     dense:  CeO2 powder, uint32, 72 frames (mean ~68 counts per pixel)
     silicon_u16_zstd2_256k.h5  sparse: silicon, uint16, 250 frames (~0.4 % of pixels above 0)
@@ -130,7 +131,8 @@ def path(key, variant="lz4", src=None, cache=None):
     src, cache = src or example_dir(), cache or cache_dir()
     full = os.path.join(src, FILES[key])
     if not os.path.exists(full):
-        sys.exit("%s is not there: the example data is the download folder %s (set BSLZ4_EXAMPLES)"
+        sys.exit("%s is not there: the example data is the download of "
+                 "https://doi.org/10.5281/zenodo.23361659, a folder %s (set BSLZ4_EXAMPLES)"
                  % (FILES[key], src))
     if variant == "zstd":
         return full
