@@ -8,8 +8,7 @@ as it reads its own.  Layout, in the group named like the input dataset (the lim
     intensity   pixel dtype (npx,)   the pixel values, always the input dtype
     nnz         uint32 (nframes,)    the number of pixels of each frame
     attributes  nframes, shape0, shape1, npx, itype ("uint16", the type of row and col);
-                min_pixels_in_object when small objects were dropped; sparse_skipped (the reason)
-                when the pixels were not sparse and are not written
+                min_pixels_in_object when small objects were dropped
 
 and, when the run has a matrix, in the same group
 
@@ -23,8 +22,8 @@ With a stack (IntegratorStack) there is a dataset powder_<name> for every block,
 block, with the same attributes.
 
 Only the sparse pixels are ImageD11's; powder and its attributes are ours, and ImageD11 ignores them.
-When the pixels of a file were not sparse (a GuardSink skipped them) the file holds no pixels and
-the attribute sparse_skipped says why.  No cleaning is applied unless min_pixels is given: then the pixels of connected
+A powder of more than a tenth of the frame (check_powder_size) is refused before the run starts.
+No cleaning is applied unless min_pixels is given: then the pixels of connected
 objects smaller than that are dropped (ImageD11's pixels_in_spot, its labelling).  Datasets are compressed with the bitshuffle filter of hdf5plugin (compression
 "bslz4", "bszstd", "lzf" or None).
 
@@ -35,7 +34,7 @@ import os
 
 import numpy as np
 
-from ._sinks import Sink
+from ._sinks import Sink, check_powder_size
 
 
 def imaged11_name(path):
@@ -106,6 +105,7 @@ class ImageD11SparseSink(Sink):
         self.files, self.powder = [], []
 
     def begin(self, meta):
+        check_powder_size(meta)
         self.meta = meta
         self.shape = tuple(meta["shape"])
         if max(self.shape) > 65536:
@@ -122,11 +122,6 @@ class ImageD11SparseSink(Sink):
                 % (unit.path, unit.frame0, unit.frame0 + unit.n - 1, unit.nfile)
             )
         self.held = []
-        self.skipped_reason = None
-
-    def sparse_skipped(self, unit, reason):
-        """The pixels of this file are not sparse: the file is written without them, and says why."""
-        self.skipped_reason = reason
 
     def write(self, file, frame0, npx, values, indices, powder):
         """Keep the batch (trimmed to its pixels) until the file is complete."""
@@ -172,8 +167,6 @@ class ImageD11SparseSink(Sink):
             )
             if self.min_pixels:
                 g.attrs["min_pixels_in_object"] = self.min_pixels
-            if self.skipped_reason:  # nnz is 0 everywhere: no pixels, not "no signal"
-                g.attrs["sparse_skipped"] = self.skipped_reason
             chunks = (
                 dict(chunks=(max(1, min(len(flat), 10000)),), maxshape=(None,)) if len(flat) else {}
             )

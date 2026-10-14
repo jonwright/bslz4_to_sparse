@@ -19,14 +19,14 @@ Workers are threads or forked processes (run(mode=...)) around the same code; th
 the GIL, so threads are the default.  Pure Python 3: reading and decoding need numpy only, the chunk index of each file is read from a
 sidecar file (tools/index_chunks.py builds them, with h5py, once), so reading touches no HDF5.  The
 parts that name them need scipy and pyFAI (Integrator), h5py and hdf5plugin (the writers),
-bitshuffle and zstandard (the size guard), ImageD11 (min_pixels) or cupy (the GPU backend).
+ImageD11 (min_pixels) or cupy (the GPU backend).  The writers refuse, before the run starts, a powder
+of more than a tenth of the uncompressed frame (check_powder_size): the point is to reduce data.
 """
 
 from ._index import read_index, write_index, harvest, sidecar_path, StaleIndex, Index
 from ._source import make_work_units, WorkUnit
-from ._sinks import Sink, NullSink, GuardSink, TeeSink, stored_size
+from ._sinks import Sink, NullSink, TeeSink, check_powder_size
 from ._backends import CpuBackend, DecompressBackend, GpuBackend
-from ._policy import Policy, OutputRefused
 from ._iter import iterate
 from ._integrator import Integrator, IntegratorStack
 from ._clip import fixed_weights, clip_exact_powder
@@ -45,11 +45,8 @@ __all__ = [
     "StaleIndex",
     "Sink",
     "NullSink",
-    "GuardSink",
-    "Policy",
-    "OutputRefused",
     "TeeSink",
-    "stored_size",
+    "check_powder_size",
     "CpuBackend",
     "DecompressBackend",
     "GpuBackend",

@@ -14,14 +14,15 @@ frames into scan order.  Layout, in the group named like the input dataset:
     attributes    unit, nframes, integrator (path of the Integrator file, if given)
 
 Frame i of the file is frame i of the input file.  Written like ImageD11SparseSink, one whole input
-file at a time.
+file at a time, and refused like it before the run when the run's powder is too large
+(check_powder_size).
 """
 
 import os
 
 import numpy as np
 
-from ._sinks import Sink
+from ._sinks import Sink, check_powder_size
 from ._sparsefile import _compression
 
 
@@ -84,6 +85,7 @@ class RingSink(Sink):
         self.held, self.files = [], []
 
     def begin(self, meta):
+        check_powder_size(meta)
         os.makedirs(self.out_dir, exist_ok=True)
 
     def begin_unit(self, unit):

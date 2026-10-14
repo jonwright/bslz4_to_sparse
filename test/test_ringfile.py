@@ -62,7 +62,6 @@ def test_ring_files_follow_the_input_files(tmp_path):
             cv.RingSink(integ, out, DSET, ring, role, integrator_path="i.h5"),
             cv.ImageD11SparseSink(out, DSET),
         ),
-        policy=cv.Policy(("sparse", "rings")),
     )
     for p in paths:
         with h5py.File(p, "r") as src:
@@ -87,47 +86,6 @@ def test_ring_files_follow_the_input_files(tmp_path):
             )  # float32 storage + pyFAI float32 cake
 
 
-def test_dense_frames_lose_their_pixels_but_not_their_rings(tmp_path):
-    """cut 0 on frames that are all signal: the pixels are not sparse and are not written, the
-    job goes on and the ring file is complete."""
-    ai = ti.masked_ai()
-    ranges, ring, role = cv.peak_windows([0.9], 0.12, 0.1)
-    integ = cv.Integrator.from_pyfai(
-        ai, 70, unit="2th_deg", npt_azim=12, radial_range=(0.3, 3.0)
-    ).rings(ranges)
-    rng = np.random.default_rng(3)
-    import hdf5plugin
-
-    p = str(tmp_path / "dense.h5")
-    with h5py.File(p, "w") as h:
-        h.create_dataset(
-            DSET,
-            data=rng.integers(1, 300, (6,) + ti.SHAPE).astype(np.uint16),
-            chunks=(1,) + ti.SHAPE,
-            **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
-        )
-    cv.write_index(cv.harvest(p, DSET), p)
-    units, shape, dtype = cv.make_work_units([p], DSET)
-    out = str(tmp_path / "o")
-    with pytest.warns(UserWarning, match="not sparse"):
-        r = cv.run(
-            units,
-            cv.CpuBackend(np.ones(ti.SHAPE, np.uint8), dtype, csc=integ.csc, exact=False),
-            workers=1,
-            sink=lambda k: cv.TeeSink(
-                cv.RingSink(integ, out, DSET, ring, role), cv.ImageD11SparseSink(out, DSET)
-            ),
-            policy=cv.Policy(("sparse", "rings")),
-        )
-    assert r["frames"] == 6 and len(r["sparse_skipped"]) == 1
-    with h5py.File("%s/%s" % (out, cv.rings_name(p)), "r") as h:
-        assert h[DSET.strip("/")]["intensity"].shape == (6, 3, 12)
-        assert np.all(h[DSET.strip("/")]["intensity"][:] > 0)
-    with h5py.File("%s/%s" % (out, cv.imaged11_name(p)), "r") as h:
-        g = h[DSET.strip("/")]
-        assert g["nnz"][:].sum() == 0 and "not sparse" in g.attrs["sparse_skipped"]
-
-
 def test_everything_in_one_pass_through_the_conveyor(tmp_path):
     """Sparse pixels, a 1D powder, ring windows and the first moment from one pass over the pixels
     (one stacked matrix): each file and dataset equals what that output gives on its own."""
@@ -150,9 +108,8 @@ def test_everything_in_one_pass_through_the_conveyor(tmp_path):
             cv.ImageD11SparseSink(out, DSET, stack=stack, integrator="stack.h5"),
             cv.RingSink(rings, out, DSET, ring, role, rows=stack.slices["rings"]),
         ),
-        policy=cv.Policy(("sparse", "powder1d", "rings")),
     )
-    assert r["frames"] == 14 and r["sparse_skipped"] == []
+    assert r["frames"] == 14
     method = ti.IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
     for p in paths:
         with h5py.File(p, "r") as src:

@@ -65,7 +65,6 @@ result = conveyor.run(
         conveyor.RingSink(rings, outdir, h5dataset, ring, role),
         conveyor.ImageD11SparseSink(outdir, h5dataset),  # the sparse pixels, from the same pass
     ),
-    policy=conveyor.Policy(("sparse", "rings")),
 )
 print(conveyor.report(result))
 

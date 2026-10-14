@@ -295,92 +295,43 @@ def test_a_faster_worker_takes_more_units(tmp_path):
     assert done[0] < min(done[1], done[2]) / 2, done
 
 
-def test_report_and_the_guard_drops_only_pixels_that_are_not_sparse(tmp_path):
-    pytest.importorskip("bitshuffle")
-    import scipy.sparse as sp
-
+def test_report(tmp_path):
     paths = make_files(tmp_path)
     units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=4000)
-    mask = np.ones(SHAPE, np.uint8)
-    npix = int(np.prod(SHAPE))
-    m = sp.csc_matrix(
-        (np.ones(npix, np.float32), (np.arange(npix) % 7, np.arange(npix))), (7, npix)
-    )
-    backend = cv.CpuBackend(mask, dtype, csc=m)
-    want = direct(paths, mask)
-
-    class Both(Collect):
-        """pixels as Collect, and the powder sums per frame"""
-
-        powder = {}
-
-        def write(self, file, frame0, npx, values, indices, powder):
-            Collect.write(self, file, frame0, npx, values, indices, powder)
-            with Collect.lock:
-                for j in range(len(npx)):
-                    Both.powder[(file, frame0 + j)] = powder[j].copy()
-
-    # within the limit: the inner sink gets exactly what a direct decode gives
-    Collect.out, Both.powder = {}, {}
-    r = cv.run(units, backend, workers=2, sink=lambda k: cv.GuardSink(Both(), limit=1e6), batch=8)
-    assert Collect.out == want and r["sparse_skipped"] == []
-    ref_powder = dict(Both.powder)
-    assert r["in_bytes"] == sum(int(u.lengths.sum()) for u in units)
-    assert r["out_bytes"] > 0 and r["sparse_stored_bytes"] > 0
-    assert r["sparse_stored_over_in"] == pytest.approx(
-        r["sparse_stored_bytes"] / r["in_bytes"], abs=1e-4
-    )
-    assert "sparse pixels" in cv.report(r) and "input" in cv.report(r)
-    # over the limit: no pixels reach the sink, the job goes on, the powder is the same, and the
-    # result and a warning say so
-    Collect.out, Both.powder = {}, {}
-    with pytest.warns(UserWarning, match="not sparse"):
-        r = cv.run(
-            units, backend, workers=2, sink=lambda k: cv.GuardSink(Both(), limit=1e-9), batch=8
-        )
-    assert r["frames"] == 3 * 37 and len(r["sparse_skipped"]) == len(units)
-    assert all(v[0] == 0 for v in Collect.out.values())  # no pixels
-    assert Both.powder.keys() == ref_powder.keys()
-    assert all(np.array_equal(Both.powder[k], ref_powder[k]) for k in ref_powder)
-    assert "NOT WRITTEN" in cv.report(r)
-    zs = pytest.importorskip("zstandard") and cv.stored_size(
-        [np.arange(5000, dtype=np.uint32)], "bszstd"
-    )
-    assert 0 < zs < 20000
-    # without a guard the report has no sparse size
-    r = cv.run(units, backend, workers=2, batch=8)
-    assert r["sparse_stored_bytes"] is None and "sparse pixels" not in cv.report(r)
+    r = cv.run(units, cv.CpuBackend(np.ones(SHAPE, np.uint8), dtype), workers=2, batch=8)
+    assert r["in_bytes"] == sum(int(u.lengths.sum()) for u in units) and r["out_bytes"] > 0
+    assert "input" in cv.report(r) and "output" in cv.report(r)
 
 
-def test_policy_refuses_only_what_has_no_writer_or_too_many_bins(tmp_path):
+def test_a_writer_refuses_a_powder_over_a_tenth_of_the_frame_before_the_run(tmp_path):
+    """8 x nbins bytes against the uncompressed frame: refused in begin(), before any frame, and no
+    file is written; a powder within the limit is written."""
     import scipy.sparse as sp
+    from bslz4_to_sparse.conveyor._sinks import POWDER_MAX_FRACTION
 
     paths = make_files(tmp_path)
     units, shape, dtype = cv.make_work_units(paths, DSET)
     mask = np.ones(SHAPE, np.uint8)
     npix = int(np.prod(SHAPE))
-    for k in ("2d", "fazit", "decompress"):
-        with pytest.raises(NotImplementedError, match="memory"):
-            cv.Policy(k)
-    with pytest.raises(ValueError):
-        cv.Policy("nonsense")
-    # sparse: nothing is refused beforehand, whatever howmany is: the guard sizes what comes
-    cv.Policy("sparse").check(cv.CpuBackend(mask, dtype), units)
-    cv.Policy("sparse").check(cv.CpuBackend(mask, dtype, howmany=100), units)
-    # powder: needs a matrix, and its dense bins must be smaller than the compressed frame
-    with pytest.raises(cv.OutputRefused, match="matrix"):
-        cv.Policy("powder1d").check(cv.CpuBackend(mask, dtype), units)
-    mean_in = sum(int(u.lengths.sum()) for u in units) / sum(u.n for u in units)
-    for nbins, ok in ((4, True), (int(mean_in // 8) + 50, False)):
+    frame = npix * np.dtype(dtype).itemsize
+    limit = int(POWDER_MAX_FRACTION * frame) // 8
+    for nbins, ok in ((limit, True), (limit + 1, False)):
         rows = np.arange(npix) % nbins
         m = sp.csc_matrix((np.ones(npix, np.float32), (rows, np.arange(npix))), (nbins, npix))
-        pol = cv.Policy(("powder1d", "sparse"))
-        be = cv.CpuBackend(mask, dtype, csc=m, howmany=10)
+        out = str(tmp_path / ("o%d" % nbins))
+        go = lambda: cv.run(  # noqa: E731
+            units,
+            cv.CpuBackend(mask, dtype, csc=m, howmany=10),
+            workers=2,
+            sink=lambda k: cv.ImageD11SparseSink(out, DSET),
+        )
         if ok:
-            pol.check(be, units)
+            assert go()["frames"] == 3 * 37
         else:
-            with pytest.raises(cv.OutputRefused, match="not a reduction"):
-                pol.check(be, units)
+            with pytest.raises(RuntimeError, match="not a reduction"):
+                go()
+            assert not os.path.exists(out) or not os.listdir(out)
+    cv.check_powder_size(dict(shape=SHAPE, dtype=str(dtype)))  # no matrix: nothing to check
 
 
 def test_iterate_gives_every_frame_and_stops_cleanly(tmp_path):

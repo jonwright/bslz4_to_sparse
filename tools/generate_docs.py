@@ -393,6 +393,7 @@ def conveyor_page():
                 "Sink",
                 "NullSink",
                 "TeeSink",
+                "check_powder_size",
                 "ImageD11SparseSink",
                 "imaged11_name",
                 "RingSink",
@@ -404,15 +405,10 @@ def conveyor_page():
             "Integrator state",
             ("Integrator", "IntegratorStack", "fixed_weights", "clip_exact_powder"),
         ),
-        (
-            "Output policy",
-            ("Policy", "OutputRefused", "GuardSink", "stored_size"),
-        ),
     )
     layouts = {  # the module docstrings that hold the file layouts the class docstrings point to
         "Sinks": ("_sinks", "_sparsefile", "_ringfile"),
         "Integrator state": ("_integrator",),
-        "Output policy": ("_policy",),
     }
     for title, names in groups:
         parts.append("# %s\n" % title)

@@ -7,8 +7,8 @@ conveyor's backend prepares the matrix with fixed_point_matrix by default for 16
 for it for wider ones too, whose weights are coarser because the sums must leave room for larger
 pixel values (tools/fixed_point_precision.py shows by how much).  What turns
 sums into intensities (the pyFAI geometry, the sparse matrix and the normalisation of an image of
-ones) is saved once, as an Integrator file that the results point to.  The conveyor's Policy checks
-that nothing written is larger than what was read.
+ones) is saved once, as an Integrator file that the results point to.  The writer refuses, before
+the run starts, a powder larger than a tenth of a frame: the point is to reduce the data.
 """
 
 import glob
@@ -53,7 +53,6 @@ result = conveyor.run(
     units,
     backend,
     workers=2,
-    policy=conveyor.Policy(("sparse", "powder1d")),
     sink=lambda k: conveyor.ImageD11SparseSink(outdir, h5dataset, integrator=integ_path),
 )
 print(conveyor.report(result))

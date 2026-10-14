@@ -49,7 +49,7 @@ def iterate(units, backend, workers, depth=4, **kw):
 
     The results wait in a queue of `depth` batches per worker: a consumer that is slower than the
     decoders slows them down instead of filling memory.  Threads only.  Stopping the loop early
-    (break, or an exception) stops the run.  Other keywords go to run (batch, policy, ...)."""
+    (break, or an exception) stops the run.  Other keywords go to run (batch, ...)."""
     if kw.get("mode", "threads") != "threads":
         raise ValueError("iterate works with threads")
     q = queue.Queue(maxsize=depth * workers)

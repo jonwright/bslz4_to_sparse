@@ -24,7 +24,6 @@ import queue
 import resource
 import threading
 import time
-import warnings
 
 import numpy as np
 
@@ -230,7 +229,6 @@ def run(
     reader_cpus=None,
     io_bytes=0,
     meta=None,
-    policy=None,
     start_timeout=900,
 ):
     """Run the units through the conveyor; returns a dict of what it took.
@@ -245,12 +243,11 @@ def run(
     worker_cpus   list: worker k is pinned to worker_cpus[k % len]; None leaves it to the OS
     reader_cpus   list: every reader may run on any of these; None leaves it to the OS
     io_bytes      size of each read call (0: the whole unit in one call)
-    meta          a dict the sinks get in begin(), with shape, dtype (from the backend's mask) and
-                  powder_scale (from an exact backend) added
+    meta          a dict the sinks get in begin(), with shape, dtype (from the backend's mask), nbins
+                  (the rows of its matrix, None without one) and powder_scale (from an exact
+                  backend) added; a writer refuses there, before any frame, what it will not write
     start_timeout seconds to wait for every worker to start (pinned, buffers touched, decoder
                   built) before giving up
-    policy        a Policy: refuse an output that is not allowed before starting, and guard the
-                  sink on the compressed size of each unit
     """
     if not units:
         raise ValueError("no units")
@@ -264,9 +261,7 @@ def run(
     if mask is not None:
         meta.setdefault("shape", tuple(mask.shape))
         meta.setdefault("dtype", str(np.dtype(backend.dtype)))
-    if policy is not None:
-        policy.check(backend, units)
-        sink = policy.wrap(sink)
+    meta.setdefault("nbins", _nbins(getattr(backend, "csc", None)))
     if getattr(backend, "prepare", None) is not None:
         backend.prepare()  # what the workers share, built once before they start (and fork)
     S = slots_per_worker
@@ -345,8 +340,6 @@ def run(
         raise RuntimeError(errors[0])
     wk = sorted((s for s in got if s["role"] == "worker"), key=lambda s: s["k"])
     sinks = [s.get("sink") or {} for s in wk]
-    stored = [k["sparse_stored_bytes"] for k in sinks if "sparse_stored_bytes" in k]
-    skipped = [x for k in sinks for x in k.get("skipped", [])]
     in_bytes = sum(int(u.lengths.sum()) for u in units)
     out_bytes = sum(s["out_bytes"] for s in wk)
     rd = [s for s in got if s["role"] == "reader"]
@@ -362,16 +355,12 @@ def run(
         # while the first files arrive, and the end, while the slowest worker finishes, left out)
         steady_fps=round(sum(s["frames"] / s["active_s"] for s in busy), 1),
         read_gbs=round(sum(u.span for u in units) / wall / 1e9, 3),
-        # input and output: chunk bytes decoded, results as handed to the sink (uncompressed), and
-        # what the sink measured compressed for writing (a GuardSink; else None)
+        # input and output: chunk bytes decoded, and results as handed to the sink (uncompressed)
         in_bytes=in_bytes,
         out_bytes=out_bytes,
-        sparse_stored_bytes=sum(stored) if stored else None,
-        sparse_skipped=skipped,
         in_gbs=round(in_bytes / wall / 1e9, 3),
         out_gbs=round(out_bytes / wall / 1e9, 3),
         out_over_in=round(out_bytes / in_bytes, 4),
-        sparse_stored_over_in=round(sum(stored) / in_bytes, 4) if stored else None,
         slot_mb=round(slot_bytes / 1e6),
         memory_gb=round(workers * S * slot_bytes / 1e9, 2),
         worker_cpu_cores=round(sum(s["cpu_s"] for s in wk) / wall, 2),
@@ -391,13 +380,21 @@ def run(
         files=len(units),
         sink=[s.get("sink") for s in wk][:1],
     )
-    if skipped:
-        warnings.warn(
-            "sparse pixels were not written for %d of %d units because they were not sparse: %s"
-            % (len(skipped), len(units), skipped[0]["reason"]),
-            stacklevel=2,
-        )
     return result
+
+
+def _nbins(csc):
+    """The rows of the backend's matrix (the powder length of a frame), None without one."""
+    if csc is None:
+        return None
+    if getattr(csc, "nbins", None) is not None:
+        return int(csc.nbins)
+    shape = getattr(csc, "shape", None)
+    if shape is not None:
+        return int(shape[0])
+    from bslz4_to_sparse import _matrix
+
+    return _matrix.normalise_matrix(csc).nbins
 
 
 def report(r):
@@ -410,16 +407,6 @@ def report(r):
         "output %.3f GB as handed to the sink, %.3f GB/s, %.4f of the input"
         % (r["out_bytes"] / 1e9, r["out_gbs"], r["out_over_in"]),
     ]
-    if r["sparse_stored_bytes"] is not None:
-        out.append(
-            "sparse pixels %.3f GB compressed for writing, %.4f of the input"
-            % (r["sparse_stored_bytes"] / 1e9, r["sparse_stored_over_in"])
-        )
-    if r["sparse_skipped"]:
-        out.append(
-            "SPARSE PIXELS NOT WRITTEN for %d units (not sparse), e.g. %s"
-            % (len(r["sparse_skipped"]), r["sparse_skipped"][0]["reason"])
-        )
     b = r["busy_frac"]
     out.append(
         "workers: %.0f%% decode, %.0f%% sink, %.0f%% idle; readers %.0f%% reading"
