@@ -21,6 +21,9 @@
  *                      otherwise.  Well-compressed blocks are mostly zero,
  *                      so a list of the few non-zero pixels is cheaper than
  *                      a pass over the block.
+ *   BSLZ4_ROUTE_BPP_RULE  as the ratio rule, in bits per pixel: the sparse route when the block is
+ *                      compressed below BSLZ4_ROUTE_BPP (2) bits per pixel, whatever the pixel
+ *                      width (the ratio rule's 8x is 2 bits per pixel for u16 only).
  *   BSLZ4_ROUTE_DENSE  every block untransposed to the pixel block and the
  *                      dot taken over every pixel of it.
  *   BSLZ4_ROUTE_SPARSE  every block reduced to the list of its non-zero
@@ -305,7 +308,9 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
              * the list */
             const int sparse = !is_dot || route == BSLZ4_ROUTE_SPARSE ||
                                (!pixels && route == BSLZ4_ROUTE_RATIO_RULE &&
-                                blocksize > BSLZ4_ROUTE_RATIO * (size_t) nbytes);
+                                blocksize > BSLZ4_ROUTE_RATIO * (size_t) nbytes) ||
+                               (!pixels && route == BSLZ4_ROUTE_BPP_RULE &&
+                                BSLZ4_ROUTE_BPP_SPARSE(nbytes, NB, blocksize));
             if (top) /* the previous block may have taken this frame's list over the limit */
                 npx_out[f] = top_raise(top, p->dtype, f, npx_out[f],
                                        (uint8_t *) outpx + (size_t) f * NIJ * NB,
@@ -429,7 +434,9 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             /* a pure raw remainder is trivially cheap either way */
             w.route = route == BSLZ4_ROUTE_SPARSE ||
                       (!pixels && route == BSLZ4_ROUTE_RATIO_RULE &&
-                       (tail_block == 0 || tail_block > BSLZ4_ROUTE_RATIO * (size_t) tail_nbytes));
+                       (tail_block == 0 || tail_block > BSLZ4_ROUTE_RATIO * (size_t) tail_nbytes)) ||
+                      (!pixels && route == BSLZ4_ROUTE_BPP_RULE &&
+                       (tail_block == 0 || BSLZ4_ROUTE_BPP_SPARSE(tail_nbytes, NB, tail_block)));
             w.powder = (uint8_t *) powder + (size_t) f * nout * (size_t) out_size;
             bslz4_counters_bump(BSLZ4_STEP_ROUTE, w.route ? BSLZ4_ROUTE_SPARSE : BSLZ4_ROUTE_DENSE);
             bslz4_counters_bump(BSLZ4_STEP_DOT, dot);

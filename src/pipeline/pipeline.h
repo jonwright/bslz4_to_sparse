@@ -85,9 +85,14 @@ enum {
     BSLZ4_ROUTE_RATIO_RULE = 1,   /* sparse for blocks compressed more than BSLZ4_ROUTE_RATIO */
     BSLZ4_ROUTE_DENSE = 2,
     BSLZ4_ROUTE_SPARSE = 3,
-    BSLZ4_ROUTE_N = 4
+    BSLZ4_ROUTE_BPP_RULE = 4,     /* sparse for blocks compressed below BSLZ4_ROUTE_BPP bits per pixel */
+    BSLZ4_ROUTE_N = 5
 };
 #define BSLZ4_ROUTE_RATIO 8
+#define BSLZ4_ROUTE_BPP 2
+/* the bpp rule: compressed bits per pixel = 8 * nbytes * NB / blocksize */
+#define BSLZ4_ROUTE_BPP_SPARSE(nbytes, NB, blocksize) \
+    (8 * (size_t) (nbytes) * (NB) < BSLZ4_ROUTE_BPP * (size_t) (blocksize))
 
 /* dot: each value names a layout of the matrix arrays (src/_matrix.py) */
 enum {

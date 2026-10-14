@@ -67,6 +67,7 @@ VALUES = {
         ("ratio", "per block: sparse when compressed more than 8x"),
         ("dense", "dot over every pixel of every block"),
         ("sparse", "dot over the non-zero pixels of every block"),
+        ("bpp", "per block: sparse when compressed below 2 bits per pixel"),
     ),
     "dot": (
         "auto",
@@ -186,7 +187,7 @@ def auto_step(step, suffix, codec, mask_all_valid):
                     return NAMES[step].index(n)
         return NAMES[step].index("scalar")
     if step == "route":
-        return NAMES[step].index("ratio")
+        return NAMES[step].index("bpp")
     raise ValueError(step)
 
 
