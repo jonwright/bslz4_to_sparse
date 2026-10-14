@@ -40,7 +40,7 @@ side):
 Never run it in CI: shared runners give meaningless timings.
 tools/generate_docs.py renders the JSONs; they are the only source of the
 numbers on the site.  The LZ4 variants of the data and the pyFAI matrices are
-cached in $BSLZ4_BENCH_DIR; the data is found by $BSLZ4_EXAMPLES (tools/example_data.py).
+cached in example_data.cache_dir(); the data is found by $BSLZ4_EXAMPLES (tools/example_data.py).
 """
 import argparse
 import datetime

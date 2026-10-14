@@ -6,7 +6,7 @@
 
 The mask is the pixels at the dtype maximum in the first frame and the matrices are those of the example
 data's mask.h5 and tools/calib.poni (tools/example_data.py), so the files are its lz4mask variants:
-`python3 tools/example_data.py prepare` makes them, `--files "$BSLZ4_BENCH_DIR/*_lz4mask.h5"`.
+`python3 tools/example_data.py prepare` makes them, `--files` those it prints (in example_data.cache_dir()).
 
 Each worker (a pinned thread) reads one file of its own into its own memory once, then runs the stage
 over its frames for --seconds: pure compute, no file system, the same decoder objects and 16-frame
