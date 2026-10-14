@@ -13,12 +13,11 @@
 - **dummy / dynamic mask.** Kept in the sparse output and removed later. Dropping a pixel
   changes the normalisation per frame: the Integrator would need a per-pixel normalisation
   image, not only the per-bin sums.
-- **Benchmarks on the ID11 example data.** `tools/bench_docs.py` and `tools/bench_kernels.py` still
-  use the kevlar and eiger4m data sets and cached local matrices; point them at the two example files
-  (CeO2, u32 and dense; silicon, u16 and sparse, in /data/id11/jon/hdftest/bslz4_to_sparse_examples,
-  with calib.poni and mask.h5), so that anyone can reproduce the tables of the performance and
-  kernels pages on their own computer, and re-measure docs/bench/*.json on both machines (they
-  predate the current code, and still list the removed csc-nosplit-moment dot).
+- **Re-measure docs/bench/*.json.** `tools/bench_docs.py` and `tools/bench_kernels.py` now start from the
+  two example files (`tools/example_data.py`); the committed JSONs were measured on the old data sets and
+  need re-measuring on both machines (they also predate the current code and still list the removed
+  csc-nosplit-moment dot).  `tools/bench_suite.py`, `tools/bench_perf.py` and `tools/lz4_scan.py` still
+  generate synthetic 4M and 16M frames.
 - **Dark subtraction and error bars** (pyFAI's variance models): not in the sums.
 
 ## Future work: a cut that is an image

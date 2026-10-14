@@ -18,15 +18,18 @@ import bslz4_to_sparse
 
 print("Running from", bslz4_to_sparse.__file__)
 
-# These are on the ESRF filesystem
+def example_cases():
+    """The example data (tools/example_data.py), 8 kB bitshuffle-lz4, masked pixels at the maximum."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import example_data as ed
+
+    return [(ed.path(k, "lz4mask"), ed.DSET) for k in ed.FILES]
+
+
+# The example data (tools/example_data.py)
 TESTCASES=[]
 if len(sys.argv)>1 and sys.argv[1]=='all':
-    TESTCASES += [( "/data/id11/jon/hdftest/eiger4m_u32.h5",
-                    "/entry_0000/ESRF-ID11/eiger/data"),
-                  ( "/data/id11/nanoscope/blc12454/id11/WAu5um/WAu5um_DT3/scan0001/eiger_0000.h5",
-                    "/entry_0000/ESRF-ID11/eiger/data"),
-                  ( "/data/id11/jon/hdftest/kevlar.h5",
-                    "/entry/data/data" ), ]
+    TESTCASES += example_cases()
 
 CASES = []
 for f,d in TESTCASES:

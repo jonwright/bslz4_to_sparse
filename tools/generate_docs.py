@@ -517,8 +517,9 @@ def performance_page():
     parts = ["# Performance on real data"]
     parts += [w for w in (stale_warning(bm, here, here_py) for _, bm in benches) if w]
     parts.append(
-        "Three real ID11 Eiger data sets, each decoded on **one core** of each machine "
-        "below.  %d frames spread over each file were read into memory first (no file "
+        "The two ID11 Eiger example files (sparse silicon, dense CeO2), each decoded on "
+        "**one core** of each machine below, as bitshuffle-LZ4 in 8 kB blocks.  %d frames "
+        "spread over each file were read into memory first (no file "
         "I/O is timed), then decoded in batches of %d after one warmup batch; the best "
         "of %d passes is shown.  GB = 10^9 bytes.  *Compressed* GB/s counts the "
         "bitshuffle-LZ4 bytes consumed, *pixels* GB/s the decompressed frame (pixels x "
@@ -528,11 +529,10 @@ def performance_page():
     )
     g = meth["geometry"]
     parts.append(
-        "The files carry no calibration, so the matrices use one generic geometry for "
-        "every case: %g um pixels, %g m distance, beam at the detector centre, "
-        "wavelength %g m, no tilts.  They set the size and shape of the work, not a "
-        "fit to these samples.  Masked pixels: %s.\n"
-        % (g["pixel_m"] * 1e6, g["dist_m"], g["wavelength_m"], meth["mask"])
+        "Both files share one approximate calibration, `%s` (no spatial distortion), so the "
+        "matrices are the same for every case: %g um pixels, %g m distance, wavelength %g m.  "
+        "Masked pixels: %s.\n"
+        % (g["file"], g["pixel_m"] * 1e6, g["dist_m"], g["wavelength_m"], meth["mask"])
     )
 
     parts.append("## Machines")
@@ -890,8 +890,8 @@ def kernels_page():
             )
         )
         parts.append(
-            "The matrices (one generic geometry, %s pixels; the kevlar frames are cropped "
-            "to it, and every object folds its own data set's mask):\n\n"
+            "The matrices (the approximate calib.poni, %s pixels, and every object folds "
+            "the mask of the example data):\n\n"
             "| matrix | what | bins | entries | pixels with an entry | bins per pixel (mean, max) |\n"
             "|---|---|---:|---:|---:|---:|\n" % " x ".join(str(x) for x in meth["shape"])
             + "".join(

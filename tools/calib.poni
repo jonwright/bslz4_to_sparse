@@ -1,0 +1,12 @@
+# Nota: C-Order, 1 refers to the Y axis, 2 to the X axis
+# from an ImageD11 parameter file, no spatial distortion
+poni_version: 2
+Detector: Detector
+Detector_config: {"pixel1": 7.5e-05, "pixel2": 7.5e-05, "max_shape": [2162, 2068]}
+Distance: 0.1395139051679365
+Poni1: 0.08385903582525327
+Poni2: 0.07937369988022738
+Rot1: -0.0033374117419960785
+Rot2: -0.0009459535732428592
+Rot3: -0.0008509034961250246
+Wavelength: 2.844010606297463e-11

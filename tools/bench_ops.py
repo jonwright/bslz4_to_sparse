@@ -4,6 +4,10 @@
     BSLZ4_TO_SPARSE_PATH=lib BSLZ4_BENCH_DIR=<matrix cache> python3 tools/bench_ops.py \
         --files 'GLOB' --index-dir DIR --workers 1,8,16,32 --ops decompress,unshuffle,sparsify,1d,2d,rings,fazit
 
+The mask is the pixels at the dtype maximum in the first frame and the matrices are those of the example
+data's mask.h5 and tools/calib.poni (tools/example_data.py), so the files are its lz4mask variants:
+`python3 tools/example_data.py prepare` makes them, `--files "$BSLZ4_BENCH_DIR/*_lz4mask.h5"`.
+
 Each worker (a pinned thread) reads one file of its own into its own memory once, then runs the stage
 over its frames for --seconds: pure compute, no file system, the same decoder objects and 16-frame
 batches the conveyor uses.  Stages, each including the ones before it:
@@ -29,12 +33,12 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_suite as bs  # noqa: E402  (puts lib/ or $BSLZ4_TO_SPARSE_PATH on sys.path)
+import example_data as ed  # noqa: E402
 
 import bslz4_to_sparse as b  # noqa: E402
 from bslz4_to_sparse import conveyor  # noqa: E402
 
 DSET = "/entry_0000/ESRF-ID11/eiger/data"
-KEY = "WAu5um_DT3"  # the name the matrices are cached under (tools/bench_docs.py)
 NAZIM = 72
 
 
@@ -42,9 +46,11 @@ def matrices(shape, mask):
     """{op: csc matrix} for 1d, 2d, rings and fazit (cached like the docs benchmark's)."""
     import bench_docs as bd
 
-    ai = bd.make_ai(shape, mask == 0)
-    m = bd.matrices(ai, KEY)
-    fz = bs._cached("docs_%s_fazit" % KEY, lambda: bs.fazit_matrix(ai))
+    ai = ed.integrator()
+    if tuple(shape) != tuple(ai.detector.shape) or ((mask == 0) != (ai.detector.mask != 0)).any():
+        sys.exit("the frames are not the example data's shape and mask (tools/example_data.py)")
+    m = bd.matrices(ai)
+    fz = bs._cached("docs_ex%s_fazit" % ed.geometry_tag(), lambda: bs.fazit_matrix(ai))
     return {"1d": m["1D"][0], "2d": m["2D"][0], "rings": m["2D+rings"][0], "fazit": fz}
 
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Measure the speed figures shown on the documentation site.
 
-Three real ID11 Eiger data sets (CASES below), each through six operations:
+The two ID11 Eiger example files (CASES below; tools/example_data.py: silicon, uint16, sparse; CeO2,
+uint32, dense), each through six operations:
 
   sparsify   chunk2sparse: decode, mask, threshold to (values, indices)
   1D         chunk2sparseCSC with a pyFAI 1D bbox matrix (r_mm, one bin per
@@ -18,11 +19,10 @@ Three real ID11 Eiger data sets (CASES below), each through six operations:
 The descriptions written into the JSON (OP_TEXT) are what the documentation
 shows, so they are built from the same constants as the matrices.
 
-The files carry no calibration, so every case uses one stated generic
-geometry (GEOMETRY below, beam at the detector centre); the matrices
-describe the shape of the work, not a refinement of these samples.  The
-mask is every pixel holding 65535 in the first frame (the module gaps and
-bad pixels of these files).  Pipelines are the automatic choice.
+Both files share one geometry and mask, tools/calib.poni (approximate, no spatial distortion) and mask.h5 of the example data, so
+the matrices are built once.  The frames are the 8 kB bitshuffle-LZ4 variant
+(example_data.path(key, "lz4"), the masked pixels 0) of the downloaded files.  Pipelines are the
+automatic choice.
 
 Timing: FRAMES frames spread evenly over each file are read into memory
 first (no file I/O is timed).  Each operation is built, warmed up on one
@@ -39,7 +39,8 @@ side):
 
 Never run it in CI: shared runners give meaningless timings.
 tools/generate_docs.py renders the JSONs; they are the only source of the
-numbers on the site.  pyFAI matrices are cached in $BSLZ4_BENCH_DIR.
+numbers on the site.  The LZ4 variants of the data and the pyFAI matrices are
+cached in $BSLZ4_BENCH_DIR; the data is found by $BSLZ4_EXAMPLES (tools/example_data.py).
 """
 import argparse
 import datetime
@@ -52,6 +53,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_suite as bs  # noqa: E402  (puts lib/ or $BSLZ4_TO_SPARSE_PATH on sys.path)
+import example_data as ed  # noqa: E402
 from bench_docs_hash import py_sha256  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -66,15 +68,8 @@ import scipy.sparse as sp  # noqa: E402
 import bslz4_to_sparse as b  # noqa: E402
 
 CASES = [
-    {"key": "eiger4m_u32", "label": "very sparse, uint32",
-     "file": "/data/id11/jon/hdftest/eiger4m_u32.h5",
-     "dataset": "/entry_0000/ESRF-ID11/eiger/data", "cut": 0},
-    {"key": "WAu5um_DT3", "label": "sparse photon counting, uint16",
-     "file": "/data/id11/nanoscope/blc12454/id11/WAu5um/WAu5um_DT3/scan0001/eiger_0000.h5",
-     "dataset": "/entry_0000/ESRF-ID11/eiger/data", "cut": 0},
-    {"key": "kevlar", "label": "dense fibre pattern, uint16",
-     "file": "/data/id11/jon/hdftest/kevlar.h5",
-     "dataset": "/entry/data/data", "cut": 5},
+    {"key": "silicon", "label": "sparse photon counting, uint16", "cut": 0},
+    {"key": "ceo2", "label": "dense powder rings, uint32", "cut": 150},
 ]
 OPS = ("sparsify", "1D", "1D no-split", "1D fine", "2D", "2D+rings")
 NFINE = 6000                   # 1D bins of the fine split (rows <= 8 bins here)
@@ -92,35 +87,21 @@ OP_TEXT = {
                 "2D matrix, the windows sized to hold ~%d %% of the unmasked pixels"
                 % (bs.NRINGS, NAZIM, round(100 * bs.RING_FRACTION)),
 }
-MASK_VALUE = 65535
-GEOMETRY = {"pixel_m": 75e-6, "dist_m": 0.25, "wavelength_m": 2.85e-11,
-            "poni": "detector centre", "rot_rad": [0.0, 0.0, 0.0]}
 FRAMES = 100
 BATCH = 25
 REPEATS = 3
 
 
-def read_case(case, nframes):
-    with h5py.File(case["file"], "r") as f:
-        ds = f[case["dataset"]]
-        idx = np.linspace(0, ds.shape[0] - 1, nframes).round().astype(int)
-        chunks = [ds.id.read_direct_chunk((int(i), 0, 0))[1] for i in idx]
-        frame0 = ds[int(idx[0])]
-        info = {"frames_in_file": int(ds.shape[0]), "shape": list(ds.shape[1:]),
-                "dtype": str(ds.dtype)}
-    return chunks, frame0, info
+def geometry(ai):
+    """What the page says about the calibration: tools/calib.poni."""
+    return {"pixel_m": ai.detector.pixel1, "dist_m": ai.dist, "wavelength_m": ai.wavelength,
+            "poni_m": [ai.poni1, ai.poni2], "rot_rad": [ai.rot1, ai.rot2, ai.rot3],
+            "file": os.path.basename(ed.PONI)}
 
 
-def make_ai(shape, masked):
-    det = pyFAI.detectors.Detector(GEOMETRY["pixel_m"], GEOMETRY["pixel_m"], max_shape=shape)
-    det.mask = masked.astype(np.int8)
-    return AzimuthalIntegrator(dist=GEOMETRY["dist_m"], poni1=0.5 * shape[0] * det.pixel1,
-                               poni2=0.5 * shape[1] * det.pixel2, detector=det,
-                               wavelength=GEOMETRY["wavelength_m"])
-
-
-def matrices(ai, key):
-    """{op: csc_matrix} for the matrix operations, cached per data set."""
+def matrices(ai, key=None):
+    """{op: csc_matrix} for the matrix operations, cached per geometry and mask."""
+    key = key or "ex" + ed.geometry_tag()
     rp = bs.radial_pixels(ai)
     m1 = bs._cached("docs_%s_1d" % key, lambda: bs._engine_csc(ai, "bbox", 1, rp, "r_mm"))
     m1n = bs._cached("docs_%s_1d_no" % key, lambda: bs._engine_csc(ai, "no", 1, rp, "r_mm"))
@@ -199,23 +180,26 @@ def main():
            "machine": machine(),
            "ops": OP_TEXT,
            "method": {"frames": args.frames, "batch": BATCH, "repeats": REPEATS,
-                      "mask": "pixels == %d in the first timed frame" % MASK_VALUE,
-                      "geometry": GEOMETRY, "gb": 1e9},
+                      "mask": "mask.h5 of the example data", "gb": 1e9},
            "cases": [], "results": []}
     m = out["machine"]
     print("%s | %d core(s) | bslz4_to_sparse %s (%s, src %s)"
           % (m["cpu"], m["cores_usable"], m["version"], m["git"], m["src_sha256"][:12]))
     keys = args.cases.split(",")
+    ai = ed.integrator()
+    out["method"]["geometry"] = geometry(ai)
+    mats = matrices(ai)
     for case in [c for c in CASES if c["key"] in keys]:
-        chunks, frame0, info = read_case(case, args.frames)
-        masked = frame0 == MASK_VALUE
+        chunks, frame0, info = ed.chunks(case["key"], args.frames, "lz4")
+        masked = ai.detector.mask != 0
         mask = (~masked).astype(np.uint8)
         dtype = np.dtype(info["dtype"])
         npix = int(np.prod(info["shape"]))
         cbytes = sum(len(c) for c in chunks)
         pbytes = len(chunks) * npix * dtype.itemsize
         codec = b.CODEC_LZ4
-        crec = dict(case, **info)
+        crec = dict(case, file=os.path.basename(ed.path(case["key"], "lz4")), dataset=ed.DSET,
+                    **info)
         crec.update({"frames_timed": len(chunks), "masked_pixels": int(masked.sum()),
                      "compression": pbytes / cbytes})
         out["cases"].append(crec)
@@ -226,8 +210,6 @@ def main():
         npx, _ = b.chunk2sparse(mask, dtype=dtype, codec=codec).multi(chunks, case["cut"])
         crec["kept_frac"] = float(np.asarray(npx, np.float64).mean()) / unmasked
         print("  pixels above the cut: %.4f %% of the unmasked pixels" % (100 * crec["kept_frac"]))
-        ai = make_ai(info["shape"], masked)
-        mats = matrices(ai, case["key"])
         for op in OPS:
             if op == "sparsify":
                 obj = b.chunk2sparse(mask, dtype=dtype, codec=codec)

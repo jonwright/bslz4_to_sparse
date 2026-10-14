@@ -1,4 +1,4 @@
-"""tools/repack_example_data.py: another dtype, codec and block size, the same pixels."""
+"""tools/example_data.py (repack): another dtype, codec and block size, the same pixels."""
 
 import os
 import sys
@@ -12,7 +12,7 @@ hdf5plugin = pytest.importorskip("hdf5plugin")
 sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools")
 )
-import repack_example_data as rp  # noqa: E402
+import example_data as rp  # noqa: E402
 
 import bslz4_to_sparse as b  # noqa: E402
 
@@ -60,3 +60,21 @@ def test_a_dtype_that_cannot_hold_the_values_is_refused(tmp_path):
         )
     with pytest.raises(ValueError, match="too large"):
         rp.repack(src, dst, None, "uint16")
+
+
+@pytest.mark.parametrize("dtype", ["uint16", "uint32"])
+def test_mask_sets_the_masked_pixels_to_minus_one(tmp_path, dtype):
+    rng = np.random.default_rng(2)
+    frames = rng.integers(0, 3000, (3, 16, 24)).astype(np.uint32)
+    mask = (rng.random((16, 24)) < 0.1).astype(np.uint8)
+    src, dst = str(tmp_path / "s.h5"), str(tmp_path / "d.h5")
+    with h5py.File(src, "w") as h:
+        h.create_dataset(
+            rp.DSET, data=frames, chunks=(1, 16, 24), **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+        )
+    rp.repack(src, dst, dtype=dtype, mask=mask)
+    with h5py.File(dst, "r") as h:
+        got = h[rp.DSET][:]
+    want = frames.astype(dtype)
+    want[:, mask != 0] = np.iinfo(dtype).max
+    assert np.array_equal(got, want) and (got[:, mask != 0] == np.array(-1).astype(dtype)).all()
