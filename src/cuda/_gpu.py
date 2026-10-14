@@ -14,10 +14,11 @@ Differences from the CPU classes:
     'i64' (exact integer sums, returned as int64: divide by `powder_scale` for float);
   * `batch` = frames per GPU launch.  The result arrays are numpy (as the CPU classes) and are
     overwritten by the next call.
-  * the matrix is the one chunk2sparseCSC takes (scipy csc / pyFAI CSC engine, or fixed_point_matrix); normalise_matrix and
-    the mask folding are bslz4_to_sparse._matrix's. Per batch: decompress into dense frames in GPU
-    memory, then the matrix product (CSR, one thread block per bin, no atomics) and the collect of
-    the pixels above the cut, as separate kernels (bslz4_split.cu).
+  * the matrix is the one chunk2sparseCSC takes (scipy csc / pyFAI CSC engine, or
+    fixed_point_matrix); normalise_matrix and the mask folding are bslz4_to_sparse._matrix's.  Per
+    batch: decompress into dense frames in GPU memory, then the matrix product (CSR, one thread
+    block per bin, no atomics) and the collect of the pixels above the cut, as separate kernels
+    (bslz4_split.cu).
 
 howmany / thresholds are the CPU classes' (see _toppix.py).  On the GPU, a frame's list is written
 by the device when it holds at most `cap` = nbytes / (4 + bpp) pixels (indices + values never take
@@ -492,16 +493,16 @@ class chunk2sparse(object):
         return self._run(views, cut)
 
     def __call__(self, buffer, cut):
-        """Decode one chunk: npixels, (values, indices), and for an object with a matrix (chunk2sparseCSC)
-        also the powder.  values and indices are full-frame-size views of this object's buffers,
-        overwritten by the next call."""
+        """Decode one chunk: npixels, (values, indices), and for an object with a matrix
+        (chunk2sparseCSC) also the powder.  values and indices are full-frame-size views of this
+        object's buffers, overwritten by the next call."""
         r = self.multi([buffer], cut)
         npx, (values, indices) = r[0], r[1]
         return (int(npx[0]), (values[0], indices[0])) + tuple(x[0] for x in r[2:])
 
     def coo(self, buffer, cut):
-        """Decode one chunk to (npixels, row, col, values) as arrays of their own (safe to keep), and
-        for an object with a matrix also the powder."""
+        """Decode one chunk to (npixels, row, col, values) as arrays of their own (safe to keep),
+        and for an object with a matrix also the powder."""
         r = self.__call__(buffer, cut)
         npixels, (values, indices) = r[0], r[1]
         row, col = np.divmod(indices[:npixels].astype(np.int64), self.nfast)
@@ -593,7 +594,8 @@ class chunk2sparseCSC(chunk2sparse):
 
     @property
     def powder_scale(self):
-        """The integer (2**b) an integer powder is divided by to get float; None for float accumulators."""
+        """The integer (2**b) an integer powder is divided by to get float; None for float
+        accumulators."""
         return self.scale
 
     def _acc(self):
