@@ -1,4 +1,4 @@
-"""Sparse pixels: the calls of the released versions (0.0.15, 0.0.16), unchanged.
+"""Sparse pixels straight from compressed chunks.
 
 Examples 1 to 3 use only names that the released packages had, called as those releases took them;
 everything from example 4 on is new in 0.0.22.  An Eiger writes each frame as one bitshuffle-lz4

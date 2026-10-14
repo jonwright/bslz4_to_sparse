@@ -1,4 +1,4 @@
-"""A powder pattern from the same pass: pyFAI's sparse matrix in the decoder (released API).
+"""A powder pattern from the same pass: pyFAI's sparse matrix in the decoder.
 
 chunk2sparseCSC(mask, csc, dtype) is as in 0.0.15 and 0.0.16: chunk2sparse plus one more output.
 While a chunk is decoded, every pixel is also multiplied into a sparse matrix (bins x pixels) and

@@ -62,7 +62,7 @@ def check_index():
 
 def check_examples():
     with open(os.path.join(REPO, "docs", "mkdocs.yml")) as fh:
-        nav = set(re.findall(r"gen/examples/(\w+)\.md", fh.read()))
+        nav = set(re.findall(r"(?:gen/examples|real)/(\w+)\.md", fh.read()))
     scripts = {os.path.splitext(os.path.basename(p))[0]: p for p in gd.examples()}
     for name, path in sorted(scripts.items()):
         with open(path) as fh:
@@ -73,7 +73,7 @@ def check_examples():
         if name not in nav:
             problems.append("%s is not in the nav of docs/mkdocs.yml" % name)
     for name in sorted(nav - set(scripts)):
-        problems.append("docs/mkdocs.yml lists gen/examples/%s.md but examples/%s.py "
+        problems.append("docs/mkdocs.yml lists the page of %s but examples/%s.py "
                         "does not exist" % (name, name))
 
 

@@ -53,6 +53,25 @@ def test_weights_match_the_float_powder():
     assert cf.powder_scale is None and pf.dtype == np.float64
 
 
+def test_to_scipy_gives_the_powder_exactly():
+    """M @ frame in int64 is the decoder's powder, so the sparse pixels' part subtracts exactly."""
+    m, _ = matrix(True)
+    mask = (np.random.default_rng(4).random(SHAPE) > 0.1).astype(np.uint8)
+    fixed = fp(m, mask, np.uint16)
+    M = fixed.to_scipy()
+    assert M.dtype == np.int64 and M.shape == (NBINS, SHAPE[0] * SHAPE[1])
+    fr = frames()
+    c = b.chunk2sparseCSC(mask, fixed, np.uint16)
+    npx, (values, indices), powder = c.from_frames(fr, 50000)
+    for i, f in enumerate(fr):
+        assert np.array_equal(M @ f.ravel(), powder[i])
+        peaks = M[:, indices[i, : npx[i]]] @ values[i, : npx[i]]
+        below = np.where(f > 50000, 0, f).ravel()
+        assert np.array_equal(powder[i] - peaks, M @ below)
+    M.data[:] = 0
+    assert fixed.to_scipy().data.any()
+
+
 def test_the_decoder_does_not_prepare_the_matrix():
     """A raw matrix is a float matrix for every pixel type, as in the released versions."""
     m, _ = matrix(False)

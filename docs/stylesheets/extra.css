@@ -1,0 +1,5 @@
+/* Docstrings and code are written to 100 columns: a wider page holds them on a desktop screen
+   (a narrower screen scrolls them sideways, as before). */
+.md-grid {
+  max-width: 80rem;
+}

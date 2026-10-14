@@ -5,7 +5,8 @@ Every page under docs/gen/ is written here and nowhere else (docs/gen/ is
 git-ignored; see docs/AGENTS.md):
 
   docs/gen/examples/<name>.md  each examples/ex*.py: its docstring, its source,
-                               and the output of running it now
+                               and the output of running it now; not an example with a
+                               committed page in docs/real/ (tools/real_data_pages.py)
   docs/gen/api.md              the docstrings and signatures of the public API,
                                and the decode error codes, read from the module
   docs/gen/pipelines.md        every pipeline step value and what it needs,
@@ -42,7 +43,9 @@ import textwrap
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(REPO, "docs")
 GEN = os.path.join(DOCS, "gen")
+REAL = os.path.join(DOCS, "real")  # committed pages run on real data by tools/real_data_pages.py
 BENCH_GLOB = os.path.join(DOCS, "bench", "real_data_*.json")
+RACE_GLOB = os.path.join(DOCS, "bench", "conveyor_*.json")
 _path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
 if _path:
     sys.path.insert(0, _path)
@@ -98,8 +101,9 @@ def standin_folder():
     return _STANDIN[0]
 
 
-def run_example(path):
-    """stdout of running the example as a user would, in a directory holding the stand-in files."""
+def run_example(path, folder=None):
+    """stdout of running the example as a user would, in a directory holding the stand-in files
+    (or folder)."""
     env = dict(os.environ, MPLBACKEND="Agg")  # figures are not shown: no window waits to be closed
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(b.__file__)))
     tools_dir = os.path.join(REPO, "tools")
@@ -109,7 +113,7 @@ def run_example(path):
     r = subprocess.run(
         [sys.executable, path],
         env=env,
-        cwd=standin_folder(),
+        cwd=folder or standin_folder(),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -131,16 +135,17 @@ def split_docstring(source):
     return title.strip().rstrip("."), body.strip(), code
 
 
-def example_page(path):
-    """(title, markdown) of an example: its notebook, run on the stand-in files, with its output
-    and figures; its script's own output where the notebook tools are not installed."""
+def example_page(path, folder=None, note=None, outdir=None):
+    """(title, markdown) of an example: its notebook, run on the stand-in files (or in folder, the
+    files described by note), with its output and figures, written to outdir (docs/gen/examples);
+    its script's own output where the notebook tools are not installed."""
     with open(path) as fh:
         source = fh.read()
     title, body, code = split_docstring(source)
     title = "Example %s: %s" % (re.match(r"ex(\d+)_", os.path.basename(path)).group(1), title)
     rel = os.path.relpath(path, REPO)
     head = "# %s\n\n%s\n\n" % (title, body)
-    note = (
+    note = note or (
         "Output, from running it when this page was built, on a synthetic stand-in for your files "
         "(powder rings with noise on an Eiger-like detector, `tools/standin.py`; with your own data "
         "the numbers are yours):"
@@ -163,12 +168,12 @@ def example_page(path):
             + "\n"
             + note
             + "\n\n"
-            + fence("text", run_example(path))
+            + fence("text", run_example(path, folder))
             + "\n"
             + provenance()
         )
     name = os.path.splitext(os.path.basename(path))[0]
-    outdir = os.path.join(GEN, "examples")
+    outdir = outdir or os.path.join(GEN, "examples")
     os.makedirs(outdir, exist_ok=True)
     env_before = dict(os.environ)
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(b.__file__)))
@@ -177,7 +182,7 @@ def example_page(path):
     )
     try:
         nb = mn.build_notebook(path)
-        mn.run_notebook(nb, standin_folder())
+        mn.run_notebook(nb, folder or standin_folder())
     except Exception as e:  # noqa: BLE001
         raise SystemExit("notebook of example %s failed: %s" % (rel, e))
     finally:
@@ -501,6 +506,65 @@ def stale_warning(bench, here, here_py):
     )
 
 
+RACE_OPS = {
+    "sparsify": "the pixels above a cut of 1 (masked: the pixels at the dtype maximum of the "
+    "first frame)",
+    "1d": "the same, and a pyFAI 1D bbox matrix (pixel splitting)",
+    "1d-nosplit": "the same, and a pyFAI 1D no-split matrix (a histogram: one bin per pixel, "
+    "weight 1)",
+}
+
+
+def race_section():
+    """The conveyor drag race (tools/bench_race.py): one table per machine, every point as run."""
+    parts = []
+    for path in sorted(glob.glob(RACE_GLOB)):
+        with open(path) as fh:
+            r = json.load(fh)
+        m, d = r["machine"], r["data"]
+        rel = os.path.relpath(path, REPO)
+        link = None if d.get("in_memory") else r.get("link_gbps")
+        ops = []
+        for p in r["results"]:
+            if p["op"] not in ops:
+                ops.append(p["op"])
+        parts.append("## The conveyor on %s%s\n"
+                     % (cpu_label(m["cpu"]), " + " + r["gpu"] if r.get("gpu") else ""))
+        where = ("copied to `/dev/shm` first, so that the file system and the network are not "
+                 "timed" if d.get("in_memory") else "read from the file system")
+        parts.append(
+            "The conveyor (`src/conveyor`, threads) on %d files of %s, %.1f GB "
+            "compressed, %s; the results are dropped (a null sink).  The same files for every "
+            "point, in the order of the table; workers and their readers share %d cores.  The GPU "
+            "points ran twice before the CPU points and twice after them.  %s.  The matrices are "
+            "built for that mask with the approximate geometry of `tools/calib.poni`: the work of "
+            "an integration of this detector, not a calibrated pattern of these files.%s  "
+            "Measured %s UTC, build %s `%s`; [`%s`](%s/blob/main/%s).\n"
+            % (d["files"], d.get("label", "`%s`" % os.path.dirname(d["first"])), d["bytes"] / 1e9, where,
+               m["cores_usable"],
+               "Operations: " + "; ".join("*%s*, %s" % (o, RACE_OPS.get(o, o)) for o in ops),
+               "  The network link is %g Gb/s (%.2f GB/s): a point that read faster than that "
+               "took part of its input from a cache on this machine, not from the network, and "
+               "is marked *cached*." % (link, link / 8.0) if link else "",
+               r["date_utc"], m["version"], m["git"], os.path.basename(path), GITHUB, rel)
+        )
+        table = ("| pass | decoder | operation | workers | frames/s | frames/s per CPU worker | "
+                 "compressed GB/s | %sworker cores | seconds |\n"
+                 "|---|---|---|---:|---:|---:|---:|%s---:|---:|\n"
+                 % ("of the link | " if link else "", "---:|" if link else ""))
+        for p in r["results"]:
+            cpu = p["backend"] == "cpu"
+            table += "| %s | %s | %s | %d | %.0f | %s | %.2f | %s%.1f | %.1f |\n" % (
+                p["rep"], p["backend"].upper(), p["op"], p["workers"], p["fps"],
+                "%.0f" % (p["fps"] / p["workers"]) if cpu else "",
+                p["in_gbs"],
+                ("%.0f %%%s | " % (100 * p["in_gbs"] * 8 / link,
+                                   ", *cached*" if p["in_gbs"] * 8 > link else "")) if link else "",
+                p["worker_cpu_cores"], p["wall_s"])
+        parts.append(table)
+    return parts
+
+
 def performance_page():
     benches = []
     for path in bench_files():
@@ -636,8 +700,10 @@ def performance_page():
                     r["pixel_gbs"],
                 )
         parts.append(table)
+    parts += race_section()
     parts.append(
-        "Written by `%s`; one JSON per machine in `docs/bench/`.\n\n" % ref["tool"] + provenance()
+        "Written by `%s` and `tools/bench_race.py`; one JSON per machine in `docs/bench/`.\n\n"
+        % ref["tool"] + provenance()
     )
     return "\n".join(p.rstrip("\n") + "\n" for p in parts)
 
@@ -975,6 +1041,8 @@ def main():
     write("performance.md", performance_page())
     for path in examples():
         name = os.path.splitext(os.path.basename(path))[0]
+        if os.path.exists(os.path.join(REAL, name + ".md")):
+            continue  # its page is committed, run on real data by tools/real_data_pages.py
         _title, page = example_page(path)
         write(os.path.join("examples", name + ".md"), page)
 

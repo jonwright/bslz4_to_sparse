@@ -386,6 +386,17 @@ class FixedPointMatrix(object):
         c.data = self.data.copy()
         return c
 
+    def to_scipy(self):
+        """The integer weights as a scipy.sparse.csc_matrix (nbins, npix) of int64, the mask folded
+        in: M @ frame (integer pixels) is the int64 powder of a chunk2sparseCSC given this matrix,
+        exactly, so the powder of the sparse pixels can be subtracted from it with nothing left
+        over.  Divide by scale for float.  A copy: changing it changes nothing here."""
+        import scipy.sparse
+        return scipy.sparse.csc_matrix(
+            (self.data.astype(np.int64), self.nm.indices.copy(), self.nm.indptr.copy()),
+            shape=(self.nbins, self.npix),
+        )
+
     def check(self, dtype, npix):
         """ValueError unless this matrix can be used for pixels of dtype in frames of npix."""
         dtype = np.dtype(dtype)
