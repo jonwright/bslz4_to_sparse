@@ -9,6 +9,7 @@ text, example output or a benchmark number into a Markdown file.
 |---|---|---|
 | Overview | `docs/index.md` (hand-written, conceptual only) | mkdocs |
 | Examples and their output | `examples/ex*.py` (runnable scripts, written for the reader's own `h5filename`/`h5dataset`, that assert their own results) | `tools/generate_docs.py` turns each into a notebook (`tools/make_notebooks.py`), runs it on the stand-in files of `tools/standin.py` and shows its output and figures |
+| Examples run on real data (`docs/real/`) | `examples/ex*.py` listed in `PAGES` of `tools/real_data_pages.py` | `tools/real_data_pages.py`, run by hand where the example data is, and committed: CI has no copy of the data, and `tools/generate_docs.py` leaves these examples out |
 | API reference | docstrings and signatures in `src/` | `tools/generate_docs.py` (introspection) |
 | Pipeline step values | `VALUES` in `src/_pipeline.py` | `tools/generate_docs.py` |
 | Decode error codes | `_DECODE_ERRORS` in `src/__init__.py` | `tools/generate_docs.py` |
@@ -18,13 +19,16 @@ text, example output or a benchmark number into a Markdown file.
 | Kernel comparison | `docs/bench/kernels_<cpu>.json`, measured by `tools/bench_kernels.py` and committed | `tools/generate_docs.py` |
 
 Generated pages go to `docs/gen/`, which is git-ignored: if a file is not
-in the repository, it cannot be edited by hand.
+in the repository, it cannot be edited by hand.  The one exception is
+`docs/real/`: pages run on real data, generated and committed (never edited).
 
 ## Rules
 
 1. **Never write generated content into a Markdown file.**  A function
    signature, a parameter description, program output or a timing in a
-   committed `.md` file is a bug.
+   committed `.md` file is a bug.  Except `docs/real/`, written only by
+   `tools/real_data_pages.py`: when its example, or the code it calls,
+   changes, run that script again and commit what changed with the change.
 2. **Change the docs by changing the code.**  Wrong API text: edit the
    docstring.  New example: add `examples/exN_name.py` (a module docstring
    whose first line is the title, then code that asserts what it shows) and

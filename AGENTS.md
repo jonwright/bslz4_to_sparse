@@ -105,6 +105,9 @@ subpackages `src/cuda/` and `src/conveyor/` are optional and Python 3 only.
 - Tests: `BSLZ4_TO_SPARSE_PATH=<dir containing a bslz4_to_sparse package> python3
   -m pytest test`. Needs h5py, hdf5plugin, scipy; some tests and examples also use
   pyFAI.
+- `docs/real/` holds example pages run on real data, committed: CI cannot run them.  A change to
+  such an example (`PAGES` in `tools/real_data_pages.py`) or to the code it calls is not finished
+  until `tools/real_data_pages.py` has been run again and its output committed with it.
 - Benchmarks are run by hand on the machine they are for, never in CI and never
   typed into a file (see `docs/AGENTS.md`). Do not write prices or costs into any
   file in the repository; chat only.

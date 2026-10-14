@@ -5,7 +5,8 @@ Every page under docs/gen/ is written here and nowhere else (docs/gen/ is
 git-ignored; see docs/AGENTS.md):
 
   docs/gen/examples/<name>.md  each examples/ex*.py: its docstring, its source,
-                               and the output of running it now
+                               and the output of running it now; not an example with a
+                               committed page in docs/real/ (tools/real_data_pages.py)
   docs/gen/api.md              the docstrings and signatures of the public API,
                                and the decode error codes, read from the module
   docs/gen/pipelines.md        every pipeline step value and what it needs,
@@ -42,6 +43,7 @@ import textwrap
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(REPO, "docs")
 GEN = os.path.join(DOCS, "gen")
+REAL = os.path.join(DOCS, "real")  # committed pages run on real data by tools/real_data_pages.py
 BENCH_GLOB = os.path.join(DOCS, "bench", "real_data_*.json")
 RACE_GLOB = os.path.join(DOCS, "bench", "conveyor_*.json")
 _path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
@@ -99,8 +101,9 @@ def standin_folder():
     return _STANDIN[0]
 
 
-def run_example(path):
-    """stdout of running the example as a user would, in a directory holding the stand-in files."""
+def run_example(path, folder=None):
+    """stdout of running the example as a user would, in a directory holding the stand-in files
+    (or folder)."""
     env = dict(os.environ, MPLBACKEND="Agg")  # figures are not shown: no window waits to be closed
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(b.__file__)))
     tools_dir = os.path.join(REPO, "tools")
@@ -110,7 +113,7 @@ def run_example(path):
     r = subprocess.run(
         [sys.executable, path],
         env=env,
-        cwd=standin_folder(),
+        cwd=folder or standin_folder(),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -132,16 +135,17 @@ def split_docstring(source):
     return title.strip().rstrip("."), body.strip(), code
 
 
-def example_page(path):
-    """(title, markdown) of an example: its notebook, run on the stand-in files, with its output
-    and figures; its script's own output where the notebook tools are not installed."""
+def example_page(path, folder=None, note=None, outdir=None):
+    """(title, markdown) of an example: its notebook, run on the stand-in files (or in folder, the
+    files described by note), with its output and figures, written to outdir (docs/gen/examples);
+    its script's own output where the notebook tools are not installed."""
     with open(path) as fh:
         source = fh.read()
     title, body, code = split_docstring(source)
     title = "Example %s: %s" % (re.match(r"ex(\d+)_", os.path.basename(path)).group(1), title)
     rel = os.path.relpath(path, REPO)
     head = "# %s\n\n%s\n\n" % (title, body)
-    note = (
+    note = note or (
         "Output, from running it when this page was built, on a synthetic stand-in for your files "
         "(powder rings with noise on an Eiger-like detector, `tools/standin.py`; with your own data "
         "the numbers are yours):"
@@ -164,12 +168,12 @@ def example_page(path):
             + "\n"
             + note
             + "\n\n"
-            + fence("text", run_example(path))
+            + fence("text", run_example(path, folder))
             + "\n"
             + provenance()
         )
     name = os.path.splitext(os.path.basename(path))[0]
-    outdir = os.path.join(GEN, "examples")
+    outdir = outdir or os.path.join(GEN, "examples")
     os.makedirs(outdir, exist_ok=True)
     env_before = dict(os.environ)
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(b.__file__)))
@@ -178,7 +182,7 @@ def example_page(path):
     )
     try:
         nb = mn.build_notebook(path)
-        mn.run_notebook(nb, standin_folder())
+        mn.run_notebook(nb, folder or standin_folder())
     except Exception as e:  # noqa: BLE001
         raise SystemExit("notebook of example %s failed: %s" % (rel, e))
     finally:
@@ -1037,6 +1041,8 @@ def main():
     write("performance.md", performance_page())
     for path in examples():
         name = os.path.splitext(os.path.basename(path))[0]
+        if os.path.exists(os.path.join(REAL, name + ".md")):
+            continue  # its page is committed, run on real data by tools/real_data_pages.py
         _title, page = example_page(path)
         write(os.path.join("examples", name + ".md"), page)
 

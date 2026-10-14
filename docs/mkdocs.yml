@@ -59,6 +59,7 @@ nav:
       - "10: Writing results and the integrator": gen/examples/ex10_write_results.md
       - "11: Rings per frame for texture work": gen/examples/ex11_rings_per_frame.md
       - "12: Timing the decode": gen/examples/ex12_decode_timing.md
+      - "13: Peaks in and out of the powder": real/ex13_peaks_out_of_powder.md
   - Performance:
       - Three data sets: gen/performance.md
       - Every pipeline: gen/kernels.md
