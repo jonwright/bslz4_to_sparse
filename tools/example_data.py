@@ -7,7 +7,7 @@
         [--codec zstd --level 2 --block-kb 256] [--mask mask.h5]
 
 The download (https://doi.org/10.5281/zenodo.23361659; a folder, $BSLZ4_EXAMPLES, else DEFAULT_DIR
-if that exists, else $BSLZ4_BENCH_DIR/examples) holds
+if that exists, else ~/.cache/bslz4_to_sparse/examples) holds
 
     ceo2_u32_zstd2_256k.h5     dense:  CeO2 powder, uint32, 72 frames (mean ~68 counts per pixel)
     silicon_u16_zstd2_256k.h5  sparse: silicon, uint16, 250 frames (~0.4 % of pixels above 0)
@@ -17,7 +17,7 @@ if that exists, else $BSLZ4_BENCH_DIR/examples) holds
 
 zstd level 2 in 256 kB blocks, to keep the download small.  The decoders are meant for the 8 kB
 blocks of bitshuffle-lz4 that the detector software writes, so `prepare` makes, in the cache folder
-($BSLZ4_BENCH_DIR, as tools/bench_suite.py), for each file:
+($BSLZ4_BENCH_DIR, else ~/.cache/bslz4_to_sparse/variants), for each file:
 
     <key>_lz4.h5      bitshuffle-lz4, 8 kB blocks, the same pixels (masked pixels are 0)
     <key>_lz4mask.h5  the same with the masked pixels set to -1 in the pixel type (65535 or
@@ -134,7 +134,7 @@ def download(dst=None, base=ZENODO):
 
     Zenodo is a free public service: do not fetch what we already have.  The files always go to the
     same place (dst, by default example_dir(): $BSLZ4_EXAMPLES, else DEFAULT_DIR, else
-    $BSLZ4_BENCH_DIR/examples), a file whose md5 matches is never fetched again, and an interrupted
+    ~/.cache/bslz4_to_sparse/examples), a file whose md5 matches is never fetched again, and an interrupted
     download is resumed from its .part file, not started over.  Anything else in this module reads
     the files from that place and never downloads."""
     dst = dst or example_dir()
@@ -165,11 +165,17 @@ def example_dir():
     env = os.environ.get("BSLZ4_EXAMPLES")
     if env or os.path.isdir(DEFAULT_DIR):
         return env or DEFAULT_DIR
-    return os.path.join(cache_dir(), "examples")
+    return os.path.join(home_dir(), "examples")
+
+
+def home_dir():
+    """Where the files live unless told otherwise: a user cache folder, not /tmp (it is wiped)."""
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "bslz4_to_sparse")
 
 
 def cache_dir():
-    return os.environ.get("BSLZ4_BENCH_DIR", "/tmp/%s/bslz4_bench" % os.environ.get("USER", "u"))
+    return os.environ.get("BSLZ4_BENCH_DIR") or os.path.join(home_dir(), "variants")
 
 
 def mask(src=None):
@@ -245,7 +251,7 @@ def main():
     p.add_argument("--dir", default=None, help="where to (default $BSLZ4_EXAMPLES)")
     p = sub.add_parser("prepare", help="make the lz4 and lz4mask variants of the download")
     p.add_argument("--dir", default=None, help="the download (default $BSLZ4_EXAMPLES)")
-    p.add_argument("--cache", default=None, help="where the variants go (default $BSLZ4_BENCH_DIR)")
+    p.add_argument("--cache", default=None, help="where the variants go (default $BSLZ4_BENCH_DIR, else ~/.cache/bslz4_to_sparse)")
     p = sub.add_parser("repack", help="another dtype, codec, block size or frames of a file")
     p.add_argument("src")
     p.add_argument("dst")
