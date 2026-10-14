@@ -49,3 +49,20 @@ def test_variants_from_a_download(tmp_path, monkeypatch):
     assert np.array_equal(got[:, mask == 0], frames[:, mask == 0])
     assert np.array_equal(ed.mask(), mask)
     assert ed.path("ceo2", "lz4") == lz4  # made once
+
+
+def test_download_checks_the_md5(tmp_path, monkeypatch):
+    web, dst = tmp_path / "web", tmp_path / "dst"
+    web.mkdir()
+    for i, name in enumerate(ed.MD5):
+        (web / name).write_bytes(b"data %d" % i)
+    base = (web.as_uri() + "/%s")
+    monkeypatch.setattr(ed, "MD5", {n: ed.md5(str(web / n)) for n in ed.MD5})
+    assert ed.download(str(dst), base) == str(dst)
+    assert sorted(os.listdir(str(dst))) == sorted(ed.MD5)
+    ed.download(str(dst), base)  # already there: nothing fetched
+    (web / "mask.h5").write_bytes(b"changed")  # now the source does not match
+    (dst / "mask.h5").unlink()
+    with pytest.raises(SystemExit):
+        ed.download(str(dst), base)
+    assert not (dst / "mask.h5").exists() and not (dst / "mask.h5.part").exists()

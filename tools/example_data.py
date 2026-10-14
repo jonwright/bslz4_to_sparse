@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """The example data every benchmark and timing tool starts from, and the tool that prepares it.
 
+    python3 tools/example_data.py download [--dir WHERE]
     python3 tools/example_data.py prepare [--dir DOWNLOADED] [--cache WHERE]
     python3 tools/example_data.py repack SRC DST [--frames 510:760] [--dtype uint16] \
         [--codec zstd --level 2 --block-kb 256] [--mask mask.h5]
 
-The download (https://doi.org/10.5281/zenodo.23361659; a folder, $BSLZ4_EXAMPLES, default
-DEFAULT_DIR) holds
+The download (https://doi.org/10.5281/zenodo.23361659; a folder, $BSLZ4_EXAMPLES, else DEFAULT_DIR
+if that exists, else $BSLZ4_BENCH_DIR/examples) holds
 
     ceo2_u32_zstd2_256k.h5     dense:  CeO2 powder, uint32, 72 frames (mean ~68 counts per pixel)
     silicon_u16_zstd2_256k.h5  sparse: silicon, uint16, 250 frames (~0.4 % of pixels above 0)
@@ -40,7 +41,9 @@ The example data came from ID11 files in which the detector's 16-bit counts had 
 import argparse
 import hashlib
 import os
+import shutil
 import sys
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -55,6 +58,12 @@ FILES = {"ceo2": "ceo2_u32_zstd2_256k.h5", "silicon": "silicon_u16_zstd2_256k.h5
 MASK = "mask.h5"
 PONI = os.path.join(HERE, "calib.poni")
 VARIANTS = ("zstd", "lz4", "lz4mask")
+ZENODO = "https://zenodo.org/api/records/23361660/files/%s/content"  # of doi 10.5281/zenodo.23361659
+MD5 = {
+    "ceo2_u32_zstd2_256k.h5": "39872d5b45ea89adead86b11a36022f1",
+    "silicon_u16_zstd2_256k.h5": "cb3fe7636eabf8d2dffd9af692b1917e",
+    "mask.h5": "52665c08ca33aef9d5897b1d5f04a298",
+}
 
 
 def repack(
@@ -112,8 +121,51 @@ def repack(
     return stop - start, top, nbytes
 
 
+def md5(fname):
+    h = hashlib.md5()
+    with open(fname, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def download(dst=None, base=ZENODO):
+    """Fetch the files not yet in dst from base % name, checking each against MD5.
+
+    Zenodo is a free public service: do not fetch what we already have.  The files always go to the
+    same place (dst, by default example_dir(): $BSLZ4_EXAMPLES, else DEFAULT_DIR, else
+    $BSLZ4_BENCH_DIR/examples), a file whose md5 matches is never fetched again, and an interrupted
+    download is resumed from its .part file, not started over.  Anything else in this module reads
+    the files from that place and never downloads."""
+    dst = dst or example_dir()
+    os.makedirs(dst, exist_ok=True)
+    for name, want in MD5.items():
+        out = os.path.join(dst, name)
+        if os.path.exists(out) and md5(out) == want:
+            print("%s: there" % name)
+            continue
+        tmp = out + ".part"
+        have = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+        req = urllib.request.Request(base % name)
+        if have:
+            req.add_header("Range", "bytes=%d-" % have)
+        print("%s: downloading%s" % (name, " (resuming at %d bytes)" % have if have else ""))
+        with urllib.request.urlopen(req) as r:
+            resumed = have and getattr(r, "status", None) == 206  # a server that ignores Range sends it all
+            with open(tmp, "ab" if resumed else "wb") as fh:
+                shutil.copyfileobj(r, fh, 1 << 20)
+        if md5(tmp) != want:
+            os.remove(tmp)
+            sys.exit("%s: the md5 is not %s, not kept" % (name, want))
+        os.rename(tmp, out)
+    return dst
+
+
 def example_dir():
-    return os.environ.get("BSLZ4_EXAMPLES", DEFAULT_DIR)
+    env = os.environ.get("BSLZ4_EXAMPLES")
+    if env or os.path.isdir(DEFAULT_DIR):
+        return env or DEFAULT_DIR
+    return os.path.join(cache_dir(), "examples")
 
 
 def cache_dir():
@@ -132,8 +184,8 @@ def path(key, variant="lz4", src=None, cache=None):
     full = os.path.join(src, FILES[key])
     if not os.path.exists(full):
         sys.exit("%s is not there: the example data is the download of "
-                 "https://doi.org/10.5281/zenodo.23361659, a folder %s (set BSLZ4_EXAMPLES)"
-                 % (FILES[key], src))
+                 "https://doi.org/10.5281/zenodo.23361659, a folder %s: python3 tools/example_data.py "
+                 "download [--dir %s] (BSLZ4_EXAMPLES says where)" % (FILES[key], src, src))
     if variant == "zstd":
         return full
     out = os.path.join(cache, "%s_%s.h5" % (key, variant))
@@ -189,6 +241,8 @@ def chunks(key, nframes, variant="lz4", src=None):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("download", help="fetch the example files from Zenodo")
+    p.add_argument("--dir", default=None, help="where to (default $BSLZ4_EXAMPLES)")
     p = sub.add_parser("prepare", help="make the lz4 and lz4mask variants of the download")
     p.add_argument("--dir", default=None, help="the download (default $BSLZ4_EXAMPLES)")
     p.add_argument("--cache", default=None, help="where the variants go (default $BSLZ4_BENCH_DIR)")
@@ -203,6 +257,9 @@ def main():
     p.add_argument("--dset", default=DSET)
     p.add_argument("--mask", default=None, help="mask.h5: masked pixels are set to the maximum")
     a = ap.parse_args()
+    if a.cmd == "download":
+        print(download(a.dir))
+        return
     if a.cmd == "prepare":
         for key in FILES:
             for variant in VARIANTS[1:]:
