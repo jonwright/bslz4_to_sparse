@@ -17,8 +17,7 @@ if that exists, else ~/.cache/bslz4_to_sparse/examples) holds
 
 zstd level 2 in 256 kB blocks, to keep the download small.  The decoders are meant for the 8 kB
 blocks of bitshuffle-lz4 that the detector software writes, so `prepare` makes, in the cache folder
-($BSLZ4_BENCH_DIR, else DEFAULT_CACHE if that exists, else ~/.cache/bslz4_to_sparse/variants), for
-each file:
+(the download folder, or $BSLZ4_BENCH_DIR), for each file:
 
     <key>_lz4.h5      bitshuffle-lz4, 8 kB blocks, the same pixels (masked pixels are 0)
     <key>_lz4mask.h5  the same with the masked pixels set to -1 in the pixel type (65535 or
@@ -55,7 +54,6 @@ import numpy as np  # noqa: E402
 
 DSET = "/entry_0000/ESRF-ID11/eiger/data"
 DEFAULT_DIR = "/data/id11/jon/hdftest/bslz4_to_sparse_examples"
-DEFAULT_CACHE = "/data/id11/jon/hdftest/bslz4_to_sparse_variants"  # ESRF: the variants and matrices
 FILES = {"ceo2": "ceo2_u32_zstd2_256k.h5", "silicon": "silicon_u16_zstd2_256k.h5"}
 MASK = "mask.h5"
 PONI = os.path.join(HERE, "calib.poni")
@@ -176,11 +174,9 @@ def home_dir():
     return os.path.join(base, "bslz4_to_sparse")
 
 
-def cache_dir():
-    env = os.environ.get("BSLZ4_BENCH_DIR")
-    if env or os.path.isdir(DEFAULT_CACHE):
-        return env or DEFAULT_CACHE
-    return os.path.join(home_dir(), "variants")
+def cache_dir(src=None):
+    """Where the variants and the pyFAI matrices go: the example folder, or $BSLZ4_BENCH_DIR."""
+    return os.environ.get("BSLZ4_BENCH_DIR") or src or example_dir()
 
 
 def mask(src=None):
@@ -191,7 +187,8 @@ def mask(src=None):
 
 def path(key, variant="lz4", src=None, cache=None):
     """File of a data set in a variant (VARIANTS); a missing 8 kB variant is made from the download."""
-    src, cache = src or example_dir(), cache or cache_dir()
+    src = src or example_dir()
+    cache = cache or cache_dir(src)
     full = os.path.join(src, FILES[key])
     if not os.path.exists(full):
         sys.exit("%s is not there: the example data is the download of "
@@ -256,7 +253,7 @@ def main():
     p.add_argument("--dir", default=None, help="where to (default $BSLZ4_EXAMPLES)")
     p = sub.add_parser("prepare", help="make the lz4 and lz4mask variants of the download")
     p.add_argument("--dir", default=None, help="the download (default $BSLZ4_EXAMPLES)")
-    p.add_argument("--cache", default=None, help="where the variants go (default $BSLZ4_BENCH_DIR, else ~/.cache/bslz4_to_sparse)")
+    p.add_argument("--cache", default=None, help="where the variants go (default $BSLZ4_BENCH_DIR, else --dir)")
     p = sub.add_parser("repack", help="another dtype, codec, block size or frames of a file")
     p.add_argument("src")
     p.add_argument("dst")
