@@ -267,6 +267,8 @@ def run(
     if policy is not None:
         policy.check(backend, units)
         sink = policy.wrap(sink)
+    if getattr(backend, "prepare", None) is not None:
+        backend.prepare()  # what the workers share, built once before they start (and fork)
     S = slots_per_worker
     slot_bytes = (max(u.span for u in units) + 4095) // 4096 * 4096
     mm = mmap.mmap(-1, workers * S * slot_bytes, flags=mmap.MAP_SHARED | mmap.MAP_ANONYMOUS)

@@ -53,7 +53,9 @@ them. `C2PY_TRACE=1` reports which file the loader picks.
 Threads and free-threaded Python (3.14t, 3.15t): the decode entry points
 release the GIL, and the extension declares itself free-threading safe, so
 importing it does not re-enable the GIL. Nothing is locked; the rule is one
-`chunk2sparse` / `chunk2sparseCSC` object per thread. Each object reuses its
+`chunk2sparse` / `chunk2sparseCSC` object per thread (for the second, give
+the objects of a thread pool one `plan(mask, csc)`: they share its matrix instead of
+each building and holding a copy). Each object reuses its
 own workspace and output arrays, so the arrays a call returns are
 overwritten by that object's next call, and a call's inputs (chunks, mmap
 base, mask) must not be changed or closed by another thread while it runs.

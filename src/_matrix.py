@@ -5,6 +5,8 @@ Every layout is exact (or, for the fixed-point dots, within their stated
 rounding) and is refused, with the reason, for a matrix it cannot
 represent.  The C side of each layout is in src/steps/dot_*.hpp.
 """
+import threading
+
 import numpy as np
 
 _PADDED_MAX_WIDTH = 64
@@ -72,6 +74,10 @@ def normalise_matrix(csc, npix=None):
         nbins,
         len(indptr) - 1,
     )
+
+
+def _copy_normal(nm):
+    return _NormalMatrix(nm.data.copy(), nm.indices.copy(), nm.indptr.copy(), nm.nbins, nm.npix)
 
 
 def _fold_mask(nm, mask):
@@ -372,6 +378,14 @@ class FixedPointMatrix(object):
         self.dtype = np.dtype(dtype)
         self.maxval = maxval
 
+    def _snapshot(self):
+        """A copy that shares no array with this one."""
+        c = FixedPointMatrix.__new__(FixedPointMatrix)
+        c.__dict__.update(self.__dict__)
+        c.nm = _copy_normal(self.nm)
+        c.data = self.data.copy()
+        return c
+
     def check(self, dtype, npix):
         """ValueError unless this matrix can be used for pixels of dtype in frames of npix."""
         dtype = np.dtype(dtype)
@@ -546,3 +560,83 @@ def build(dot, nm, block_elems, dtype, fixed=None):
         return Layout(dot, "bsb-csr", (q.blk_ptr, q.bins, q.bin_ptr, q.idx, q.data) + csc +
                       (q.block_elems,), nbins, block_elems=block_elems)
     raise ValueError("unknown dot %r" % (dot,))
+
+
+# ---- what sibling chunk2sparseCSC objects share ------------------------------
+
+_BLOCK_DOTS = ("padded", "padded-avx2", "bsb-csr", "bsb-csr-nosplit")   # layouts that depend on the block size
+
+
+class _Family(object):
+    """What the chunk2sparseCSC objects of one plan share: the plan's own copy of the matrix (nm,
+    mask-folded, and fixed: the FixedPointMatrix it came from, copied, or None) and of the mask,
+    the analysis of the matrix and the layouts built so far, each built once (one lock; a layout
+    already built is read without it).  Read by the objects, changed only by adding a layout.  Every
+    array it holds is read-only (flags.writeable False), so a stray write raises."""
+
+    def __init__(self, csc, mask):
+        mask = np.array(mask)               # the family's own copy
+        self.mask = mask.reshape(-1)
+        self.shape = mask.shape
+        if isinstance(csc, FixedPointMatrix):
+            self.fixed = csc._snapshot()
+            self.nm = self.fixed.nm
+            if self.nm.npix != self.mask.size:
+                raise ValueError("the mask has %d pixels, the matrix %d" % (self.mask.size, self.nm.npix))
+        else:
+            self.fixed = None
+            self.nm = _fold_mask(normalise_matrix(csc, npix=self.mask.size), self.mask)
+        self.nbins = self.nm.nbins
+        self._info = None
+        self._layouts = {}
+        self._lock = threading.Lock()
+        self._freeze()
+
+    def _freeze(self):
+        arrays = [self.mask, self.nm.data, self.nm.indices, self.nm.indptr]
+        if self.fixed is not None:
+            arrays += [self.fixed.data, self.fixed.nm.data, self.fixed.nm.indices, self.fixed.nm.indptr]
+        for lay in self._layouts.values():
+            arrays += [a for a in lay.args() if isinstance(a, np.ndarray)]
+        for a in arrays:
+            a.flags.writeable = False
+
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        state["_lock"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
+        self._freeze()           # unpickled arrays are writeable
+
+    @property
+    def info(self):
+        """analyse(nm), computed once"""
+        info = self._info
+        if info is None:
+            with self._lock:
+                if self._info is None:
+                    self._info = analyse(self.nm)
+                info = self._info
+        return info
+
+    def layout(self, dot, block_elems, dtype):
+        """The Layout for a dot, built on the first request and the same object after that: the
+        block size only matters to the padded and bsb-csr dots, the pixel dtype to csc-permute.
+        ValueError (not kept) if the dot cannot represent the matrix."""
+        dtype = np.dtype(dtype)
+        key = (dot, block_elems if dot in _BLOCK_DOTS else None,
+               dtype.str if dot == "csc-permute" else None)
+        lay = self._layouts.get(key)
+        if lay is None:
+            with self._lock:
+                lay = self._layouts.get(key)
+                if lay is None:
+                    lay = build(dot, self.nm, block_elems, dtype, self.fixed)
+                    for a in lay.args():
+                        if isinstance(a, np.ndarray):
+                            a.flags.writeable = False
+                    self._layouts[key] = lay
+        return lay

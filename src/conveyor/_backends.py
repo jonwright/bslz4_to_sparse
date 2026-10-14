@@ -1,6 +1,8 @@
 """The decoders behind one interface: make_worker() -> fn(buf, offsets, lengths) ->
 (npx, values, indices, powder).  Every worker owns one decoder and is the only user of it."""
 
+import threading
+
 import numpy as np
 
 
@@ -55,6 +57,17 @@ class CpuBackend(object):
         self.exact, self.maxval = exact, maxval
         self.howmany, self.thresholds, self.pipeline = howmany, thresholds, pipeline
         self._fixed = None
+        self._plan_obj = None
+        self._lock = threading.Lock()
+
+    def __getstate__(self):  # a copy sent to another process makes its own plan
+        state = dict(self.__dict__)
+        state["_plan_obj"] = state["_lock"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
 
     def _matrix(self):
         if self._fixed is None:  # once, shared by the workers
@@ -68,16 +81,34 @@ class CpuBackend(object):
             )
         return self._fixed
 
+    def _plan(self):
+        """The one bslz4_to_sparse.plan every worker's decoder is a context of, made once (under
+        a lock, on the first call), so that they share its matrix and layouts."""
+        if self._plan_obj is None:
+            with self._lock:
+                if self._plan_obj is None:
+                    import bslz4_to_sparse as b
+
+                    self._plan_obj = b.plan(self.mask, self._matrix(), self.dtype,
+                                            pipeline=self.pipeline)
+        return self._plan_obj
+
+    def prepare(self):
+        """Make what the workers share before they start, so that forked workers inherit it
+        instead of each making it."""
+        if self.csc is not None:
+            self._plan()
+
     def make_worker(self):
         """A decoder for one worker: fn(buffer, offsets, lengths) -> (npx, values, indices,
         powder)."""
         import bslz4_to_sparse as b
 
-        kw = dict(howmany=self.howmany, thresholds=self.thresholds, pipeline=self.pipeline)
         if self.csc is None:
-            c = b.chunk2sparse(self.mask, self.dtype, **kw)
+            c = b.chunk2sparse(self.mask, self.dtype, howmany=self.howmany,
+                               thresholds=self.thresholds, pipeline=self.pipeline)
         else:
-            c = b.chunk2sparseCSC(self.mask, self._matrix(), self.dtype, **kw)
+            c = self._plan().context(self.howmany, self.thresholds)
         cut = self.cut
 
         def run(buf, offsets, lengths):

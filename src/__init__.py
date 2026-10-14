@@ -14,8 +14,16 @@ the decode block is at most 8192 pixels, a multiple of 64), 'pixel' otherwise.
 Nothing is global, so objects with different pipelines can run in
 different threads.
 
+    plan(mask, csc, dtype, codec, pipeline)           the matrix of a chunk2sparseCSC, prepared once
+    plan.context(howmany, thresholds)                 a chunk2sparseCSC on that plan, per thread
+
+A chunk2sparseCSC owns a copy of its matrix (mask folded, analysed, laid out for the dot).  A plan
+is that copy made once and shared: every object made from it (chunk2sparseCSC(mask, plan, ...) or
+plan.context()) builds each layout at most once between them, and only reads the plan's arrays,
+which are read-only.  Workspace, output buffers and the pipeline stay per object.
+
 Threads: the GIL is released while decoding, and on free-threaded Python
-(3.14t, 3.15t) the module runs without a GIL.  There are no locks, so:
+(3.14t, 3.15t) the module runs without a GIL.  There are no locks (a plan has one, for building a layout), so:
   * use one chunk2sparse / chunk2sparseCSC object per thread; an object
     keeps its workspace and output arrays and reuses them on every call;
   * the arrays a call returns are those buffers (except coo(), which
@@ -50,6 +58,7 @@ __all__ = [
     "bslz4_to_sparse",
     "chunk2sparse",
     "chunk2sparseCSC",
+    "plan",
     "fixed_point_matrix",
     "describe",
     "detect_codec",
@@ -644,7 +653,10 @@ class chunk2sparseCSC:
     mask = detector mask, (ni, nj) uint8, active pixels > 0
     csc = scipy.sparse matrix (nout, ni*nj), or a pyFAI CSC integrator
           (data, indices, indptr, bins): used as it is, float32 weights, float64
-          powder.  Or the result of fixed_point_matrix(csc, mask, dtype): integer
+          powder.  Or a plan(mask, csc, ...), which holds the matrix prepared once (mask folded,
+          analysed, layouts built on demand) for any number of objects; mask must be the one
+          the plan was made with, else ValueError.  Or the result of
+          fixed_point_matrix(csc, mask, dtype): integer
           weights, and the powder is the int64 sums of weight x pixel, exact, not
           converted to float: float powder = powder / powder_scale (an integer power
           of two, 2**b).  With a matrix of weight 1 per pixel (no pixel splitting) these are
@@ -661,8 +673,12 @@ class chunk2sparseCSC:
           only: the powder always uses every unmasked pixel
 
     The array of the powder is the object's own and is overwritten by the next call.
-    The mask is folded into a raw matrix once, here: masked pixels contribute
-    nothing to the powder (fixed_point_matrix does it for the matrix it makes).
+    The object owns copies of the matrix and the mask, taken here (read-only): later changes to
+    the arrays you passed do not reach it.  The mask is folded into a raw matrix once, here:
+    masked pixels contribute nothing to the powder (fixed_point_matrix does it for the matrix it
+    makes).  Objects made again from the same csc each repeat this and hold their own copy: for
+    one object per thread, make a plan(mask, csc, ...) and give it to each in place of csc (or
+    use plan.context()); they then share the copy and the layouts, each built once.
     c(chunk, cut) -> npixels, (values, indices), powder; c.multi(chunks, cut)
     -> the same per frame for a batch.
     """
@@ -678,20 +694,28 @@ class chunk2sparseCSC:
         thresholds=None,
     ):
         self.howmany, self.thresholds = _toppix.check(howmany, thresholds)
-        self.nfast = mask.shape[1]
-        self.mask = mask.ravel()
-        self.npix = mask.size
+        # the matrix and mask are copies, so a later change to the caller's arrays changes nothing
+        # here; a plan is used as it is (shared, its arrays read-only)
+        if isinstance(csc, _matrix._Family):
+            family = csc
+            m = np.asarray(mask)
+            if m.shape != family.shape or not np.array_equal(m.reshape(-1), family.mask):
+                raise ValueError("the mask differs from the one the plan was made with")
+        else:
+            family = _matrix._Family(csc, mask)
+        self._family = family
+        self.nfast = family.shape[1]
+        self.mask = family.mask
+        self.npix = self.mask.size
         self.dtype = np.dtype(dtype)
-        fixed = csc if isinstance(csc, _matrix.FixedPointMatrix) else None
+        fixed = family.fixed
         if fixed is not None:
             fixed.check(self.dtype, self.npix)
             if pipeline is not None and not isinstance(pipeline, dict):
                 raise ValueError("a fixed_point_matrix takes the pipeline as a dict (or None)")
             pipeline = dict(pipeline or {})
             pipeline.setdefault("dot", "csc-int" if fixed.data.dtype == np.uint32 else "csc-run-int16")
-            nm = fixed.nm
-        else:
-            nm = _matrix._fold_mask(_matrix.normalise_matrix(csc, npix=self.npix), self.mask)
+        nm = family.nm
         self._fixed = fixed
         if codec is None:
             codec = _codec_from_pipeline(pipeline)
@@ -717,10 +741,10 @@ class chunk2sparseCSC:
         return self._layout.scale
 
     def _resolve(self):
-        nm, padded_avx2 = self._nm, self._padded_avx2
+        info, padded_avx2 = self._family.info, self._padded_avx2
         return _pipeline.resolve(
             self._pipeline_arg, self.dtype, self.codec, self.mask, matrix=True,
-            dot_auto=lambda: _matrix.auto_dot(_matrix.analyse(nm), padded_avx2,
+            dot_auto=lambda: _matrix.auto_dot(info, padded_avx2,
                                               DEFAULT_BLOCK_BYTES // self.dtype.itemsize,
                                               self._int_pixels()))
 
@@ -738,11 +762,11 @@ class chunk2sparseCSC:
 
     def _build(self, block_elems):
         try:
-            return _matrix.build(self.dot, self._nm, block_elems, self.dtype, self._fixed)
+            return self._family.layout(self.dot, block_elems, self.dtype)
         except ValueError as e:
             raise ValueError(
                 "pipeline['dot']=%r cannot represent this matrix: %s (auto picks %r)"
-                % (self.dot, e, _matrix.auto_dot(_matrix.analyse(self._nm), False, None, self._int_pixels()))
+                % (self.dot, e, _matrix.auto_dot(self._family.info, False, None, self._int_pixels()))
             )
 
     def _ensure_capacity(self, nframes, cmp, blocksize=None):
@@ -762,7 +786,7 @@ class chunk2sparseCSC:
             # (C also refuses a mismatch with -109).  An automatic dot is
             # chosen again for this block size (bsb-csr takes <= 65536 pixels).
             if self._dot_is_auto:
-                dot = _matrix.auto_dot(_matrix.analyse(self._nm), self._padded_avx2, be,
+                dot = _matrix.auto_dot(self._family.info, self._padded_avx2, be,
                                        self._int_pixels())
                 if dot != self.dot:
                     self.dot = dot
@@ -890,3 +914,32 @@ class chunk2sparseCSC:
         col = np.empty(npixels, np.uint16)
         _unravel(indices[:npixels], self.nfast, row, col)
         return npixels, row, col, values[:npixels].copy(), powder.copy()
+
+
+class plan(_matrix._Family):
+    """
+    A matrix prepared once for any number of chunk2sparseCSC objects, one per thread: the plan
+    holds its own read-only copy of csc (mask folded in, or the fixed_point_matrix copied), what
+    the matrix is (for the automatic dot) and the layouts the objects ask for, each built once
+    however many ask at the same time.  Later changes to the arrays passed in do not reach it.
+
+        p = plan(mask, csc, dtype, codec, pipeline)
+        c = p.context(howmany, thresholds)     # or chunk2sparseCSC(mask, p, dtype, ...)
+
+    mask, csc, dtype, codec, pipeline: as chunk2sparseCSC.  They are the defaults of context();
+    chunk2sparseCSC(mask, p, ...) takes its own.  A plan is never changed by its objects except
+    by adding a built layout.
+    """
+
+    def __init__(self, mask, csc, dtype=np.uint16, codec=None, pipeline=None):
+        _matrix._Family.__init__(self, csc, mask)
+        self.dtype = np.dtype(dtype)
+        self._defaults = (codec, dict(pipeline) if isinstance(pipeline, dict) else pipeline)
+        self.context()      # refuses a pipeline or matrix that do not go together now, and makes
+        #                     the first layout
+
+    def context(self, howmany=None, thresholds=None):
+        """A chunk2sparseCSC on this plan, for one thread: its own workspace, output arrays and
+        pipeline; the matrix and layouts are the plan's.  howmany, thresholds: as chunk2sparse."""
+        return chunk2sparseCSC(self.mask.reshape(self.shape), self, self.dtype, self._defaults[0],
+                               self._defaults[1], howmany, thresholds)
