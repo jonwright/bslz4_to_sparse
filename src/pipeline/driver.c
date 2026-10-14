@@ -39,6 +39,20 @@
 
 int bslz4_lowplanes_available(int value) { return bslz4_lowplanes_capable(value); }
 
+/* csc-nosplit-int sums in int64 in the powder buffer, which is 8 bytes per bin like float64: once a
+ * frame's last block is in, convert it in place (memcpy keeps it clear of the aliasing rules; it
+ * compiles to a load, a convert and a store). */
+static void bslz4_powder_i64_to_f64(void *powder, int nout) {
+    unsigned char *p = (unsigned char *) powder;
+    for (int i = 0; i < nout; i++) {
+        int64_t v;
+        double d;
+        memcpy(&v, p + (size_t) i * 8, 8);
+        d = (double) v;
+        memcpy(p + (size_t) i * 8, &d, 8);
+    }
+}
+
 static int bslz4_driver_check_frames(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                                       const int32_t *BSLZ4_RESTRICT compressed_lengths,
                                       int nframes,
@@ -420,6 +434,7 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             bslz4_counters_bump(BSLZ4_STEP_ROUTE, w.route ? BSLZ4_ROUTE_SPARSE : BSLZ4_ROUTE_DENSE);
             bslz4_counters_bump(BSLZ4_STEP_DOT, dot);
             npx_out[f] = npx0 + bslz4_sparse_dot_dispatch(&w);
+            if (dot == BSLZ4_DOT_CSC_NOSPLIT_INT) bslz4_powder_i64_to_f64(w.powder, nout);
         } else {
             npx_out[f] = npx0 + bslz4_sparse_dispatch(&w);
         }

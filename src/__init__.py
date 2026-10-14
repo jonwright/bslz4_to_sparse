@@ -653,7 +653,10 @@ class chunk2sparseCSC:
     dtype, codec, pipeline: as chunk2sparse; pipeline's dot step picks the
           matrix layout (auto: from what the matrix is; "csc-int" for a
           fixed_point_matrix, which also takes csc-run-int and, made with wbits=16,
-          csc-run-int16)
+          csc-run-int16).  A matrix of weight 1 and one bin per pixel (a histogram) also
+          takes "csc-nosplit-int": the sums are accumulated in int64 (no weights, no
+          conversion to float) and returned as float64 like any float dot; a bin sum above
+          2**53 is rounded in that last cast (integer pixels of at most 32 bits)
     howmany, thresholds: as chunk2sparse; they limit the pixels returned
           only: the powder always uses every unmasked pixel
 

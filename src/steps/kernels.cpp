@@ -8,7 +8,7 @@
  *   dot_csc.hpp         csc, csc-run, csc-nosplit
  *   dot_padded.hpp      padded, padded-avx2
  *   dot_bsbcsr.hpp      bsb-csr, bsb-csr-nosplit
- *   dot_fixed.hpp       csc-permute, csc-int, csc-run-int, csc-run-int16
+ *   dot_fixed.hpp       csc-permute, csc-int, csc-run-int, csc-run-int16, csc-nosplit-int
  *   lowplanes_avx2.hpp  the AVX2 fused low-planes collect (C entry below)
  *
  * Each dtype's entry is a noinline instance, so each is register-allocated

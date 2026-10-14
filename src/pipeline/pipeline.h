@@ -102,7 +102,8 @@ enum {
     BSLZ4_DOT_CSC_INT = 9,
     BSLZ4_DOT_CSC_RUN_INT = 10,
     BSLZ4_DOT_CSC_RUN_INT16 = 11,
-    BSLZ4_DOT_N = 12
+    BSLZ4_DOT_CSC_NOSPLIT_INT = 12,
+    BSLZ4_DOT_N = 13
 };
 
 /* the C entry each dot is reached through */

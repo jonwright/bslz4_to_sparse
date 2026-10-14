@@ -11,6 +11,9 @@
  *   csc-run-int16   ... start bin per pixel + u16 weights:
  *                   exact int64 sums of w * v, so sparse pixels can later be
  *                   subtracted from the integration without loss.
+ *   csc-nosplit-int csc-nosplit's layout (one bin per pixel, weight 1) summed
+ *                   in int64: out[bin] += v, no weights, no multiply, no
+ *                   conversion to float.
  *
  * Each is a "body" (what one pixel value adds); the dense route calls it for
  * every pixel of the block, the sparse route for the listed non-zero ones.
@@ -94,6 +97,21 @@ struct Permute {
     }
 };
 
+/* histogram (csc-nosplit's layout: indices[p] = the one bin of pixel p, BSLZ4_NO_BIN: none),
+ * summed in int64.  Pixels of at most 32 bits, so a bin cannot overflow. */
+struct NosplitInt {
+    const uint32_t *BSLZ4_RESTRICT bin;
+    int64_t *BSLZ4_RESTRICT out;
+    inline void init(const bslz4_work *w) {
+        bin = ((const bslz4_mat_csc *) w->mat)->indices;
+        out = (int64_t *) w->powder;
+    }
+    template<typename T> inline void add(size_t p, T v) {
+        const uint32_t b = bin[p];
+        if (b != BSLZ4_NO_BIN) out[b] += (int64_t) v;
+    }
+};
+
 /* ---- the two loops ---------------------------------------------------- */
 
 template<typename T, typename Body>
@@ -106,6 +124,36 @@ static inline int dense(const bslz4_work *BSLZ4_RESTRICT w) {
     Body body;
     body.init(w);
     for (size_t j = 0; j < n; j++) body.add(j + i0, px[j]);
+    if (bslz4_cut_above_max<T>(w)) return 0;
+    return bslz4_collect_gt<T>(px, mask, i0, n, cut, w->collect,
+                               (T *) w->out_vals, w->out_adr);
+}
+
+/* csc-nosplit-int, dense route.  Neighbouring pixels often share a bin, and an update
+ * that follows another on the same bin has to wait for its store.  So a block is walked in
+ * tiles, each tile NOSPLIT_STRIDE pixels apart per pass: the updates in a pass fall on
+ * different bins, and the tile is small enough for its pixels and bins to stay in L1
+ * between the passes.  The sums are integers, so the order does not change them. */
+constexpr size_t NOSPLIT_STRIDE = 16;
+constexpr size_t NOSPLIT_TILE = 128;
+
+template<typename T>
+static inline int nosplit_int_dense(const bslz4_work *BSLZ4_RESTRICT w) {
+    const T cut = bslz4_cut_of<T>(w);
+    const T *px = (const T *) w->block;
+    const uint8_t *BSLZ4_RESTRICT mask = w->no_mask ? NULL : w->mask;
+    const size_t i0 = w->i0, n = w->n;
+    if (n == 0) return 0;
+    const uint32_t *BSLZ4_RESTRICT bin = ((const bslz4_mat_csc *) w->mat)->indices + i0;
+    int64_t *BSLZ4_RESTRICT out = (int64_t *) w->powder;
+    for (size_t t0 = 0; t0 < n; t0 += NOSPLIT_TILE) {
+        const size_t t1 = (t0 + NOSPLIT_TILE < n) ? t0 + NOSPLIT_TILE : n;
+        for (size_t s = 0; s < NOSPLIT_STRIDE; s++)
+            for (size_t j = t0 + s; j < t1; j += NOSPLIT_STRIDE) {
+                const uint32_t b = bin[j];
+                if (b != BSLZ4_NO_BIN) out[b] += (int64_t) px[j];
+            }
+    }
     if (bslz4_cut_above_max<T>(w)) return 0;
     return bslz4_collect_gt<T>(px, mask, i0, n, cut, w->collect,
                                (T *) w->out_vals, w->out_adr);
@@ -153,7 +201,9 @@ static inline int dispatch(const bslz4_work *BSLZ4_RESTRICT w) {
     case BSLZ4_DOT_CSC_INT:       return run<T, CscInt>(w);
     case BSLZ4_DOT_CSC_RUN_INT:   return run<T, RunInt<Start32, uint32_t> >(w);
     case BSLZ4_DOT_CSC_RUN_INT16: return run<T, RunInt<Start32, uint16_t> >(w);
-    default:                      return BSLZ4_ERR_BAD_LAYOUT;
+    case BSLZ4_DOT_CSC_NOSPLIT_INT:
+        return w->route ? sparse<T, NosplitInt>(w) : nosplit_int_dense<T>(w);
+    default:                     return BSLZ4_ERR_BAD_LAYOUT;
     }
 }
 

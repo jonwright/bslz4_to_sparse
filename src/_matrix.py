@@ -504,6 +504,8 @@ def build(dot, nm, block_elems, dtype, fixed=None):
         return Layout(dot, "csc", (nm.data, _run_starts(nm), nm.indptr), nbins)
     if dot == "csc-nosplit":
         return Layout(dot, "csc", (nm.data, _nosplit_bins(nm), nm.indptr), nbins)
+    if dot == "csc-nosplit-int":
+        return Layout(dot, "csc", (nm.data, _nosplit_bins(nm), nm.indptr), nbins)
     if dot == "csc-permute":
         return Layout(dot, "csc", (nm.data, _permute_bins(nm), nm.indptr), nbins,
                       powder_dtype=np.dtype(dtype))

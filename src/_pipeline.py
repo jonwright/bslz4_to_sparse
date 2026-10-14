@@ -81,6 +81,8 @@ VALUES = {
         ("csc-int", "integer pixels; fixed-point u32 weights, exact int64 sums"),
         ("csc-run-int", "integer pixels; as csc-run with fixed-point u32 weights"),
         ("csc-run-int16", "integer pixels; as csc-run with fixed-point u16 weights"),
+        ("csc-nosplit-int", "integer pixels of at most 32 bits; csc-nosplit summed in int64, "
+                            "returned as float64 (one cast at the end)"),
     ),
 }
 
@@ -240,6 +242,9 @@ def resolve(pipeline, dtype, codec, mask, dot_auto=None, matrix=False):
         if dot in ("csc-int", "csc-run-int", "csc-run-int16") and suffix[0] not in "ui":
             raise ValueError("pipeline['dot']=%r needs integer pixels, not %s"
                              % (dot, np.dtype(dtype)))
+        if dot == "csc-nosplit-int" and (suffix[0] not in "ui" or np.dtype(dtype).itemsize > 4):
+            raise ValueError("pipeline['dot']='csc-nosplit-int' needs integer pixels of at most "
+                             "32 bits, not %s" % np.dtype(dtype))
     return np.array(vals, dtype=np.uint16)
 
 
