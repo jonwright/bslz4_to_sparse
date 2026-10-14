@@ -17,7 +17,8 @@ if that exists, else ~/.cache/bslz4_to_sparse/examples) holds
 
 zstd level 2 in 256 kB blocks, to keep the download small.  The decoders are meant for the 8 kB
 blocks of bitshuffle-lz4 that the detector software writes, so `prepare` makes, in the cache folder
-($BSLZ4_BENCH_DIR, else ~/.cache/bslz4_to_sparse/variants), for each file:
+($BSLZ4_BENCH_DIR, else DEFAULT_CACHE if that exists, else ~/.cache/bslz4_to_sparse/variants), for
+each file:
 
     <key>_lz4.h5      bitshuffle-lz4, 8 kB blocks, the same pixels (masked pixels are 0)
     <key>_lz4mask.h5  the same with the masked pixels set to -1 in the pixel type (65535 or
@@ -54,6 +55,7 @@ import numpy as np  # noqa: E402
 
 DSET = "/entry_0000/ESRF-ID11/eiger/data"
 DEFAULT_DIR = "/data/id11/jon/hdftest/bslz4_to_sparse_examples"
+DEFAULT_CACHE = "/data/id11/jon/hdftest/bslz4_to_sparse_variants"  # ESRF: the variants and matrices
 FILES = {"ceo2": "ceo2_u32_zstd2_256k.h5", "silicon": "silicon_u16_zstd2_256k.h5"}
 MASK = "mask.h5"
 PONI = os.path.join(HERE, "calib.poni")
@@ -175,7 +177,10 @@ def home_dir():
 
 
 def cache_dir():
-    return os.environ.get("BSLZ4_BENCH_DIR") or os.path.join(home_dir(), "variants")
+    env = os.environ.get("BSLZ4_BENCH_DIR")
+    if env or os.path.isdir(DEFAULT_CACHE):
+        return env or DEFAULT_CACHE
+    return os.path.join(home_dir(), "variants")
 
 
 def mask(src=None):

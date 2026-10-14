@@ -35,8 +35,8 @@ the full sweep).  Each result is checked against the csc kernel.  A matrix-struc
 (entries per pixel, consecutive runs, active pixels) is printed per case so
 the timings can be read against what the matrix looks like.
 
-Generated frames and pyFAI matrices are cached in example_data.cache_dir() ($BSLZ4_BENCH_DIR, else
-~/.cache/bslz4_to_sparse/variants).  A cache folder that is read-only is used as it is; what is
+Generated frames and pyFAI matrices are cached in example_data.cache_dir() ($BSLZ4_BENCH_DIR, else the ESRF
+folder if it exists, else ~/.cache/bslz4_to_sparse/variants).  A cache folder that is read-only is used as it is; what is
 missing from it is built and not kept.  Results are appended as JSON lines to --out.
 
 Usage:
