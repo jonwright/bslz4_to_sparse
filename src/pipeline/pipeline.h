@@ -258,6 +258,14 @@ int bslz4_driver_decompress(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                             uint8_t *BSLZ4_RESTRICT workspace, size_t workspace_len, int elem_size,
                             int decode, int untranspose, int unshuffle);
 
+/* Where each compressed block of each chunk starts (the offset of its 4-byte size word), without
+ * decoding: starts is nframes x nblocks (nblocks written to *nblocks_out), status[f] 0 or
+ * BSLZ4_ERR_CORRUPT_CHUNK per chunk.  elem_size: the pixel size in bytes (it decides the tail). */
+int bslz4_driver_block_starts(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
+                              const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,
+                              int elem_size, uint32_t *BSLZ4_RESTRICT starts, size_t nstarts,
+                              int32_t *BSLZ4_RESTRICT status, int64_t *BSLZ4_RESTRICT nblocks_out);
+
 #ifdef __cplusplus
 }
 #endif

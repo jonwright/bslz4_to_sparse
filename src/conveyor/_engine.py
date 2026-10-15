@@ -51,6 +51,17 @@ class _ForkContext(object):
         return self.ctx.Process(target=target, args=args, daemon=True)
 
 
+def _cpulist(text):
+    """The CPUs of a sysfs cpulist ("0-3,8,10-11"); empty for a node without CPUs (memory only,
+    as GPU memory on POWER9)."""
+    cpus = []
+    for part in text.strip().split(","):
+        if part:
+            a, _, b = part.partition("-")
+            cpus += list(range(int(a), int(b or a) + 1))
+    return cpus
+
+
 def numa_nodes(allowed=None):
     """[[cpu, ...], ...]: the CPUs this process may use, grouped by NUMA node."""
     allowed = set(os.sched_getaffinity(0)) if allowed is None else set(allowed)
@@ -59,12 +70,7 @@ def numa_nodes(allowed=None):
     if os.path.isdir(d):
         for n in sorted(x for x in os.listdir(d) if x.startswith("node") and x[4:].isdigit()):
             with open(os.path.join(d, n, "cpulist")) as f:
-                cl = f.read().strip()
-            cpus = []
-            for part in cl.split(","):
-                a, _, b = part.partition("-")
-                cpus += list(range(int(a), int(b or a) + 1))
-            cpus = [c for c in cpus if c in allowed]
+                cpus = [c for c in _cpulist(f.read()) if c in allowed]
             if cpus:
                 out.append(cpus)
     return out or [sorted(allowed)]

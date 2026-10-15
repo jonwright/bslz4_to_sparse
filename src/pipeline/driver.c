@@ -541,3 +541,68 @@ int bslz4_driver_decompress(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     if (zctx) ZSTD_freeDCtx(zctx);
     return rc;
 }
+
+/* Where each compressed block starts, without decoding: starts[f * nblocks + b] = byte offset, from
+ * the start of chunk f, of block b's 4-byte (big endian) size word, for the nblocks =
+ * full blocks + (a partial tail block of whole groups of 8 elements) blocks of each chunk.  The
+ * walk is the decoders' (lz4 or zstd: the same framing).  status[f] = 0, or BSLZ4_ERR_CORRUPT_CHUNK
+ * when a block runs past the chunk or the chunk does not end exactly with its raw tail; the call
+ * then returns BSLZ4_ERR_CORRUPT_CHUNK after walking every frame.  *nblocks_out is set first. */
+int bslz4_driver_block_starts(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
+                              const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,
+                              int elem_size, uint32_t *BSLZ4_RESTRICT starts, size_t nstarts,
+                              int32_t *BSLZ4_RESTRICT status, int64_t *BSLZ4_RESTRICT nblocks_out) {
+    uint64_t total;
+    size_t blocksize;
+    if (elem_size < 1) return BSLZ4_ERR_DTYPE;
+    int rc =
+        bslz4_driver_check_frames(compressed_ptrs, compressed_lengths, nframes, &total, &blocksize);
+    if (rc) return rc;
+    const size_t NB = (size_t) elem_size;
+    const uint64_t full = total / blocksize;
+    const uint64_t remaining = total - full * blocksize;
+    const uint64_t tail_block = (8 * NB) * (remaining / (8 * NB));
+    const uint64_t nblocks = full + (tail_block > 0);
+    const int64_t rem_raw = (int64_t) (remaining - tail_block); /* stored raw at the chunk's end */
+    *nblocks_out = (int64_t) nblocks;
+    if ((uint64_t) nframes * nblocks > (uint64_t) nstarts) return BSLZ4_ERR_WORKSPACE_TOO_SMALL;
+    /* Each header gives the next one's address: one frame's walk is a chain of dependent reads.
+     * Walking BSLZ4_WALK frames side by side overlaps their memory latencies. */
+#define BSLZ4_WALK 8
+    for (int f0 = 0; f0 < nframes; f0 += BSLZ4_WALK) {
+        const int m = nframes - f0 < BSLZ4_WALK ? nframes - f0 : BSLZ4_WALK;
+        int64_t pos[BSLZ4_WALK];
+        int32_t st[BSLZ4_WALK];
+        for (int k = 0; k < m; k++) {
+            pos[k] = 12;
+            st[k] = 0;
+        }
+        for (uint64_t b = 0; b < nblocks; b++) {
+            for (int k = 0; k < m; k++) {
+                if (st[k]) continue;
+                const int f = f0 + k;
+                const uint8_t *BSLZ4_RESTRICT cf = (const uint8_t *) (intptr_t) compressed_ptrs[f];
+                const int64_t clen = compressed_lengths[f];
+                if (BSLZ4_UNLIKELY(clen - pos[k] < 4 || pos[k] > (int64_t) UINT32_MAX)) {
+                    st[k] = BSLZ4_ERR_CORRUPT_CHUNK;
+                    continue;
+                }
+                const uint32_t nbytes = bslz4_read_be32(cf + pos[k]);
+                if (BSLZ4_UNLIKELY((int64_t) nbytes > clen - pos[k] - 4)) {
+                    st[k] = BSLZ4_ERR_CORRUPT_CHUNK;
+                    continue;
+                }
+                starts[(size_t) f * (size_t) nblocks + b] = (uint32_t) pos[k];
+                pos[k] += (int64_t) nbytes + 4;
+            }
+        }
+        for (int k = 0; k < m; k++) {
+            if (st[k] == 0 && pos[k] + rem_raw != compressed_lengths[f0 + k])
+                st[k] = BSLZ4_ERR_CORRUPT_CHUNK;
+            status[f0 + k] = st[k];
+            if (st[k]) rc = BSLZ4_ERR_CORRUPT_CHUNK;
+        }
+    }
+#undef BSLZ4_WALK
+    return rc;
+}

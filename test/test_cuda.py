@@ -293,3 +293,50 @@ def test_corrupt_is_reported(tmp_path):
     bad[12:16] = (len(bad)).to_bytes(4, "big")
     with pytest.raises(Exception, match="corrupt|Error decoding"):
         c.multi([bytes(bad)], 0)
+
+
+@pytest.mark.parametrize("dt", [np.uint16, np.int32, np.float32])
+def test_batch_and_group_give_the_same_result(tmp_path, dt):
+    mask, frames = mixed_frames(dt, (93, 217))
+    frames = np.concatenate([frames, frames[::-1], frames[1:3]])  # 12 frames, dense ones among
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 60, 3)
+    for howmany in (None, 50):
+        ref = g.chunk2sparseCSC(mask, M, dt, codec, batch=len(frames), howmany=howmany)
+        n0, (v0, i0), p0 = ref.multi(chunks, 1)
+        for batch, group in ((1, 1), (2, 5), (3, 7), (4, 4), (16, 3), (5, None), (4, 12)):
+            c = g.chunk2sparseCSC(mask, M, dt, codec, batch=batch, group=group, howmany=howmany)
+            n1, (v1, i1), p1 = c.multi(chunks, 1)
+            assert (n1 == n0).all() and (p1 == p0).all(), (batch, group)
+            for f in range(len(frames)):
+                assert (i1[f, : n1[f]] == i0[f, : n0[f]]).all()
+                assert (v1[f, : n1[f]] == v0[f, : n0[f]]).all()
+            assert (c.last_nabove == ref.last_nabove).all() and (c.last_cut == ref.last_cut).all()
+            assert c.last_host == ref.last_host
+    bad = bytearray(chunks[9])
+    bad[12:16] = (len(bad)).to_bytes(4, "big")
+    c = g.chunk2sparse(mask, dt, codec, batch=2, group=4)
+    with pytest.raises(Exception, match=r"chunks \[9\]"):
+        c.multi(chunks[:9] + [bytes(bad)] + chunks[10:], 1)
+
+
+@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32, np.float32])
+def test_unblock_on_the_cpu_gives_the_same_result(tmp_path, dt):
+    mask, frames = mixed_frames(dt, (93, 217))
+    frames = np.concatenate([frames, frames[::-1]])
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 60, 3)
+    ref = g.chunk2sparseCSC(mask, M, dt, codec, batch=3, group=7)
+    n0, (v0, i0), p0 = ref.multi(chunks, 1)
+    c = g.chunk2sparseCSC(mask, M, dt, codec, batch=3, group=7, unblock="cpu")
+    n1, (v1, i1), p1 = c.multi(chunks, 1)
+    assert (n1 == n0).all() and (p1 == p0).all() and c.last_host == ref.last_host
+    for f in range(len(frames)):
+        assert (i1[f, : n1[f]] == i0[f, : n0[f]]).all()
+        assert (v1[f, : n1[f]] == v0[f, : n0[f]]).all()
+    bad = bytearray(chunks[8])
+    bad[12:16] = (len(bad)).to_bytes(4, "big")
+    with pytest.raises(Exception, match=r"chunks \[8\]"):
+        c.multi(chunks[:8] + [bytes(bad)] + chunks[9:], 1)
+    with pytest.raises(ValueError):
+        g.chunk2sparse(mask, dt, codec, unblock="disk")

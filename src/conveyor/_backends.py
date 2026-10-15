@@ -160,7 +160,8 @@ class DecompressBackend(object):
 class GpuBackend(object):
     """bslz4_to_sparse.cuda (cupy): one decoder per worker, each with its own CUDA stream.
     Build the workers after any fork: CUDA must be initialised in the process that uses it.
-    mask, dtype, csc, cut: as CpuBackend; batch: frames per call; acc: accumulator type of the CSC
+    mask, dtype, csc, cut: as CpuBackend; batch: frames decoded together (None: sized to the L2 cache);
+    group: frames uploaded together (None: the whole call), unblock: 'gpu' or 'cpu' (cuda.chunk2sparse); acc: accumulator type of the CSC
     sum (None: 'i64' where exact applies, else 'f64'); howmany, thresholds: as chunk2sparse; exact,
     maxval: as CpuBackend, with the same integers for the same matrix.
     """
@@ -173,15 +174,17 @@ class GpuBackend(object):
         dtype,
         csc=None,
         cut=0,
-        batch=16,
+        batch=None,
         acc=None,
         howmany=None,
         thresholds=None,
         exact=None,
         maxval=None,
+        group=None,
+        unblock="gpu",
     ):
         self.mask, self.csc, self.dtype, self.cut = mask, csc, np.dtype(dtype), cut
-        self.exact, self.maxval = exact, maxval
+        self.exact, self.maxval, self.group, self.unblock = exact, maxval, group, unblock
         self.batch, self.acc, self.howmany, self.thresholds = batch, acc, howmany, thresholds
         self._fixed = None
 
@@ -202,7 +205,7 @@ class GpuBackend(object):
         powder)."""
         from bslz4_to_sparse import cuda
 
-        kw = dict(batch=self.batch, howmany=self.howmany, thresholds=self.thresholds)
+        kw = dict(batch=self.batch, group=self.group, unblock=self.unblock, howmany=self.howmany, thresholds=self.thresholds)
         if self.csc is None:
             c = cuda.chunk2sparse(self.mask, self.dtype, **kw)
         else:

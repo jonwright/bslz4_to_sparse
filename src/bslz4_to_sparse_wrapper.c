@@ -20,6 +20,7 @@ extern int bslz4_sparsify_and_dot(const int64_t * compressed_ptrs, const int32_t
 extern int bslz4_sparsify_and_dot_padded(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, const void * cut, size_t ncut, double * powder, int nout, const int32_t * base, const float * weights, const int32_t * pixels, const int32_t * rowmap, const int32_t * row_ptr, int nrow_ptr, int width, int listed, size_t block_elems, uint8_t * workspace, size_t workspace_len, int64_t * cursors, const int64_t * top, size_t ntop, int32_t * top_out, int dtype, const uint16_t * pipeline);
 extern int bslz4_sparsify_and_dot_bsbcsr(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, const uint8_t * mask, int NIJ, void * outpx, uint32_t * output_adr, int32_t * npx_out, const void * cut, size_t ncut, double * powder, int nout, const uint32_t * blk_ptr, int nblk_ptr, const uint32_t * bins, const uint32_t * bin_ptr, const uint16_t * idx, const float * data, const float * csc_data, const uint32_t * csc_indices, const uint32_t * csc_indptr, size_t block_elems, uint8_t * workspace, size_t workspace_len, int64_t * cursors, const int64_t * top, size_t ntop, int32_t * top_out, int dtype, const uint16_t * pipeline);
 extern int bslz4_decompress(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, uint8_t * out, size_t out_len, uint8_t * workspace, size_t workspace_len, int elem_size, int decode, int untranspose, int unshuffle);
+extern int bslz4_block_starts(const int64_t * compressed_ptrs, const int32_t * compressed_lengths, int nframes, int elem_size, uint32_t * starts, size_t nstarts, int32_t * status, int64_t * nblocks);
 extern int bslz4_offsets_to_pointers(const char * base, size_t base_len, int64_t * offsets, const int32_t * lengths, int nframes);
 extern void bslz4_note_chunk(const char * chunk, size_t chunk_len, int index, int64_t * pointers, int32_t * lengths);
 extern int bslz4_step_available(int step, int value);
@@ -35,6 +36,7 @@ static int _gil_release_sparsify_and_dot = 1;
 static int _gil_release_sparsify_and_dot_padded = 1;
 static int _gil_release_sparsify_and_dot_bsbcsr = 1;
 static int _gil_release_decompress = 1;
+static int _gil_release_block_starts = 1;
 
 static const uint8_t _acqord_sparsify[] = { C2PY_PIN_NDARRAY, C2PY_PIN_PEP3118 };
 
@@ -2601,6 +2603,247 @@ _decompress_wrapper(PyObject *self, PyObject *args)
     return _decompress_fastcall(self, argv, nargs);
 }
 
+static const uint8_t _acqord_block_starts[] = { C2PY_PIN_NDARRAY, C2PY_PIN_PEP3118 };
+
+/* -------------------------------------------- */
+/* Wrapper for: block_starts */
+/* -------------------------------------------- */
+
+static PyObject*
+_block_starts_impl(c2py_ptr_info *info_compressed_ptrs, c2py_ptr_info *info_compressed_lengths, c2py_ptr_info *info_starts, c2py_ptr_info *info_status, c2py_ptr_info *info_nblocks, int c_elem_size)
+{
+    int _c2py_slow_axis_info_compressed_ptrs = -1;
+    int _c2py_fast_axis_info_compressed_ptrs = -1;
+    int _c2py_slow_axis_info_compressed_lengths = -1;
+    int _c2py_fast_axis_info_compressed_lengths = -1;
+    int _c2py_slow_axis_info_starts = -1;
+    int _c2py_fast_axis_info_starts = -1;
+    int _c2py_slow_axis_info_status = -1;
+    int _c2py_fast_axis_info_status = -1;
+    int _c2py_slow_axis_info_nblocks = -1;
+    int _c2py_fast_axis_info_nblocks = -1;
+    int _c2py_do_gil = _c2py_gil_release_enabled && _gil_release_block_starts;
+    void *_c2py_thread_state = NULL;
+
+    (void)_c2py_slow_axis_info_compressed_ptrs;
+    (void)_c2py_fast_axis_info_compressed_ptrs;
+    /* contiguity check: compressed_ptrs */
+    if (c2py_check_contiguity(info_compressed_ptrs, &_c2py_slow_axis_info_compressed_ptrs, &_c2py_fast_axis_info_compressed_ptrs) < 0)
+        return NULL;
+
+    (void)_c2py_slow_axis_info_compressed_lengths;
+    (void)_c2py_fast_axis_info_compressed_lengths;
+    /* contiguity check: compressed_lengths */
+    if (c2py_check_contiguity(info_compressed_lengths, &_c2py_slow_axis_info_compressed_lengths, &_c2py_fast_axis_info_compressed_lengths) < 0)
+        return NULL;
+
+    (void)_c2py_slow_axis_info_starts;
+    (void)_c2py_fast_axis_info_starts;
+    /* contiguity check: starts */
+    if (c2py_check_contiguity(info_starts, &_c2py_slow_axis_info_starts, &_c2py_fast_axis_info_starts) < 0)
+        return NULL;
+
+    (void)_c2py_slow_axis_info_status;
+    (void)_c2py_fast_axis_info_status;
+    /* contiguity check: status */
+    if (c2py_check_contiguity(info_status, &_c2py_slow_axis_info_status, &_c2py_fast_axis_info_status) < 0)
+        return NULL;
+
+    (void)_c2py_slow_axis_info_nblocks;
+    (void)_c2py_fast_axis_info_nblocks;
+    /* contiguity check: nblocks */
+    if (c2py_check_contiguity(info_nblocks, &_c2py_slow_axis_info_nblocks, &_c2py_fast_axis_info_nblocks) < 0)
+        return NULL;
+
+    /* check: starts.itemsize == 4 */
+    if (!((info_starts->itemsize) == (4))) {
+        char _c2py_err[256];
+        snprintf(_c2py_err, sizeof(_c2py_err), "block_starts: arg 'starts' check failed: starts.itemsize == 4 (got %ld vs %ld)", (long)(info_starts->itemsize), (long)(4));
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
+    /* check: status.itemsize == 4 */
+    if (!((info_status->itemsize) == (4))) {
+        char _c2py_err[256];
+        snprintf(_c2py_err, sizeof(_c2py_err), "block_starts: arg 'status' check failed: status.itemsize == 4 (got %ld vs %ld)", (long)(info_status->itemsize), (long)(4));
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
+    /* check: nblocks.itemsize == 8 */
+    if (!((info_nblocks->itemsize) == (8))) {
+        char _c2py_err[256];
+        snprintf(_c2py_err, sizeof(_c2py_err), "block_starts: arg 'nblocks' check failed: nblocks.itemsize == 8 (got %ld vs %ld)", (long)(info_nblocks->itemsize), (long)(8));
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
+    /* check: nblocks.n >= 1 */
+    if (!((((info_nblocks->len == 0) ? 0 : (info_nblocks->len / info_nblocks->itemsize))) >= (1))) {
+        char _c2py_err[256];
+        snprintf(_c2py_err, sizeof(_c2py_err), "block_starts: arg 'nblocks' check failed: nblocks.n >= 1 (got %ld vs %ld)", (long)(((info_nblocks->len == 0) ? 0 : (info_nblocks->len / info_nblocks->itemsize))), (long)(1));
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
+    /* check: compressed_ptrs.itemsize == 8 */
+    if (!((info_compressed_ptrs->itemsize) == (8))) {
+        char _c2py_err[256];
+        snprintf(_c2py_err, sizeof(_c2py_err), "block_starts: arg 'compressed_ptrs' check failed: compressed_ptrs.itemsize == 8 (got %ld vs %ld)", (long)(info_compressed_ptrs->itemsize), (long)(8));
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
+    /* check: compressed_lengths.itemsize == 4 */
+    if (!((info_compressed_lengths->itemsize) == (4))) {
+        char _c2py_err[256];
+        snprintf(_c2py_err, sizeof(_c2py_err), "block_starts: arg 'compressed_lengths' check failed: compressed_lengths.itemsize == 4 (got %ld vs %ld)", (long)(info_compressed_lengths->itemsize), (long)(4));
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
+    /* check: compressed_lengths.n == compressed_ptrs.n */
+    if (!((((info_compressed_lengths->len == 0) ? 0 : (info_compressed_lengths->len / info_compressed_lengths->itemsize))) == (((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))))) {
+        char _c2py_err[256];
+        snprintf(_c2py_err, sizeof(_c2py_err), "block_starts: arg 'compressed_lengths' check failed: compressed_lengths.n == compressed_ptrs.n (got %ld vs %ld)", (long)(((info_compressed_lengths->len == 0) ? 0 : (info_compressed_lengths->len / info_compressed_lengths->itemsize))), (long)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))));
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
+    /* check: status.n >= compressed_ptrs.n */
+    if (!((((info_status->len == 0) ? 0 : (info_status->len / info_status->itemsize))) >= (((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))))) {
+        char _c2py_err[256];
+        snprintf(_c2py_err, sizeof(_c2py_err), "block_starts: arg 'status' check failed: status.n >= compressed_ptrs.n (got %ld vs %ld)", (long)(((info_status->len == 0) ? 0 : (info_status->len / info_status->itemsize))), (long)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))));
+        PyErr_SetString(PyExc_ValueError, _c2py_err);
+        return NULL;
+    }
+    /* overload 0 (always) */
+    {
+        if ((((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))) > (Py_ssize_t)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "buffer too large for int n (> INT_MAX elements)");
+            return NULL;
+        }
+        if ((((info_starts->len == 0) ? 0 : (info_starts->len / info_starts->itemsize))) > (Py_ssize_t)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "buffer too large for int n (> INT_MAX elements)");
+            return NULL;
+        }
+        if (_c2py_do_gil) _c2py_thread_state = PyEval_SaveThread();
+        {
+            int _ret;
+            _ret = bslz4_block_starts((const int64_t *)info_compressed_ptrs->ptr, (const int32_t *)info_compressed_lengths->ptr, (int)(((info_compressed_ptrs->len == 0) ? 0 : (info_compressed_ptrs->len / info_compressed_ptrs->itemsize))), c_elem_size, (uint32_t *)info_starts->ptr, (size_t)(((info_starts->len == 0) ? 0 : (info_starts->len / info_starts->itemsize))), (int32_t *)info_status->ptr, (int64_t *)info_nblocks->ptr);
+        if (_c2py_do_gil) PyEval_RestoreThread(_c2py_thread_state);
+            return PyLong_FromLong((long)_ret);
+        }
+    }
+
+#ifdef _MSC_VER
+__pragma(warning(push))
+__pragma(warning(disable:4702)) /* unreachable code */
+#endif
+    return NULL;
+#ifdef _MSC_VER
+__pragma(warning(pop))
+#endif
+}
+
+static PyObject*
+_block_starts_fastcall(PyObject *self, PyObject *const *args, Py_ssize_t nargs)
+{
+    PyObject *py_compressed_ptrs = NULL;
+    PyObject *py_compressed_lengths = NULL;
+    PyObject *py_starts = NULL;
+    PyObject *py_status = NULL;
+    PyObject *py_nblocks = NULL;
+    int c_elem_size = 0;
+    c2py_buf_pin pin_compressed_ptrs;
+    c2py_ptr_info info_compressed_ptrs;
+    c2py_buf_pin pin_compressed_lengths;
+    c2py_ptr_info info_compressed_lengths;
+    c2py_buf_pin pin_starts;
+    c2py_ptr_info info_starts;
+    c2py_buf_pin pin_status;
+    c2py_ptr_info info_status;
+    c2py_buf_pin pin_nblocks;
+    c2py_ptr_info info_nblocks;
+    PyObject *ret = NULL;
+
+    if (nargs != 6) {
+        PyErr_SetString(PyExc_TypeError,
+            "block_starts expects 6 arguments");
+        return NULL;
+    }
+
+    py_compressed_ptrs = args[0];
+    py_compressed_lengths = args[1];
+    py_starts = args[2];
+    py_status = args[3];
+    py_nblocks = args[4];
+    /* extract int: elem_size from args[5] */
+    {
+        long _c2py_tmp = PyLong_AsLong(args[5]);
+        if (_c2py_tmp == -1 && PyErr_Occurred()) return NULL;
+        if (_c2py_tmp < (long)INT_MIN || _c2py_tmp > (long)INT_MAX) {
+            PyErr_SetString(PyExc_ValueError,
+                "int parameter elem_size out of range (must fit in C int)");
+            return NULL;
+        }
+        c_elem_size = (int)_c2py_tmp;
+    }
+
+    memset(&pin_compressed_ptrs.buf, 0, C2PY.pybuffer_size);
+    memset(&pin_compressed_lengths.buf, 0, C2PY.pybuffer_size);
+    memset(&pin_starts.buf, 0, C2PY.pybuffer_size);
+    memset(&pin_status.buf, 0, C2PY.pybuffer_size);
+    memset(&pin_nblocks.buf, 0, C2PY.pybuffer_size);
+
+    if (c2py_pin(py_compressed_ptrs, &pin_compressed_ptrs, &info_compressed_ptrs, C2PY_BUF_READ, _acqord_block_starts, 2) == -1)
+        return NULL;
+
+    if (c2py_pin(py_compressed_lengths, &pin_compressed_lengths, &info_compressed_lengths, C2PY_BUF_READ, _acqord_block_starts, 2) == -1)
+        goto cleanup;
+
+    if (c2py_pin(py_starts, &pin_starts, &info_starts, C2PY_BUF_WRITE, _acqord_block_starts, 2) == -1)
+        goto cleanup;
+
+    if (c2py_pin(py_status, &pin_status, &info_status, C2PY_BUF_WRITE, _acqord_block_starts, 2) == -1)
+        goto cleanup;
+
+    if (c2py_pin(py_nblocks, &pin_nblocks, &info_nblocks, C2PY_BUF_WRITE, _acqord_block_starts, 2) == -1)
+        goto cleanup;
+
+    /* restrict check: writable buffers must not overlap */
+    {
+        c2py_ptr_info *_c2py_ov[] = { &info_nblocks, &info_starts, &info_status, &info_compressed_lengths, &info_compressed_ptrs };
+        if (c2py_check_no_overlap(_c2py_ov, 3, 5) < 0)
+            goto cleanup;
+    }
+
+    ret = _block_starts_impl(&info_compressed_ptrs, &info_compressed_lengths, &info_starts, &info_status, &info_nblocks, c_elem_size);
+
+cleanup:
+    c2py_unpin_buffer(&pin_nblocks);
+    c2py_unpin_buffer(&pin_status);
+    c2py_unpin_buffer(&pin_starts);
+    c2py_unpin_buffer(&pin_compressed_lengths);
+    c2py_unpin_buffer(&pin_compressed_ptrs);
+    return ret;
+}
+
+static PyObject*
+_block_starts_wrapper(PyObject *self, PyObject *args)
+{
+    PyObject *argv[6];
+    Py_ssize_t nargs = PyTuple_Size(args);
+    Py_ssize_t _i;
+    if (nargs < 0) return NULL;
+    if (nargs > 6) {
+        PyErr_SetString(PyExc_TypeError,
+            "block_starts expects at most 6 arguments");
+        return NULL;
+    }
+    for (_i = 0; _i < nargs; _i++) {
+        argv[_i] = PyTuple_GetItem(args, _i);
+        if (argv[_i] == NULL) return NULL;
+    }
+    return _block_starts_fastcall(self, argv, nargs);
+}
+
 static const uint8_t _acqord_offsets_to_pointers[] = { C2PY_PIN_NDARRAY, C2PY_PIN_PEP3118 };
 
 /* -------------------------------------------- */
@@ -3321,6 +3564,7 @@ static const char _doc_sparsify_and_dot[] = "sparsify_and_dot(compressed_ptrs, c
 static const char _doc_sparsify_and_dot_padded[] = "sparsify_and_dot_padded(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, cut, powder, base, weights, pixels, rowmap, row_ptr, workspace, cursors, top, top_out, width, listed, block_elems, nout, dtype, pipeline)\n--\n\nsparsify_and_dot_padded(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, cut: buffer, powder: buffer, base: buffer, weights: buffer, pixels: buffer, rowmap: buffer, row_ptr: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, width: int, listed: int, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int\n\nDecode a batch of chunks into per-frame sparse and a padded-CSC powder integration. base/weights/pixels/rowmap/row_ptr describe the padded layout (see bslz4_mat_padded), built from a mask-folded matrix (masked pixels have zero-weight rows or no row); width and listed are scalars; block_elems is the decode block size in pixels. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\ncut : buffer\npowder : buffer\n    Type: float64 (format 'd')\n    Writable\nbase : buffer\nweights : buffer\n    Type: float32 (format 'f')\npixels : buffer\nrowmap : buffer\nrow_ptr : buffer\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ntop : buffer\ntop_out : buffer\n    Writable\nwidth : int\nlisted : int\nblock_elems : int\nnout : int\ndtype : int\npipeline : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  powder.format == 'd'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  top.itemsize == 8  [ValueError]\n  top_out.itemsize == 4  [ValueError]\n  (top.n == 0 or top_out.n >= (2 * compressed_ptrs.n))  [ValueError]\n  ((base.format == 'i' or base.format == 'l') and base.itemsize == 4)  [ValueError]\n  weights.format == 'f'  [ValueError]\n  ((pixels.format == 'i' or pixels.format == 'l') and pixels.itemsize == 4)  [ValueError]\n  ((rowmap.format == 'i' or rowmap.format == 'l') and rowmap.itemsize == 4)  [ValueError]\n  ((row_ptr.format == 'i' or row_ptr.format == 'l') and row_ptr.itemsize == 4)  [ValueError]\n  (width >= 1 and width <= 64)  [ValueError]\n  (listed == 0 or listed == 1)  [ValueError]\n  weights.n == (base.n * width)  [ValueError]\n  (listed == 0 or pixels.n == base.n)  [ValueError]\n  (listed == 0 or rowmap.n == mask.n)  [ValueError]\n  (listed == 1 or base.n == mask.n)  [ValueError]\n  block_elems >= 1  [ValueError]\n  pipeline.format == 'H'  [ValueError]\n  pipeline.n == 6  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_sparsify_and_dot_padded(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, const void *cut, size_t ncut, double *powder, int nout, const int32_t *base, const float *weights, const int32_t *pixels, const int32_t *rowmap, const int32_t *row_ptr, int nrow_ptr, int width, int listed, size_t block_elems, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         cut = cut.ptr (const void *)\n         ncut = cut.n (size_t)\n         powder = powder.ptr (double *)\n         nout = nout (int)\n         base = base.ptr (const int32_t *)\n         weights = weights.ptr (const float *)\n         pixels = pixels.ptr (const int32_t *)\n         rowmap = rowmap.ptr (const int32_t *)\n         row_ptr = row_ptr.ptr (const int32_t *)\n         nrow_ptr = row_ptr.n (int)\n         width = width (int)\n         listed = listed (int)\n         block_elems = block_elems (size_t)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         top = top.ptr (const int64_t *)\n         ntop = top.n (size_t)\n         top_out = top_out.ptr (int32_t *)\n         dtype = dtype (int)\n         pipeline = pipeline.ptr (const uint16_t *)";
 static const char _doc_sparsify_and_dot_bsbcsr[] = "sparsify_and_dot_bsbcsr(compressed_ptrs, compressed_lengths, mask, outpx, output_adr, npx_out, cut, powder, blk_ptr, bins, bin_ptr, idx, data, csc_data, csc_indices, csc_indptr, workspace, cursors, top, top_out, block_elems, nout, dtype, pipeline)\n--\n\nsparsify_and_dot_bsbcsr(compressed_ptrs: buffer, compressed_lengths: buffer, mask: buffer, outpx: buffer, output_adr: buffer, npx_out: buffer, cut: buffer, powder: buffer, blk_ptr: buffer, bins: buffer, bin_ptr: buffer, idx: buffer, data: buffer, csc_data: buffer, csc_indices: buffer, csc_indptr: buffer, workspace: buffer, cursors: buffer, top: buffer, top_out: buffer, block_elems: int, nout: int, dtype: int, pipeline: buffer) -> int\n\nDecode a batch of chunks into per-frame sparse and a bit-shuffle-block CSR powder integration. blk_ptr/bins/bin_ptr/idx/data describe the bsb-csr layout (see bslz4_mat_bsbcsr); csc_data/csc_indices/csc_indptr is the CSC used for the sparse route. Both must be built from a mask-folded matrix (masked pixels have no entries). block_elems is the decode block size in pixels. dtype is the pixel dtype index; pipeline is a uint16 array of 6 resolved step values.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nmask : buffer\noutpx : buffer\n    Writable\noutput_adr : buffer\n    Writable\nnpx_out : buffer\n    Writable\ncut : buffer\npowder : buffer\n    Type: float64 (format 'd')\n    Writable\nblk_ptr : buffer\nbins : buffer\nbin_ptr : buffer\nidx : buffer\n    Type: uint16 (format 'H')\n    Size must equal data\ndata : buffer\n    Type: float32 (format 'f')\ncsc_data : buffer\n    Type: float32 (format 'f')\ncsc_indices : buffer\n    Size must equal csc_data\ncsc_indptr : buffer\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\ncursors : buffer\n    Writable\ntop : buffer\ntop_out : buffer\n    Writable\nblock_elems : int\nnout : int\ndtype : int\npipeline : buffer\n    Type: uint16 (format 'H')\n\nChecks\n------\n  (mask.format == 'B' or mask.format == 'b')  [ValueError]\n  (output_adr.format == 'I' or output_adr.format == 'L')  [ValueError]\n  (npx_out.format == 'i' or npx_out.format == 'l')  [ValueError]\n  powder.format == 'd'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  cursors.itemsize == 8  [ValueError]\n  top.itemsize == 8  [ValueError]\n  top_out.itemsize == 4  [ValueError]\n  (top.n == 0 or top_out.n >= (2 * compressed_ptrs.n))  [ValueError]\n  ((blk_ptr.format == 'I' or blk_ptr.format == 'L') and blk_ptr.itemsize == 4)  [ValueError]\n  ((bins.format == 'I' or bins.format == 'L') and bins.itemsize == 4)  [ValueError]\n  ((bin_ptr.format == 'I' or bin_ptr.format == 'L') and bin_ptr.itemsize == 4)  [ValueError]\n  idx.format == 'H'  [ValueError]\n  data.format == 'f'  [ValueError]\n  csc_data.format == 'f'  [ValueError]\n  ((((csc_indices.format == 'I' or csc_indices.format == 'i') or csc_indices.format == 'L') or csc_indices.format == 'l') and csc_indices.itemsize == 4)  [ValueError]\n  ((((csc_indptr.format == 'I' or csc_indptr.format == 'i') or csc_indptr.format == 'L') or csc_indptr.format == 'l') and csc_indptr.itemsize == 4)  [ValueError]\n  bin_ptr.n == (bins.n + 1)  [ValueError]\n  idx.n == data.n  [ValueError]\n  csc_indices.n == csc_data.n  [ValueError]\n  csc_indptr.n == (mask.n + 1)  [ValueError]\n  (block_elems >= 1 and block_elems <= 65536)  [ValueError]\n  pipeline.format == 'H'  [ValueError]\n  pipeline.n == 6  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_sparsify_and_dot_bsbcsr(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, const uint8_t *mask, int NIJ, void *outpx, uint32_t *output_adr, int32_t *npx_out, const void *cut, size_t ncut, double *powder, int nout, const uint32_t *blk_ptr, int nblk_ptr, const uint32_t *bins, const uint32_t *bin_ptr, const uint16_t *idx, const float *data, const float *csc_data, const uint32_t *csc_indices, const uint32_t *csc_indptr, size_t block_elems, uint8_t *workspace, size_t workspace_len, int64_t *cursors, const int64_t *top, size_t ntop, int32_t *top_out, int dtype, const uint16_t *pipeline) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         mask = mask.ptr (const uint8_t *)\n         NIJ = mask.n (int)\n         outpx = outpx.ptr (void *)\n         output_adr = output_adr.ptr (uint32_t *)\n         npx_out = npx_out.ptr (int32_t *)\n         cut = cut.ptr (const void *)\n         ncut = cut.n (size_t)\n         powder = powder.ptr (double *)\n         nout = nout (int)\n         blk_ptr = blk_ptr.ptr (const uint32_t *)\n         nblk_ptr = blk_ptr.n (int)\n         bins = bins.ptr (const uint32_t *)\n         bin_ptr = bin_ptr.ptr (const uint32_t *)\n         idx = idx.ptr (const uint16_t *)\n         data = data.ptr (const float *)\n         csc_data = csc_data.ptr (const float *)\n         csc_indices = csc_indices.ptr (const uint32_t *)\n         csc_indptr = csc_indptr.ptr (const uint32_t *)\n         block_elems = block_elems (size_t)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         cursors = cursors.ptr (int64_t *)\n         top = top.ptr (const int64_t *)\n         ntop = top.n (size_t)\n         top_out = top_out.ptr (int32_t *)\n         dtype = dtype (int)\n         pipeline = pipeline.ptr (const uint16_t *)";
 static const char _doc_decompress[] = "decompress(compressed_ptrs, compressed_lengths, out, workspace, elem_size, decode, untranspose, unshuffle)\n--\n\ndecompress(compressed_ptrs: buffer, compressed_lengths: buffer, out: buffer, workspace: buffer, elem_size: int, decode: int, untranspose: int, unshuffle: int) -> int\n\nThe front half alone: decompress nframes bitshuffle chunks (lz4 or zstd) into out, frame f at out + f * decoded size. unshuffle 0 leaves each block as the HDF5 filter's decompressor yields it (before the bit unshuffle); unshuffle 1 gives the pixel bytes (untranspose is the step value for the unshuffle). elem_size is the pixel size in bytes; decode is lz4-stock (3) or zstd (4). Releases the GIL.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nout : buffer\n    Type: uint8 (format 'B')\n    Writable\nworkspace : buffer\n    Type: uint8 (format 'B')\n    Writable\nelem_size : int\ndecode : int\nuntranspose : int\nunshuffle : int\n\nChecks\n------\n  out.format == 'B'  [ValueError]\n  workspace.format == 'B'  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_decompress(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, uint8_t *out, size_t out_len, uint8_t *workspace, size_t workspace_len, int elem_size, int decode, int untranspose, int unshuffle) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         out = out.ptr (uint8_t *)\n         out_len = out.len (size_t)\n         workspace = workspace.ptr (uint8_t *)\n         workspace_len = workspace.len (size_t)\n         elem_size = elem_size (int)\n         decode = decode (int)\n         untranspose = untranspose (int)\n         unshuffle = unshuffle (int)";
+static const char _doc_block_starts[] = "block_starts(compressed_ptrs, compressed_lengths, starts, status, nblocks, elem_size)\n--\n\nblock_starts(compressed_ptrs: buffer, compressed_lengths: buffer, starts: buffer, status: buffer, nblocks: buffer, elem_size: int) -> int\n\nWalk the block headers of nframes bitshuffle chunks (lz4 or zstd) without decoding: starts (uint32, nframes x nblocks) gets the offset of each block's 4-byte size word from its chunk's start, nblocks[0] the blocks per chunk, status[f] 0 or -107 (a block runs past the chunk, or the chunk does not end with its raw tail). elem_size is the pixel size in bytes. Returns 0, -107 (see status) or another negative code. Releases the GIL.\n\nParameters\n----------\ncompressed_ptrs : buffer\ncompressed_lengths : buffer\n    Size must equal compressed_ptrs\nstarts : buffer\n    Writable\nstatus : buffer\n    Writable\n    Size >= compressed_ptrs\nnblocks : buffer\n    Writable\nelem_size : int\n\nChecks\n------\n  starts.itemsize == 4  [ValueError]\n  status.itemsize == 4  [ValueError]\n  nblocks.itemsize == 8  [ValueError]\n  nblocks.n >= 1  [ValueError]\n  compressed_ptrs.itemsize == 8  [ValueError]\n  compressed_lengths.itemsize == 4  [ValueError]\n  compressed_lengths.n == compressed_ptrs.n  [ValueError]\n  status.n >= compressed_ptrs.n  [ValueError]\n\nGIL: released\n\nOverloads\n---------\n  bslz4_block_starts(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int elem_size, uint32_t *starts, size_t nstarts, int32_t *status, int64_t *nblocks) -> int\n    Map: compressed_ptrs = compressed_ptrs.ptr (const int64_t *)\n         compressed_lengths = compressed_lengths.ptr (const int32_t *)\n         nframes = compressed_ptrs.n (int)\n         elem_size = elem_size (int)\n         starts = starts.ptr (uint32_t *)\n         nstarts = starts.n (size_t)\n         status = status.ptr (int32_t *)\n         nblocks = nblocks.ptr (int64_t *)";
 static const char _doc_offsets_to_pointers[] = "offsets_to_pointers(base, offsets, lengths)\n--\n\noffsets_to_pointers(base: buffer, offsets: buffer, lengths: buffer) -> int\n\nConvert byte offsets (into base) to absolute pointers in place, after checking every (offset, length) lies inside base. Returns 0, or -108 leaving offsets untouched on a bad one.\n\nParameters\n----------\nbase : buffer\noffsets : buffer\n    Writable\nlengths : buffer\n    Size must equal offsets\n\nChecks\n------\n  offsets.itemsize == 8  [ValueError]\n  lengths.itemsize == 4  [ValueError]\n  lengths.n == offsets.n  [ValueError]\n\nOverloads\n---------\n  bslz4_offsets_to_pointers(const char *base, size_t base_len, int64_t *offsets, const int32_t *lengths, int nframes) -> int\n    Map: base = base.ptr (const char *)\n         base_len = base.len (size_t)\n         offsets = offsets.ptr (int64_t *)\n         lengths = lengths.ptr (const int32_t *)\n         nframes = offsets.n (int)";
 static const char _doc_note_chunk[] = "note_chunk(chunk, index, pointers, lengths)\n--\n\nnote_chunk(chunk: buffer, index: int, pointers: buffer, lengths: buffer) -> void\n\nWrite chunk's raw address and byte length into pointers[index]/lengths[index].\n\nParameters\n----------\nchunk : buffer\nindex : int\npointers : buffer\n    Writable\nlengths : buffer\n    Writable\n\nOverloads\n---------\n  bslz4_note_chunk(const char *chunk, size_t chunk_len, int index, int64_t *pointers, int32_t *lengths) -> void\n    Map: chunk = chunk.ptr (const char *)\n         chunk_len = chunk.len (size_t)\n         index = index (int)\n         pointers = pointers.ptr (int64_t *)\n         lengths = lengths.ptr (int32_t *)";
 static const char _doc_step_available[] = "step_available(step, value)\n--\n\nstep_available(step: int, value: int) -> int\n\n1 if a pipeline step value can run here, 0 if it is known but this CPU/build lacks what it needs, -1 if it is unknown (0, auto, included).\n\nParameters\n----------\nstep : int\nvalue : int\n\nOverloads\n---------\n  bslz4_step_available(int step, int value) -> int\n    Map: step = step (int)\n         value = value (int)";
@@ -3328,7 +3572,7 @@ static const char _doc_reset_counters[] = "reset_counters()\n--\n\nreset_counter
 static const char _doc_set_counters[] = "set_counters(on)\n--\n\nset_counters(on: int) -> void\n\nStart (1) or stop (0) counting blocks per step value (test instrumentation; off by default so that decoding threads share no written memory).\n\nParameters\n----------\non : int\n\nOverloads\n---------\n  bslz4_set_counters(int on) -> void\n    Map: on = on (int)";
 static const char _doc_read_counters[] = "read_counters(out)\n--\n\nread_counters(out: buffer) -> int\n\nFill out (uint64 array) with the flattened [step][value] block counters; returns the number of entries written.\n\nParameters\n----------\nout : buffer\n    Writable\n\nOverloads\n---------\n  bslz4_read_counters(uint64_t *out, int n) -> int\n    Map: out = out.ptr (uint64_t *)\n         n = out.n (int)";
 static const char _doc_build_info[] = "build_info(out)\n--\n\nbuild_info(out: buffer) -> int\n\nCopy the JSON build description (version, git describe, source sha256, compiler, platform, time) into out (uint8 array); returns its full length in bytes, which may exceed out.len.\n\nParameters\n----------\nout : buffer\n    Type: uint8 (format 'B')\n    Writable\n\nChecks\n------\n  out.format == 'B'  [ValueError]\n\nOverloads\n---------\n  bslz4_build_info(char *out, int n) -> int\n    Map: out = out.ptr (char *)\n         n = out.len (int)";
-static const char _module_doc[] = "Module: _bslz4_to_sparse\nSource: ['bslz4_to_sparse.c']\nHeaders: ['c2py_amd64.h', 'c2py_arm64.h', 'c2py_ppc64.h']\nTiming: no\nFree-threading: yes (Py_MOD_GIL_NOT_USED)\nGIL release: sparsify, sparsify_and_dot, sparsify_and_dot_padded, sparsify_and_dot_bsbcsr, decompress";
+static const char _module_doc[] = "Module: _bslz4_to_sparse\nSource: ['bslz4_to_sparse.c']\nHeaders: ['c2py_amd64.h', 'c2py_arm64.h', 'c2py_ppc64.h']\nTiming: no\nFree-threading: yes (Py_MOD_GIL_NOT_USED)\nGIL release: sparsify, sparsify_and_dot, sparsify_and_dot_padded, sparsify_and_dot_bsbcsr, decompress, block_starts";
 
 static PyMethodDef _methods_varargs[] = {
     {"sparsify", (PyCFunction)_sparsify_wrapper, METH_VARARGS, _doc_sparsify},
@@ -3336,6 +3580,7 @@ static PyMethodDef _methods_varargs[] = {
     {"sparsify_and_dot_padded", (PyCFunction)_sparsify_and_dot_padded_wrapper, METH_VARARGS, _doc_sparsify_and_dot_padded},
     {"sparsify_and_dot_bsbcsr", (PyCFunction)_sparsify_and_dot_bsbcsr_wrapper, METH_VARARGS, _doc_sparsify_and_dot_bsbcsr},
     {"decompress", (PyCFunction)_decompress_wrapper, METH_VARARGS, _doc_decompress},
+    {"block_starts", (PyCFunction)_block_starts_wrapper, METH_VARARGS, _doc_block_starts},
     {"offsets_to_pointers", (PyCFunction)_offsets_to_pointers_wrapper, METH_VARARGS, _doc_offsets_to_pointers},
     {"note_chunk", (PyCFunction)_note_chunk_wrapper, METH_VARARGS, _doc_note_chunk},
     {"step_available", (PyCFunction)_step_available_wrapper, METH_VARARGS, _doc_step_available},
@@ -3352,6 +3597,7 @@ static PyMethodDef _methods_fastcall[] = {
     {"sparsify_and_dot_padded", (PyCFunction)_sparsify_and_dot_padded_fastcall, METH_FASTCALL, _doc_sparsify_and_dot_padded},
     {"sparsify_and_dot_bsbcsr", (PyCFunction)_sparsify_and_dot_bsbcsr_fastcall, METH_FASTCALL, _doc_sparsify_and_dot_bsbcsr},
     {"decompress", (PyCFunction)_decompress_fastcall, METH_FASTCALL, _doc_decompress},
+    {"block_starts", (PyCFunction)_block_starts_fastcall, METH_FASTCALL, _doc_block_starts},
     {"offsets_to_pointers", (PyCFunction)_offsets_to_pointers_fastcall, METH_FASTCALL, _doc_offsets_to_pointers},
     {"note_chunk", (PyCFunction)_note_chunk_fastcall, METH_FASTCALL, _doc_note_chunk},
     {"step_available", (PyCFunction)_step_available_fastcall, METH_FASTCALL, _doc_step_available},
@@ -3419,6 +3665,8 @@ C2PY_EXPORT PyObject* PyInit__bslz4_to_sparse(void) {
             PyLong_FromVoidPtr(&_gil_release_sparsify_and_dot_bsbcsr));
         c2py_set_module_attr(module, "_c2py_gil_release_decompress",
             PyLong_FromVoidPtr(&_gil_release_decompress));
+        c2py_set_module_attr(module, "_c2py_gil_release_block_starts",
+            PyLong_FromVoidPtr(&_gil_release_block_starts));
         if (C2PY.Unstable_Module_SetGIL != NULL) {
             C2PY.Unstable_Module_SetGIL(module, (void*)1);  /* Py_MOD_GIL_NOT_USED */
         }
@@ -3446,5 +3694,7 @@ C2PY_EXPORT void init_bslz4_to_sparse(void) {
             PyLong_FromVoidPtr(&_gil_release_sparsify_and_dot_bsbcsr));
         c2py_set_module_attr(module, "_c2py_gil_release_decompress",
             PyLong_FromVoidPtr(&_gil_release_decompress));
+        c2py_set_module_attr(module, "_c2py_gil_release_block_starts",
+            PyLong_FromVoidPtr(&_gil_release_block_starts));
     }
 }
