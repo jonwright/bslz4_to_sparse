@@ -12,7 +12,18 @@ Differences from the CPU classes:
   * `acc` chooses the accumulator of the matrix product: 'f64' (default: f32 weights, f64 sums as
     pyFAI), 'f32' (fast; relative error about 1e-6); a matrix from fixed_point_matrix is summed as
     'i64' (exact integer sums, returned as int64: divide by `powder_scale` for float);
-  * `batch` = frames per GPU launch.  The result arrays are numpy (as the CPU classes) and are
+  * `batch` = frames decoded together (the dense frames in GPU memory: batch x frame bytes).
+    None: as many as fit in 3/4 of the device's L2 cache when that is at least 8 (the collect
+    re-reads them from the cache), else 64; at most 64, and the frames and lists of a batch take
+    at most 1/16 of the device memory (a guess, for small cards).  Measured on Eiger 4M u16
+    frames, kernel time per frame: L40S (96 MB L2) best at 8; H200 (60 MB) and A100 (40 MB) best
+    at 64, and 3 to 16 slower there.
+    `group` = frames uploaded and unblocked together; None: every frame of the call, at most 256.
+    The block headers of a frame are walked by one GPU thread, so the walk costs about the same
+    for 1 or 256 frames.
+    `unblock` = 'gpu' (that walk, a kernel) or 'cpu' (bslz4_to_sparse.block_starts on the host,
+    uploaded: for a small group, or a small GPU).
+    The result arrays are numpy (as the CPU classes) and are
     overwritten by the next call.
   * the matrix is the one chunk2sparseCSC takes (scipy csc / pyFAI CSC engine, or
     fixed_point_matrix); normalise_matrix and the mask folding are bslz4_to_sparse._matrix's.  Per
@@ -138,9 +149,11 @@ class chunk2sparse(object):
         dtype=np.uint16,
         codec=None,
         pipeline=None,
-        batch=16,
+        batch=None,
         howmany=None,
         thresholds=None,
+        group=None,
+        unblock="gpu",
     ):
         self._dev = cu.device_id()
         cu.use_device(self._dev)  # another library may have made its own context current
@@ -171,7 +184,17 @@ class chunk2sparse(object):
         self.tocopy = part % (self.bpp * 8)
         self.nstored = nfull + ((part - self.tocopy) > 0)  # blocks with an lz4 stream
         self.ntot = nfull + (part > 0)  # blocks of pixels
+        if batch is None:
+            fit = int(0.75 * cu.l2_bytes(self._dev)) // self.stride
+            room = cu.memory_bytes(self._dev) // (16 * 2 * self.stride)  # frames + lists
+            batch = max(1, min(fit if fit >= 8 else 64, 64, room))
         self.batch = int(batch)
+        self.group = None if group is None else int(group)
+        if self.batch < 1 or (self.group is not None and self.group < 1):
+            raise ValueError("batch and group must be at least 1")
+        if unblock not in ("gpu", "cpu"):
+            raise ValueError("unblock must be 'gpu' or 'cpu'")
+        self.unblock = unblock
         self.stream = cu.Stream()
         self.mod = _module(self.dtype, self._acc())
         self.k_unblock = self.mod.get_function("unblock")
@@ -186,6 +209,8 @@ class chunk2sparse(object):
             4 + self.bpp
         )  # pixels a frame's list may hold: indices + values <= frame bytes
         self._cap = 0
+        self._gcap = 0
+        self._slab_cap = 0
         self._nframes = 0
         self.d_thr_i = cu.zeros(MAXTHR, np.int64)
         self.d_thr_f = cu.zeros(MAXTHR, np.float32)
@@ -210,18 +235,26 @@ class chunk2sparse(object):
         return None
 
     # -- buffers
-    def _ensure(self, nframes, slab_bytes):
-        B = min(self.batch, nframes)
-        if self._cap < B or getattr(self, "_slab_cap", 0) < slab_bytes:
-            self._cap = max(self._cap, B)
-            self._slab_cap = max(getattr(self, "_slab_cap", 0), int(slab_bytes * 1.25) + 64)
-            n, npx = self._cap, self.npix
+    def _ensure(self, nframes, slab_bytes, G):
+        G = min(G, nframes)
+        B = min(self.batch, G)
+        if self._gcap < G or self._slab_cap < slab_bytes:  # one group: chunks and block starts
+            self._gcap = max(self._gcap, G)
+            self._slab_cap = max(self._slab_cap, int(slab_bytes * 1.25) + 64)
+            g = self._gcap
             self.h_slab = cu.pinned(self._slab_cap)
             self.d_slab = cu.empty(self._slab_cap, np.uint8)
-            self.d_off = cu.empty(n, np.int64)
-            self.d_end = cu.empty(n, np.int64)
-            self.d_err = cu.empty(n, np.int32)
-            self.d_starts = cu.empty((n, max(self.nstored, 1)), np.uint32)
+            self.d_off = cu.empty(g, np.int64)
+            self.d_end = cu.empty(g, np.int64)
+            self.d_err = cu.empty(g, np.int32)
+            self.d_starts = cu.empty((g, max(self.nstored, 1)), np.uint32)
+            if self.unblock == "cpu":
+                ns = g * max(self.nstored, 1)
+                self.h_starts = np.frombuffer(cu.pinned(ns * 4), np.uint32, ns)
+                self.h_err = np.frombuffer(cu.pinned(g * 4), np.int32, g)
+        if self._cap < B:  # one batch: dense frames, counts, lists
+            self._cap = max(self._cap, B)
+            n = self._cap
             if getattr(self, "d_dense", None) is None or self.d_dense.size < n * self.stride:
                 self.d_dense = cu.empty(n * self.stride, np.uint8)
             lv = self._ndev_thr + 1  # levels: the cut, then each threshold
@@ -253,8 +286,8 @@ class chunk2sparse(object):
         c = np.floor(cut) if np.isfinite(cut) else (2.0**62 if cut > 0 else -(2.0**62))
         return np.int64(int(max(min(c, 2.0**62), -(2.0**62)))), np.float32(0)
 
-    # -- one batch of up to `batch` chunks: decompress, matrix product (subclass), collect
-    def _launch(self, chunk_views, cut):
+    # -- one group of up to `group` chunks: upload, walk the block headers
+    def _upload(self, chunk_views):
         n = len(chunk_views)
         lens = np.array([len(v) for v in chunk_views], np.int64)
         ends = np.cumsum(lens)
@@ -267,6 +300,9 @@ class chunk2sparse(object):
         self.d_off[:n].set(offs, s)
         self.d_end[:n].set(ends, s)
         s.use()
+        if self.unblock == "cpu":
+            self._cpu_unblock(slab, offs, lens, n)
+            return n
         self.k_unblock(
             ((n + 63) // 64,),
             (64,),
@@ -281,16 +317,42 @@ class chunk2sparse(object):
                 self.d_err,
             ),
         )
+        return n
+
+    def _cpu_unblock(self, slab, offs, lens, n):
+        from .. import _block_starts, _decode_error, _offset_pointers
+
+        ptrs, lens32, _ = _offset_pointers(slab, offs, lens)
+        starts = self.h_starts[: n * self.nstored]
+        err = self.h_err[:n]
+        rc, st, status = _block_starts(ptrs, lens32, self.dtype, starts, err)
+        if rc < 0 and rc != -107:  # -107: the bad chunks are flagged and skipped, as by the kernel
+            raise _decode_error(rc)
+        if st.shape[1] != self.nstored:
+            raise Exception(
+                "Error decoding batch: %d blocks per chunk, expected %d"
+                % (st.shape[1], self.nstored)
+            )
+        np.not_equal(status, 0, out=err)  # -107 -> 1
+        s = self.stream
+        self.d_starts[:n].set(st, s)
+        self.d_err[:n].set(err, s)
+
+    # -- frames s0 .. s0 + n of the group (n <= batch): decompress, collect, matrix product
+    def _launch(self, s0, n, cut):
+        s = self.stream
+        self._s0 = s0
+        d_off, d_end, d_err = self.d_off[s0:], self.d_end[s0:], self.d_err[s0:]
         grid = (n, (self.ntot + 1) // 2)
         self.k_decompress(
             grid,
             (32, 2),
             (
                 self.d_slab,
-                self.d_off,
-                self.d_end,
-                self.d_starts,
-                self.d_err,
+                d_off,
+                d_end,
+                self.d_starts[s0:],
+                d_err,
                 np.uint32(self.nstored),
                 np.uint32(self.ntot),
                 np.uint32(self.nbytes),
@@ -299,7 +361,6 @@ class chunk2sparse(object):
                 np.uint64(self.stride),
             ),
         )
-        self._dot(n)
         cut_i, cut_f = self._cut(cut)
         nthr = self._ndev_thr
         self._thr_call = (
@@ -314,7 +375,7 @@ class chunk2sparse(object):
             np.uint64(self.stride_el),
             np.uint32(self.npix),
             np.uint32(self.ntot),
-            self.d_err,
+            d_err,
             self.d_mask,
             cut_i,
             cut_f,
@@ -355,6 +416,7 @@ class chunk2sparse(object):
                 self.d_outi,
             ),
         )
+        self._dot(n)  # last: the collect re-reads the dense frames while they may still be in L2
         return n
 
     def _dot(self, n):
@@ -363,11 +425,11 @@ class chunk2sparse(object):
     def _fetch(self, f0, n, npx_all):
         """results of the n frames just launched -> host arrays rows f0.."""
         self.stream.synchronize()
-        err = self.d_err[:n].get()
+        err = self.d_err[self._s0 : self._s0 + n].get()
         if err.any():
             raise Exception(
                 "Error decoding batch: a chunk is corrupt or truncated (its block lengths do not "
-                "match its size); chunks %s" % list(np.flatnonzero(err) + f0)
+                "match its size); chunks %s" % (np.flatnonzero(err) + f0).tolist()
             )
         npx = self.d_npx[:n].get()
         level = self.d_level[:n].get()
@@ -449,19 +511,19 @@ class chunk2sparse(object):
         cu.use_device(self._dev)  # another library may have made its own context current
         self._check(views)
         nf = len(views)
-        self._ensure(
-            nf,
-            max(sum(len(v) for v in views[i : i + self.batch]) for i in range(0, nf, self.batch)),
-        )
+        G = max(self.batch, min(nf, 256)) if self.group is None else self.group
+        self._ensure(nf, max(sum(len(v) for v in views[i : i + G]) for i in range(0, nf, G)), G)
         npx = np.zeros(nf, np.int32)
         self.last_cut = np.empty(nf, np.float64)  # the cut each frame used (top_pixels)
         self.last_nabove = np.empty(nf, np.int64)  # pixels above last_cut, before truncation
         self._call_cut = float(cut)
         self.last_host = 0  # frames listed on the host (not sparse)
         self._prepare_outputs(nf)
-        for f0 in range(0, nf, self.batch):
-            n = self._launch(views[f0 : f0 + self.batch], cut)
-            self._fetch(f0, n, npx)
+        for g0 in range(0, nf, G):
+            ng = self._upload(views[g0 : g0 + G])
+            for s0 in range(0, ng, self.batch):
+                n = self._launch(s0, min(self.batch, ng - s0), cut)
+                self._fetch(g0 + s0, n, npx)
         return (npx, (self._values, self._indices)) + self._extra()
 
     def _prepare_outputs(self, nf):
@@ -531,10 +593,12 @@ class chunk2sparseCSC(chunk2sparse):
         dtype=np.uint16,
         codec=None,
         pipeline=None,
-        batch=16,
+        batch=None,
         acc=None,
         howmany=None,
         thresholds=None,
+        group=None,
+        unblock="gpu",
     ):
         import scipy.sparse as ss
 
@@ -550,7 +614,7 @@ class chunk2sparseCSC(chunk2sparse):
         if acc not in ACC:
             raise ValueError("acc must be one of %s" % list(ACC))
         self.acc = acc
-        super().__init__(mask, dtype, codec, pipeline, batch, howmany, thresholds)
+        super().__init__(mask, dtype, codec, pipeline, batch, howmany, thresholds, group, unblock)
         if self.kind == 2 and acc == "i64":
             raise ValueError("acc='i64' needs integer pixels")
         if fixed is not None:

@@ -66,6 +66,8 @@ __all__ = [
     "offsets_lengths",
     "decompress",
     "decompress_from_buffer",
+    "block_starts",
+    "block_starts_from_buffer",
     "build_info",
     "CODEC_LZ4",
     "CODEC_ZSTD",
@@ -421,6 +423,61 @@ def decompress_from_buffer(base, offsets, lengths, dtype, unshuffle=True, out=No
     see locate_chunks and offsets_lengths."""
     pointers, lengths, cmp = _offset_pointers(base, offsets, lengths)
     return _decompress(pointers, lengths, cmp, dtype, unshuffle, out, codec)
+
+
+def _block_starts(pointers, lengths, dtype, out=None, status=None):
+    """(rc, starts, status): starts (nframes, nblocks) uint32, status int32 per chunk (0 or -107);
+    rc 0, -107 (see status) or another error code.  out: None or a uint32 array to fill."""
+    n = len(pointers)
+    status = np.empty(n, np.int32) if status is None else status
+    nblocks = np.zeros(1, np.int64)
+    flat = np.empty(0, np.uint32) if out is None else out.reshape(-1)
+    rc = _ext.block_starts(pointers, lengths, flat, status, nblocks, np.dtype(dtype).itemsize)
+    if rc == -103 and out is None:  # sized now that nblocks is known
+        flat = np.empty(n * int(nblocks[0]), np.uint32)
+        rc = _ext.block_starts(pointers, lengths, flat, status, nblocks, np.dtype(dtype).itemsize)
+    if rc < 0 and rc != -107:
+        return rc, None, status
+    return rc, flat[: n * int(nblocks[0])].reshape(n, int(nblocks[0])), status
+
+
+def _checked_block_starts(pointers, lengths, dtype, out):
+    rc, starts, status = _block_starts(pointers, lengths, dtype, out)
+    if rc == -107:  # name the bad chunks
+        raise Exception("Error decoding batch: -107: %s; chunks %s." % (
+            _DECODE_ERRORS[-107], np.flatnonzero(status)[:20].tolist()))
+    if rc < 0:
+        raise _decode_error(rc)
+    return starts
+
+
+def block_starts(chunks, dtype, out=None):
+    """
+    Where each compressed block of each chunk starts, found on the CPU
+    without decoding: the block index the GPU decoder needs (cuda
+    unblock='cpu').  Block b holds pixels [b * B, (b + 1) * B) with B = the
+    chunk's block size in pixels.
+
+    Returns starts, a uint32 array (nchunks, nblocks): the byte offset, from
+    the start of its chunk, of each block's 4-byte big-endian compressed
+    size; the compressed block follows it.  The last block may be partial,
+    and up to 8 * dtype.itemsize - 1 bytes of pixels after it are stored raw
+    at the end of the chunk.  lz4 or zstd.  Every chunk must have the same
+    total size and block size; a chunk whose blocks do not tile it exactly
+    raises (corrupt or truncated).
+    out = None, or a uint32 array of nchunks * nblocks elements to fill
+    """
+    if len(chunks) == 0:
+        raise _decode_error(-105)
+    pointers, lengths = _gather_chunks(chunks)
+    return _checked_block_starts(pointers, lengths, dtype, out)
+
+
+def block_starts_from_buffer(base, offsets, lengths, dtype, out=None):
+    """As block_starts, for the chunks at byte offsets[i] (lengths[i]) inside
+    the one buffer base; the starts stay relative to each chunk."""
+    pointers, lengths, _ = _offset_pointers(base, offsets, lengths)
+    return _checked_block_starts(pointers, lengths, dtype, out)
 
 
 class chunk2sparse:

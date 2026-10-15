@@ -144,6 +144,13 @@ int bslz4_decompress(const int64_t *compressed_ptrs, const int32_t *compressed_l
                                    workspace_len, elem_size, decode, untranspose, unshuffle);
 }
 
+int bslz4_block_starts(const int64_t *compressed_ptrs, const int32_t *compressed_lengths,
+                       int nframes, int elem_size, uint32_t *starts, size_t nstarts,
+                       int32_t *status, int64_t *nblocks) {
+    return bslz4_driver_block_starts(compressed_ptrs, compressed_lengths, nframes, elem_size,
+                                     starts, nstarts, status, nblocks);
+}
+
 int bslz4_offsets_to_pointers(const char *base, size_t base_len, int64_t *offsets,
                               const int32_t *lengths, int nframes) {
     /* Every (offset, length) must lie inside the base_len bytes of base.
@@ -313,6 +320,24 @@ void bslz4_note_chunk(const char *chunk, size_t chunk_len, int index,
             ],
             "c_overloads": [
                 {"sig": "bslz4_decompress(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, uint8_t *out, size_t out_len, uint8_t *workspace, size_t workspace_len, int elem_size, int decode, int untranspose, int unshuffle) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "out": "out.ptr", "out_len": "out.len", "workspace": "workspace.ptr", "workspace_len": "workspace.len", "elem_size": "elem_size", "decode": "decode", "untranspose": "untranspose", "unshuffle": "unshuffle"}},
+            ],
+        },
+        {
+            "gil_release": True,
+            "py_sig": "block_starts(compressed_ptrs: buffer, compressed_lengths: buffer, starts: buffer, status: buffer, nblocks: buffer, elem_size: int) -> int",
+            "doc": "Walk the block headers of nframes bitshuffle chunks (lz4 or zstd) without decoding: starts (uint32, nframes x nblocks) gets the offset of each block's 4-byte size word from its chunk's start, nblocks[0] the blocks per chunk, status[f] 0 or -107 (a block runs past the chunk, or the chunk does not end with its raw tail). elem_size is the pixel size in bytes. Returns 0, -107 (see status) or another negative code. Releases the GIL.",
+            "checks": [
+                "starts.itemsize == 4",
+                "status.itemsize == 4",
+                "nblocks.itemsize == 8",
+                "nblocks.n >= 1",
+                "compressed_ptrs.itemsize == 8",
+                "compressed_lengths.itemsize == 4",
+                "compressed_lengths.n == compressed_ptrs.n",
+                "status.n >= compressed_ptrs.n",
+            ],
+            "c_overloads": [
+                {"sig": "bslz4_block_starts(const int64_t *compressed_ptrs, const int32_t *compressed_lengths, int nframes, int elem_size, uint32_t *starts, size_t nstarts, int32_t *status, int64_t *nblocks) -> int", "map": {"compressed_ptrs": "compressed_ptrs.ptr", "compressed_lengths": "compressed_lengths.ptr", "nframes": "compressed_ptrs.n", "elem_size": "elem_size", "starts": "starts.ptr", "nstarts": "starts.n", "status": "status.ptr", "nblocks": "nblocks.ptr"}},
             ],
         },
         {

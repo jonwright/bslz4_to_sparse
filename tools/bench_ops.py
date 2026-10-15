@@ -66,13 +66,18 @@ def matrices(shape, mask, own_mask=False):
             "rings": m["2D+rings"][0], "fazit": fz}
 
 
-def backend(op, dtype, shape, mask, mats, cut, gpu=False, batch=16, acc="f64", dot=None):
+def backend(
+    op, dtype, shape, mask, mats, cut, gpu=False, batch=16, acc="f64", dot=None, group=None
+):
     if (
         gpu
     ):  # decompress alone is not an operation of the GPU decoder; fazit is not a matrix product
         if op in ("decompress", "unshuffle", "fazit"):
             return None
-        return conveyor.GpuBackend(mask, dtype, csc=mats.get(op), cut=cut, batch=batch, acc=acc)
+        kw = {} if group is None else {"group": group}  # an older library has no group
+        return conveyor.GpuBackend(
+            mask, dtype, csc=mats.get(op), cut=cut, batch=batch, acc=acc, **kw
+        )
     if op in ("decompress", "unshuffle"):
         return conveyor.DecompressBackend(dtype, shape, unshuffle=op == "unshuffle")
     if op == "sparsify":

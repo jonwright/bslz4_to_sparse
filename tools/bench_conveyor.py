@@ -74,6 +74,7 @@ def main():
     )
     ap.add_argument("--slots", type=int, default=2, help="slots per worker")
     ap.add_argument("--batch", type=int, default=16)
+    ap.add_argument("--group", type=int, default=None, help="gpu: frames uploaded together")
     ap.add_argument("--cut", type=int, default=1)
     ap.add_argument("--dset", default=DSET)
     ap.add_argument("--tag", default="")
@@ -99,7 +100,9 @@ def main():
         f0 = b.decompress([chunk0], dtype)[0]
         mask = (f0 != np.iinfo(dtype).max).astype(np.uint8).reshape(shape)
         mats = bo.matrices(shape, mask, a.example_geometry) if a.op in ("1d", "1d-nosplit", "2d", "rings", "fazit") else {}
-        be = bo.backend(a.op, dtype, shape, mask, mats, a.cut, a.backend == "gpu", a.batch)
+        be = bo.backend(
+            a.op, dtype, shape, mask, mats, a.cut, a.backend == "gpu", a.batch, a.acc, group=a.group
+        )
         if be is None:
             raise SystemExit("%s is not available on the %s backend" % (a.op, a.backend))
         wcpu = layout(a.layout, nw)
@@ -108,7 +111,7 @@ def main():
             be,
             nw,
             mode=a.mode,
-            batch=a.batch,
+            batch=max(a.batch, a.group or 0),  # frames per decoder call
             slots_per_worker=a.slots,
             worker_cpus=wcpu,
             io_bytes=a.io_mb << 20,

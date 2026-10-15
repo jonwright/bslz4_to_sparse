@@ -25,6 +25,16 @@ def device(dev):
     return cp.cuda.Device(dev)
 
 
+def l2_bytes(dev):
+    """The L2 cache size of device `dev` in bytes."""
+    return int(cp.cuda.Device(dev).attributes["L2CacheSize"])
+
+
+def memory_bytes(dev):
+    """The memory of device `dev` in bytes."""
+    return int(cp.cuda.runtime.getDeviceProperties(dev)["totalGlobalMem"])
+
+
 def synchronize(dev):
     """Wait for everything queued on device `dev`."""
     cp.cuda.Device(dev).synchronize()

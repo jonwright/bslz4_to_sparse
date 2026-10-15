@@ -355,3 +355,11 @@ def test_iterate_gives_every_frame_and_stops_cleanly(tmp_path):
     it.close()  # breaking out must not hang or raise
     with pytest.raises(ValueError, match="threads"):
         next(cv.iterate(units, cv.CpuBackend(mask, dtype), workers=2, mode="processes"))
+
+
+def test_cpulist_and_nodes_without_cpus():
+    from bslz4_to_sparse.conveyor._engine import _cpulist
+
+    assert _cpulist("0-3,8,10-11\n") == [0, 1, 2, 3, 8, 10, 11]
+    assert _cpulist("\n") == [] and _cpulist("") == []  # a memory-only node (GPU memory on POWER9)
+    assert sum(len(n) for n in cv.numa_nodes()) == len(os.sched_getaffinity(0))
