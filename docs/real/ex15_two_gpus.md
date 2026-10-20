@@ -124,8 +124,8 @@ else:
 ```
 
 ```text
-1 GPU :  1.428 s,   7005 frames/s
-2 GPUs:  0.727 s,  13760 frames/s, 1.96 times one GPU
+1 GPU :  1.423 s,   7027 frames/s
+2 GPUs:  0.728 s,  13745 frames/s, 1.96 times one GPU
 ```
 
 ```python
