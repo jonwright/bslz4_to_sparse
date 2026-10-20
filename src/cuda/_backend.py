@@ -66,6 +66,17 @@ def empty(shape, dtype):
     return cp.empty(shape, dtype)
 
 
+def device_bytes(obj, dev):
+    """The GPU memory of obj (__cuda_array_interface__, C-contiguous, on device dev) as a uint8
+    array viewing it; cupy waits for obj's stream."""
+    a = cp.asarray(obj)
+    if a.device.id != dev:
+        raise ValueError("the buffer is on GPU %d, this object on GPU %d" % (a.device.id, dev))
+    if not a.flags.c_contiguous:
+        raise ValueError("the chunks must be in one C-contiguous GPU buffer")
+    return a.reshape(-1).view(cp.uint8)
+
+
 def copy_rows(dst, dst_pitch, src, src_pitch, width, height):
     """height rows of width bytes, device to device, on the current stream"""
     cp.cuda.runtime.memcpy2DAsync(

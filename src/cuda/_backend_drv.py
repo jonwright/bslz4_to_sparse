@@ -69,6 +69,7 @@ cuMemFreeHost = _sig("cuMemFreeHost", _P)
 cuMemcpyHtoDAsync = _sig("cuMemcpyHtoDAsync_v2", ctypes.c_uint64, _P, _SZ, _P)
 cuMemcpyDtoHAsync = _sig("cuMemcpyDtoHAsync_v2", _P, ctypes.c_uint64, _SZ, _P)
 cuMemcpy2DAsync = _sig("cuMemcpy2DAsync_v2", _P, _P)
+cuPointerGetAttribute = _sig("cuPointerGetAttribute", _P, ctypes.c_int, ctypes.c_uint64)
 cuMemsetD8Async = _sig("cuMemsetD8Async", ctypes.c_uint64, ctypes.c_ubyte, _SZ, _P)
 cuStreamCreate = _sig("cuStreamCreate", ctypes.POINTER(_P), ctypes.c_uint)
 cuStreamDestroy = _sig("cuStreamDestroy_v2", _P)
@@ -76,6 +77,7 @@ cuStreamSynchronize = _sig("cuStreamSynchronize", _P)
 cuGetErrorString = _sig("cuGetErrorString", ctypes.c_int, ctypes.POINTER(ctypes.c_char_p))
 
 CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X = 5
+CU_POINTER_ATTRIBUTE_DEVICE_ORDINAL = 9
 CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
 CU_STREAM_NON_BLOCKING = 1
 CU_MEMHOSTALLOC_PORTABLE = 1
@@ -236,6 +238,13 @@ class _Alloc(object):
             _in_context(self.ctx, cuMemFree, self.ptr)
 
 
+class _Borrowed(object):
+    """Another library's device memory: kept alive by holding its owner, never freed here."""
+
+    def __init__(self, ptr, dev, owner):
+        self.ptr, self.dev, self.owner = ptr, dev, owner
+
+
 class ndarray(object):
     """A C-contiguous device array: slicing along the first axis, .set, .get, .view, .size.  Other
     libraries take it without a copy through __cuda_array_interface__ (cupy, numba, torch, pycuda)
@@ -317,6 +326,26 @@ class _CUDA_MEMCPY2D(ctypes.Structure):
                 ("srcPitch", _SZ), ("dstXInBytes", _SZ), ("dstY", _SZ),
                 ("dstMemoryType", ctypes.c_int), ("dstHost", _P), ("dstDevice", ctypes.c_uint64),
                 ("dstArray", _P), ("dstPitch", _SZ), ("WidthInBytes", _SZ), ("Height", _SZ)]
+
+
+def device_bytes(obj, dev):
+    """The GPU memory of obj (__cuda_array_interface__, C-contiguous, on device dev) as a uint8
+    array viewing it; waits for obj's stream first (version 3)."""
+    cai = obj.__cuda_array_interface__
+    shape, dt = tuple(cai["shape"]), np.dtype(cai["typestr"])
+    st = cai.get("strides")
+    if st is not None and tuple(st) != tuple(
+        int(np.prod(shape[k + 1 :])) * dt.itemsize for k in range(len(shape))
+    ):
+        raise ValueError("the chunks must be in one C-contiguous GPU buffer")
+    ptr = int(cai["data"][0])
+    if cai.get("stream"):
+        _check(cuStreamSynchronize(_P(cai["stream"])))
+    d = ctypes.c_int()
+    if cuPointerGetAttribute(ctypes.byref(d), CU_POINTER_ATTRIBUTE_DEVICE_ORDINAL, ptr) == 0:
+        if d.value != dev:  # (drivers before CUDA 9.2 cannot tell: not checked there)
+            raise ValueError("the buffer is on GPU %d, this object on GPU %d" % (d.value, dev))
+    return ndarray(int(np.prod(shape)) * dt.itemsize, np.uint8, _Borrowed(ptr, dev, obj))
 
 
 def copy_rows(dst, dst_pitch, src, src_pitch, width, height):

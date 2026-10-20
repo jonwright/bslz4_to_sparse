@@ -363,3 +363,53 @@ def test_decompress_and_integrate_stay_on_the_device(tmp_path, dt, shape):
     bad[12:16] = (len(bad)).to_bytes(4, "big")
     with pytest.raises(Exception, match=r"chunks \[4\]"):
         c.decompress(chunks[:4] + [bytes(bad)] + chunks[5:])
+
+
+def write_chunks_codec(path, frames, cname):
+    with h5py.File(str(path), "w") as f:
+        ds = f.create_dataset(
+            "d", data=frames, chunks=(1,) + frames.shape[1:],
+            **hdf5plugin.Bitshuffle(nelems=0, cname=cname)
+        )
+        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+
+
+@pytest.mark.parametrize("dt", [np.uint16, np.int32])
+def test_chunks_already_on_the_device(tmp_path, dt):
+    mask, frames = mixed_frames(dt, (61, 83))
+    frames = np.concatenate([frames, frames[::-1]])
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    lens = np.array([len(c) for c in chunks], np.int64)
+    offs = 100 + np.concatenate(([0], np.cumsum(lens)[:-1]))  # the chunks start 100 bytes in
+    d_buf = cp.asarray(np.frombuffer(b"x" * 100 + b"".join(chunks), np.uint8))
+    M = make_split_1d(mask.size, 50, 5)
+    c = g.chunk2sparseCSC(mask, M, dt, codec, batch=3, group=4)
+    n0, (v0, i0), p0 = _flat(c.multi(chunks, 1))  # copies: the next call reuses the buffers
+    n1, (v1, i1), p1 = c.from_device(d_buf, offs, lens, 1)
+    assert (n1 == n0).all() and (p1 == p0).all()
+    for f in range(len(frames)):
+        assert (i1[f, : n1[f]] == i0[f, : n0[f]]).all() and (v1[f, : n1[f]] == v0[f, : n0[f]]).all()
+    assert (cp.asarray(c.decompress_from_device(d_buf, offs, lens)).get() == frames).all()
+    want = cp.asarray(c.integrate(chunks)).get()
+    assert (cp.asarray(c.integrate_from_device(d_buf, offs, lens)).get() == want).all()
+    # the header checks are on the GPU: a frame of another size, a zstd chunk, offsets outside
+    other = write_chunks_codec(tmp_path / "o.h5", frames[:2, :60], "lz4")[1]
+    zst = write_chunks_codec(tmp_path / "z.h5", frames[:2], "zstd")[1]
+    for bad, match in ((other, "-106"), (zst, "zstd")):
+        blob = b"".join(chunks[:5]) + bad + b"".join(chunks[6:])
+        ln = np.array([len(x) for x in chunks[:5]] + [len(bad)] + [len(x) for x in chunks[6:]])
+        of = np.concatenate(([0], np.cumsum(ln)[:-1]))
+        with pytest.raises(Exception, match=match + r".*chunks \[5\]"):
+            c.decompress_from_device(cp.asarray(np.frombuffer(blob, np.uint8)), of, ln)
+    with pytest.raises(Exception, match="-108"):
+        c.from_device(d_buf, offs + 10**6, lens, 1)
+    bad = bytearray(chunks[4])
+    bad[12:16] = (len(bad)).to_bytes(4, "big")
+    blob = b"".join(chunks[:4]) + bytes(bad) + b"".join(chunks[5:])
+    with pytest.raises(Exception, match=r"corrupt.*chunks \[4\]"):
+        c.integrate_from_device(cp.asarray(np.frombuffer(blob, np.uint8)), offs - 100, lens)
+
+
+def _flat(r):
+    npx, (v, i), p = r
+    return npx.copy(), (v.copy(), i.copy()), p.copy()

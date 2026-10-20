@@ -172,6 +172,29 @@ for name, fn in [("cupy", with_cupy), ("torch", with_torch), ("jax", with_jax),
 for name, what in results.items():
     print("%-10s %s" % (name, what))
 
+# The other direction: chunks already in GPU memory, as a GPUDirect Storage read (kvikio, cuFile)
+# would leave them, one buffer with the chunks at known offsets.  Here a copy made by one of the
+# libraries stands in for that read.  *_from_device read the chunks in place: nothing goes back to
+# the host, and the chunk headers are checked on the GPU.
+lengths = np.array([len(c) for c in chunks], np.int64)
+offsets = np.concatenate(([0], np.cumsum(lengths)[:-1]))
+blob = np.frombuffer(b"".join(chunks), np.uint8)
+d_chunks = None
+if results.get("cupy") != "not installed":
+    import cupy as cp
+
+    d_chunks = cp.asarray(blob)
+elif results.get("torch") != "not installed":
+    import torch
+
+    d_chunks = torch.from_numpy(blob.copy()).cuda()
+if d_chunks is not None:
+    d_powder2 = gpu1.integrate_from_device(d_chunks, offsets, lengths)
+    assert (d_powder2.get() == d_powder.get()).all()
+    assert (gpu1.decompress_from_device(d_chunks, offsets, lengths).get() == frames).all()
+    print("chunks in a %s GPU buffer: integrate_from_device and decompress_from_device give the "
+          "same results" % type(d_chunks).__module__.split(".")[0])
+
 # The 1D pattern and the cake of all the frames, as the GPU gave them
 q, chi = ref2.radial, ref2.azimuthal
 fig, axes = plt.subplots(1, 2, figsize=(11, 3.5))
