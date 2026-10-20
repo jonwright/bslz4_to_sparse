@@ -112,21 +112,40 @@ extern "C" __global__ void decompress(const uint8_t *const slab, const int64_t *
     }
 }
 
-template <typename A> __device__ __forceinline__ A warp_sum(A v) {
+/* the sum of v over the warp, in lane 0; s: 32 entries of shared memory for this warp */
+template <typename A> __device__ __forceinline__ A warp_sum(A v, A *s) {
+#ifndef BSLZ4_NO_SHFL
 #pragma unroll
     for (int o = 16; o > 0; o >>= 1)
         v += __shfl_down_sync(0xFFFFFFFFU, v, o);
+#else /* the same tree through shared memory */
+    const int lane = threadIdx.x & 31;
+    __syncwarp();
+    s[lane] = v;
+#pragma unroll
+    for (int o = 16; o > 0; o >>= 1) {
+        __syncwarp();
+        if (lane < o) s[lane] = v = v + s[lane + o];
+    }
+#endif
     return v;
 }
 
 /* T pixel, W weight (float or u32 fixed point), A accumulator; grid (nbins, ceil(nframes / F)),
- * block (WG <= 1024) */
+ * block (WG <= 1024); on Fermi grid x may be below nbins (at most 65535) */
 template <typename T, typename W, typename A, int F>
-__global__ void csr1d(const T *__restrict__ dense, const unsigned long long stride_el,
-                      const int nframes, const W *__restrict__ coef, const int *__restrict__ idx,
-                      const int *__restrict__ indptr, const int nbins, A *__restrict__ out) {
+__device__ __forceinline__ void csr1d_bin(const int bin, const T *__restrict__ dense,
+                                          const unsigned long long stride_el, const int nframes,
+                                          const W *__restrict__ coef, const int *__restrict__ idx,
+                                          const int *__restrict__ indptr, const int nbins,
+                                          A *__restrict__ out) {
     __shared__ A sh[32 * F];
-    const int bin = blockIdx.x, f0 = blockIdx.y * F;
+#ifdef BSLZ4_NO_SHFL
+    __shared__ A red[32 * 32];
+#else
+    A *const red = 0;
+#endif
+    const int f0 = blockIdx.y * F;
     const int k0 = indptr[bin], k1 = indptr[bin + 1];
     const T *d = dense + (size_t) f0 * stride_el;
     const int nf = min(F, nframes - f0);
@@ -153,7 +172,7 @@ __global__ void csr1d(const T *__restrict__ dense, const unsigned long long stri
     const int lane = threadIdx.x & 31, wid = threadIdx.x >> 5, nw = (blockDim.x + 31) >> 5;
 #pragma unroll
     for (int f = 0; f < F; f++) {
-        const A v = warp_sum(acc[f]);
+        const A v = warp_sum(acc[f], red + wid * 32);
         if (lane == 0) sh[wid * F + f] = v;
     }
     __syncthreads();
@@ -161,10 +180,24 @@ __global__ void csr1d(const T *__restrict__ dense, const unsigned long long stri
 #pragma unroll
         for (int f = 0; f < F; f++) {
             A v = (lane < nw) ? sh[lane * F + f] : (A) 0;
-            v = warp_sum(v);
+            v = warp_sum(v, red);
             if (lane == 0 && f < nf) out[(size_t) (f0 + f) * nbins + bin] = v;
         }
     }
+}
+
+template <typename T, typename W, typename A, int F>
+__global__ void csr1d(const T *__restrict__ dense, const unsigned long long stride_el,
+                      const int nframes, const W *__restrict__ coef, const int *__restrict__ idx,
+                      const int *__restrict__ indptr, const int nbins, A *__restrict__ out) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 300
+    for (int bin = blockIdx.x; bin < nbins; bin += gridDim.x) {
+        csr1d_bin<T, W, A, F>(bin, dense, stride_el, nframes, coef, idx, indptr, nbins, out);
+        __syncthreads(); /* sh and red are reused by the next bin */
+    }
+#else
+    csr1d_bin<T, W, A, F>(blockIdx.x, dense, stride_el, nframes, coef, idx, indptr, nbins, out);
+#endif
 }
 
 template <typename T> __device__ __forceinline__ bool above(T v, long long cut_i, float cut_f) {

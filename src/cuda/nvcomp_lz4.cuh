@@ -47,6 +47,16 @@ typedef unsigned char uint8_t; typedef unsigned short uint16_t; typedef unsigned
 #include <cassert>
 #endif
 
+/* Fermi (CC 2.x; CUDA 8 is the last toolkit for it): no __*_sync (CUDA 9), __ldg (CC 3.5) or warp
+   shuffle (CC 3.0).  Its warps run in lockstep: a block fence orders shared memory between lanes.
+   BSLZ4_NO_SHFL: warp sums through shared memory (any GPU, with -DBSLZ4_NO_SHFL) */
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 300
+#define __syncwarp() __threadfence_block()
+#define __ballot_sync(mask, p) __ballot(p)
+#define __ldg(p) (*(p))
+#define BSLZ4_NO_SHFL
+#endif
+
 
 using offset_type = uint16_t;
 using word_type = uint32_t;

@@ -30,6 +30,11 @@ def l2_bytes(dev):
     return int(cp.cuda.Device(dev).attributes["L2CacheSize"])
 
 
+def max_grid_x(dev):
+    """The most blocks along x of a grid on device `dev` (65535 before compute capability 3.0)."""
+    return int(cp.cuda.Device(dev).attributes["MaxGridDimX"])
+
+
 def memory_bytes(dev):
     """The memory of device `dev` in bytes."""
     return int(cp.cuda.runtime.getDeviceProperties(dev)["totalGlobalMem"])

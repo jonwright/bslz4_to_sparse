@@ -108,6 +108,10 @@ subpackages `src/cuda/` and `src/conveyor/` are optional and Python 3 only.
 - `docs/real/` holds example pages run on real data, committed: CI cannot run them.  A change to
   such an example (`PAGES` in `tools/real_data_pages.py`) or to the code it calls is not finished
   until `tools/real_data_pages.py` has been run again and its output committed with it.
+- `src/cuda/bslz4_kernels.fatbin` (and `.json`) is built from `src/cuda/*.cu*` and committed: CI has
+  no CUDA.  A change to the CUDA source is not finished until the fatbin has been rebuilt with the
+  recipe in `tools/build_cuda_fatbin.py` (three toolkits: sm_20, sm_35, the rest) and committed with
+  it; `test/test_cuda_fatbin.py` fails otherwise.
 - Benchmarks are run by hand on the machine they are for, never in CI and never
   typed into a file (see `docs/AGENTS.md`). Do not write prices or costs into any
   file in the repository; chat only.

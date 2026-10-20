@@ -122,7 +122,7 @@ setup(
             "_bslz4_to_sparse.c2py23-*.pyd",
         ],
         # optional GPU decoder (needs cupy at run time); the kernels are compiled by NVRTC when first used
-        "bslz4_to_sparse.cuda": ["*.cu", "*.cuh"],
+        "bslz4_to_sparse.cuda": ["*.cu", "*.cuh", "*.fatbin", "*.json"],
     },
     distclass=PlatlibDistribution,
     cmdclass=_cmdclass,

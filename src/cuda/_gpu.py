@@ -45,7 +45,10 @@ import os
 import threading
 import numpy as np
 
-from . import _backend as cu
+if os.environ.get("BSLZ4_CUDA_BACKEND") == "driver":  # precompiled fatbin, driver API, no cupy
+    from . import _backend_drv as cu
+else:
+    from . import _backend as cu
 from .. import _matrix, _toppix
 from .._pipeline import CODEC_LZ4
 
@@ -655,6 +658,7 @@ class chunk2sparseCSC(chunk2sparse):
             for F in sorted({1, FRAMES_PER_READ})
         }
         self.csr_info = dict(nnz=int(R.nnz), nbins=int(self.nbins), threads_per_bin=self.wg)
+        self.gx = min(self.nbins, cu.max_grid_x(self._dev))  # csr1d loops over bins beyond it
 
     @property
     def powder_scale(self):
@@ -677,7 +681,7 @@ class chunk2sparseCSC(chunk2sparse):
             return
         F = FRAMES_PER_READ if n >= FRAMES_PER_READ else 1
         self.k_csr[F](
-            (self.nbins, (n + F - 1) // F),
+            (self.gx, (n + F - 1) // F),
             (self.wg,),
             (
                 self.d_dense,
