@@ -25,7 +25,8 @@ NVRTC loads its libnvrtc-builtins from LD_LIBRARY_PATH: list every toolkit's lib
 
 The shipped src/cuda/bslz4_kernels.fatbin (CI has no CUDA; test/test_cuda_fatbin.py checks it
 matches the source), at the ESRF (the cuda modules conflict, so 11.8 is named by its path; CUDA 8
-is not on cvmfs: unpacked from NVIDIA's cuda_8.0.61_375.26_linux.run, md5 33e1bd98...):
+is not on cvmfs: unpacked from NVIDIA's cuda_8.0.61_375.26_linux.run, md5 33e1bd98...), in a
+shell with no other module loaded (after jupyter-slurm, NVRTC fails: "failed to load builtins"):
 
     module load cuda/12.6.2
     C118=/cvmfs/hpc.esrf.fr/software/packages/ubuntu24.04/x86_64/cuda/11.8.0
