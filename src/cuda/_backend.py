@@ -15,6 +15,17 @@ def device_id():
     return cp.cuda.Device().id
 
 
+def device_count():
+    """The number of CUDA devices."""
+    return cp.cuda.runtime.getDeviceCount()
+
+
+def device_name(dev):
+    """The name of device `dev`."""
+    name = cp.cuda.runtime.getDeviceProperties(dev)["name"]
+    return name.decode() if isinstance(name, bytes) else name
+
+
 def use_device(dev):
     """Make `dev` current; another library may have made a different device or context current."""
     cp.cuda.Device(dev).use()
@@ -53,6 +64,14 @@ def Stream():
 def empty(shape, dtype):
     """An uninitialised device array."""
     return cp.empty(shape, dtype)
+
+
+def copy_rows(dst, dst_pitch, src, src_pitch, width, height):
+    """height rows of width bytes, device to device, on the current stream"""
+    cp.cuda.runtime.memcpy2DAsync(
+        dst.data.ptr, dst_pitch, src.data.ptr, src_pitch, width, height,
+        cp.cuda.runtime.memcpyDeviceToDevice, cp.cuda.get_current_stream().ptr,
+    )
 
 
 def zeros(shape, dtype):

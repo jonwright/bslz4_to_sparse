@@ -39,6 +39,8 @@ def _sig(name, *args):
 
 
 cuInit = _sig("cuInit", ctypes.c_uint)
+cuDeviceGetCount = _sig("cuDeviceGetCount", ctypes.POINTER(ctypes.c_int))
+cuDeviceGetName = _sig("cuDeviceGetName", ctypes.c_char_p, ctypes.c_int, ctypes.c_int)
 cuDeviceGet = _sig("cuDeviceGet", ctypes.POINTER(ctypes.c_int), ctypes.c_int)
 cuDeviceGetAttribute = _sig(
     "cuDeviceGetAttribute", ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int
@@ -66,6 +68,7 @@ cuMemHostAlloc = _sig("cuMemHostAlloc", ctypes.POINTER(_P), _SZ, ctypes.c_uint)
 cuMemFreeHost = _sig("cuMemFreeHost", _P)
 cuMemcpyHtoDAsync = _sig("cuMemcpyHtoDAsync_v2", ctypes.c_uint64, _P, _SZ, _P)
 cuMemcpyDtoHAsync = _sig("cuMemcpyDtoHAsync_v2", _P, ctypes.c_uint64, _SZ, _P)
+cuMemcpy2DAsync = _sig("cuMemcpy2DAsync_v2", _P, _P)
 cuMemsetD8Async = _sig("cuMemsetD8Async", ctypes.c_uint64, ctypes.c_ubyte, _SZ, _P)
 cuStreamCreate = _sig("cuStreamCreate", ctypes.POINTER(_P), ctypes.c_uint)
 cuStreamDestroy = _sig("cuStreamDestroy_v2", _P)
@@ -120,6 +123,19 @@ def device_id():
     d = ctypes.c_int()
     _check(cuCtxGetDevice(ctypes.byref(d)))
     return d.value
+
+
+def device_count():
+    n = ctypes.c_int()
+    _check(cuDeviceGetCount(ctypes.byref(n)))
+    return n.value
+
+
+def device_name(dev):
+    d, s = ctypes.c_int(), ctypes.create_string_buffer(256)
+    _check(cuDeviceGet(ctypes.byref(d), dev))
+    _check(cuDeviceGetName(s, 256, d))
+    return s.value.decode()
 
 
 def use_device(dev):
@@ -210,17 +226,20 @@ class _Alloc(object):
     """One cuMemAlloc, freed with its last view."""
 
     def __init__(self, nbytes):
-        self.ctx, p = _context(device_id()), ctypes.c_uint64()
+        self.dev = device_id()
+        self.ctx, p = _context(self.dev), ctypes.c_uint64()
         _check(cuMemAlloc(ctypes.byref(p), max(int(nbytes), 1)))
         self.ptr = p.value
 
     def __del__(self):
-        if getattr(self, "ptr", None):
+        if getattr(self, "ptr", None) and _in_context is not None:  # None: interpreter shutdown
             _in_context(self.ctx, cuMemFree, self.ptr)
 
 
 class ndarray(object):
-    """A C-contiguous device array: slicing along the first axis, .set, .get, .view, .size."""
+    """A C-contiguous device array: slicing along the first axis, .set, .get, .view, .size.  Other
+    libraries take it without a copy through __cuda_array_interface__ (cupy, numba, torch, pycuda)
+    or DLPack (torch, jax, tensorflow, cupy)."""
 
     def __init__(self, shape, dtype, alloc=None, offset=0):
         self.shape = tuple(int(s) for s in (shape if isinstance(shape, (tuple, list)) else (shape,)))
@@ -229,6 +248,22 @@ class ndarray(object):
         self.nbytes = self.size * self.dtype.itemsize
         self._alloc = alloc if alloc is not None else _Alloc(self.nbytes)
         self.ptr = self._alloc.ptr + offset
+
+    @property
+    def __cuda_array_interface__(self):
+        """Version 3.  The data is complete when the GPU classes hand an array out: no stream."""
+        return {"shape": self.shape, "typestr": self.dtype.str, "data": (self.ptr, False),
+                "strides": None, "version": 3, "stream": None}
+
+    def __dlpack_device__(self):
+        return (_KDLCUDA, self._alloc.dev)
+
+    def __dlpack__(self, stream=None, max_version=None, dl_device=None, copy=None):
+        """A DLPack (0.8, unversioned) capsule viewing this memory; it keeps the memory alive until
+        the consumer calls its deleter.  `stream` is not needed: the data is complete."""
+        if copy:
+            raise BufferError("a device array is exported without a copy")
+        return _dlpack_capsule(self)
 
     def __getitem__(self, key):
         if not isinstance(key, slice) or key.step not in (None, 1):
@@ -274,6 +309,99 @@ class ndarray(object):
 
 def empty(shape, dtype):
     return ndarray(shape, dtype)
+
+
+class _CUDA_MEMCPY2D(ctypes.Structure):
+    _fields_ = [("srcXInBytes", _SZ), ("srcY", _SZ), ("srcMemoryType", ctypes.c_int),
+                ("srcHost", _P), ("srcDevice", ctypes.c_uint64), ("srcArray", _P),
+                ("srcPitch", _SZ), ("dstXInBytes", _SZ), ("dstY", _SZ),
+                ("dstMemoryType", ctypes.c_int), ("dstHost", _P), ("dstDevice", ctypes.c_uint64),
+                ("dstArray", _P), ("dstPitch", _SZ), ("WidthInBytes", _SZ), ("Height", _SZ)]
+
+
+def copy_rows(dst, dst_pitch, src, src_pitch, width, height):
+    """height rows of width bytes, device to device, on the current stream"""
+    c = _CUDA_MEMCPY2D()
+    c.srcMemoryType = c.dstMemoryType = 2  # CU_MEMORYTYPE_DEVICE
+    c.srcDevice, c.srcPitch, c.dstDevice, c.dstPitch = src.ptr, src_pitch, dst.ptr, dst_pitch
+    c.WidthInBytes, c.Height = width, height
+    _check(cuMemcpy2DAsync(ctypes.byref(c), _current_stream()))
+
+
+# DLPack 0.8 (dlpack.h): the C structs a capsule named "dltensor" points to
+_KDLCUDA = 2
+
+
+class _DLDevice(ctypes.Structure):
+    _fields_ = [("device_type", ctypes.c_int32), ("device_id", ctypes.c_int32)]
+
+
+class _DLDataType(ctypes.Structure):
+    _fields_ = [("code", ctypes.c_uint8), ("bits", ctypes.c_uint8), ("lanes", ctypes.c_uint16)]
+
+
+class _DLTensor(ctypes.Structure):
+    _fields_ = [("data", _P), ("device", _DLDevice), ("ndim", ctypes.c_int32),
+                ("dtype", _DLDataType), ("shape", ctypes.POINTER(ctypes.c_int64)),
+                ("strides", ctypes.POINTER(ctypes.c_int64)), ("byte_offset", ctypes.c_uint64)]
+
+
+class _DLManagedTensor(ctypes.Structure):
+    pass
+
+
+_DLDELETER = ctypes.CFUNCTYPE(None, ctypes.POINTER(_DLManagedTensor))
+_DLManagedTensor._fields_ = [("dl_tensor", _DLTensor), ("manager_ctx", _P),
+                             ("deleter", _DLDELETER)]
+_DLCODE = {"i": 0, "u": 1, "f": 2}
+_dl_alive = {}  # address of an exported DLManagedTensor -> (it, its shape/strides, the array)
+
+
+@_DLDELETER
+def _dl_delete(p):  # called by the consumer when it lets go of the memory
+    try:
+        _dl_alive.pop(ctypes.addressof(p.contents), None)
+    except Exception:  # interpreter shutdown
+        pass
+
+
+_DLNAME = ctypes.create_string_buffer(b"dltensor")  # the capsule keeps a pointer to its name
+# our own handle: ctypes.pythonapi's functions are shared, and torch sets their argtypes too
+_pyapi = ctypes.PyDLL(ctypes.pythonapi._name, handle=ctypes.pythonapi._handle)
+_capsule_new = _pyapi.PyCapsule_New
+_capsule_new.restype, _capsule_new.argtypes = ctypes.py_object, [_P, _P, _P]
+_capsule_valid = _pyapi.PyCapsule_IsValid
+_capsule_valid.restype, _capsule_valid.argtypes = ctypes.c_int, [_P, _P]
+_capsule_ptr = _pyapi.PyCapsule_GetPointer
+_capsule_ptr.restype, _capsule_ptr.argtypes = _P, [_P, _P]
+
+
+@ctypes.CFUNCTYPE(None, _P)
+def _dl_capsule_free(cap):  # a capsule never consumed (still named "dltensor") frees its tensor
+    try:
+        if _capsule_valid(cap, ctypes.addressof(_DLNAME)):
+            _dl_alive.pop(_capsule_ptr(cap, ctypes.addressof(_DLNAME)), None)
+    except Exception:  # interpreter shutdown
+        pass
+
+
+def _dlpack_capsule(a):
+    if a.dtype.kind not in _DLCODE:
+        raise BufferError("dtype %s has no DLPack code here" % a.dtype)
+    nd = len(a.shape)
+    shape = (ctypes.c_int64 * max(nd, 1))(*a.shape)
+    strides = (ctypes.c_int64 * max(nd, 1))(*[int(np.prod(a.shape[k + 1 :])) for k in range(nd)])
+    m = _DLManagedTensor()
+    t = m.dl_tensor
+    t.data, t.ndim, t.byte_offset = a.ptr, nd, 0
+    t.device = _DLDevice(_KDLCUDA, a._alloc.dev)
+    t.dtype = _DLDataType(_DLCODE[a.dtype.kind], a.dtype.itemsize * 8, 1)
+    t.shape = ctypes.cast(shape, ctypes.POINTER(ctypes.c_int64))
+    t.strides = ctypes.cast(strides, ctypes.POINTER(ctypes.c_int64))  # C order, in elements
+    m.deleter = _dl_delete
+    _dl_alive[ctypes.addressof(m)] = (m, shape, strides, a)
+    return _capsule_new(ctypes.addressof(m), ctypes.addressof(_DLNAME),
+                        ctypes.cast(_dl_capsule_free, _P))
 
 
 def zeros(shape, dtype):

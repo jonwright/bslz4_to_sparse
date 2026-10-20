@@ -340,3 +340,26 @@ def test_unblock_on_the_cpu_gives_the_same_result(tmp_path, dt):
         c.multi(chunks[:8] + [bytes(bad)] + chunks[9:], 1)
     with pytest.raises(ValueError):
         g.chunk2sparse(mask, dt, codec, unblock="disk")
+
+
+@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32, np.float32])
+@pytest.mark.parametrize("shape", [(61, 83), (64, 128), (16, 8)])  # 61 x 83: rows padded to 16 B
+def test_decompress_and_integrate_stay_on_the_device(tmp_path, dt, shape):
+    rng = np.random.default_rng(4)
+    mask = (rng.random(shape) > 0.2).astype(np.uint8)
+    frames = rng.poisson(2.0, (7,) + shape).astype(dt)
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 40, 2)
+    c = g.chunk2sparseCSC(mask, M, dt, codec, batch=2, group=3, device=0)
+    d = c.decompress(chunks)
+    assert d.shape == frames.shape and d.dtype == frames.dtype
+    assert (cp.asarray(d).get() == frames).all()  # __cuda_array_interface__ (or a cupy array)
+    assert (cp.from_dlpack(d).get() == frames).all()
+    assert int(cp.asarray(d[2:5]).sum()) == int(frames[2:5].astype(np.int64).sum())
+    p = c.integrate(chunks)
+    _, _, p0 = c.multi(chunks, 0)
+    assert p.shape == (len(frames), M.shape[0]) and (cp.asarray(p).get() == p0).all()
+    bad = bytearray(chunks[4])
+    bad[12:16] = (len(bad)).to_bytes(4, "big")
+    with pytest.raises(Exception, match=r"chunks \[4\]"):
+        c.decompress(chunks[:4] + [bytes(bad)] + chunks[5:])

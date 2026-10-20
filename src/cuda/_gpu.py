@@ -24,7 +24,9 @@ Differences from the CPU classes:
     `unblock` = 'gpu' (that walk, a kernel) or 'cpu' (bslz4_to_sparse.block_starts on the host,
     uploaded: for a small group, or a small GPU).
     The result arrays are numpy (as the CPU classes) and are
-    overwritten by the next call.
+    overwritten by the next call.  decompress(chunks) and, for chunk2sparseCSC, integrate(chunks)
+    keep their result on the GPU instead: a new device array each call (see their docstrings).
+  * `device`: the GPU (None: the current one), made current in the calling thread.
   * the matrix is the one chunk2sparseCSC takes (scipy csc / pyFAI CSC engine, or
     fixed_point_matrix); normalise_matrix and the mask folding are bslz4_to_sparse._matrix's.  Per
     batch: decompress into dense frames in GPU memory, then the matrix product (CSR, one thread
@@ -100,6 +102,16 @@ def _shared(dev, kind, arrays):
         return _shared_dev[key]
 
 
+def device_count():
+    """The number of CUDA GPUs."""
+    return cu.device_count()
+
+
+def device_name(dev=0):
+    """The name of CUDA GPU `dev`, e.g. "Tesla V100-SXM2-32GB"."""
+    return cu.device_name(dev)
+
+
 def release_shared():
     """Drop the shared matrices and masks (objects still alive keep their references)."""
     with _shared_lock:
@@ -157,8 +169,9 @@ class chunk2sparse(object):
         thresholds=None,
         group=None,
         unblock="gpu",
+        device=None,
     ):
-        self._dev = cu.device_id()
+        self._dev = cu.device_id() if device is None else int(device)
         cu.use_device(self._dev)  # another library may have made its own context current
         if codec is not None and codec != CODEC_LZ4:
             raise ValueError("the GPU decoder does lz4 only")
@@ -238,7 +251,7 @@ class chunk2sparse(object):
         return None
 
     # -- buffers
-    def _ensure(self, nframes, slab_bytes, G):
+    def _ensure(self, nframes, slab_bytes, G, lists=True):
         G = min(G, nframes)
         B = min(self.batch, G)
         if self._gcap < G or self._slab_cap < slab_bytes:  # one group: chunks and block starts
@@ -273,6 +286,8 @@ class chunk2sparse(object):
             self.h_outv = np.frombuffer(cu.pinned(nl * self.bpp), self.dtype, nl)
             self.h_outi = np.frombuffer(cu.pinned(nl * 4), np.uint32, nl)
             self._on_resize(n)
+        if not lists:  # decompress / integrate: results stay on the device
+            return
         if self._nframes < nframes:  # host results keep the largest size seen; views are returned
             self._values_buf = np.empty((nframes, self.npix), self.dtype)
             self._indices_buf = np.empty((nframes, self.npix), np.uint32)
@@ -342,28 +357,32 @@ class chunk2sparse(object):
         self.d_err[:n].set(err, s)
 
     # -- frames s0 .. s0 + n of the group (n <= batch): decompress, collect, matrix product
-    def _launch(self, s0, n, cut):
-        s = self.stream
-        self._s0 = s0
-        d_off, d_end, d_err = self.d_off[s0:], self.d_end[s0:], self.d_err[s0:]
-        grid = (n, (self.ntot + 1) // 2)
+    def _decompress(self, s0, n, dense, stride):
+        """frames s0 .. s0 + n of the group -> dense + f * stride bytes"""
         self.k_decompress(
-            grid,
+            (n, (self.ntot + 1) // 2),
             (32, 2),
             (
                 self.d_slab,
-                d_off,
-                d_end,
+                self.d_off[s0:],
+                self.d_end[s0:],
                 self.d_starts[s0:],
-                d_err,
+                self.d_err[s0:],
                 np.uint32(self.nstored),
                 np.uint32(self.ntot),
                 np.uint32(self.nbytes),
                 np.uint32(self.bpp),
-                self.d_dense,
-                np.uint64(self.stride),
+                dense,
+                np.uint64(stride),
             ),
         )
+
+    def _launch(self, s0, n, cut):
+        s = self.stream
+        self._s0 = s0
+        d_err = self.d_err[s0:]
+        grid = (n, (self.ntot + 1) // 2)
+        self._decompress(s0, n, self.d_dense, self.stride)
         cut_i, cut_f = self._cut(cut)
         nthr = self._ndev_thr
         self._thr_call = (
@@ -535,6 +554,50 @@ class chunk2sparse(object):
     def _extra(self):
         return ()
 
+    def _bad_chunks(self, f0, n):
+        """waits for the stream; raises if a chunk of frames f0 .. f0 + n of the call was corrupt"""
+        err = self.d_err[:n].get()
+        if err.any():
+            raise Exception(
+                "Error decoding batch: a chunk is corrupt or truncated (its block lengths do not "
+                "match its size); chunks %s" % (np.flatnonzero(err) + f0).tolist()
+            )
+
+    def _device_groups(self, chunks):
+        """(first frame, frames) of each group uploaded and unblocked, for decompress / integrate"""
+        views = [memoryview(c).cast("B") for c in chunks]
+        if len(views) == 0:
+            raise Exception("Error decoding batch: -105: no chunks were given")
+        self._check(views)
+        nf = len(views)
+        G = max(self.batch, min(nf, 256)) if self.group is None else self.group
+        self._ensure(
+            nf, max(sum(len(v) for v in views[i : i + G]) for i in range(0, nf, G)), G, False
+        )
+        for g0 in range(0, nf, G):
+            yield g0, self._upload(views[g0 : g0 + G])
+
+    def decompress(self, chunks):
+        """Decode chunks (one frame each) into dense frames that stay on the GPU: a new
+        C-contiguous device array (nframes, ni, nj) of the pixel dtype, complete when returned.
+        Every pixel as stored (no cut, no mask).  A cupy array with the cupy backend; with the
+        driver backend (BSLZ4_CUDA_BACKEND=driver) an array that cupy, numba, pycuda and torch take
+        through __cuda_array_interface__, and torch, jax, tensorflow and cupy through DLPack,
+        without a copy."""
+        cu.use_device(self._dev)
+        out = cu.empty((len(chunks), self.npix // self.nfast, self.nfast), self.dtype)
+        for g0, ng in self._device_groups(chunks):
+            if self.nbytes % 16 == 0:  # frames decode straight into place (16-byte stores)
+                self._decompress(0, ng, out[g0:], self.nbytes)
+            else:  # through the padded frames of a batch
+                for s0 in range(0, ng, self.batch):
+                    n = min(self.batch, ng - s0)
+                    self._decompress(s0, n, self.d_dense, self.stride)
+                    cu.copy_rows(out[g0 + s0 :], self.nbytes, self.d_dense, self.stride,
+                                 self.nbytes, n)
+            self._bad_chunks(g0, ng)
+        return out
+
     def multi(self, chunks, cut):
         """Decode a batch of chunks (one frame each): npixels[nframes], (values, indices) of shape
         (nframes, ni*nj)."""
@@ -602,6 +665,7 @@ class chunk2sparseCSC(chunk2sparse):
         thresholds=None,
         group=None,
         unblock="gpu",
+        device=None,
     ):
         import scipy.sparse as ss
 
@@ -617,7 +681,9 @@ class chunk2sparseCSC(chunk2sparse):
         if acc not in ACC:
             raise ValueError("acc must be one of %s" % list(ACC))
         self.acc = acc
-        super().__init__(mask, dtype, codec, pipeline, batch, howmany, thresholds, group, unblock)
+        super().__init__(
+            mask, dtype, codec, pipeline, batch, howmany, thresholds, group, unblock, device
+        )
         if self.kind == 2 and acc == "i64":
             raise ValueError("acc='i64' needs integer pixels")
         if fixed is not None:
@@ -676,7 +742,23 @@ class chunk2sparseCSC(chunk2sparse):
             cu.pinned(shape[0] * shape[1] * dt.itemsize), dt, shape[0] * shape[1]
         ).reshape(shape)
 
-    def _dot(self, n):
+    def integrate(self, chunks):
+        """The powder of each frame, kept on the GPU: a new device array (nframes, nbins),
+        complete when returned: float64 (acc 'f64'), float32 ('f32'), or the int64 sums of a
+        fixed_point_matrix (divide by powder_scale).  The same sums as the powder of multi, without
+        a cut or lists of pixels: decompress, then the matrix product.  The array types are those
+        of decompress."""
+        cu.use_device(self._dev)
+        out = cu.empty((len(chunks), self.nbins), np.dtype(_fixed_np(self.acc)))
+        for g0, ng in self._device_groups(chunks):
+            for s0 in range(0, ng, self.batch):
+                n = min(self.batch, ng - s0)
+                self._decompress(s0, n, self.d_dense, self.stride)
+                self._dot(n, out[g0 + s0 :])
+            self._bad_chunks(g0, ng)
+        return out
+
+    def _dot(self, n, out=None):
         if self.nbins == 0:
             return
         F = FRAMES_PER_READ if n >= FRAMES_PER_READ else 1
@@ -691,7 +773,7 @@ class chunk2sparseCSC(chunk2sparse):
                 self.d_idx,
                 self.d_ptr,
                 np.int32(self.nbins),
-                self.d_powder,
+                self.d_powder if out is None else out,
             ),
         )
 
