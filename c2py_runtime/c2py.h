@@ -401,6 +401,14 @@ typedef struct {
 #endif
 
 
+/* printf conversion for long long.  Older MSVC CRTs and msvcrt.dll (MinGW)
+ * do not accept "%lld"; every Windows CRT accepts "%I64d". */
+#if defined(_WIN32)
+#define C2PY_LLD "%I64d"
+#else
+#define C2PY_LLD "%lld"
+#endif
+
 /* ------------------------------------------------------------------ */
 /* Function pointer table - populated by c2py_runtime_init()          */
 /* Identical for both backends.                                       */
@@ -685,6 +693,9 @@ c2py_release_buffer(Py_buffer *buf)
 /* Maximum supported dimensions for DLPack stride computation.
  * Matches numpy's practical limit; arrays with >16D are vanishingly rare. */
 #define C2PY_MAX_NDIM 32
+
+/* Largest Py_ssize_t, without relying on PY_SSIZE_T_MAX from Python.h. */
+#define C2PY_SSIZE_T_MAX ((Py_ssize_t)(((size_t)-1) >> 1))
 
 /* c2py_ptr_info mirrors the leading fields of Py_buffer exactly so that
  * c2py_pin_buffer can memcpy the acquired Py_buffer straight into it.
@@ -1203,7 +1214,6 @@ c2py_pin_dlpack(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
     c2py_dl_tensor_t *t;
     char format_char;
     Py_ssize_t nelem;
-    int i;
 
     (void)want_writable;
 
@@ -1260,32 +1270,50 @@ c2py_pin_dlpack(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
                 "DLPack: too many dimensions (exceeds C2PY_MAX_NDIM)");
             goto fail;
         }
-        for (d = 0; d < t->ndim; d++)
+        /* Range-check in int64 before narrowing: on ILP32 a shape, stride
+         * or byte count above 2 GiB would otherwise wrap silently.  A
+         * zero-length dimension makes nelem 0 whatever the other dims. */
+        for (d = 0; d < t->ndim; d++) {
+            if (t->shape[d] < 0 || t->shape[d] > (int64_t)C2PY_SSIZE_T_MAX)
+                goto too_large;
+            if (t->shape[d] == 0)
+                nelem = 0;
             pin->shape_buf[d] = (Py_ssize_t)t->shape[d];
+        }
+        if (nelem != 0) {
+            for (d = 0; d < t->ndim; d++) {
+                if (nelem > C2PY_SSIZE_T_MAX / pin->shape_buf[d])
+                    goto too_large;
+                nelem *= pin->shape_buf[d];
+            }
+            if (info->itemsize > 0 && nelem > C2PY_SSIZE_T_MAX / info->itemsize)
+                goto too_large;
+        }
         info->shape = pin->shape_buf;
         if (t->strides) {
             /* DLPack strides are in elements; convert to bytes. */
+            int64_t lim = (int64_t)C2PY_SSIZE_T_MAX /
+                          (info->itemsize > 0 ? info->itemsize : 1);
             for (d = 0; d < t->ndim; d++) {
+                if (t->strides[d] > lim || t->strides[d] < -lim)
+                    goto too_large;
                 pin->stride_buf[d] = (Py_ssize_t)t->strides[d] * info->itemsize;
             }
             info->strides = pin->stride_buf;
-        } else if (t->ndim <= C2PY_MAX_NDIM) {
+        } else {
             /* Implied C-contiguous strides: last dim = itemsize,
-             * each preceding dim = product of later dims * itemsize */
+             * each preceding dim = product of later dims * itemsize.
+             * With a zero-length dim the product can still overflow. */
             Py_ssize_t st = info->itemsize;
             for (d = t->ndim - 1; d >= 0; d--) {
                 pin->stride_buf[d] = st;
-                st *= (Py_ssize_t)t->shape[d];
+                if (pin->shape_buf[d] != 0 &&
+                    st > C2PY_SSIZE_T_MAX / pin->shape_buf[d])
+                    goto too_large;
+                st *= pin->shape_buf[d];
             }
             info->strides = pin->stride_buf;
-        } else {
-            /* >8D with NULL strides: reject (would need dynamic alloc) */
-            PyErr_SetString(PyExc_ValueError,
-                "DLPack: >8 dimensions without explicit strides");
-            goto fail;
         }
-        for (i = 0; i < t->ndim; i++)
-            nelem *= (Py_ssize_t)t->shape[i];
     } else {
         info->shape   = NULL;
         info->strides = NULL;
@@ -1306,6 +1334,9 @@ c2py_pin_dlpack(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
     /* capsule NOT decref'd -- stored in pin->buf.obj */
     return 0;
 
+too_large:
+    PyErr_SetString(PyExc_ValueError,
+        "DLPack: shape, stride or size does not fit in Py_ssize_t");
 fail:
     Py_XDECREF(dl_method);
     Py_XDECREF(dl_args);
@@ -1460,6 +1491,18 @@ static inline uint64_t c2py_cycle_counter_ticks(void) {
 #endif
 }
 
+/* Convert counter ticks to nanoseconds given the counter frequency in Hz.
+ * Returns ticks * 1e9 / freq_hz, split into whole seconds and remainder so
+ * that absolute counter values (e.g. QueryPerformanceCounter since boot)
+ * do not overflow; exact for any freq_hz below ~1.8e10 Hz.
+ * Safe against freq_hz == 0 (returns 0).
+ */
+static inline uint64_t c2py_ticks_to_ns(uint64_t ticks, uint64_t freq_hz) {
+    if (freq_hz == 0) return 0;
+    return (ticks / freq_hz) * 1000000000ULL +
+           (ticks % freq_hz) * 1000000000ULL / freq_hz;
+}
+
 /* Monotonic timestamp, always returns nanoseconds.
  *
  * When _c2py_use_cycle_counter == 0 (default):
@@ -1484,7 +1527,7 @@ static inline uint64_t c2py_ticks(void) {
         LARGE_INTEGER freq, counter;
         QueryPerformanceFrequency(&freq);
         QueryPerformanceCounter(&counter);
-        return (uint64_t)(counter.QuadPart * 1000000000ULL / freq.QuadPart);
+        return c2py_ticks_to_ns((uint64_t)counter.QuadPart, (uint64_t)freq.QuadPart);
     }
 #elif !defined(__STRICT_ANSI__)
     {
@@ -1498,15 +1541,6 @@ static inline uint64_t c2py_ticks(void) {
 #endif
 }
 
-/* Convert cycle counter ticks to nanoseconds given the counter frequency
- * in Hz.  Returns ticks * 1e9 / freq_hz.
- * Safe against freq_hz == 0 (returns 0).  May overflow if ticks exceeds
- * ~1.8e10 (18 seconds at 1 GHz), which is well beyond any per-call timing.
- */
-static inline uint64_t c2py_ticks_to_ns(uint64_t ticks, uint64_t freq_hz) {
-    if (freq_hz == 0) return 0;
-    return ticks * 1000000000ULL / freq_hz;
-}
 
 /* Active tick source frequency in Hz, set at init and updated when
  * _c2py_use_cycle_counter is toggled via __c2py_set_tick_source().

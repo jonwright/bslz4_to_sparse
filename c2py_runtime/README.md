@@ -17,8 +17,11 @@ all. c2py23 is still needed as a developer tool to *regenerate*
 embedded in `src/bslz4_to_sparse.c` -- see the C2PY_BEGIN block there
 and `tools/regenerate_wrapper.py`.
 
-Source: https://github.com/jonwright/c2py23, `v0.5.9`,
-commit `28675f86b8b1d12fc59f48ee2d3c49c8578f121e`. Since v0.5.5:
+Source: https://github.com/jonwright/c2py23, `v0.5.10`,
+commit `f6b9a400e740bcd7039a714ca420bb2545ed3834`. v0.5.10 passes buffers above 2 GiB to
+pointer-width and 64-bit length parameters (`size_t`, `int64_t`, ...), range-checks every narrow
+integer receiver instead of only `int`, holds scalar ints as `long long` and declares scalar
+outputs with their own C type (test/test_large_buffer.py). Since v0.5.5:
 v0.5.6 fixes the loader's "overwriting existing module" check to sample
 `sys.modules` before `module_from_spec()` (this repo carried that as a
 `LOCAL PATCH`; `src/c2py_loader.py` is now upstream again); v0.5.7 makes
