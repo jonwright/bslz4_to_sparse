@@ -53,6 +53,8 @@ int c2py_runtime_init(void)
     C2PY.Module_GetDict     = PyModule_GetDict;
     C2PY._ds_set_item_string = (void *)PyDict_SetItemString;
     C2PY.CallObject         = PyObject_CallObject;
+    C2PY.Call               = PyObject_Call;
+    C2PY.Dict_New           = PyDict_New;
     C2PY.Long_FromVoidPtr   = PyLong_FromVoidPtr;
     C2PY.SaveThread         = (void*(*)(void))PyEval_SaveThread;
     C2PY.RestoreThread      = (void(*)(void*))PyEval_RestoreThread;

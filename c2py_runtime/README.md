@@ -18,7 +18,7 @@ embedded in `src/bslz4_to_sparse.c` -- see the C2PY_BEGIN block there
 and `tools/regenerate_wrapper.py`.
 
 Source: https://github.com/jonwright/c2py23, `v0.5.10`,
-commit `f6b9a400e740bcd7039a714ca420bb2545ed3834`. v0.5.10 passes buffers above 2 GiB to
+commit `469886e58d19de6004d70c6b5a798c1869fcc5ae`. v0.5.10 passes buffers above 2 GiB to
 pointer-width and 64-bit length parameters (`size_t`, `int64_t`, ...), range-checks every narrow
 integer receiver instead of only `int`, holds scalar ints as `long long` and declares scalar
 outputs with their own C type (test/test_large_buffer.py). Since v0.5.5:

@@ -42,7 +42,7 @@ typedef struct {
     int is_pypy;                    /* 1 = running on PyPy (cpyext, PyPy_* symbols) */
     Py_ssize_t pybuffer_size;      /* actual sizeof(Py_buffer) for this Python version */
     Py_ssize_t pyobject_size;      /* actual sizeof(PyObject) for this Python version */
-    Py_ssize_t pyobject_size_ft;   /* sizeof(PyObject) for free-threaded builds (32 LP64) */
+    Py_ssize_t pyobject_size_ft;   /* sizeof(PyObject_FT): 32 on LP64, 20 on ILP32 */
     Py_ssize_t pymoduledef_max_size; /* max(sizeof(PyModuleDef), sizeof(PyModuleDef_FT)) */
     ptrdiff_t ob_refcnt_offset;    /* offset of ob_refcnt (or ob_ref_shared on FT) in PyObject */
     ptrdiff_t ob_type_offset;      /* offset of ob_type field in PyObject */
@@ -111,6 +111,9 @@ typedef struct {
 
     /* General call support (optional, used by DLPack) */
     PyObject* (*CallObject)(PyObject*, PyObject*);
+    /* Keyword call, for __dlpack__(max_version=...) (optional) */
+    PyObject* (*Call)(PyObject*, PyObject*, PyObject*);
+    PyObject* (*Dict_New)(void);
 
     /* Capsule API (optional, used by DLPack) */
     void* (*Capsule_GetPointer)(PyObject*, const char*);
@@ -340,6 +343,57 @@ typedef struct {
     Py_ssize_t *strides;      /* per-dimension strides (may be NULL) */
 } c2py_ptr_info;
 
+/* Overflow-checked long long arithmetic for integer check:, when: and map:
+ * expressions.  Buffer sizes are Py_ssize_t, which is 32-bit on ILP32, so
+ * a.n * 8 or a.n + b.n can wrap there; evaluating in long long fixes that,
+ * and these helpers also catch what long long cannot hold (a.n * b.n for
+ * two 4 GiB buffers on a 64-bit build) and division by zero.  On failure
+ * they set *ovf and return 0; the wrapper then raises ValueError instead
+ * of acting on a wrapped value.  No compiler builtins: plain C99. */
+static inline long long
+c2py_add_ll(long long a, long long b, int *ovf)
+{
+    if ((b > 0 && a > LLONG_MAX - b) || (b < 0 && a < LLONG_MIN - b)) { *ovf = 1; return 0; }
+    return a + b;
+}
+
+static inline long long
+c2py_sub_ll(long long a, long long b, int *ovf)
+{
+    if ((b < 0 && a > LLONG_MAX + b) || (b > 0 && a < LLONG_MIN + b)) { *ovf = 1; return 0; }
+    return a - b;
+}
+
+static inline long long
+c2py_mul_ll(long long a, long long b, int *ovf)
+{
+    if (a == 0 || b == 0) return 0;
+    if (a > 0 ? (b > 0 ? a > LLONG_MAX / b : b < LLONG_MIN / a)
+              : (b > 0 ? a < LLONG_MIN / b : a < LLONG_MAX / b)) { *ovf = 1; return 0; }
+    return a * b;
+}
+
+static inline long long
+c2py_div_ll(long long a, long long b, int *ovf)
+{
+    if (b == 0 || (a == LLONG_MIN && b == -1)) { *ovf = 1; return 0; }
+    return a / b;
+}
+
+static inline long long
+c2py_mod_ll(long long a, long long b, int *ovf)
+{
+    if (b == 0 || (a == LLONG_MIN && b == -1)) { *ovf = 1; return 0; }
+    return a % b;
+}
+
+static inline long long
+c2py_neg_ll(long long a, int *ovf)
+{
+    if (a == LLONG_MIN) { *ovf = 1; return 0; }
+    return -a;
+}
+
 /* Runtime enforcement of the no-alias contract generated wrappers rely
  * on when passing buffer pointers to C functions as restrict.
  *
@@ -357,16 +411,18 @@ static inline int
 c2py_check_no_overlap(c2py_ptr_info *const *infos, int n_writable, int n)
 {
     int i, j;
+    uintptr_t a, b;
     for (i = 0; i < n_writable; i++) {
+        /* An empty buffer occupies no bytes: nothing can be written
+         * through it, so it overlaps nothing (a[5:5] inside a). */
+        if (infos[i]->len <= 0) continue;
+        a = (uintptr_t)infos[i]->ptr;
         for (j = 0; j < n; j++) {
-            if (i == j) continue;
-            if ((char*)infos[i]->ptr >= (char*)infos[j]->ptr &&
-                (char*)infos[i]->ptr < (char*)infos[j]->ptr + infos[j]->len) {
-                PyErr_SetString(PyExc_ValueError, "buffer aliasing forbidden");
-                return -1;
-            }
-            if ((char*)infos[j]->ptr >= (char*)infos[i]->ptr &&
-                (char*)infos[j]->ptr < (char*)infos[i]->ptr + infos[i]->len) {
+            if (i == j || infos[j]->len <= 0) continue;
+            b = (uintptr_t)infos[j]->ptr;
+            /* Integer compare: relational comparison of pointers into
+             * different objects is undefined in C. */
+            if (a < b + (uintptr_t)infos[j]->len && b < a + (uintptr_t)infos[i]->len) {
                 PyErr_SetString(PyExc_ValueError, "buffer aliasing forbidden");
                 return -1;
             }
@@ -402,23 +458,16 @@ c2py_check_contiguity(const c2py_ptr_info *info, int *slow_axis, int *fast_axis)
         *fast_axis = (int)(info->ndim - 1);
         return 0;
     }
+    /* An axis of length 1 is never stepped along, so its stride is
+     * irrelevant: numpy leaves it raw (0 for a[None, :], junk under
+     * NPY_RELAXED_STRIDES_DEBUG) and only normalises it in its PEP 3118
+     * export.  C order is tested first so that an array that is both
+     * (e.g. (1, N) or (N, 1)) reports the same axes on every backend. */
     if (info->ndim >= 1) {
-        _expected = info->itemsize;
-        /* check F-contiguous (column-major): first dim varies fastest */
-        for (_d = 0; _d < info->ndim; _d++) {
-            if (info->strides[_d] < 0) { _ok = 0; break; }
-            if (info->strides[_d] != _expected) { _ok = 0; break; }
-            _expected *= info->shape[_d];
-        }
-        if (_ok) {
-            *slow_axis = (int)(info->ndim - 1);
-            *fast_axis = 0;
-            return 0;
-        }
         /* check C-contiguous (row-major): last dim varies fastest */
-        _ok = 1;
         _expected = info->itemsize;
         for (_d = info->ndim - 1; _d >= 0; _d--) {
+            if (info->shape[_d] == 1) continue;
             if (info->strides[_d] < 0) { _ok = 0; break; }
             if (info->strides[_d] != _expected) { _ok = 0; break; }
             _expected *= info->shape[_d];
@@ -426,6 +475,20 @@ c2py_check_contiguity(const c2py_ptr_info *info, int *slow_axis, int *fast_axis)
         if (_ok) {
             *slow_axis = 0;
             *fast_axis = (int)(info->ndim - 1);
+            return 0;
+        }
+        /* check F-contiguous (column-major): first dim varies fastest */
+        _ok = 1;
+        _expected = info->itemsize;
+        for (_d = 0; _d < info->ndim; _d++) {
+            if (info->shape[_d] == 1) continue;
+            if (info->strides[_d] < 0) { _ok = 0; break; }
+            if (info->strides[_d] != _expected) { _ok = 0; break; }
+            _expected *= info->shape[_d];
+        }
+        if (_ok) {
+            *slow_axis = (int)(info->ndim - 1);
+            *fast_axis = 0;
             return 0;
         }
     }
@@ -460,19 +523,42 @@ typedef struct {
 /* NumPy ndarray struct-cast fast path (lazy-probed, no import)       */
 /* ------------------------------------------------------------------ */
 
-/* Minimal PyTypeObject overlay to read tp_name without importing numpy.
- * Layout (GIL-only LP64): ob_refcnt(8) + ob_type(8) + ob_size(8) +
- * tp_name(8).  Free-threaded builds skip the fast path.
- * On PyPy, ob_pypy_link sits between ob_refcnt and ob_type. */
-typedef struct {
-    Py_ssize_t ob_refcnt;
-#ifdef C2PY_TARGET_PYPY
-    void     *ob_pypy_link;
+/* PyTypeObject.tp_name follows the object header and ob_size, so its
+ * offset is C2PY.pyobject_size + sizeof(Py_ssize_t) on every build:
+ * 24 on GIL LP64, 40 on free-threaded LP64, 12 / 24 on ILP32. */
+#define C2PY_TP_NAME_OFF (C2PY.pyobject_size + (Py_ssize_t)sizeof(Py_ssize_t))
+
+/* Publishing the probed ndarray layout.  On free-threaded Python two
+ * threads can meet the first ndarray at once, and a reader must never
+ * see ndarray_type set before data_off: the layout is published with a
+ * release store and read with an acquire load.  GCC/Clang (and MinGW)
+ * use __atomic builtins, MSVC the Interlocked functions (full
+ * barriers).  Without either, C2PY_HAVE_ATOMICS is 0 and the fast path
+ * stays off on free-threaded builds (GIL builds need no barrier). */
+#if defined(__clang__) || \
+    (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)))
+#define C2PY_HAVE_ATOMICS 1
+#define c2py_load_ptr_acq(p)     __atomic_load_n((p), __ATOMIC_ACQUIRE)
+#define c2py_store_ptr_rel(p, v) __atomic_store_n((p), (v), __ATOMIC_RELEASE)
+#define c2py_load_int(p)         __atomic_load_n((p), __ATOMIC_RELAXED)
+#define c2py_store_int(p, v)     __atomic_store_n((p), (v), __ATOMIC_RELAXED)
+#elif defined(_MSC_VER)
+#define C2PY_HAVE_ATOMICS 1
+#define c2py_load_ptr_acq(p) \
+    InterlockedCompareExchangePointer((PVOID volatile *)(p), NULL, NULL)
+#define c2py_store_ptr_rel(p, v) \
+    ((void)InterlockedExchangePointer((PVOID volatile *)(p), (PVOID)(v)))
+#define c2py_load_int(p) \
+    ((int)InterlockedCompareExchange((LONG volatile *)(p), 0, 0))
+#define c2py_store_int(p, v) \
+    ((void)InterlockedExchange((LONG volatile *)(p), (LONG)(v)))
+#else
+#define C2PY_HAVE_ATOMICS 0
+#define c2py_load_ptr_acq(p)     (*(p))
+#define c2py_store_ptr_rel(p, v) ((void)(*(p) = (v)))
+#define c2py_load_int(p)         (*(p))
+#define c2py_store_int(p, v)     ((void)(*(p) = (v)))
 #endif
-    void     *ob_type;
-    Py_ssize_t ob_size;
-    const char *tp_name;
-} c2py_type_min_t;
 
 /* Runtime-discovered ndarray layout cache.
  * data_off is the offset of the data pointer from the PyObject base.
@@ -484,6 +570,8 @@ typedef struct {
  *   data_off + 40: descr       (PyArray_Descr*)
  *   data_off + 48: flags       (int)      */
 typedef struct {
+    /* Accessed only through c2py_load_* / c2py_store_* (see above):
+     * data_off is stored before ndarray_type is published. */
     void *ndarray_type;     /* cached ob_type of numpy.ndarray, NULL if unknown */
     int data_off;           /* offset of data ptr from PyObject base */
     int probed;             /* 1 = layout known, 0 = probing deferred */
@@ -530,22 +618,56 @@ c2py_format_is_native(const char *fmt)
 #endif
 }
 
-/* Map a PEP 3118 type character to itemsize.
- * Excludes 'l'/'L' (platform-sized -- callers use sizeof(long) at
- * the expression level).  Used by both ndarray and DLPack backends. */
+/* Type character of a single-element, native-order PEP 3118 format, or
+ * '\0' for anything else.  Accepted: one type char with an optional
+ * byte-order prefix ("d", "<d", "=d", "@d"), the prefix being non-native
+ * only for 1-byte types.  Rejected: complex ("Zd": no complex type, see
+ * docs/design.md #53), repeat counts ("2d"), structs ("T{...}") and
+ * non-native order.  Comparing only the last character let all of these
+ * through as plain 'd'.
+ *
+ * A NULL format is 'B' (unsigned bytes), as PEP 3118 defines it.  It is
+ * also exactly what the Python 2.7 old buffer API fallback hands over
+ * (itemsize 1, .n counts bytes), so a 'd' check must not accept it:
+ * array.array('d') on 2.7 has only the old API, and treating NULL as
+ * "matches anything" let .n be 8x the element count. */
+static inline char
+c2py_format_type(const char *fmt)
+{
+    char c;
+
+    if (fmt == NULL) return 'B';
+    if (fmt[0] == '@' || fmt[0] == '=' || fmt[0] == '<' || fmt[0] == '>' || fmt[0] == '!') {
+        if (!c2py_format_is_native(fmt) && fmt[1] != 'b' && fmt[1] != 'B'
+            && fmt[1] != 'c' && fmt[1] != '?')
+            return '\0';
+        fmt++;
+    }
+    c = fmt[0];
+    if (c == '\0' || fmt[1] != '\0') return '\0';
+    if ((c >= '0' && c <= '9') || c == 'Z' || c == 'T' || c == '{' || c == '(') return '\0';
+    return c;
+}
+
+/* Map a numpy type character to itemsize for the ndarray fast path, or
+ * 0 when the size is not known here: complex ('F', 'D', 'G'), datetime,
+ * string, void and object dtypes, and 'g' (long double is 8, 12 or 16
+ * bytes depending on the compiler numpy was built with, which need not
+ * be ours, e.g. MinGW against an MSVC numpy).  On 0 the fast path
+ * declines and the PEP 3118 backend, which reports numpy's own
+ * itemsize, takes over.  'l'/'L' are sizeof(long) on both sides. */
 static inline int
 c2py_format_itemsize(char type_char)
 {
     switch (type_char) {
     case 'b': case 'B': case '?': return 1;
-    case 'h': case 'H':          return 2;
+    case 'h': case 'H': case 'e': return 2;
     case 'i': case 'I':          return 4;
     case 'l': case 'L':          return (int)sizeof(long);
     case 'q': case 'Q':          return 8;
     case 'f':                    return 4;
     case 'd':                    return 8;
-    case 'g':                    return (int)sizeof(long double);
-    default:                     return 1;
+    default:                     return 0;
     }
 }
 
@@ -582,6 +704,25 @@ typedef struct c2py_dl_managed_tensor {
     void *manager_ctx;
     void (*deleter)(struct c2py_dl_managed_tensor *);
 } c2py_dl_managed_tensor;
+
+/* DLPack >= 1.0 ("dltensor_versioned" capsule): the tensor comes after
+ * the version, context, deleter and flags, and the flags say whether
+ * the producer allows writes.  The legacy struct above has no such
+ * flag. */
+typedef struct {
+    uint32_t major;
+    uint32_t minor;
+} c2py_dl_version_t;
+
+typedef struct c2py_dl_managed_tensor_versioned {
+    c2py_dl_version_t version;
+    void *manager_ctx;
+    void (*deleter)(struct c2py_dl_managed_tensor_versioned *);
+    uint64_t flags;
+    c2py_dl_tensor_t dl_tensor;
+} c2py_dl_managed_tensor_versioned;
+
+#define C2PY_DL_FLAG_READ_ONLY ((uint64_t)1)
 
 /* DLPack type codes */
 #define C2PY_DL_INT    0
@@ -657,18 +798,19 @@ c2py_pin_buffer(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
 #define C2PY_NDARR_OFF_STRIDES   24
 #define C2PY_NDARR_OFF_DESCR     40
 #define C2PY_NDARR_OFF_FLAGS     48
-#define C2PY_DESCR_TYPE_CHAR_OFF 25
 #else
 #define C2PY_NDARR_OFF_ND        4
 #define C2PY_NDARR_OFF_DIMS      8
 #define C2PY_NDARR_OFF_STRIDES   12
 #define C2PY_NDARR_OFF_DESCR     20
 #define C2PY_NDARR_OFF_FLAGS     24
-#define C2PY_DESCR_TYPE_CHAR_OFF 13
 #endif
 
-/* PyArray_Descr's 'byteorder' field ('<','>','=','|') immediately
- * follows 'type' in the struct (kind, type, byteorder, ...). */
+/* PyArray_Descr is an object header, then PyTypeObject *typeobj, then
+ * char kind, type, byteorder ('<','>','=','|').  The header is larger
+ * on free-threaded builds, so the offsets follow C2PY.pyobject_size:
+ * type char at 25 on GIL LP64, 41 on free-threaded LP64, 13 on ILP32. */
+#define C2PY_DESCR_TYPE_CHAR_OFF (C2PY.pyobject_size + (Py_ssize_t)sizeof(void*) + 1)
 #define C2PY_DESCR_BYTEORDER_OFF (C2PY_DESCR_TYPE_CHAR_OFF + 1)
 
 /* Acquire via numpy ndarray struct-cast (no PyObject_GetBuffer).
@@ -688,22 +830,27 @@ c2py_pin_ndarray(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
     Py_ssize_t nelem, i;
     char type_char;
 
-    /* Free-threaded Python and PyPy: type-object layout differs from
-     * standard GIL CPython.  PyPy cpyext wraps ndarray objects in
-     * proxies -- the data pointer is not at a fixed offset from id().
-     * Skip the fast path and fall through to buffer protocol. */
-    if (C2PY.is_free_threaded || C2PY.is_pypy)
+    /* PyPy cpyext wraps ndarray objects in proxies -- the data pointer
+     * is not at a fixed offset from id() -- so there is no struct to
+     * cast: fall through to the buffer protocol.  Free-threaded builds
+     * use the fast path when the layout can be published safely. */
+    if (C2PY.is_pypy)
         return -1;
+#if !C2PY_HAVE_ATOMICS
+    if (C2PY.is_free_threaded)
+        return -1;
+#endif
 
     tp = *(void**)((char*)obj + C2PY.ob_type_offset);
 
-    if (L->ndarray_type && tp == L->ndarray_type) {
+    if (tp && tp == c2py_load_ptr_acq(&L->ndarray_type)) {
         goto fill;
     }
 
-    if (!L->probed && tp) {
-        const char *name = ((c2py_type_min_t*)tp)->tp_name;
+    if (!c2py_load_int(&L->probed) && tp) {
+        const char *name = *(const char**)((char*)tp + C2PY_TP_NAME_OFF);
         if (name && strcmp(name, "numpy.ndarray") == 0) {
+            int data_off = -1;
             /* First encounter: validate via buffer protocol, then
              * scan object memory to locate the data pointer at runtime.
              * Note: PyObject_GetBuffer COPIES shape/strides to temporary
@@ -719,26 +866,34 @@ c2py_pin_ndarray(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
                      off < (int)C2PY.pyobject_size + 80;
                      off += (int)sizeof(void*)) {
                     if (*(void**)(base + off) == dptr) {
-                        L->data_off = off;
+                        data_off = off;
                         break;
                     }
                 }
             }
+            /* Data pointer not found (e.g. NULL for an empty array):
+             * nothing learned, retry on a later array. */
+            if (data_off < 0)
+                goto probe_fail;
 
             /* Verify the layout against known numpy struct:
              * data_off+OFF_ND      -> nd   (int, 0 <= nd <= 32)
              * data_off+OFF_DIMS    -> shape ptr (reasonable pointer)
              * data_off+OFF_DESCR   -> descr (non-NULL pointer) */
-            nd    = *(int*)(base + L->data_off + C2PY_NDARR_OFF_ND);
-            descr = *(void**)(base + L->data_off + C2PY_NDARR_OFF_DESCR);
+            nd    = *(int*)(base + data_off + C2PY_NDARR_OFF_ND);
+            descr = *(void**)(base + data_off + C2PY_NDARR_OFF_DESCR);
             if (nd < 0 || nd > C2PY_MAX_NDIM || descr == NULL)
                 goto probe_fail;
             /* Sanity: shape pointer should be non-NULL if nd>0 */
-            if (nd > 0 && *(void**)(base + L->data_off + C2PY_NDARR_OFF_DIMS) == NULL)
+            if (nd > 0 && *(void**)(base + data_off + C2PY_NDARR_OFF_DIMS) == NULL)
                 goto probe_fail;
 
-            L->ndarray_type = tp;
-            L->probed = 1;
+            /* Publish: data_off first, then the type (release), so a
+             * thread that sees the type also sees data_off.  A racing
+             * prober stores the same values. */
+            c2py_store_int(&L->data_off, data_off);
+            c2py_store_int(&L->probed, 1);
+            c2py_store_ptr_rel(&L->ndarray_type, tp);
 
 
             /* First call: info already filled via c2py_acquire_buffer.
@@ -756,19 +911,21 @@ c2py_pin_ndarray(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
     return -1;
 
 fill:
-    base = (char*)obj;
+    base = (char*)obj + c2py_load_int(&L->data_off);
 
-    dptr  = *(void**)(base + L->data_off);
-    nd    = *(int*)(base + L->data_off + C2PY_NDARR_OFF_ND);
-    flags = *(int*)(base + L->data_off + C2PY_NDARR_OFF_FLAGS);
+    dptr  = *(void**)base;
+    nd    = *(int*)(base + C2PY_NDARR_OFF_ND);
+    flags = *(int*)(base + C2PY_NDARR_OFF_FLAGS);
 
     if (want_writable && !(flags & C2PY_NPY_WRITEABLE)) {
-        PyErr_SetString(PyExc_TypeError,
-                        "numpy array is not writeable");
+        /* ValueError, as numpy raises through PEP 3118, so the error is
+         * the same whichever backend (or free-threaded build) ran. */
+        PyErr_SetString(PyExc_ValueError,
+                        "numpy array is read-only");
         return -1;
     }
 
-    descr = *(void**)(base + L->data_off + C2PY_NDARR_OFF_DESCR);
+    descr = *(void**)(base + C2PY_NDARR_OFF_DESCR);
     if (descr) {
         /* Explicit non-native byte order: this fast path only ever
          * synthesizes a bare type char (no PEP 3118 prefix), so it
@@ -788,22 +945,23 @@ fill:
         pin->format_buf[1] = '\0';
         info->format = pin->format_buf;
         info->itemsize = c2py_format_itemsize(type_char);
+        /* Unknown size: fall through to the buffer protocol backend. */
+        if (info->itemsize == 0) return -1;
     } else {
-        info->format = NULL;
-        info->itemsize = 1;
+        return -1;
     }
 
     info->ptr     = dptr;
     info->ndim    = nd;
-    info->shape   = *(Py_ssize_t**)(base + L->data_off + C2PY_NDARR_OFF_DIMS);
-    info->strides = *(Py_ssize_t**)(base + L->data_off + C2PY_NDARR_OFF_STRIDES);
+    info->shape   = *(Py_ssize_t**)(base + C2PY_NDARR_OFF_DIMS);
+    info->strides = *(Py_ssize_t**)(base + C2PY_NDARR_OFF_STRIDES);
 
     nelem = 1;
     if (info->shape) {
         for (i = 0; i < nd && info->shape[i] >= 0; i++)
             nelem *= info->shape[i];
     }
-    info->len = nelem * (Py_ssize_t)(info->itemsize > 0 ? info->itemsize : 1);
+    info->len = nelem * (Py_ssize_t)info->itemsize;
 
     /* Hold a reference on the ndarray: we skipped PyObject_GetBuffer
      * which normally INCREFs the exporter.  Store it in buf.obj so
@@ -815,12 +973,21 @@ fill:
 }
 
 /* Acquire via DLPack capsule extraction.
- * Calls obj.__dlpack__() to get the capsule, then reads the DLTensor
- * struct fields directly.  CPU-only; GPU tensors are rejected.
- * All DLPack API symbols (CallObject, Capsule_GetPointer)
- * are optional: if any is NULL, this function returns -1 immediately,
- * falling through to the next backend.
- * Returns 0 on success, -1 to fall through to next backend. */
+ * Calls obj.__dlpack__(max_version=(1, 0)) -- falling back to a plain
+ * obj.__dlpack__() for producers that predate DLPack 1.0 -- and reads
+ * the DLTensor fields directly.  CPU-only.  Every field is validated
+ * before use: a producer is foreign code and its tensor may be
+ * malformed.
+ *
+ * Writability: a versioned capsule carries a read-only flag, which is
+ * honoured.  A legacy capsule carries none, so it is never written
+ * through: a writable request declines it and the next backend
+ * decides.  This is what numpy does as a consumer (np.from_dlpack of a
+ * legacy capsule is a read-only array); producers such as JAX export
+ * immutable buffers through legacy DLPack.
+ *
+ * Returns 0 on success.  Returns -1 with no exception set to decline
+ * (next backend), or -1 with an exception set for a hard failure. */
 static inline int
 c2py_pin_dlpack(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
                 int want_writable)
@@ -828,12 +995,11 @@ c2py_pin_dlpack(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
     PyObject *dl_method = NULL;
     PyObject *dl_args = NULL;
     PyObject *capsule = NULL;
-    c2py_dl_managed_tensor *managed;
     c2py_dl_tensor_t *t;
+    void *ctx;
+    int read_only;  /* 1 read-only, 0 writable, -1 unknown (legacy) */
     char format_char;
     Py_ssize_t nelem;
-
-    (void)want_writable;
 
     /* DLPack symbols are optional; if not resolved, skip this backend. */
     if (!C2PY.CallObject || !C2PY.Capsule_GetPointer)
@@ -845,17 +1011,52 @@ c2py_pin_dlpack(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
     dl_args = PyTuple_New(0);
     if (!dl_args) goto fail;
 
-    capsule = PyObject_CallObject(dl_method, dl_args);
-    if (!capsule) { PyErr_Clear(); goto fail; }
-
-    managed = (c2py_dl_managed_tensor*)PyCapsule_GetPointer(capsule, "dltensor");
-    if (!managed) {
-        PyErr_Clear();
-        managed = (c2py_dl_managed_tensor*)PyCapsule_GetPointer(capsule, "dltensor_versioned");
+    if (C2PY.Call && C2PY.Dict_New && C2PY._ds_set_item_string) {
+        typedef int (*dset_fn)(PyObject *, const char *, PyObject *);
+        PyObject *kw = C2PY.Dict_New();
+        PyObject *ver = PyTuple_New(2);
+        if (kw && ver) {
+            PyTuple_SetItem(ver, 0, PyLong_FromLong(1));
+            PyTuple_SetItem(ver, 1, PyLong_FromLong(0));
+            if (((dset_fn)C2PY._ds_set_item_string)(kw, "max_version", ver) == 0)
+                capsule = C2PY.Call(dl_method, dl_args, kw);
+        }
+        if (kw) Py_DECREF(kw);
+        if (ver) Py_DECREF(ver);
+        /* TypeError from a producer without max_version: retry plainly */
+        if (!capsule) PyErr_Clear();
     }
-    if (!managed) { PyErr_Clear(); goto fail; }
+    if (!capsule) {
+        capsule = PyObject_CallObject(dl_method, dl_args);
+        if (!capsule) { PyErr_Clear(); goto decline; }
+    }
 
-    t = &managed->dl_tensor;
+    {
+        c2py_dl_managed_tensor_versioned *vm = (c2py_dl_managed_tensor_versioned*)
+            PyCapsule_GetPointer(capsule, "dltensor_versioned");
+        if (vm) {
+            /* Only the major version fixes the layout. */
+            if (vm->version.major != 1) goto decline;
+            t = &vm->dl_tensor;
+            ctx = vm;
+            read_only = (vm->flags & C2PY_DL_FLAG_READ_ONLY) ? 1 : 0;
+        } else {
+            c2py_dl_managed_tensor *m;
+            PyErr_Clear();
+            m = (c2py_dl_managed_tensor*)PyCapsule_GetPointer(capsule, "dltensor");
+            if (!m) { PyErr_Clear(); goto decline; }
+            t = &m->dl_tensor;
+            ctx = m;
+            read_only = -1;
+        }
+    }
+
+    if (want_writable && read_only == 1) {
+        PyErr_SetString(PyExc_ValueError, "DLPack tensor is read-only");
+        goto fail;
+    }
+    if (want_writable && read_only == -1)
+        goto decline;
 
     if (t->device.device_type != C2PY_DLCPU) {
         PyErr_SetString(PyExc_TypeError,
@@ -863,32 +1064,40 @@ c2py_pin_dlpack(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
         goto fail;
     }
 
+    /* Unsupported dtype (e.g. float16): decline, PEP 3118 may know it. */
     format_char = c2py_dl_format_char(&t->dtype);
-    if (!format_char) {
-        PyErr_SetString(PyExc_TypeError,
-            "DLPack: unsupported dtype");
+    if (!format_char)
+        goto decline;
+
+    if (t->ndim < 0 || t->ndim > C2PY_MAX_NDIM) {
+        PyErr_SetString(PyExc_ValueError,
+            "DLPack: ndim out of range (0 to C2PY_MAX_NDIM)");
         goto fail;
     }
+    if (t->ndim > 0 && t->shape == NULL) {
+        PyErr_SetString(PyExc_ValueError, "DLPack: ndim > 0 but shape is NULL");
+        goto fail;
+    }
+    /* byte_offset is int64: on ILP32 it must fit Py_ssize_t, and the
+     * offset pointer must not wrap. */
+    if (t->byte_offset < 0 || t->byte_offset > (int64_t)C2PY_SSIZE_T_MAX ||
+        (uintptr_t)t->data > (uintptr_t)-1 - (uintptr_t)t->byte_offset)
+        goto too_large;
 
     pin->format_buf[0] = format_char;
     pin->format_buf[1] = '\0';
     info->format   = pin->format_buf;
-    info->itemsize = (t->dtype.bits / 8) * (t->dtype.lanes > 0 ? t->dtype.lanes : 1);
+    info->itemsize = t->dtype.bits / 8;  /* lanes == 1, bits in 8..64 */
     info->ptr      = (char*)t->data + t->byte_offset;
     info->ndim     = t->ndim;
 
     nelem = 1;
-    if (t->shape && t->ndim > 0) {
+    if (t->ndim > 0) {
         int d;
         /* DLPack shapes/strides are int64_t, but Py_ssize_t is only 32-bit
          * on ILP32.  Copy into the pinned buffers instead of aliasing the
-         * int64 array, otherwise multi-dimension shapes read wrong values. */
-        if (t->ndim > C2PY_MAX_NDIM) {
-            PyErr_SetString(PyExc_ValueError,
-                "DLPack: too many dimensions (exceeds C2PY_MAX_NDIM)");
-            goto fail;
-        }
-        /* Range-check in int64 before narrowing: on ILP32 a shape, stride
+         * int64 array, otherwise multi-dimension shapes read wrong values.
+         * Range-check in int64 before narrowing: on ILP32 a shape, stride
          * or byte count above 2 GiB would otherwise wrap silently.  A
          * zero-length dimension makes nelem 0 whatever the other dims. */
         for (d = 0; d < t->ndim; d++) {
@@ -904,20 +1113,18 @@ c2py_pin_dlpack(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
                     goto too_large;
                 nelem *= pin->shape_buf[d];
             }
-            if (info->itemsize > 0 && nelem > C2PY_SSIZE_T_MAX / info->itemsize)
+            if (nelem > C2PY_SSIZE_T_MAX / info->itemsize)
                 goto too_large;
         }
         info->shape = pin->shape_buf;
         if (t->strides) {
             /* DLPack strides are in elements; convert to bytes. */
-            int64_t lim = (int64_t)C2PY_SSIZE_T_MAX /
-                          (info->itemsize > 0 ? info->itemsize : 1);
+            int64_t lim = (int64_t)C2PY_SSIZE_T_MAX / info->itemsize;
             for (d = 0; d < t->ndim; d++) {
                 if (t->strides[d] > lim || t->strides[d] < -lim)
                     goto too_large;
                 pin->stride_buf[d] = (Py_ssize_t)t->strides[d] * info->itemsize;
             }
-            info->strides = pin->stride_buf;
         } else {
             /* Implied C-contiguous strides: last dim = itemsize,
              * each preceding dim = product of later dims * itemsize.
@@ -930,20 +1137,24 @@ c2py_pin_dlpack(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
                     goto too_large;
                 st *= pin->shape_buf[d];
             }
-            info->strides = pin->stride_buf;
         }
+        info->strides = pin->stride_buf;
     } else {
         info->shape   = NULL;
         info->strides = NULL;
     }
     info->len = nelem * info->itemsize;
+    if (info->len > 0 && t->data == NULL) {
+        PyErr_SetString(PyExc_ValueError, "DLPack: non-empty tensor with NULL data");
+        goto fail;
+    }
 
-    pin->ctx  = managed;
+    pin->ctx  = ctx;
     pin->kind = C2PY_PIN_DLPACK;
 
     /* Keep the capsule alive: decref'ing it would invoke the
-     * capsule destructor, which might call managed->deleter
-     * prematurely.  Store it in buf.obj for later release. */
+     * capsule destructor, which might call the deleter prematurely.
+     * Store it in buf.obj for later release. */
     pin->buf.obj = capsule;
     capsule = NULL;  /* ownership transferred to pin */
 
@@ -954,7 +1165,10 @@ c2py_pin_dlpack(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
 
 too_large:
     PyErr_SetString(PyExc_ValueError,
-        "DLPack: shape, stride or size does not fit in Py_ssize_t");
+        "DLPack: shape, stride, offset or size does not fit in Py_ssize_t");
+    goto fail;
+decline:
+    PyErr_Clear();
 fail:
     Py_XDECREF(dl_method);
     Py_XDECREF(dl_args);
@@ -1023,6 +1237,12 @@ c2py_pin(PyObject *obj, c2py_buf_pin *pin, c2py_ptr_info *info,
         default:
             break;
         }
+        /* A backend that declines leaves no exception; one that set an
+         * exception found a real problem (read-only, malformed tensor).
+         * Report it rather than call the next backend with an exception
+         * pending (CPython debug builds assert on that). */
+        if (C2PY.Err_Occurred())
+            return -1;
     }
     PyErr_SetString(PyExc_TypeError,
                     "buffer acquisition failed (all backends exhausted)");
