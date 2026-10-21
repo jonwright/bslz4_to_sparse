@@ -51,7 +51,7 @@ from ._pipeline import describe, CODEC_LZ4, CODEC_ZSTD
 _ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse")
 _pipeline._ext = _ext
 
-version = "0.0.22a1"
+version = "0.0.22a2"
 
 __all__ = [
     "version",
