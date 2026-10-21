@@ -413,3 +413,33 @@ def test_chunks_already_on_the_device(tmp_path, dt):
 def _flat(r):
     npx, (v, i), p = r
     return npx.copy(), (v.copy(), i.copy()), p.copy()
+
+
+def test_driver_backend_arrays_are_shared_without_a_copy():
+    """The driver backend's exports, whichever backend the GPU classes use in this run."""
+    import gc
+
+    from bslz4_to_sparse.cuda import _backend_drv as drv
+
+    host = np.arange(3000, dtype=np.uint16).reshape(30, 100)
+    a = drv.asarray(host)
+    x = cp.asarray(a)  # __cuda_array_interface__
+    y = cp.from_dlpack(a)  # DLPack
+    assert x.data.ptr == y.data.ptr == a.ptr and (x.get() == host).all() and (y.get() == host).all()
+    assert (cp.asarray(a[10:20]).get() == host[10:20]).all()
+    try:
+        import torch
+    except ImportError:
+        torch = None
+    if torch is not None and torch.cuda.is_available():
+        t = torch.from_dlpack(a)
+        assert t.data_ptr() == a.ptr and (t.cpu().numpy() == host).all()
+        del t
+    del x, y
+    gc.collect()
+    assert not drv._dl_alive  # every exported tensor was released by its consumer
+    src = cp.arange(64, dtype=cp.uint8)
+    b = drv.device_bytes(src, cp.cuda.Device().id)  # borrowing another library's memory
+    assert b.size == 64 and b.ptr == src.data.ptr and (b.get() == np.arange(64)).all()
+    with pytest.raises(BufferError):
+        a.__dlpack__(dl_device=(2, 99))

@@ -1,8 +1,8 @@
 """The only module that imports cupy: the CUDA calls the GPU classes need, so another binding (a
 ctypes layer on the driver API, cuda-core) can replace it without touching the kernels or _gpu.py.
 
-Rules for any backend: never create a CUDA context of our own (use the device's primary / current
-context, which cupy, torch and jax share); a device array supports slicing, `.set(host_array,
+Rules for any backend: use the device's primary context, which cupy, torch and jax share (the
+driver backend makes a context of its own only on drivers older than CUDA 7.0, which have none); a device array supports slicing, `.set(host_array,
 stream)`, `.get(out=host_array)` and `.view(dtype)`, and
 can be passed to a kernel; pinned host buffers support the buffer protocol.
 """

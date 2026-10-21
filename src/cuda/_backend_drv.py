@@ -94,7 +94,10 @@ def _check(rc):
         raise CudaError("CUDA driver error %d: %s" % (rc, s.value.decode() if s.value else "?"))
 
 
-_check(cuInit(0))
+try:
+    _check(cuInit(0))
+except CudaError as e:  # a driver but no usable GPU: as for a missing driver, an ImportError
+    raise ImportError("CUDA driver: %s" % e)
 _tls = threading.local()  # .stream: the current stream of this thread
 _ctx = {}  # device -> primary context
 _ctx_lock = threading.Lock()
@@ -272,6 +275,8 @@ class ndarray(object):
         the consumer calls its deleter.  `stream` is not needed: the data is complete."""
         if copy:
             raise BufferError("a device array is exported without a copy")
+        if dl_device is not None and tuple(dl_device) != self.__dlpack_device__():
+            raise BufferError("the array is on %s, not on %s" % (self.__dlpack_device__(), dl_device))
         return _dlpack_capsule(self)
 
     def __getitem__(self, key):
@@ -455,17 +460,17 @@ def pinned(nbytes):
     p = _P()
     _check(cuMemHostAlloc(ctypes.byref(p), max(int(nbytes), 1), CU_MEMHOSTALLOC_PORTABLE))
     buf = (ctypes.c_char * int(nbytes)).from_address(p.value)
-    buf._owner = _Pinned(p)
+    buf._owner = _Pinned(p, _context(device_id()))
     return buf
 
 
 class _Pinned(object):
-    def __init__(self, p):
-        self.p = p
+    def __init__(self, p, ctx):
+        self.p, self.ctx = p, ctx
 
-    def __del__(self):
-        if cuMemFreeHost is not None:
-            cuMemFreeHost(self.p)
+    def __del__(self):  # the garbage collector may run this in a thread with no context current
+        if _in_context is not None:  # None: interpreter shutdown
+            _in_context(self.ctx, cuMemFreeHost, self.p)
 
 
 _ARG = {
@@ -509,10 +514,10 @@ class _Module(object):
 
     def __init__(self):
         if _Module._data is None:
-            with open(FATBIN, "rb") as fh:
-                _Module._data = fh.read()
             with open(os.path.splitext(FATBIN)[0] + ".json") as fh:
                 _Module._names = json.load(fh)
+            with open(FATBIN, "rb") as fh:
+                _Module._data = fh.read()
         self._mods = {}
         self._lock = threading.Lock()
 
