@@ -443,3 +443,31 @@ def test_driver_backend_arrays_are_shared_without_a_copy():
     assert b.size == 64 and b.ptr == src.data.ptr and (b.get() == np.arange(64)).all()
     with pytest.raises(BufferError):
         a.__dlpack__(dl_device=(2, 99))
+
+
+def _device_of(a):
+    ptr = a.data.ptr if hasattr(a, "data") and hasattr(a.data, "ptr") else getattr(a, "ptr", None)
+    return None if not ptr else cp.cuda.runtime.pointerGetAttributes(ptr).device
+
+
+def test_each_object_keeps_its_buffers_on_its_own_gpu(tmp_path):
+    if g.device_count() < 2:
+        pytest.skip("needs two GPUs")
+    mask, frames = mixed_frames(np.uint16, (93, 217))
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 60, 3)
+    objs = [g.chunk2sparseCSC(mask, M, np.uint16, codec, device=d) for d in (0, 1)]
+    results = []
+    for d, o in enumerate(objs):
+        n, (v, i), p = o.multi(chunks, 1)
+        out = [o.decompress(chunks), o.integrate(chunks)]
+        results.append((n.copy(), v.copy(), i.copy(), p.copy(), [cp.asarray(x).get() for x in out]))
+        held = [(k, a) for k, a in vars(o).items() if k.startswith("d_")] + [("out", x) for x in out]
+        assert len(held) > 10
+        for k, a in held:
+            assert _device_of(a) in (None, d), (d, k, _device_of(a))
+    (n0, v0, i0, p0, o0), (n1, v1, i1, p1, o1) = results
+    assert (n0 == n1).all() and (p0 == p1).all()
+    for f in range(len(frames)):  # the lists: their first npixels entries
+        assert (v0[f, : n0[f]] == v1[f, : n1[f]]).all() and (i0[f, : n0[f]] == i1[f, : n1[f]]).all()
+    assert all((a == b).all() for a, b in zip(o0, o1))

@@ -53,10 +53,17 @@ import os
 import threading
 import numpy as np
 
-if os.environ.get("BSLZ4_CUDA_BACKEND") == "driver":  # precompiled fatbin, driver API, no cupy
+_choice = os.environ.get("BSLZ4_CUDA_BACKEND")  # "cupy", "driver", or unset: cupy if it imports
+if _choice == "driver":  # precompiled fatbin, driver API, no cupy
     from . import _backend_drv as cu
-else:
+elif _choice == "cupy":
     from . import _backend as cu
+else:
+    try:
+        from . import _backend as cu
+    except ImportError:
+        from . import _backend_drv as cu
+backend = "driver" if cu.__name__.endswith("_backend_drv") else "cupy"
 from .. import _matrix, _toppix
 from .._pipeline import CODEC_LZ4
 
@@ -631,7 +638,7 @@ class chunk2sparse(object):
         """Decode chunks (one frame each) into dense frames that stay on the GPU: a new
         C-contiguous device array (nframes, ni, nj) of the pixel dtype, complete when returned.
         Every pixel as stored (no cut, no mask).  A cupy array with the cupy backend; with the
-        driver backend (BSLZ4_CUDA_BACKEND=driver) an array that cupy, numba, pycuda and torch take
+        driver backend (bslz4_to_sparse.cuda.backend) an array that cupy, numba, pycuda and torch take
         through __cuda_array_interface__, and torch, jax, tensorflow and cupy through DLPack,
         without a copy."""
         cu.use_device(self._dev)
