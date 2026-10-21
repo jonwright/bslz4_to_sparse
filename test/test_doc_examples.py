@@ -32,6 +32,20 @@ def _needs(path):
     ]
 
 
+_gpu = []
+
+
+def _has_gpu():
+    """A CUDA GPU the driver backend can use (checked once, in a subprocess)."""
+    if not _gpu:
+        code = ("import os; os.environ['BSLZ4_CUDA_BACKEND'] = 'driver'; "
+                "from bslz4_to_sparse import cuda; assert cuda.device_count() > 0")
+        pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(bslz4_to_sparse.__file__)))
+        env = dict(os.environ, PYTHONPATH=pkg_parent)
+        _gpu.append(subprocess.run([sys.executable, "-c", code], env=env).returncode == 0)
+    return _gpu[0]
+
+
 @pytest.fixture(scope="session")
 def standin_folder(tmp_path_factory):
     """The files the examples are written for (see tools/standin.py), in a working directory."""
@@ -49,6 +63,9 @@ def standin_folder(tmp_path_factory):
 def test_example_runs(path, standin_folder):
     for mod in _needs(path):
         pytest.importorskip(mod)
+    with open(path) as fh:
+        if "bslz4_to_sparse import cuda" in fh.read() and not _has_gpu():
+            pytest.skip("needs a CUDA GPU")
     env = dict(os.environ, MPLBACKEND="Agg")
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(bslz4_to_sparse.__file__)))
     tools_dir = os.path.join(REPO, "tools")

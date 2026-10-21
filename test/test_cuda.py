@@ -340,3 +340,134 @@ def test_unblock_on_the_cpu_gives_the_same_result(tmp_path, dt):
         c.multi(chunks[:8] + [bytes(bad)] + chunks[9:], 1)
     with pytest.raises(ValueError):
         g.chunk2sparse(mask, dt, codec, unblock="disk")
+
+
+@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32, np.float32])
+@pytest.mark.parametrize("shape", [(61, 83), (64, 128), (16, 8)])  # 61 x 83: rows padded to 16 B
+def test_decompress_and_integrate_stay_on_the_device(tmp_path, dt, shape):
+    rng = np.random.default_rng(4)
+    mask = (rng.random(shape) > 0.2).astype(np.uint8)
+    frames = rng.poisson(2.0, (7,) + shape).astype(dt)
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 40, 2)
+    c = g.chunk2sparseCSC(mask, M, dt, codec, batch=2, group=3, device=0)
+    d = c.decompress(chunks)
+    assert d.shape == frames.shape and d.dtype == frames.dtype
+    assert (cp.asarray(d).get() == frames).all()  # __cuda_array_interface__ (or a cupy array)
+    assert (cp.from_dlpack(d).get() == frames).all()
+    assert int(cp.asarray(d[2:5]).sum()) == int(frames[2:5].astype(np.int64).sum())
+    p = c.integrate(chunks)
+    _, _, p0 = c.multi(chunks, 0)
+    assert p.shape == (len(frames), M.shape[0]) and (cp.asarray(p).get() == p0).all()
+    bad = bytearray(chunks[4])
+    bad[12:16] = (len(bad)).to_bytes(4, "big")
+    with pytest.raises(Exception, match=r"chunks \[4\]"):
+        c.decompress(chunks[:4] + [bytes(bad)] + chunks[5:])
+
+
+def write_chunks_codec(path, frames, cname):
+    with h5py.File(str(path), "w") as f:
+        ds = f.create_dataset(
+            "d", data=frames, chunks=(1,) + frames.shape[1:],
+            **hdf5plugin.Bitshuffle(nelems=0, cname=cname)
+        )
+        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+
+
+@pytest.mark.parametrize("dt", [np.uint16, np.int32])
+def test_chunks_already_on_the_device(tmp_path, dt):
+    mask, frames = mixed_frames(dt, (61, 83))
+    frames = np.concatenate([frames, frames[::-1]])
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    lens = np.array([len(c) for c in chunks], np.int64)
+    offs = 100 + np.concatenate(([0], np.cumsum(lens)[:-1]))  # the chunks start 100 bytes in
+    d_buf = cp.asarray(np.frombuffer(b"x" * 100 + b"".join(chunks), np.uint8))
+    M = make_split_1d(mask.size, 50, 5)
+    c = g.chunk2sparseCSC(mask, M, dt, codec, batch=3, group=4)
+    n0, (v0, i0), p0 = _flat(c.multi(chunks, 1))  # copies: the next call reuses the buffers
+    n1, (v1, i1), p1 = c.from_device(d_buf, offs, lens, 1)
+    assert (n1 == n0).all() and (p1 == p0).all()
+    for f in range(len(frames)):
+        assert (i1[f, : n1[f]] == i0[f, : n0[f]]).all() and (v1[f, : n1[f]] == v0[f, : n0[f]]).all()
+    assert (cp.asarray(c.decompress_from_device(d_buf, offs, lens)).get() == frames).all()
+    want = cp.asarray(c.integrate(chunks)).get()
+    assert (cp.asarray(c.integrate_from_device(d_buf, offs, lens)).get() == want).all()
+    # the header checks are on the GPU: a frame of another size, a zstd chunk, offsets outside
+    other = write_chunks_codec(tmp_path / "o.h5", frames[:2, :60], "lz4")[1]
+    zst = write_chunks_codec(tmp_path / "z.h5", frames[:2], "zstd")[1]
+    for bad, match in ((other, "-106"), (zst, "zstd")):
+        blob = b"".join(chunks[:5]) + bad + b"".join(chunks[6:])
+        ln = np.array([len(x) for x in chunks[:5]] + [len(bad)] + [len(x) for x in chunks[6:]])
+        of = np.concatenate(([0], np.cumsum(ln)[:-1]))
+        with pytest.raises(Exception, match=match + r".*chunks \[5\]"):
+            c.decompress_from_device(cp.asarray(np.frombuffer(blob, np.uint8)), of, ln)
+    with pytest.raises(Exception, match="-108"):
+        c.from_device(d_buf, offs + 10**6, lens, 1)
+    bad = bytearray(chunks[4])
+    bad[12:16] = (len(bad)).to_bytes(4, "big")
+    blob = b"".join(chunks[:4]) + bytes(bad) + b"".join(chunks[5:])
+    with pytest.raises(Exception, match=r"corrupt.*chunks \[4\]"):
+        c.integrate_from_device(cp.asarray(np.frombuffer(blob, np.uint8)), offs - 100, lens)
+
+
+def _flat(r):
+    npx, (v, i), p = r
+    return npx.copy(), (v.copy(), i.copy()), p.copy()
+
+
+def test_driver_backend_arrays_are_shared_without_a_copy():
+    """The driver backend's exports, whichever backend the GPU classes use in this run."""
+    import gc
+
+    from bslz4_to_sparse.cuda import _backend_drv as drv
+
+    host = np.arange(3000, dtype=np.uint16).reshape(30, 100)
+    a = drv.asarray(host)
+    x = cp.asarray(a)  # __cuda_array_interface__
+    y = cp.from_dlpack(a)  # DLPack
+    assert x.data.ptr == y.data.ptr == a.ptr and (x.get() == host).all() and (y.get() == host).all()
+    assert (cp.asarray(a[10:20]).get() == host[10:20]).all()
+    try:
+        import torch
+    except ImportError:
+        torch = None
+    if torch is not None and torch.cuda.is_available():
+        t = torch.from_dlpack(a)
+        assert t.data_ptr() == a.ptr and (t.cpu().numpy() == host).all()
+        del t
+    del x, y
+    gc.collect()
+    assert not drv._dl_alive  # every exported tensor was released by its consumer
+    src = cp.arange(64, dtype=cp.uint8)
+    b = drv.device_bytes(src, cp.cuda.Device().id)  # borrowing another library's memory
+    assert b.size == 64 and b.ptr == src.data.ptr and (b.get() == np.arange(64)).all()
+    with pytest.raises(BufferError):
+        a.__dlpack__(dl_device=(2, 99))
+
+
+def _device_of(a):
+    ptr = a.data.ptr if hasattr(a, "data") and hasattr(a.data, "ptr") else getattr(a, "ptr", None)
+    return None if not ptr else cp.cuda.runtime.pointerGetAttributes(ptr).device
+
+
+def test_each_object_keeps_its_buffers_on_its_own_gpu(tmp_path):
+    if g.device_count() < 2:
+        pytest.skip("needs two GPUs")
+    mask, frames = mixed_frames(np.uint16, (93, 217))
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 60, 3)
+    objs = [g.chunk2sparseCSC(mask, M, np.uint16, codec, device=d) for d in (0, 1)]
+    results = []
+    for d, o in enumerate(objs):
+        n, (v, i), p = o.multi(chunks, 1)
+        out = [o.decompress(chunks), o.integrate(chunks)]
+        results.append((n.copy(), v.copy(), i.copy(), p.copy(), [cp.asarray(x).get() for x in out]))
+        held = [(k, a) for k, a in vars(o).items() if k.startswith("d_")] + [("out", x) for x in out]
+        assert len(held) > 10
+        for k, a in held:
+            assert _device_of(a) in (None, d), (d, k, _device_of(a))
+    (n0, v0, i0, p0, o0), (n1, v1, i1, p1, o1) = results
+    assert (n0 == n1).all() and (p0 == p1).all()
+    for f in range(len(frames)):  # the lists: their first npixels entries
+        assert (v0[f, : n0[f]] == v1[f, : n1[f]]).all() and (i0[f, : n0[f]] == i1[f, : n1[f]]).all()
+    assert all((a == b).all() for a, b in zip(o0, o1))

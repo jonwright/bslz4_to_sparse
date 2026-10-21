@@ -272,9 +272,16 @@ static void _c2py_runtime_init_once(void)
         C2PY.is_pypy = (test != NULL) ? 1 : 0;
     }
     if (C2PY.is_pypy) {
-        C2PY.pyobject_size = 24;
-        C2PY.ob_refcnt_offset = 0;
-        C2PY.ob_type_offset = 16;  /* ob_pypy_link at 8 pushes ob_type to 16 */
+        /* ob_pypy_link after ob_refcnt pushes ob_type down one pointer.
+         * Derived, not hard-coded: 24/0/16 on LP64, 12/0/8 on ILP32. */
+        typedef struct {
+            Py_ssize_t ob_refcnt;
+            void *ob_pypy_link;
+            void *ob_type;
+        } _c2py_pypy_object;
+        C2PY.pyobject_size = sizeof(_c2py_pypy_object);
+        C2PY.ob_refcnt_offset = offsetof(_c2py_pypy_object, ob_refcnt);
+        C2PY.ob_type_offset = offsetof(_c2py_pypy_object, ob_type);
     }
 
     /* --- Reject unsupported Python versions --- */
@@ -326,15 +333,23 @@ static void _c2py_runtime_init_once(void)
     if (C2PY.is_pypy) {
         /* already set above */
     } else if (C2PY.is_free_threaded) {
-        C2PY.pyobject_size = 32;
-        C2PY.ob_refcnt_offset = 16;
-        C2PY.ob_type_offset = 24;
+        /* 32/16/24 on LP64, 20/12/16 on ILP32.  Compile-time guard: on
+         * 64-bit the struct must match the layout verified against
+         * CPython 3.13t-3.15t headers. */
+        typedef char _c2py_ft_layout_lp64[
+            (sizeof(void*) != 8 || (sizeof(PyObject_FT) == 32 &&
+             offsetof(PyObject_FT, ob_ref_shared) == 16 &&
+             offsetof(PyObject_FT, ob_type) == 24)) ? 1 : -1];
+        (void)sizeof(_c2py_ft_layout_lp64);
+        C2PY.pyobject_size = sizeof(PyObject_FT);
+        C2PY.ob_refcnt_offset = offsetof(PyObject_FT, ob_ref_shared);
+        C2PY.ob_type_offset = offsetof(PyObject_FT, ob_type);
     } else {
         C2PY.pyobject_size = sizeof(PyObject);
         C2PY.ob_refcnt_offset = 0;
         C2PY.ob_type_offset = sizeof(Py_ssize_t);
     }
-    C2PY.pyobject_size_ft = 32;
+    C2PY.pyobject_size_ft = sizeof(PyObject_FT);
 
     assert(C2PY.pyobject_size > 0);
     assert(C2PY.ob_refcnt_offset >= 0);
@@ -387,9 +402,9 @@ static void _c2py_runtime_init_once(void)
                 /* GIL layout confirmed */
             } else {
                 C2PY.is_free_threaded = 1;
-                C2PY.pyobject_size = 32;
-                C2PY.ob_refcnt_offset = 16;
-                C2PY.ob_type_offset = 24;
+                C2PY.pyobject_size = sizeof(PyObject_FT);
+                C2PY.ob_refcnt_offset = offsetof(PyObject_FT, ob_ref_shared);
+                C2PY.ob_type_offset = offsetof(PyObject_FT, ob_type);
             }
             {
                 typedef void (*dref_fn)(PyObject*);
@@ -477,6 +492,9 @@ static void _c2py_runtime_init_once(void)
         _resolve_raw("PyObject_CallObject");
     C2PY.Capsule_GetPointer = (void*(*)(PyObject*, const char*))
         _resolve_raw("PyCapsule_GetPointer");
+    C2PY.Call = (PyObject*(*)(PyObject*, PyObject*, PyObject*))
+        _resolve_raw("PyObject_Call");
+    C2PY.Dict_New = (PyObject*(*)(void))_resolve_raw("PyDict_New");
     C2PY.exc_BufferError = (void*)_resolve_raw("PyExc_BufferError");
 
     RESOLVE_REQ(C2PY.Long_FromVoidPtr, "PyLong_FromVoidPtr");
