@@ -35,47 +35,48 @@ struct Start32 {
 /* ---- bodies: what one pixel value adds ------------------------------- */
 
 /* split, start + length, fixed-point integer weights W (u32 / u16), int64
- * powder: exact integer sums of w * v. */
+ * powder: exact integer sums of w * v, added modulo 2**64 (unsigned) so that a
+ * sum may wrap and still be exact once pixels are subtracted from it again. */
 template<typename S, typename W>
 struct RunInt {
     S src;
     const W *BSLZ4_RESTRICT data;
     const uint32_t *BSLZ4_RESTRICT indptr;
-    int64_t *BSLZ4_RESTRICT out;
+    uint64_t *BSLZ4_RESTRICT out;
     inline void init(const bslz4_work *w) {
         const bslz4_mat_csc *m = (const bslz4_mat_csc *) w->mat;
         src.init(w);
         data = (const W *) m->data;
         indptr = m->indptr;
-        out = (int64_t *) w->powder;
+        out = (uint64_t *) w->powder;
     }
     template<typename T> inline void add(size_t p, T v) {
         const uint32_t s = src.at(p);
         const uint32_t k0 = indptr[p], k1 = indptr[p + 1];
-        int64_t *BSLZ4_RESTRICT o = out + s;
+        uint64_t *BSLZ4_RESTRICT o = out + s;
         const W *BSLZ4_RESTRICT d = data + k0;
-        const int64_t pv = (int64_t) v;
-        for (uint32_t k = 0; k < k1 - k0; k++) o[k] += (int64_t) d[k] * pv;
+        const uint64_t pv = (uint64_t) (int64_t) v;
+        for (uint32_t k = 0; k < k1 - k0; k++) o[k] += (uint64_t) d[k] * pv;
     }
 };
 
-/* general csc, one u32 bin per entry, u32 fixed-point weights, int64 powder */
+/* general csc, one u32 bin per entry, u32 fixed-point weights, int64 powder (as RunInt) */
 struct CscInt {
     const uint32_t *BSLZ4_RESTRICT data;
     const uint32_t *BSLZ4_RESTRICT indices;
     const uint32_t *BSLZ4_RESTRICT indptr;
-    int64_t *BSLZ4_RESTRICT out;
+    uint64_t *BSLZ4_RESTRICT out;
     inline void init(const bslz4_work *w) {
         const bslz4_mat_csc *m = (const bslz4_mat_csc *) w->mat;
         data = (const uint32_t *) m->data;
         indices = m->indices;
         indptr = m->indptr;
-        out = (int64_t *) w->powder;
+        out = (uint64_t *) w->powder;
     }
     template<typename T> inline void add(size_t p, T v) {
         const uint32_t k0 = indptr[p], k1 = indptr[p + 1];
-        const int64_t pv = (int64_t) v;
-        for (uint32_t k = k0; k < k1; k++) out[indices[k]] += (int64_t) data[k] * pv;
+        const uint64_t pv = (uint64_t) (int64_t) v;
+        for (uint32_t k = k0; k < k1; k++) out[indices[k]] += (uint64_t) data[k] * pv;
     }
 };
 
