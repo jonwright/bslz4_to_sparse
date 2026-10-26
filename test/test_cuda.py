@@ -471,3 +471,17 @@ def test_each_object_keeps_its_buffers_on_its_own_gpu(tmp_path):
     for f in range(len(frames)):  # the lists: their first npixels entries
         assert (v0[f, : n0[f]] == v1[f, : n1[f]]).all() and (i0[f, : n0[f]] == i1[f, : n1[f]]).all()
     assert all((a == b).all() for a, b in zip(o0, o1))
+
+
+def test_i64_sums_wrap_as_on_the_cpu(tmp_path):
+    """Saturated u32 pixels above the matrix's maxval wrap the integer sums (modulo 2**64, see
+    test_wrap.py): the device's are the CPU's, bit for bit."""
+    mask, frames = mixed_frames(np.uint32, (93, 217))
+    frames[:, 5, :40] = 2**32 - 1
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = b.fixed_point_matrix(make_split_1d(mask.size, 60, 3), mask, np.uint32, maxval=1000)
+    W = M.to_scipy().astype(np.float64)
+    assert max((W @ f.ravel().astype(np.float64)).max() for f in frames) > 2.0**63  # they wrap
+    pg = g.chunk2sparseCSC(mask, M, np.uint32, codec).multi(chunks, 0)[2]
+    pc = b.chunk2sparseCSC(mask, M, np.uint32, codec).multi(chunks, 0)[2]
+    assert pg.dtype == np.int64 and np.array_equal(pg, pc)

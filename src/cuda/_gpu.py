@@ -81,7 +81,7 @@ CTYPE = {
 ACC = {
     "f32": ("float", "float", np.float32),
     "f64": ("float", "double", np.float64),  # weight, accumulator
-    "i64": ("unsigned int", "long long", np.int64),
+    "i64": ("unsigned int", "unsigned long long", np.int64),  # adds modulo 2**64, as the CPU
 }
 FRAMES_PER_READ = (
     2  # frames each (weight, index) read of csr1d is applied to (2 was best on a GTX 1060)
