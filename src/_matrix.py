@@ -303,8 +303,8 @@ def _fixed_point_bits(nm, dtype, wbits, maxval=None):
     largest weight)), and the sum of w * pixel over the pixels of a bin must
     fit int64 (b <= 62 - log2(the largest pixel value) - log2(the largest sum
     of the weights of a bin)).  The largest pixel value is the dtype's unless
-    maxval says what the data can reach: pixels above maxval can then overflow
-    the sums, silently."""
+    maxval says what the data can reach: pixels above maxval can then make a
+    sum wrap (the dots add modulo 2**64)."""
     dt = np.dtype(dtype)
     if dt.kind not in "ui":
         raise ValueError("integer weights need an integer pixel dtype, not %s" % dt)
@@ -421,9 +421,10 @@ def fixed_point_matrix(csc, mask, dtype, maxval=None, wbits=32):
     that the int64 sums cannot overflow; each doubling of maxval costs a bit.  maxval is the
     dtype's maximum unless given: the largest value the data can hold.  For 16-bit pixels b is
     about 31, for 32-bit pixels at their maximum about 17 for a 1D matrix (weight step 2**-17: a
-    relative error of a few 1e-6 in a bin sum).  Pixels above maxval can overflow the sums,
-    silently: it is a promise about the data.  tools/fixed_point_precision.py prints b for a
-    matrix and data.
+    relative error of a few 1e-6 in a bin sum).  Pixels above maxval (saturated ones) can make a
+    sum wrap: the dots add modulo 2**64, so the sum is exact again once those pixels, which are
+    in the sparse output when the cut is at most maxval, are clipped or subtracted from it
+    (test/test_wrap.py).  tools/fixed_point_precision.py prints b for a matrix and data.
 
     Raises ValueError for a matrix that cannot be fixed-point (negative weights beyond rounding
     noise, no room for 4 fractional bits).  The result has .scale (the integer 2**b to divide the

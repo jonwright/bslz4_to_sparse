@@ -47,7 +47,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "src", "cuda")
 CTYPES = ["unsigned char", "signed char", "unsigned short", "short", "unsigned int", "int", "float"]
-ACCS = [("float", "float"), ("float", "double"), ("unsigned int", "long long")]  # f32, f64, i64
+ACCS = [("float", "float"), ("float", "double"), ("unsigned int", "unsigned long long")]  # f32, f64, i64
 FRAMES = [1, 2]  # _gpu.FRAMES_PER_READ and 1
 FILES = ["nvcomp_lz4.cuh", "shuffle_warp.cuh", "bslz4_split.cu"]  # concatenated as by _gpu.py
 PLAIN = ["unblock", "decompress", "scan_counts", "choose_level", "scan_images"]  # extern "C"
