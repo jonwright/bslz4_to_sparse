@@ -1,14 +1,15 @@
-#!/usr/bin/env python
 """Integrate a Bliss mesh scan into an xrdmap/diffmap-viewer-compatible HDF5.
 
-Writes a pyFAI-diffmap-layout file (see src/conveyor/_diffmapio.py) from the raw
-Eiger frames, using the bslz4 sparse matrix product against a pyFAI geometry.
-Saturated pixels (value >= exposure*1e7) are clipped (exact) and listed.
+Writes a pyFAI-diffmap-layout file (see _diffmapio.py) from the raw Eiger frames,
+using the bslz4 sparse matrix product against a pyFAI geometry.  Saturated pixels
+(value >= exposure*1e7) are clipped (exact) and listed.
 
-Usage:
-  diffmap_integrate.py [MASTER] OUTPUT --entry 2.1 --poni PONI [--n-bins N]
+Run as ``bs_diffmap_integrate`` (after install) or
+``python -m bslz4_to_sparse.conveyor.diffmap_integrate``::
+
+  bs_diffmap_integrate [MASTER] OUTPUT --entry 2.1 --poni PONI [--n-bins N]
       [--split full] [--mask MASK] [--max-frames N] [--input-file F]
-  diffmap_integrate.py OUTPUT --plan PLAN       # reuse a recipe: fills in all args
+  bs_diffmap_integrate OUTPUT --plan PLAN       # reuse a recipe: fills in all args
 
 MASTER: read-only Bliss master (taken from PLAN if omitted).  OUTPUT: the .h5 to
 write (put in test/).  A "--plan" recipe stores the geometry, the pyFAI CSC matrix,
@@ -25,7 +26,7 @@ import numpy as np
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(prog="bs_diffmap_integrate", description=__doc__)
     p.add_argument("master", nargs="?", type=Path, help="read-only Bliss master (from --plan if omitted)")
     p.add_argument("output", nargs="?", type=Path, help=".h5 to write (required)")
     p.add_argument("--entry", default="2.1", help="scan entry in the master (e.g. 1.1/2.1/3.1)")

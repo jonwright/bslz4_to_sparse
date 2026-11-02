@@ -130,6 +130,9 @@ setup(
     # numpy is a runtime dependency (src/__init__.py imports it); h5py/pyFAI
     # are test-only and intentionally absent here.
     install_requires=["numpy"],
+    entry_points={"console_scripts": [
+        "bs_diffmap_integrate = bslz4_to_sparse.conveyor.diffmap_integrate:main",
+    ]},
     author="Jon Wright",
     author_email="wright@esrf.fr",
     url="https://github.com/jonwright/bslz4_to_sparse",

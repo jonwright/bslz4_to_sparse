@@ -51,3 +51,11 @@ c2py23_wrapper_size_issue.md
 /*.zip
 /notebooks/
 /example_frames_to_be_gitignored/
+
+# local GPU/bench scratch: race results, GPU plan/notes, p9 staging (not ours)
+/gpu-plan.md
+/crunch_gpu_floor.md
+/*_race_results.md
+/01_azimuthal_integration.ipynb
+/p9staging/
+/p9test/
