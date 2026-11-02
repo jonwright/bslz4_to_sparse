@@ -343,11 +343,15 @@ def _quantise(nm, b, wtype):
         first = nm.indptr[:-1][has].astype(np.int64)
         target = np.rint(np.add.reduceat(w, first))
         got = np.add.reduceat(q, first)
+        # the max-weight entry of every nonempty column: the entries are column-major,
+        # so a per-column max (reduceat) is enough - no full lexsort of all entries.
         pix = np.repeat(np.arange(nm.npix), n)
-        order = np.lexsort((-w, pix))
-        start = np.zeros(nm.npix + 1, np.int64)
-        np.cumsum(n, out=start[1:])
-        biggest = order[start[:-1][has]]
+        colmax = np.zeros(nm.npix, w.dtype)
+        colmax[np.nonzero(has)[0]] = np.maximum.reduceat(w, first)
+        is_max = w == colmax[pix]                       # the column-max weight(s) per column
+        first_of_max = np.zeros(len(w), bool)
+        first_of_max[1:] = (pix[1:] == pix[:-1]) & is_max[:-1]
+        biggest = np.flatnonzero(is_max & ~first_of_max)
         q[biggest] += target - got
     if (q < 0).any():
         raise ValueError("%d weights are negative after rounding; integer weights are "

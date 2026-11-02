@@ -13,6 +13,12 @@ __pycache__/
 *.pyd
 *.log
 test/*.h5
+test/*.poni
+test/*_plan.h5
+test/*.plan.h5
+test/*_geometry.json
+test/*_results.md
+test/demo_*
 test/matrix.json
 /bslz4testcases.h5
 /sparsetest.h5
