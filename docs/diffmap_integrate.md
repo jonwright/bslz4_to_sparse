@@ -1,6 +1,7 @@
 # Integrating a Bliss mesh scan into an xrdmap / diffmap-viewer file
 
-`tools/diffmap_integrate.py` reads a read-only Bliss master, integrates every
+`bs_diffmap_integrate` (from `bslz4_to_sparse.conveyor.diffmap_integrate`, run as
+`python -m bslz4_to_sparse.conveyor.diffmap_integrate`) reads a read-only Bliss master, integrates every
 frame of a 2D **mesh** scan into a **2θ powder pattern**, and writes one
 **pyFAI-diffmap-layout HDF5** that all three consumers open with defaults:
 
@@ -39,7 +40,7 @@ Pick the mapping entry (e.g. `2.1`). `amesh`/`dmesh` titles name the two motors
 ## Run
 
 ```bash
-python tools/diffmap_integrate.py \
+bs_diffmap_integrate \
     /data/.../SAMPLE/SAMPLE_g1/SAMPLE_g1.h5 \      # read-only master
     out/SAMPLE_g1.h5 \                              # .h5 to write
     --entry 2.1 \                                   # the mesh scan
@@ -70,10 +71,10 @@ to point at an existing recipe, e.g. one in the writable output directory).
 
 ```bash
 # first run: build everything (and write the recipe)
-python tools/diffmap_integrate.py MASTER out/SAMPLE_g1.h5 \
+bs_diffmap_integrate MASTER out/SAMPLE_g1.h5 \
     --entry 2.1 --poni /data/.../CeO2_calib.poni --n-bins 2000 --split full
 # later runs: only OUTPUT --plan, every other arg comes from the recipe
-python tools/diffmap_integrate.py out/SAMPLE_g1.h5 --plan out/SAMPLE_g1_plan.h5
+bs_diffmap_integrate out/SAMPLE_g1.h5 --plan out/SAMPLE_g1_plan.h5
 ```
 
 At the end of a run the timing is printed: `setup`, `integrate` (with a live
@@ -122,7 +123,7 @@ integrate_config_path: /entry_0000/pyFAI/configuration/integrate_config
 ## Example (verified)
 
 ```bash
-python tools/diffmap_integrate.py \
+bs_diffmap_integrate \
   /data/visitor/hc6739/id11/20261009/RAW_DATA/LD163/LD163_g1/LD163_g1.h5 \
   test/demo_LD163.h5 \
   --entry 1.1 \
