@@ -128,8 +128,9 @@ setup(
     distclass=PlatlibDistribution,
     cmdclass=_cmdclass,
     # numpy is a runtime dependency (src/__init__.py imports it); h5py/pyFAI
-    # are test-only and intentionally absent here.
+    # are optional: the extra "diffmap" names what bs_diffmap_integrate needs.
     install_requires=["numpy"],
+    extras_require={"diffmap": ["h5py", "pyFAI", "scipy"]},
     entry_points={"console_scripts": [
         "bs_diffmap_integrate = bslz4_to_sparse.conveyor.diffmap_integrate:main",
     ]},

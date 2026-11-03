@@ -10,17 +10,10 @@ frame of a 2D **mesh** scan into a **2θ powder pattern**, and writes one
 - **pyFAI-diffmap-viewer** (`pyFAI-diffmap-view`).
 
 The integration uses bslz4's sparse matrix product against a pyFAI geometry;
-saturated pixels (`value >= exposure * 1e7`) are clipped exactly and listed
-under `/entry_0000/pyFAI/clipped_pixels`.
-
-## Setup
-
-Use the `xrdmap` conda python and our bslz4 build:
-
-```bash
-export PATH=/cvmfs/hpc.esrf.fr/software/packages/ubuntu24.04/x86_64/xrdmap/latest/bin:$PATH
-export PYTHONPATH=$HOME/wright/git/bslz4_to_sparse-dev/lib
-```
+saturated pixels (above `wtmax = exposure * 1e7`) are clipped to `wtmax` exactly and
+listed under `/entry_0000/pyFAI/clipped_pixels`.  It is part of the conveyor, the worked
+example: install it with `pip install bslz4_to_sparse[diffmap]`.  The options and their
+defaults are in `bs_diffmap_integrate --help`.
 
 ## Find a mesh scan in a master
 
@@ -33,57 +26,38 @@ for e in $(h5ls MASTER.h5 | awk '{print $1}'); do
 done
 ```
 
-Pick the mapping entry (e.g. `2.1`). `amesh`/`dmesh` titles name the two motors
-(fast/slow), so nothing else is needed; for a fly scan (`fscan`/`fscan2d`) pass
-`--fast <motor> --slow <motor>` (the error message tells you if they are missing).
+Pick the mapping entry. `amesh`/`dmesh` titles name the two motors (fast/slow) and
+their number of positions, so nothing else is needed; for a fly scan (`fscan`/`fscan2d`)
+pass `--fast <motor> --slow <motor>`, and `--map-shape rows cols` if the measured
+positions alone do not show the grid.
 
 ## Run
 
 ```bash
-bs_diffmap_integrate \
-    /data/.../SAMPLE/SAMPLE_g1/SAMPLE_g1.h5 \      # read-only master
-    out/SAMPLE_g1.h5 \                              # .h5 to write
-    --entry 2.1 \                                   # the mesh scan
-    --poni /data/.../PROCESSED_DATA/CeO2_calib.poni # geometry
-    --n-bins 2000 \
-    --split full \
-    --threads 16
+# MASTER is read only; OUT.h5 is written, with OUT.poni and OUT_plan.h5 beside it
+bs_diffmap_integrate MASTER.h5 OUT.h5 --entry 2.1 --poni CALIB.poni
 ```
-
-Options: `--n-bins` (default 2000), `--split` (`no`/`bbox`/`full`, default `full`:
-each pixel contributes to ~2-3 radial bins, so a 2000-bin CSC has ~2-3 entries per
-pixel), `--threads` (default `min(16, os.cpu_affinity // 2)`; pinned to distinct
-cores unless `--no-pin`), `--batch` (frames per `multi()` call, default 2),
-`--mask FILE|auto` (detector mask file, pyFAI: 1 = masked; `auto`/omitted derives a
-static mask from the first frame via pyFAI `dynamic_mask`), `--fast`/`--slow`
-(fly-scan motor names), `--map-shape rows cols`, `--max-frames N` (debug),
-`--input-file FILE::DSET` (force the chunk source, else auto-detected from the VDS),
-`--unit` (default `2th_deg`; the radial space is written as `2th`).
-A `.poni` copy is written next to the output (used by the raw-frame viewer marker).
 
 ## Plan re-use
 
-The first run builds a "--plan" recipe that stores the scan geometry, the pyFAI CSC
-matrix, the detector mask and the worker config, so later runs skip the whole pyFAI
-setup (no `import pyFAI`, no `integrate1d` CSC build).  By default it is written as
-`<poni>_plan.h5` beside the `.poni`; give `--plan PATH` to choose the location (or
-to point at an existing recipe, e.g. one in the writable output directory).
+Every run that builds the setup writes a recipe ("plan") holding the scan geometry,
+the pyFAI CSC matrix, the detector mask and the worker config: to `--plan PATH` if
+given, else to `<OUTPUT stem>_plan.h5` beside the output.  A recipe is read only when
+`--plan` names a file that exists; the run then skips the whole pyFAI setup, and every
+setting comes from the recipe.  A setting also given on the command line must agree
+with the recipe's, or the run is refused.
 
 ```bash
-# first run: build everything (and write the recipe)
-bs_diffmap_integrate MASTER out/SAMPLE_g1.h5 \
-    --entry 2.1 --poni /data/.../CeO2_calib.poni --n-bins 2000 --split full
-# later runs: only OUTPUT --plan, every other arg comes from the recipe
-bs_diffmap_integrate out/SAMPLE_g1.h5 --plan out/SAMPLE_g1_plan.h5
+bs_diffmap_integrate MASTER.h5 OUT.h5 --entry 2.1 --poni CALIB.poni   # writes OUT_plan.h5
+bs_diffmap_integrate AGAIN.h5 --plan OUT_plan.h5                       # the same, from the plan
 ```
 
-At the end of a run the timing is printed: `setup`, `integrate` (with a live
-`frame/s` progress bar) and `shutdown/save`, then `total`.
+## Placement
 
 Placement is from the **measured** per-frame motor values
-(`instrument/<motor>/value`), ranked onto the sorted-unique positions, so it is
-safe for serpentine/fly-scan orderings and depends only on knowing the two
-scanning motors.
+(`instrument/<motor>/value`), grouped onto the grid lines, so it is safe for
+serpentine/fly-scan orderings and for jitter in the measured positions.  The frames
+are read from every file of the scan's virtual dataset.
 
 ### Frame order
 
@@ -93,7 +67,7 @@ frames are fetched in acquisition order. To plot frame number directly, the file
 also carries the per-frame **acquisition-order** block under
 `/entry_0000/pyFAI/result/`:
 
-- `frame` (0..n-1), `slow_value[i]`, `fast_value[i]` = measured motor positions,
+- `frame` (0..n-1), `slow_value[i]`, `fast_value[i]` = the motor position of the frame's grid line,
 - `intensity_frame[i, :]` / `sum_intensity_frame[i, :]` = the powder per frame,
 
 stored as virtual (row-permuted) views — no bytes are duplicated. This is
@@ -102,15 +76,15 @@ correct for rasters and serpentine scans alike.
 ## Open the result
 
 ```bash
-diffmap-refine out/SAMPLE_g1.h5                      # diffmap-refine
-pyFAI-diffmap-view out/SAMPLE_g1.h5                  # pyFAI-diffmap-view
+diffmap-refine OUT.h5        # diffmap-refine
+pyFAI-diffmap-view OUT.h5    # pyFAI-diffmap-view
 ```
 
 For xrdmap, set the config paths to the datasets above (`intensity_flat`,
 `2th`, `dim0`, `dim1`), e.g.:
 
 ```yaml
-filename: out/SAMPLE_g1.h5
+filename: OUT.h5
 intensity_path: /entry_0000/pyFAI/result/intensity_flat
 intensity_errors_path: null
 ttheta_path: /entry_0000/pyFAI/result/2th
@@ -120,23 +94,8 @@ raw_path: /entry_0000/measurement/images_0001
 integrate_config_path: /entry_0000/pyFAI/configuration/integrate_config
 ```
 
-## Example (verified)
-
-```bash
-bs_diffmap_integrate \
-  /data/visitor/hc6739/id11/20261009/RAW_DATA/LD163/LD163_g1/LD163_g1.h5 \
-  test/demo_LD163.h5 \
-  --entry 1.1 \
-  --poni /data/visitor/hc6739/id11/20261009/PROCESSED_DATA/CeO2_calib.poni \
-  --n-bins 800 --threads 8
-```
-
-(`LD163_g1` is `amesh py 38..62 24 pz 38..62 24` → 25×25 = 625 points.)
-
 ## Notes
 
-- The master is **read-only**; only `out/*.h5` + `.poni` are written.
-- Output `.h5` are gitignored (`test/*.h5`); put demos under `test/` or `out/`.
+- The master is **read-only**; only the output, its `.poni` and its plan are written.
 - `intensity` is stored as the 3D cube `(slow, fast, radial)`; xrdmap's 2D flat
   `intensity_flat` is a **virtual dataset** of that cube, so no bytes are duplicated.
-- Saturated clipping uses `wtmax = exposure * 1e7` (from `acq_expo_time`).
