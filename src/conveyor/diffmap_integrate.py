@@ -43,10 +43,10 @@ def parse_args():
     p.add_argument("--split", choices=["no", "bbox", "full"], default=None,
         help="pyFAI pixel splitting (default full)")
     p.add_argument("--unit", default=None, help="radial unit (default 2th_deg, for xrdmap)")
-    p.add_argument("--fast", default=None, help="fast motor name (taken from an amesh/dmesh title if omitted)")
-    p.add_argument("--slow", default=None, help="slow motor name (taken from an amesh/dmesh title if omitted)")
+    p.add_argument("--fast", default=None, help="fast motor name (from an amesh/dmesh title or fscan_parameters if omitted)")
+    p.add_argument("--slow", default=None, help="slow motor name (from an amesh/dmesh title or fscan_parameters if omitted)")
     p.add_argument("--map-shape", nargs=2, type=int, default=None, metavar=("rows", "cols"),
-        help="number of slow and fast motor positions (an amesh/dmesh title gives them)")
+        help="number of slow and fast motor positions (an amesh/dmesh title or fscan_parameters give them)")
     p.add_argument("--mask", default=None, help="detector mask file (pyFAI: 1 = masked), or 'auto' "
         "(the same as omitting it): the detector's own mask, else one derived from the first frame")
     p.add_argument("--max-frames", type=int, default=None, help="integrate only the first N frames (debug)")

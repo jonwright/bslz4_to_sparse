@@ -71,6 +71,29 @@ def _axis(vals, npos=None):
     return centres, idx
 
 
+def _fscan_parameters(par, fast, slow):
+    """(fast, slow, (slow positions, fast positions)) from an fscan's instrument/fscan_parameters:
+    the numbers of points (as ImageD11's sinograms.dataset reads them, None where absent) and,
+    unless given, the motor names."""
+    def get(key):
+        if key not in par:
+            return None
+        v = par[key][()]
+        return v.decode() if isinstance(v, bytes) else v
+
+    npts = tuple(None if get(k) is None else int(get(k)) for k in ("slow_npoints", "fast_npoints"))
+    return fast or get("fast_motor"), slow or get("slow_motor"), npts
+
+
+def _motor_values(e, motor):
+    """The per-frame positions of motor in the scan entry e."""
+    for path in ("instrument/%s/value" % motor, "measurement/%s" % motor):
+        if path in e:
+            return np.asarray(e[path][:], dtype=float)
+    raise ValueError("%s: no positions of %r (instrument/%s/value or measurement/%s)"
+                     % (e.name, motor, motor, motor))
+
+
 def _chunk_sources(imgs, master, n):
     """Where the compressed chunks of frames 0..n-1 live: a list of (file, dataset, first frame,
     first frame in the file, number of frames), one per file of a VDS, else the dataset itself."""
@@ -103,10 +126,12 @@ def bliss_geometry(master, entry, frame_shape=None, fast=None, slow=None, map_sh
 
     ``fast``/``slow`` name the two scanning motors; they are taken from an
     ``amesh``/``dmesh`` title when available, otherwise they must be given (this
-    is how ``fscan``/``fscan2d`` fly-scan entries are handled).  ``map_shape``
-    (rows, cols) is the number of positions of the slow and fast motor; an
-    ``amesh``/``dmesh`` title gives it (intervals + 1), otherwise it is found
-    from the gaps between the measured positions.
+    is how ``fscan``/``fscan2d`` fly-scan entries are handled, unless their
+    ``instrument/fscan_parameters`` name them).  ``map_shape`` (rows, cols) is the
+    number of positions of the slow and fast motor; an ``amesh``/``dmesh`` title
+    gives it (intervals + 1), as do the ``slow_npoints``/``fast_npoints`` of an
+    fscan's ``instrument/fscan_parameters``; otherwise it is found from the gaps
+    between the measured positions, and the frames must then fill the grid.
 
     The point -> (row, col) placement is computed from the *measured* per-frame
     motor arrays (``instrument/<motor>/value``): the values are grouped onto the
@@ -128,6 +153,8 @@ def bliss_geometry(master, entry, frame_shape=None, fast=None, slow=None, map_sh
             slow = slow or m.group("slow")
             if (fast, slow) == (m.group("fast"), m.group("slow")):
                 npos = (int(m.group("slow_intervals")) + 1, int(m.group("fast_intervals")) + 1)
+        elif "fscan" in title and "instrument/fscan_parameters" in e:
+            fast, slow, npos = _fscan_parameters(e["instrument/fscan_parameters"], fast, slow)
         if not (fast and slow):
             raise ValueError(
                 "%s: %r names no mesh motors; pass --fast/--slow so the two scanning motors are "
@@ -135,13 +162,13 @@ def bliss_geometry(master, entry, frame_shape=None, fast=None, slow=None, map_sh
             )
         if map_shape is not None:
             map_shape = (int(map_shape[0]), int(map_shape[1]))
-            if npos != (None, None) and map_shape != npos:
-                raise ValueError("%s: map_shape %r, but the title %r gives %r"
+            if None not in npos and map_shape != npos:
+                raise ValueError("%s: map_shape %r, but the scan %r gives %r"
                                  % (entry, map_shape, title, npos))
             npos = map_shape
 
-        py = np.asarray(e["instrument/%s/value" % fast][:], dtype=float)
-        pz = np.asarray(e["instrument/%s/value" % slow][:], dtype=float)
+        py = _motor_values(e, fast)
+        pz = _motor_values(e, slow)
         n = py.size
         if pz.size != n:
             raise ValueError("%s: %d %s and %d %s positions" % (entry, n, fast, pz.size, slow))
@@ -149,6 +176,9 @@ def bliss_geometry(master, entry, frame_shape=None, fast=None, slow=None, map_sh
         fast_u, col = _axis(py, npos[1])
         slow_u, row = _axis(pz, npos[0])
         rows, cols = len(slow_u), len(fast_u)
+        if None in npos and rows * cols != n:
+            raise ValueError("%s: %d frames on %d x %d grid lines, guessed from the measured "
+                             "positions: give map_shape (--map-shape rows cols)" % (entry, n, rows, cols))
         if len(set(zip(row.tolist(), col.tolist()))) != n:
             raise ValueError("%s: %d frames do not map 1:1 onto a %dx%d grid" % (entry, n, rows, cols))
 

@@ -27,9 +27,11 @@ done
 ```
 
 Pick the mapping entry. `amesh`/`dmesh` titles name the two motors (fast/slow) and
-their number of positions, so nothing else is needed; for a fly scan (`fscan`/`fscan2d`)
-pass `--fast <motor> --slow <motor>`, and `--map-shape rows cols` if the measured
-positions alone do not show the grid.
+their number of positions, so nothing else is needed.  For a fly scan (`fscan2d`) the
+numbers of positions come from `instrument/fscan_parameters` (`slow_npoints`,
+`fast_npoints`), and the motors from there too if it names them, else pass
+`--fast <motor> --slow <motor>`.  Without either, the grid is found from the measured
+positions, and the run stops unless the frames fill it: then give `--map-shape rows cols`.
 
 ## Run
 

@@ -214,3 +214,40 @@ def test_integrate_a_bliss_scan(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit, match="n-bins"):
         run_cli(monkeypatch, again, "--plan", plan, "--n-bins", N_BINS + 1)
+
+
+def fscan_master(path, row, col, params=True, offset=0.0):
+    """An fscan2d entry: positions under measurement/, the reverse lines offset by offset."""
+    rng = np.random.default_rng(6)
+    n = len(row)
+    back = np.array([r % 2 == 1 for r in row])
+    with h5py.File(path, "w") as h:
+        e = h.create_group("1.1")
+        e["title"] = "fscan2d pz 0 1 %d py 0 1 %d 0.1" % (row.max() + 1, col.max() + 1)
+        e["measurement/py"] = col + offset * back + rng.uniform(-0.003, 0.003, n)
+        e["measurement/pz"] = row + rng.uniform(-0.003, 0.003, n)
+        e["instrument/eiger/acq_parameters/acq_expo_time"] = EXPO
+        e.create_dataset("instrument/eiger/image", shape=(n,) + FSHAPE, dtype=np.uint32)
+        if params:
+            p = e.create_group("instrument/fscan_parameters")
+            p["slow_motor"], p["fast_motor"] = "pz", "py"
+            p["slow_npoints"], p["fast_npoints"] = row.max() + 1, col.max() + 1
+
+
+def test_fscan2d_grid_from_fscan_parameters(tmp_path):
+    """fscan2d: motors and numbers of points from instrument/fscan_parameters, zigzag offset
+    lines on their grid line; a guessed grid with holes is refused unless map_shape is given."""
+    row = np.repeat(np.arange(ROWS), COLS)
+    col = np.array([c if r % 2 == 0 else COLS - 1 - c for r in range(ROWS) for c in range(COLS)])
+    master = tmp_path / "fscan.h5"
+    fscan_master(master, row, col, offset=0.3)
+    g = _diffmapio.bliss_geometry(str(master), "1.1")
+    assert g["map_shape"] == (ROWS, COLS) and (g["fast_axis"], g["slow_axis"]) == ("py", "pz")
+    assert np.array_equal(g["row"], row) and np.array_equal(g["col"], col)
+
+    # no parameters: the offset lines look like a grid twice as wide, half empty
+    fscan_master(master, row, col, params=False, offset=0.5)
+    with pytest.raises(ValueError, match="map_shape"):
+        _diffmapio.bliss_geometry(str(master), "1.1", fast="py", slow="pz")
+    with pytest.raises(ValueError, match="grid lines"):
+        _diffmapio.bliss_geometry(str(master), "1.1", fast="py", slow="pz", map_shape=(ROWS, COLS))
