@@ -110,6 +110,23 @@ def test_fixed_point_matrix_refuses_what_it_cannot_do():
         b.chunk2sparseCSC(mask, q16, np.uint16, pipeline={"dot": "csc-int"})
 
 
+def test_the_rounding_residual_goes_on_one_weight_when_the_largest_tie():
+    """A pixel's weights 0.3, 0.1, 0.3: two equal largest weights, not next to each other.  The
+    residual goes on the first only, and each pixel's integer weights sum to round(sum * scale)."""
+    npix = 4
+    rows = np.tile([0, 1, 2], npix)
+    cols = np.repeat(np.arange(npix), 3)
+    w = np.tile([0.3, 0.1, 0.3], npix)
+    m = sp.csc_matrix((w, (rows, cols)), (3, npix))
+    q = fp(m, np.ones((1, npix), np.uint8), np.uint16, wbits=16)
+    data = q.data.astype(np.int64).reshape(npix, 3)
+    rounded = np.rint(w.reshape(npix, 3) * q.scale).astype(np.int64)
+    target = np.rint(w.reshape(npix, 3).sum(axis=1) * q.scale).astype(np.int64)
+    assert (rounded.sum(axis=1) != target).all()  # there is a residual to place
+    assert np.array_equal(data.sum(axis=1), target)
+    assert np.array_equal(data[:, 1:], rounded[:, 1:])  # only the first largest weight moves
+
+
 def test_the_fixed_point_weights_get_fewer_bits_as_the_pixels_get_larger():
     """b = min(32-bit weights, 62 - log2(largest pixel value + 1) - log2(largest sum of weights in a
     bin)): each doubling of maxval costs a bit, and a 32-bit pixel type costs the most."""
