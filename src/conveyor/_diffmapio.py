@@ -72,9 +72,9 @@ def _axis(vals, npos=None):
 
 
 def _fscan_parameters(par, fast, slow):
-    """(fast, slow, (slow positions, fast positions)) from an fscan's instrument/fscan_parameters:
-    the numbers of points (as ImageD11's sinograms.dataset reads them, None where absent) and,
-    unless given, the motor names."""
+    """(fast, slow, (slow positions, fast positions), fast motor mode) from an fscan's
+    instrument/fscan_parameters: the numbers of points (as ImageD11's sinograms.dataset reads them,
+    None where absent), unless given the motor names, and the fast_motor_mode (None if absent)."""
     def get(key):
         if key not in par:
             return None
@@ -82,7 +82,22 @@ def _fscan_parameters(par, fast, slow):
         return v.decode() if isinstance(v, bytes) else v
 
     npts = tuple(None if get(k) is None else int(get(k)) for k in ("slow_npoints", "fast_npoints"))
-    return fast or get("fast_motor"), slow or get("slow_motor"), npts
+    return fast or get("fast_motor"), slow or get("slow_motor"), npts, get("fast_motor_mode")
+
+
+def _zigzag(vals, rows, cols):
+    """(row, col) of the frames of a zigzag fly scan, rows lines of cols points, the odd lines
+    taken backwards.  Refused unless the measured fast positions vals move the same way along
+    every line."""
+    i = np.arange(rows * cols)
+    row, col = i // cols, i % cols
+    col = np.where(row % 2 == 1, cols - 1 - col, col)
+    grid = np.empty((rows, cols))
+    grid[row, col] = vals
+    d = np.diff(grid, axis=1)
+    if not ((d > 0).all() or (d < 0).all()):
+        raise ValueError("the measured fast positions do not follow a zigzag frame order")
+    return row, col
 
 
 def _motor_values(e, motor):
@@ -133,9 +148,11 @@ def bliss_geometry(master, entry, frame_shape=None, fast=None, slow=None, map_sh
     fscan's ``instrument/fscan_parameters``; otherwise it is found from the gaps
     between the measured positions, and the frames must then fill the grid.
 
-    The point -> (row, col) placement is computed from the *measured* per-frame
-    motor arrays (``instrument/<motor>/value``): the values are grouped onto the
-    grid lines (see _axis), which is safe for serpentine/fly-scan orderings and
+    A ``ZIGZAG`` fscan2d with its numbers of points is placed by frame order (the
+    measured fly-scan positions lag and spread by up to a step); the grid values
+    are the mean measured position of each line.  Otherwise the point -> (row, col)
+    placement is computed from the *measured* per-frame motor arrays
+    (``instrument/<motor>/value``): the values are grouped onto the grid lines (see _axis), which is safe for serpentine/fly-scan orderings and
     for jitter in the measured positions.  It must be 1:1 (one distinct cell
     per frame).
     """
@@ -148,13 +165,14 @@ def bliss_geometry(master, entry, frame_shape=None, fast=None, slow=None, map_sh
             title = title.decode()
         m = _MESH_TITLE.match(title)
         npos = (None, None)
+        mode = None
         if m:
             fast = fast or m.group("fast")
             slow = slow or m.group("slow")
             if (fast, slow) == (m.group("fast"), m.group("slow")):
                 npos = (int(m.group("slow_intervals")) + 1, int(m.group("fast_intervals")) + 1)
         elif "fscan" in title and "instrument/fscan_parameters" in e:
-            fast, slow, npos = _fscan_parameters(e["instrument/fscan_parameters"], fast, slow)
+            fast, slow, npos, mode = _fscan_parameters(e["instrument/fscan_parameters"], fast, slow)
         if not (fast and slow):
             raise ValueError(
                 "%s: %r names no mesh motors; pass --fast/--slow so the two scanning motors are "
@@ -173,9 +191,19 @@ def bliss_geometry(master, entry, frame_shape=None, fast=None, slow=None, map_sh
         if pz.size != n:
             raise ValueError("%s: %d %s and %d %s positions" % (entry, n, fast, pz.size, slow))
 
-        fast_u, col = _axis(py, npos[1])
-        slow_u, row = _axis(pz, npos[0])
-        rows, cols = len(slow_u), len(fast_u)
+        if mode == "ZIGZAG" and None not in npos:
+            # a fly scan: the measured positions lag and spread by up to a step, the frame order
+            # places them
+            rows, cols = npos
+            if n != rows * cols:
+                raise ValueError("%s: %d frames for a %d x %d scan" % (entry, n, rows, cols))
+            row, col = _zigzag(py, rows, cols)
+            fast_u = np.bincount(col, weights=py) / rows
+            slow_u = np.bincount(row, weights=pz) / cols
+        else:
+            fast_u, col = _axis(py, npos[1])
+            slow_u, row = _axis(pz, npos[0])
+            rows, cols = len(slow_u), len(fast_u)
         if None in npos and rows * cols != n:
             raise ValueError("%s: %d frames on %d x %d grid lines, guessed from the measured "
                              "positions: give map_shape (--map-shape rows cols)" % (entry, n, rows, cols))

@@ -216,7 +216,7 @@ def test_integrate_a_bliss_scan(tmp_path, monkeypatch):
         run_cli(monkeypatch, again, "--plan", plan, "--n-bins", N_BINS + 1)
 
 
-def fscan_master(path, row, col, params=True, offset=0.0):
+def fscan_master(path, row, col, params=True, offset=0.0, mode=None, spread=0.003):
     """An fscan2d entry: positions under measurement/, the reverse lines offset by offset."""
     rng = np.random.default_rng(6)
     n = len(row)
@@ -224,7 +224,7 @@ def fscan_master(path, row, col, params=True, offset=0.0):
     with h5py.File(path, "w") as h:
         e = h.create_group("1.1")
         e["title"] = "fscan2d pz 0 1 %d py 0 1 %d 0.1" % (row.max() + 1, col.max() + 1)
-        e["measurement/py"] = col + offset * back + rng.uniform(-0.003, 0.003, n)
+        e["measurement/py"] = col + offset * back + rng.uniform(-spread, spread, n)
         e["measurement/pz"] = row + rng.uniform(-0.003, 0.003, n)
         e["instrument/eiger/acq_parameters/acq_expo_time"] = EXPO
         e.create_dataset("instrument/eiger/image", shape=(n,) + FSHAPE, dtype=np.uint32)
@@ -232,6 +232,8 @@ def fscan_master(path, row, col, params=True, offset=0.0):
             p = e.create_group("instrument/fscan_parameters")
             p["slow_motor"], p["fast_motor"] = "pz", "py"
             p["slow_npoints"], p["fast_npoints"] = row.max() + 1, col.max() + 1
+            if mode is not None:
+                p["fast_motor_mode"] = mode
 
 
 def test_fscan2d_grid_from_fscan_parameters(tmp_path):
@@ -251,3 +253,21 @@ def test_fscan2d_grid_from_fscan_parameters(tmp_path):
         _diffmapio.bliss_geometry(str(master), "1.1", fast="py", slow="pz")
     with pytest.raises(ValueError, match="grid lines"):
         _diffmapio.bliss_geometry(str(master), "1.1", fast="py", slow="pz", map_shape=(ROWS, COLS))
+
+
+def test_fscan2d_zigzag_by_frame_order(tmp_path):
+    """A ZIGZAG fscan2d whose measured positions spread by close to a step (as id11's WAu_g1 1.1,
+    step 0.5, spread 0.46) is placed by frame order; a frame order that is no zigzag is refused."""
+    row = np.repeat(np.arange(ROWS), COLS)
+    col = np.array([c if r % 2 == 0 else COLS - 1 - c for r in range(ROWS) for c in range(COLS)])
+    master = tmp_path / "fscan.h5"
+    fscan_master(master, row, col, offset=-0.3, mode="ZIGZAG", spread=0.2)
+    with pytest.raises(ValueError, match="grid lines"):  # the measured positions are no grid
+        _diffmapio._axis(h5py.File(master, "r")["1.1/measurement/py"][()], COLS)
+    g = _diffmapio.bliss_geometry(str(master), "1.1")
+    assert np.array_equal(g["row"], row) and np.array_equal(g["col"], col)
+    assert np.allclose(g["fast_values"], np.arange(COLS) - 0.3 * (ROWS // 2) / ROWS, atol=0.2)
+
+    fscan_master(master, row, np.tile(np.arange(COLS), ROWS), mode="ZIGZAG")
+    with pytest.raises(ValueError, match="zigzag"):
+        _diffmapio.bliss_geometry(str(master), "1.1")
