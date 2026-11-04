@@ -6,6 +6,7 @@ pyFAI-diffmap-view do, checking the axis/interpretation conventions.
 """
 
 import json
+import os
 
 import numpy as np
 import pytest
@@ -123,3 +124,150 @@ def test_write_diffmap_layout(tmp_path):
         assert isinstance(link, h5py.ExternalLink)
         assert link.filename == "phony-master.h5"
         assert link.path == "/1.1/instrument/eiger/image"
+
+
+def test_axis_groups_jittered_positions():
+    """Measured positions with jitter fall on their grid lines; a scatter that is no grid is refused."""
+    vals = np.array([0.0, 1.002, 2.0, 2.999, 3.0, 1.998, 0.997, 0.003])
+    centres, idx = _diffmapio._axis(vals)
+    assert len(centres) == 4 and list(idx) == [0, 1, 2, 3, 3, 2, 1, 0]
+    assert list(_diffmapio._axis(vals, 4)[1]) == list(idx)
+    with pytest.raises(ValueError):
+        _diffmapio._axis(np.array([0.0, 0.4, 1.0, 1.5, 2.1]), 3)
+
+
+EXPO = 1e-5  # wtmax = EXPO * 1e7 = 100 counts
+FSHAPE = (16, 20)
+
+
+def bliss_scan(tmp_path):
+    """A Bliss-like master: 'amesh py 0 3 3 pz 0 2 2', serpentine, measured positions with jitter,
+    its frames in two files behind a VDS, one pixel above wtmax."""
+    hdf5plugin = pytest.importorskip("hdf5plugin")
+    rng = np.random.default_rng(5)
+    row = np.repeat(np.arange(ROWS), COLS)
+    col = np.array([c if r % 2 == 0 else COLS - 1 - c for r in range(ROWS) for c in range(COLS)])
+    n = len(row)
+    frames = rng.poisson(3, (n,) + FSHAPE).astype(np.uint32)
+    frames[5, 7, 9] = 1000
+    os.makedirs(tmp_path / "scan0001")
+    parts = [(0, 7), (7, n)]
+    for k, (a, z) in enumerate(parts):
+        with h5py.File(tmp_path / "scan0001" / ("eiger_%04d.h5" % k), "w") as h:
+            h.create_dataset("/entry_0000/data", data=frames[a:z], chunks=(1,) + FSHAPE,
+                             **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
+    master = tmp_path / "master.h5"
+    with h5py.File(master, "w") as h:
+        e = h.create_group("1.1")
+        e["title"] = "amesh py 0 3 3 pz 0 2 2 0.1"
+        e["instrument/py/value"] = col + rng.uniform(-0.003, 0.003, n)
+        e["instrument/pz/value"] = row + rng.uniform(-0.003, 0.003, n)
+        e["instrument/eiger/acq_parameters/acq_expo_time"] = EXPO
+        layout = h5py.VirtualLayout((n,) + FSHAPE, np.uint32)
+        for k, (a, z) in enumerate(parts):
+            layout[a:z] = h5py.VirtualSource("scan0001/eiger_%04d.h5" % k, "/entry_0000/data",
+                                             shape=(z - a,) + FSHAPE)
+        e.create_virtual_dataset("instrument/eiger/image", layout)
+    ai = AzimuthalIntegrator(dist=0.05, poni1=0.0006, poni2=0.0007, wavelength=3e-11,
+                             detector=Detector(75e-6, 75e-6, max_shape=FSHAPE))
+    poni = tmp_path / "geom.poni"
+    ai.write(str(poni))
+    return master, poni, frames, row, col
+
+
+def run_cli(monkeypatch, *argv):
+    from bslz4_to_sparse.conveyor import diffmap_integrate
+
+    monkeypatch.setattr("sys.argv", ["bs_diffmap_integrate"] + [str(a) for a in argv])
+    diffmap_integrate.main()
+
+
+def test_integrate_a_bliss_scan(tmp_path, monkeypatch):
+    """Placement, exact clipped sums and the clipped-pixel list of a scan in two files; the
+    recipe gives the same file again, and refuses other settings."""
+    master, poni, frames, row, col = bliss_scan(tmp_path)
+    out = tmp_path / "out.h5"
+    run_cli(monkeypatch, master, out, "--entry", "1.1", "--poni", poni, "--n-bins", N_BINS,
+            "--split", "bbox", "--mask", "auto", "--threads", 2, "--no-pin")
+    plan = tmp_path / "out_plan.h5"
+    integ = bslz4_cv.Integrator.load(str(plan))
+    with h5py.File(plan, "r") as h:
+        mask = h["mask"][()]
+    W = b.fixed_point_matrix(integ.csc, mask, np.uint32).to_scipy()
+    wtmax = int(EXPO * 1e7)
+    want = np.stack([W.dot(np.minimum(f, wtmax).ravel().astype(np.int64)) for f in frames])
+    with h5py.File(out, "r") as f:
+        res = f["/entry_0000/pyFAI/result"]
+        assert np.array_equal(res["map_ptr"][()][row, col], np.arange(len(row)))
+        assert np.array_equal(res["sum_intensity"][()][row, col], want)
+        assert np.array_equal(res["sum_intensity_frame"][()], want)
+        cl = f["/entry_0000/pyFAI/clipped_pixels/all"]
+        assert list(cl["frame"][()]) == [5] and list(cl["value"][()]) == [1000]
+        assert list(cl["pixel"][()]) == [7 * FSHAPE[1] + 9]
+        first = {k: res[k][()] for k in ("intensity", "sum_intensity")}
+
+    again = tmp_path / "again.h5"
+    run_cli(monkeypatch, again, "--plan", plan, "--entry", "1.1", "--threads", 3)
+    with h5py.File(again, "r") as f:
+        for k, v in first.items():
+            assert np.array_equal(f["/entry_0000/pyFAI/result"][k][()], v)
+
+    with pytest.raises(SystemExit, match="n-bins"):
+        run_cli(monkeypatch, again, "--plan", plan, "--n-bins", N_BINS + 1)
+
+
+def fscan_master(path, row, col, params=True, offset=0.0, mode=None, spread=0.003):
+    """An fscan2d entry: positions under measurement/, the reverse lines offset by offset."""
+    rng = np.random.default_rng(6)
+    n = len(row)
+    back = np.array([r % 2 == 1 for r in row])
+    with h5py.File(path, "w") as h:
+        e = h.create_group("1.1")
+        e["title"] = "fscan2d pz 0 1 %d py 0 1 %d 0.1" % (row.max() + 1, col.max() + 1)
+        e["measurement/py"] = col + offset * back + rng.uniform(-spread, spread, n)
+        e["measurement/pz"] = row + rng.uniform(-0.003, 0.003, n)
+        e["instrument/eiger/acq_parameters/acq_expo_time"] = EXPO
+        e.create_dataset("instrument/eiger/image", shape=(n,) + FSHAPE, dtype=np.uint32)
+        if params:
+            p = e.create_group("instrument/fscan_parameters")
+            p["slow_motor"], p["fast_motor"] = "pz", "py"
+            p["slow_npoints"], p["fast_npoints"] = row.max() + 1, col.max() + 1
+            if mode is not None:
+                p["fast_motor_mode"] = mode
+
+
+def test_fscan2d_grid_from_fscan_parameters(tmp_path):
+    """fscan2d: motors and numbers of points from instrument/fscan_parameters, zigzag offset
+    lines on their grid line; a guessed grid with holes is refused unless map_shape is given."""
+    row = np.repeat(np.arange(ROWS), COLS)
+    col = np.array([c if r % 2 == 0 else COLS - 1 - c for r in range(ROWS) for c in range(COLS)])
+    master = tmp_path / "fscan.h5"
+    fscan_master(master, row, col, offset=0.3)
+    g = _diffmapio.bliss_geometry(str(master), "1.1")
+    assert g["map_shape"] == (ROWS, COLS) and (g["fast_axis"], g["slow_axis"]) == ("py", "pz")
+    assert np.array_equal(g["row"], row) and np.array_equal(g["col"], col)
+
+    # no parameters: the offset lines look like a grid twice as wide, half empty
+    fscan_master(master, row, col, params=False, offset=0.5)
+    with pytest.raises(ValueError, match="map_shape"):
+        _diffmapio.bliss_geometry(str(master), "1.1", fast="py", slow="pz")
+    with pytest.raises(ValueError, match="grid lines"):
+        _diffmapio.bliss_geometry(str(master), "1.1", fast="py", slow="pz", map_shape=(ROWS, COLS))
+
+
+def test_fscan2d_zigzag_by_frame_order(tmp_path):
+    """A ZIGZAG fscan2d whose measured positions spread by close to a step (as id11's WAu_g1 1.1,
+    step 0.5, spread 0.46) is placed by frame order; a frame order that is no zigzag is refused."""
+    row = np.repeat(np.arange(ROWS), COLS)
+    col = np.array([c if r % 2 == 0 else COLS - 1 - c for r in range(ROWS) for c in range(COLS)])
+    master = tmp_path / "fscan.h5"
+    fscan_master(master, row, col, offset=-0.3, mode="ZIGZAG", spread=0.2)
+    with pytest.raises(ValueError, match="grid lines"):  # the measured positions are no grid
+        _diffmapio._axis(h5py.File(master, "r")["1.1/measurement/py"][()], COLS)
+    g = _diffmapio.bliss_geometry(str(master), "1.1")
+    assert np.array_equal(g["row"], row) and np.array_equal(g["col"], col)
+    assert np.allclose(g["fast_values"], np.arange(COLS) - 0.3 * (ROWS // 2) / ROWS, atol=0.2)
+
+    fscan_master(master, row, np.tile(np.arange(COLS), ROWS), mode="ZIGZAG")
+    with pytest.raises(ValueError, match="zigzag"):
+        _diffmapio.bliss_geometry(str(master), "1.1")

@@ -348,10 +348,10 @@ def _quantise(nm, b, wtype):
         pix = np.repeat(np.arange(nm.npix), n)
         colmax = np.zeros(nm.npix, w.dtype)
         colmax[np.nonzero(has)[0]] = np.maximum.reduceat(w, first)
-        is_max = w == colmax[pix]                       # the column-max weight(s) per column
-        first_of_max = np.zeros(len(w), bool)
-        first_of_max[1:] = (pix[1:] == pix[:-1]) & is_max[:-1]
-        biggest = np.flatnonzero(is_max & ~first_of_max)
+        cand = np.flatnonzero(w == colmax[pix])        # the column-max weight(s) per column
+        keep = np.ones(len(cand), bool)                 # a tie goes to the first one
+        keep[1:] = pix[cand[1:]] != pix[cand[:-1]]
+        biggest = cand[keep]
         q[biggest] += target - got
     if (q < 0).any():
         raise ValueError("%d weights are negative after rounding; integer weights are "
