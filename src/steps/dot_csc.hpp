@@ -20,12 +20,13 @@
 
 using namespace bslz4;
 
-/* A threshold above the dtype's maximum means no pixel can be > cut: the
+/* A threshold at or above the dtype's maximum means no pixel can be > cut: the
  * sparse output is empty, so its scan is skipped (and the wrapped (T) cut
- * never used).  uint64_t and the floating types are never above an int64
- * threshold. */
+ * never used).  At the maximum counts: Python clamps a larger cut to it, so
+ * "no sparse output" arrives as exactly the maximum.  uint64_t and the
+ * floating types are never skipped. */
 template<typename T> inline bool bslz4_cut_above_max(const bslz4_work *w) {
-    return w->threshold > (int64_t) std::numeric_limits<T>::max();
+    return w->threshold >= (int64_t) std::numeric_limits<T>::max();
 }
 /* The cut as the pixel type: integers from the int64 (u64: its bit pattern), floats from cutf, so
  * a fractional cut is exact. */
