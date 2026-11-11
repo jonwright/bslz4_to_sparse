@@ -50,8 +50,9 @@ inline size_t bslz4_padded_pixel(const bslz4_mat_padded *m, size_t r) {
 }
 
 template<typename T>
-inline void bslz4_padded_row_scalar(const T *block, size_t i0, const bslz4_mat_padded *m,
-                                    size_t r, double *out) {
+inline void bslz4_padded_row_scalar(const T *BSLZ4_RESTRICT block, size_t i0,
+                                    const bslz4_mat_padded *BSLZ4_RESTRICT m, size_t r,
+                                    double *BSLZ4_RESTRICT out) {
     const double px = (double) block[bslz4_padded_pixel(m, r) - i0];
     const float *w = (const float *) m->weights + r * (size_t) m->width;
     double *o = (double *) out + m->base[r];
@@ -63,8 +64,9 @@ inline void bslz4_padded_row_scalar(const T *block, size_t i0, const bslz4_mat_p
  * bins are never clobbered. */
 template<typename T, int W>
 __attribute__((target("avx2,fma")))
-inline void bslz4_padded_row_avx2(const T *block, size_t i0, const bslz4_mat_padded *m,
-                                  size_t r, double *out) {
+inline void bslz4_padded_row_avx2(const T *BSLZ4_RESTRICT block, size_t i0,
+                                  const bslz4_mat_padded *BSLZ4_RESTRICT m, size_t r,
+                                  double *BSLZ4_RESTRICT out) {
     const double p = (double) block[bslz4_padded_pixel(m, r) - i0];
     const float *w = (const float *) m->weights + r * (size_t) W;
     double *o = (double *) out + m->base[r];
@@ -87,8 +89,9 @@ inline void bslz4_padded_row_avx2(const T *block, size_t i0, const bslz4_mat_pad
 /* rows r0..r1 in tiles, STRIDE apart */
 template<typename T, int W>
 __attribute__((target("avx2,fma")))
-inline void bslz4_padded_rows_avx2(const T *block, size_t i0, const bslz4_mat_padded *m,
-                                   size_t r0, size_t r1, double *out) {
+inline void bslz4_padded_rows_avx2(const T *BSLZ4_RESTRICT block, size_t i0,
+                                   const bslz4_mat_padded *BSLZ4_RESTRICT m, size_t r0, size_t r1,
+                                   double *BSLZ4_RESTRICT out) {
     for (size_t t0 = r0; t0 < r1; t0 += PADDED_TILE) {
         const size_t t1 = (t0 + PADDED_TILE < r1) ? t0 + PADDED_TILE : r1;
         for (size_t s = 0; s < PADDED_STRIDE; s++)
@@ -104,8 +107,9 @@ inline void bslz4_padded_rows_avx2(const T *block, size_t i0, const bslz4_mat_pa
  * matrix's own pixel count, which the Python layer checks equals the frame's.
  * Called only with n > 0. */
 template<typename T>
-inline void bslz4_padded_dense_block(const T *block, size_t i0, const bslz4_mat_padded *m,
-                                     bool avx2, double *out) {
+inline void bslz4_padded_dense_block(const T *BSLZ4_RESTRICT block, size_t i0,
+                                     const bslz4_mat_padded *BSLZ4_RESTRICT m, bool avx2,
+                                     double *BSLZ4_RESTRICT out) {
     const size_t block_idx = i0 / m->block_elems;
     const size_t r0 = (size_t) m->row_ptr[block_idx];
     const size_t r1 = (size_t) m->row_ptr[block_idx + 1];
