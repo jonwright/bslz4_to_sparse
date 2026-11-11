@@ -95,7 +95,19 @@ class Integrator(object):
         npt_azim azimuthal ones for a 2D result).  split is pyFAI's pixel splitting ("no", "bbox",
         "full").  integrate: keywords for pyFAI's integrate1d/2d on the image of ones, so that
         correctSolidAngle, polarization_factor, flat, normalization_factor ... are the ones the
-        data will be corrected with.  The detector mask of ai is in the matrix."""
+        data will be corrected with.  The detector mask of ai is in the matrix.
+
+        The keywords dummy and delta_dummy are refused (ValueError): they mask pixels by their
+        value in each frame, and this matrix and norm are for one fixed set of pixels.  The
+        dummy a pyFAI detector carries by default (Eiger, Pilatus: pixels at the type's maximum)
+        is not applied either: those pixels stay in the sums unless the mask holds them."""
+        for name in ("dummy", "delta_dummy"):
+            if integrate.get(name) is not None:
+                raise ValueError(
+                    "%s is not supported: it masks pixels by their value in each frame, and the "
+                    "matrix and normalisation here are for a fixed mask.  Put the pixels in the "
+                    "detector mask." % name
+                )
         import scipy.sparse as sp
         from pyFAI.method_registry import IntegrationMethod
 
