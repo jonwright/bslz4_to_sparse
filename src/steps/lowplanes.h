@@ -355,8 +355,7 @@ static inline int bslz4_all_zero_c(const uint8_t *BSLZ4_RESTRICT p, size_t n) {
  * unmasked) of a block whose values are all < 256, from its untransposed low
  * bytes v8[0..n), n a multiple of 8; an all-zero 8-byte word (most of a
  * sparse frame) is skipped with one test. */
-__attribute__((always_inline))
-static inline int bslz4_collect_u8_swar(const uint8_t *BSLZ4_RESTRICT v8, const uint8_t *BSLZ4_RESTRICT mask,
+static BSLZ4_ALWAYS_INLINE int bslz4_collect_u8_swar(const uint8_t *BSLZ4_RESTRICT v8, const uint8_t *BSLZ4_RESTRICT mask,
                                  size_t i0, size_t n, unsigned cut,
                                  void *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr,
                                  const int out8) {
@@ -392,8 +391,7 @@ static inline int bslz4_collect_u8_swar(const uint8_t *BSLZ4_RESTRICT v8, const 
  * skipped; the pixels > cut (and unmasked) are collected from the bytes with
  * all-zero 8-byte words skipped.  On POWER9 kcb's scalar transpose
  * dominated sparsify after the byte skip. */
-__attribute__((always_inline))
-static inline int bslz4_lowplanes_collect_vsx(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
+static BSLZ4_ALWAYS_INLINE int bslz4_lowplanes_collect_vsx(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
                                        const uint8_t *BSLZ4_RESTRICT zeros,
                                        const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
                                        void *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr,
