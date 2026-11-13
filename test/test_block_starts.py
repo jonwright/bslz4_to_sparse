@@ -69,10 +69,11 @@ def test_errors(tmp_path):
     bad[12:16] = struct.pack(">I", len(bad))  # the first block runs past the chunk
     with pytest.raises(Exception, match=r"chunks \[1\]"):
         b.block_starts([chunks[0], bytes(bad), chunks[2]], np.uint16)
-    with pytest.raises(Exception, match=r"chunks \[2\]"):  # truncated: does not end with its tail
+    with pytest.raises(Exception, match=r"chunks \[2\]"):  # truncated: its last block runs past it
         b.block_starts([chunks[0], chunks[1], chunks[2][:-3]], np.uint16)
-    with pytest.raises(Exception, match=r"chunks \[0\]"):  # a byte too many
-        b.block_starts([chunks[0] + b"\0", chunks[1]], np.uint16)
+    # a byte too many is ignored, as by the HDF5 filter (test_trailing_bytes.py)
+    one = b.block_starts([chunks[0] + b"\0"], np.uint16)
+    assert (one == b.block_starts(chunks[:1], np.uint16)).all()
     other = chunks_of(write(tmp_path / "g.h5", frames_of(np.uint16, (50, 163), n=1), "lz4"), 1)
     with pytest.raises(Exception, match="-106"):  # not the same total size
         b.block_starts([chunks[0], other[0]], np.uint16)

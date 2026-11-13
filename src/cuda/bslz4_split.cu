@@ -31,8 +31,9 @@ inline __device__ uint32_t read32be(const uint8_t *address) {
 
 /* One thread per image: check the header and walk the block headers. starts[i*nstored + b] = offset
    of block b's 4-byte length word in chunk i.  err[i]: 0 good; 1, 2 corrupt (a block outside the
-   chunk, or the chunk does not end where its headers say); 3 not total_bytes of pixels; 4 blocks
+   chunk, or the tocopy raw bytes after the last block are); 3 not total_bytes of pixels; 4 blocks
    not 8 kB; 5 zstd (the first block starts with the zstd magic number).  A bad chunk is skipped.
+   Bytes after the raw ones are ignored, as by the HDF5 filter.
  */
 extern "C" __global__ void unblock(const uint8_t *const slab, const int64_t *const chunk_off,
                                    const int64_t *const chunk_end, uint32_t *const starts,
@@ -70,17 +71,16 @@ extern "C" __global__ void unblock(const uint8_t *const slab, const int64_t *con
         out[b] = (uint32_t) pos;
         pos += 4 + l;
     }
-    if (e == 0 && pos + tocopy != len) e = 2;
+    if (e == 0 && pos + tocopy > len) e = 2;
     err[i] = e;
 }
 
 /* grid (frames, (ntot + 1) / 2), block (32, 2) */
 extern "C" __global__ void decompress(const uint8_t *const slab, const int64_t *const chunk_off,
-                                      const int64_t *const chunk_end, const uint32_t *const starts,
-                                      const int32_t *const err, const uint32_t nstored,
-                                      const uint32_t ntot, const uint32_t total_bytes,
-                                      const uint32_t bpp, uint8_t *const dense,
-                                      const unsigned long long stride) {
+                                      const uint32_t *const starts, const int32_t *const err,
+                                      const uint32_t nstored, const uint32_t ntot,
+                                      const uint32_t total_bytes, const uint32_t bpp,
+                                      uint8_t *const dense, const unsigned long long stride) {
     const int w = threadIdx.y, lane = threadIdx.x;
     const uint32_t im = blockIdx.x; /* images fastest */
     const uint32_t blockid = blockIdx.y * blockDim.y + w;
@@ -107,7 +107,7 @@ extern "C" __global__ void decompress(const uint8_t *const slab, const int64_t *
         else
             shuf8_warp(dec[w], o);
     } else { /* the last, partial block: bsize bytes bit-shuffled (slowly unshuffled here), then
-                tocopy raw bytes */
+                tocopy raw bytes, stored right after the last block */
         uint8_t *ps = out + (size_t) nfull * 8192;
         const uint32_t nelb = bsize / bpp, bytestride = bsize / (8 * bpp);
         for (uint32_t dest = lane; dest < nelb; dest += 32) {
@@ -121,8 +121,14 @@ extern "C" __global__ void decompress(const uint8_t *const slab, const int64_t *
             for (uint32_t i = 0; i < bpp; i++)
                 ps[dest * bpp + i] = (uint8_t) (val >> (8 * i));
         }
-        if (lane < tocopy)
-            ps[bsize + lane] = comp[(uint64_t) (chunk_end[im] - chunk_off[im]) - tocopy + lane];
+        if (lane < tocopy) {
+            uint64_t raw = 12;
+            if (nstored) {
+                const uint32_t s = starts[(size_t) im * nstored + nstored - 1];
+                raw = (uint64_t) s + 4 + read32be(comp + s);
+            }
+            ps[bsize + lane] = comp[raw + lane];
+        }
     }
 }
 

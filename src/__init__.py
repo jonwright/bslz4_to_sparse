@@ -463,10 +463,10 @@ def block_starts(chunks, dtype, out=None):
     Returns starts, a uint32 array (nchunks, nblocks): the byte offset, from
     the start of its chunk, of each block's 4-byte big-endian compressed
     size; the compressed block follows it.  The last block may be partial,
-    and up to 8 * dtype.itemsize - 1 bytes of pixels after it are stored raw
-    at the end of the chunk.  lz4 or zstd.  Every chunk must have the same
-    total size and block size; a chunk whose blocks do not tile it exactly
-    raises (corrupt or truncated).
+    and up to 8 * dtype.itemsize - 1 bytes of pixels are stored raw right
+    after it.  Bytes after those are ignored, as by the HDF5 filter.  lz4 or
+    zstd.  Every chunk must have the same total size and block size; a chunk
+    whose blocks or raw bytes run past its end raises (corrupt or truncated).
     out = None, or a uint32 array of nchunks * nblocks elements to fill
     """
     if len(chunks) == 0:
