@@ -168,7 +168,7 @@ def _chunk_header(cmp):
 
 _UNBLOCK_ERRORS = {  # err of the unblock kernel (bslz4_split.cu)
     1: "a chunk is corrupt or truncated (a block lies outside it)",
-    2: "a chunk is corrupt or truncated (its block lengths do not match its size)",
+    2: "a chunk is corrupt or truncated (its raw tail lies outside it)",
     3: "-106: a chunk is not a frame of the mask's size",
     4: "a chunk's blocks are not %d bytes, the only size the GPU decoder takes" % BLOCK,
     5: "a chunk is zstd: the GPU decoder does lz4 only",
@@ -409,7 +409,6 @@ class chunk2sparse(object):
             (
                 self._slab,
                 self.d_off[s0:],
-                self.d_end[s0:],
                 self.d_starts[s0:],
                 self.d_err[s0:],
                 np.uint32(self.nstored),

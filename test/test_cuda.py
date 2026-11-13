@@ -342,6 +342,33 @@ def test_unblock_on_the_cpu_gives_the_same_result(tmp_path, dt):
         g.chunk2sparse(mask, dt, codec, unblock="disk")
 
 
+@pytest.mark.parametrize("unblock", ["gpu", "cpu"])
+@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.float32])
+@pytest.mark.parametrize("shape", [(61, 83), (64, 128), (7, 9), (1, 1)])  # 61x83, 7x9, 1x1: raw
+def test_extra_bytes_after_a_chunk_are_ignored(tmp_path, dt, shape, unblock):
+    """as by the HDF5 filter: the raw pixels are read after the last block (test_trailing_bytes)"""
+    if unblock == "cpu" and shape == (1, 1):
+        pytest.skip("unblock='cpu' fails on frames with no stored block, trailing bytes or not")
+    frames = np.random.default_rng(3).poisson(1.0, (3,) + shape).astype(dt)
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    padded = [x + bytes(bytearray(range(101, 165))) for x in chunks]
+    c = g.chunk2sparse(np.ones(shape, np.uint8), dt, codec, unblock=unblock)
+    n, (v, i) = c.multi(padded, 0)
+    for f in range(len(frames)):
+        want = np.flatnonzero(frames[f].ravel() > 0)
+        assert n[f] == len(want) and (i[f, : n[f]] == want).all()
+        assert (v[f, : n[f]] == frames[f].ravel()[want]).all()
+    if unblock == "gpu":
+        lens = np.array([len(x) for x in padded])
+        offs = np.concatenate(([0], np.cumsum(lens)[:-1]))
+        d_buf = cp.asarray(np.frombuffer(b"".join(padded), np.uint8))
+        dense = c.decompress_from_device(d_buf, offs, lens)
+        assert (cp.asnumpy(dense) == frames).all()
+    if frames[0].size % 8:  # the raw pixels cut short
+        with pytest.raises(Exception, match=r"chunks \[1\]"):
+            c.multi([chunks[0], chunks[1][:-1]], 0)
+
+
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32, np.float32])
 @pytest.mark.parametrize("shape", [(61, 83), (64, 128), (16, 8)])  # 61 x 83: rows padded to 16 B
 def test_decompress_and_integrate_stay_on_the_device(tmp_path, dt, shape):

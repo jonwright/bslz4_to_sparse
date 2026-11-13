@@ -381,7 +381,8 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     }
 
     /* The tail: the last partial block (a multiple of 8 elements, compressed
-     * like the others) and any remainder stored raw at the chunk's end. */
+     * like the others) and any remainder stored raw right after the last
+     * block.  Bytes after that are ignored, as by the HDF5 filter. */
     const int tail_decode = decode == BSLZ4_DECODE_ZSTD ? BSLZ4_DECODE_ZSTD : BSLZ4_DECODE_LZ4_STOCK;
     const int tail_untranspose = lowplanes ? BSLZ4_UNTRANSPOSE_KCB : untranspose;
     size_t tail_block =
@@ -412,7 +413,7 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             if (BSLZ4_UNLIKELY(compressed_lengths[f] < rem_f ||
                                cursors[f] > (int64_t) compressed_lengths[f] - rem_f))
                 return BSLZ4_ERR_CORRUPT_CHUNK;
-            memcpy(block + tail_block, cf + compressed_lengths[f] - rem_f, (size_t) rem_f);
+            memcpy(block + tail_block, cf + cursors[f], (size_t) rem_f);
         }
         if (top)
             npx_out[f] =
@@ -529,13 +530,13 @@ int bslz4_driver_decompress(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         }
         if (rc) break;
         const int64_t rem_f =
-            (int64_t) (remaining - tail_block); /* stored raw at the chunk's end */
+            (int64_t) (remaining - tail_block); /* stored raw after the last block */
         if (rem_f > 0) {
             if (BSLZ4_UNLIKELY(clen < rem_f || pos > clen - rem_f)) {
                 rc = BSLZ4_ERR_CORRUPT_CHUNK;
                 break;
             }
-            memcpy(dst + off, cf + clen - rem_f, (size_t) rem_f);
+            memcpy(dst + off, cf + pos, (size_t) rem_f);
         }
     }
     if (zctx) ZSTD_freeDCtx(zctx);
@@ -546,7 +547,8 @@ int bslz4_driver_decompress(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
  * the start of chunk f, of block b's 4-byte (big endian) size word, for the nblocks =
  * full blocks + (a partial tail block of whole groups of 8 elements) blocks of each chunk.  The
  * walk is the decoders' (lz4 or zstd: the same framing).  status[f] = 0, or BSLZ4_ERR_CORRUPT_CHUNK
- * when a block runs past the chunk or the chunk does not end exactly with its raw tail; the call
+ * when a block or the raw tail after the last block runs past the chunk (bytes after the raw tail
+ * are ignored, as by the HDF5 filter); the call
  * then returns BSLZ4_ERR_CORRUPT_CHUNK after walking every frame.  *nblocks_out is set first. */
 int bslz4_driver_block_starts(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                               const int32_t *BSLZ4_RESTRICT compressed_lengths, int nframes,
@@ -563,7 +565,7 @@ int bslz4_driver_block_starts(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     const uint64_t remaining = total - full * blocksize;
     const uint64_t tail_block = (8 * NB) * (remaining / (8 * NB));
     const uint64_t nblocks = full + (tail_block > 0);
-    const int64_t rem_raw = (int64_t) (remaining - tail_block); /* stored raw at the chunk's end */
+    const int64_t rem_raw = (int64_t) (remaining - tail_block); /* stored raw after the last block */
     *nblocks_out = (int64_t) nblocks;
     if ((uint64_t) nframes * nblocks > (uint64_t) nstarts) return BSLZ4_ERR_WORKSPACE_TOO_SMALL;
     /* Each header gives the next one's address: one frame's walk is a chain of dependent reads.
@@ -597,7 +599,7 @@ int bslz4_driver_block_starts(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             }
         }
         for (int k = 0; k < m; k++) {
-            if (st[k] == 0 && pos[k] + rem_raw != compressed_lengths[f0 + k])
+            if (st[k] == 0 && pos[k] + rem_raw > compressed_lengths[f0 + k])
                 st[k] = BSLZ4_ERR_CORRUPT_CHUNK;
             status[f0 + k] = st[k];
             if (st[k]) rc = BSLZ4_ERR_CORRUPT_CHUNK;
