@@ -50,6 +50,13 @@ def masked_ai(flat=False):
     return ai
 
 
+@pytest.mark.parametrize("name", ["dummy", "delta_dummy"])
+def test_dummy_and_delta_dummy_are_refused(name):
+    """pyFAI masks pixels equal to dummy (within delta_dummy) frame by frame; a fixed matrix cannot."""
+    with pytest.raises(ValueError, match=name + " is not supported"):
+        cv.Integrator.from_pyfai(make_ai(), 60, unit="q_nm^-1", **{name: 1.0})
+
+
 @pytest.mark.parametrize("flat", [False, True])
 @pytest.mark.parametrize("corrections", sorted(CORRECTIONS))
 @pytest.mark.parametrize("split", ["no", "bbox", "full"])
