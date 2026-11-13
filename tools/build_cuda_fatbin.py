@@ -5,16 +5,17 @@ backend (src/cuda/_backend_drv.py): no NVRTC, cupy or CUDA runtime at run time.
     python3 tools/build_cuda_fatbin.py --nvrtc .../libnvrtc.so.12 --fatbinary .../bin/fatbinary \
         --out DIR
 
-writes DIR/bslz4_kernels.fatbin (a cubin for every architecture in --arch, and PTX for the last,
-which the driver compiles for newer GPUs) and DIR/bslz4_kernels.json (kernel name as _gpu.py asks
-for it, e.g. "count_above<unsigned short>", -> mangled symbol).  Every template instantiation
+writes DIR/bslz4_kernels.fatbin (a cubin for every architecture in --arch, and PTX for --ptx,
+which the driver compiles for GPUs with no cubin: newer ones, and Thor) and
+DIR/bslz4_kernels.json (kernel name as _gpu.py asks for it, e.g. "count_above<unsigned short>",
+-> mangled symbol).  Every template instantiation
 _gpu.py can ask for is built: each pixel dtype, accumulator and frames-per-read.
 
 The compiler is NVRTC with the options cupy gives it, so the machine code is the one the cupy
 backend runs (nvcc's front end gives different PTX for the same source, and ptxas a different
 schedule: 1.5% slower decoding measured on a GTX TITAN X).  libnvrtc: pip nvidia-cuda-nvrtc-cu12;
-fatbinary: the CUDA toolkit's (redist cuda_nvcc).  CUDA 12.x is the last toolkit for compute
-capability below 7.5 (Maxwell, Pascal, Volta).
+fatbinary: the CUDA toolkit's (redist cuda_nvcc).  CUDA 12.9 is the only toolkit for both
+Maxwell (5.x) and Blackwell (10.x, 12.x): CUDA 13 drops compute capability below 7.5.
 
 --nvrtc-for 35=.../cuda-11.8/lib64/libnvrtc.so --nvrtc-for 20=.../cuda-8.0/lib64/libnvrtc.so adds
 cubins, each from the toolkit given, for GPUs CUDA 12 dropped: Kepler (CUDA 11.8 is the last for
@@ -28,7 +29,7 @@ matches the source), at the ESRF (the cuda modules conflict, so 11.8 is named by
 is not on cvmfs: unpacked from NVIDIA's cuda_8.0.61_375.26_linux.run, md5 33e1bd98...), in a
 shell with no other module loaded (after jupyter-slurm, NVRTC fails: "failed to load builtins"):
 
-    module load cuda/12.6.2
+    module load cuda/12.9.1
     C118=/cvmfs/hpc.esrf.fr/software/packages/ubuntu24.04/x86_64/cuda/11.8.0
     C80=/data/id11/jon/testcrunchGPU/toolkits/cuda-8.0
     LD_LIBRARY_PATH=$C80/lib64:$C118/lib64:$CUDA_HOME/lib64 python3 tools/build_cuda_fatbin.py \
@@ -51,7 +52,8 @@ ACCS = [("float", "float"), ("float", "double"), ("unsigned int", "unsigned long
 FRAMES = [1, 2]  # _gpu.FRAMES_PER_READ and 1
 FILES = ["nvcomp_lz4.cuh", "shuffle_warp.cuh", "bslz4_split.cu"]  # concatenated as by _gpu.py
 PLAIN = ["unblock", "decompress", "scan_counts", "choose_level", "scan_images"]  # extern "C"
-ARCHS = "50,52,60,61,70,75,80,86,89,90"
+ARCHS = "50,52,60,61,70,75,80,86,89,90,100,103,120,121"
+PTX = "90"  # the JIT runs it on any GPU from 9.0, Thor (11.0) included
 OPTIONS = ["--std=c++17", "-ftz=true", "--device-as-default-execution-space"]  # as cupy
 
 
@@ -123,6 +125,7 @@ def main():
     ap.add_argument("--fatbinary", default="fatbinary")
     ap.add_argument("--out", required=True)
     ap.add_argument("--arch", default=ARCHS, help="compute capabilities, e.g. 50,52,61")
+    ap.add_argument("--ptx", default=PTX, help="compute capability of the PTX")
     ap.add_argument("--nvrtc-for", action="append", default=[], metavar="ARCH=LIBNVRTC",
                     help="an extra cubin from another toolkit, e.g. 35=.../libnvrtc.so.11.2")
     a = ap.parse_args()
@@ -138,7 +141,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         images, table = [], None
         for c in old + archs + [None]:
-            arch = "sm_%s" % c if c else "compute_%s" % archs[-1]
+            arch = "sm_%s" % c if c else "compute_%s" % a.ptx
             data, lowered = nvs.get(c, nv).compile(src, names, arch)
             if table is not None and lowered != table:
                 raise SystemExit("lowered names differ between architectures")
@@ -147,7 +150,7 @@ def main():
             with open(path, "wb") as fh:
                 fh.write(data)
             images.append("--image3=kind=%s,sm=%s,file=%s" % ("elf" if c else "ptx",
-                                                              c or archs[-1], path))
+                                                              c or a.ptx, path))
         subprocess.check_call([a.fatbinary, "--create=" + fatbin, "-64"] + images)
     table.update({n: n for n in PLAIN})
     built = {c: "%d.%d" % nvs.get(c, nv).version for c in old + archs}  # test_cuda_fatbin.py
@@ -158,7 +161,7 @@ def main():
         fh.write("\n")
     print("wrote %s (%.1f MB, %d kernels, sm_%s + compute_%s PTX)"
           % (fatbin, os.path.getsize(fatbin) / 1e6, len(table) - 1, ",".join(old + archs),
-             archs[-1]))
+             a.ptx))
 
 
 if __name__ == "__main__":
