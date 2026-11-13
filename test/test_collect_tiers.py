@@ -1,13 +1,13 @@
 """Every available collect value (avx512cs, avx2cs, vsx, neon, sse2, scalar)
 must give exactly numpy's selection: the values > cut of the unmasked
-pixels, with their flat indices, in order.  Run for u16 and u32 over sparse,
+pixels, with their flat indices, in order.  Run for u8, u16 and u32 over sparse,
 medium, dense and all-maximum data, several cuts, with a mask and with an
 all-ones mask (mask step 'none'), on a shape that leaves a tail; and the CSC
 powder must agree across collect values on both routes.
 
 The untranspose is pinned to kcb so that the collect value under test runs
-on every block (the low-planes untranspose fuses its own collect for u16
-blocks below 256: test_lowplanes_fused.py covers that).
+on every block (the low-planes untranspose fuses its own collect for u8
+blocks and u16 blocks below 256: test_lowplanes_fused.py covers that).
 """
 
 import os
@@ -27,7 +27,7 @@ sp = pytest.importorskip("scipy.sparse")
 import bslz4_to_sparse as b
 from bslz4_to_sparse import _pipeline
 
-SHAPE = (93, 217)   # 20181 px: full blocks plus a tail for u16 and u32
+SHAPE = (93, 217)   # 20181 px: full blocks plus a tail for u8, u16 and u32
 TIERS = [n for i, n in enumerate(_pipeline.NAMES["collect"])
          if i and _pipeline.available("collect", i) == 1]
 
@@ -55,7 +55,7 @@ def chunks_of(frames, path):
         return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(ds)
 
 
-@pytest.mark.parametrize("dt", [np.uint16, np.uint32])
+@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32])
 @pytest.mark.parametrize("kind", ["sparse", "medium", "dense", "max"])
 @pytest.mark.parametrize("masked", [True, False])
 def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
@@ -64,7 +64,8 @@ def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
     chunks, codec = chunks_of(frames, tmp_path / "c.h5")
     mask = ((rng.random(SHAPE) > 0.15) if masked else np.ones(SHAPE, bool)).astype(np.uint8)
     # the threshold is a C int: the largest cut tried is min(max - 1, 2**31 - 1)
-    for cut in (0, 3, 600, min(int(np.iinfo(dt).max) - 1, 2 ** 31 - 1)):
+    top = min(int(np.iinfo(dt).max) - 1, 2 ** 31 - 1)
+    for cut in sorted(set(min(c, top) for c in (0, 3, 600, top))):
         for tier in TIERS:
             p = {"collect": tier, "untranspose": "kcb",
                  "mask": "pixel" if masked else "none"}
@@ -79,7 +80,7 @@ def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
                 assert (vals[f, :n] == flat[want]).all(), (tier, kind, cut, f)
 
 
-@pytest.mark.parametrize("dt", [np.uint16, np.uint32])
+@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32])
 @pytest.mark.parametrize("route", ["dense", "sparse"])
 def test_powder_same_for_every_tier(tmp_path, dt, route):
     rng = np.random.default_rng(22)

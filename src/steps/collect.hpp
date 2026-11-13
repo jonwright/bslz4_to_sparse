@@ -231,6 +231,49 @@ inline int bslz4_collect_avx512cs_u32(const uint32_t *BSLZ4_RESTRICT block,
     }
     return npx;
 }
+
+/* u8 version of collect avx512cs: 64 pixels per step, the values by one byte
+ * compress (VBMI2), the indices by four dword compresses.  Full-width stores
+ * reach at most 64 entries past the count: before group j at most j of this
+ * block's pixels were selected, so a store ends before i0 + j + 64 <=
+ * i0 + block_elems. */
+__attribute__((target("avx512f,avx512bw,avx512vl,avx512vbmi2,popcnt")))
+inline int bslz4_collect_avx512cs_u8(const uint8_t *BSLZ4_RESTRICT block,
+                                      const uint8_t *BSLZ4_RESTRICT mask,
+                                      size_t i0, size_t block_elems, uint8_t cut,
+                                      uint8_t *BSLZ4_RESTRICT out_vals,
+                                      uint32_t *BSLZ4_RESTRICT out_adr) {
+    int npx = 0;
+    size_t j = 0;
+    const __m512i vcut = _mm512_set1_epi8((char) cut);
+    const __m512i iota = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    const __m512i sixteen = _mm512_set1_epi32(16);
+    for (; j + 64 <= block_elems; j += 64) {
+        const __m512i v = _mm512_loadu_si512((const void *) &block[j]);
+        __mmask64 m = _mm512_cmpgt_epu8_mask(v, vcut);
+        if (mask) {
+            const __m512i mv = _mm512_loadu_si512((const void *) &mask[j + i0]);
+            m &= _mm512_test_epi8_mask(mv, mv);
+        }
+        if (!m) continue;                     /* the common case for sparse data */
+        _mm512_storeu_si512((void *) &out_vals[npx], _mm512_maskz_compress_epi8(m, v));
+        __m512i ix = _mm512_add_epi32(_mm512_set1_epi32((int) (j + i0)), iota);
+        for (int q = 0; q < 4; q++) {
+            const __mmask16 mq = (__mmask16) (m >> (16 * q));
+            _mm512_storeu_si512((void *) &out_adr[npx], _mm512_maskz_compress_epi32(mq, ix));
+            npx += __builtin_popcount((unsigned) mq);
+            ix = _mm512_add_epi32(ix, sixteen);
+        }
+    }
+    for (; j < block_elems; j++) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
+            out_vals[npx] = block[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
 #endif
 
 #endif /* BSLZ4_HAVE_AVX512_COLLECT */
@@ -387,6 +430,61 @@ inline int bslz4_collect_avx2cs_u32(const uint32_t *BSLZ4_RESTRICT block,
     return npx;
 }
 
+/* u8 version of collect avx2cs: 32 pixels per step, the selection byte of
+ * each 8 indexing the lane table as for u16 (vpermd the indices, pshufb the
+ * bytes; stored full width, 8 entries past the count at most). */
+__attribute__((target("avx2,popcnt")))
+inline int bslz4_collect_avx2cs_u8(const uint8_t *BSLZ4_RESTRICT block,
+                                    const uint8_t *BSLZ4_RESTRICT mask,
+                                    size_t i0, size_t block_elems, uint8_t cut,
+                                    uint8_t *BSLZ4_RESTRICT out_vals,
+                                    uint32_t *BSLZ4_RESTRICT out_adr) {
+    const uint64_t *lut = bslz4_avx2cs_table();
+    int npx = 0;
+    size_t j = 0;
+    const __m256i bias = _mm256_set1_epi8((char) 0x80);
+    const __m256i vcut_b = _mm256_xor_si256(_mm256_set1_epi8((char) cut), bias);
+    const __m256i iota8 = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+    for (; j + 32 <= block_elems; j += 32) {
+        uint32_t mnz = mask
+            ? ~(uint32_t) _mm256_movemask_epi8(_mm256_cmpeq_epi8(
+                  _mm256_loadu_si256((const __m256i *) (const void *) &mask[j + i0]), _mm256_setzero_si256()))
+            : 0xFFFFFFFFu;
+        const __m256i v = _mm256_loadu_si256((const __m256i *) (const void *) &block[j]);
+        uint32_t bits = mnz & (uint32_t) _mm256_movemask_epi8(_mm256_cmpgt_epi8(_mm256_xor_si256(v, bias), vcut_b));
+        if (!bits) continue;                  /* the common case for sparse data */
+        if (__builtin_popcount(bits) <= BSLZ4_AVX2CS_SCALAR_MAX) {
+            do {
+                const int b = __builtin_ctz(bits);
+                out_vals[npx] = block[j + b];
+                out_adr[npx] = (uint32_t) (j + i0 + b);
+                npx++;
+                bits &= bits - 1;
+            } while (bits);
+            continue;
+        }
+        for (int h = 0; h < 4; h++) {
+            const uint32_t m = (bits >> (8 * h)) & 0xFFu;
+            if (!m) continue;
+            const __m128i sel = _mm_loadl_epi64((const __m128i *) (const void *) &lut[m]);
+            const __m256i idx = _mm256_add_epi32(_mm256_set1_epi32((int) (j + i0 + 8 * h)), iota8);
+            _mm256_storeu_si256((__m256i *) (void *) &out_adr[npx],
+                                _mm256_permutevar8x32_epi32(idx, _mm256_cvtepu8_epi32(sel)));
+            const __m128i v8 = _mm_loadl_epi64((const __m128i *) (const void *) &block[j + 8 * h]);
+            _mm_storel_epi64((__m128i *) (void *) &out_vals[npx], _mm_shuffle_epi8(v8, sel));
+            npx += __builtin_popcount(m);
+        }
+    }
+    for (; j < block_elems; j++) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
+            out_vals[npx] = block[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+
 #endif /* BSLZ4_HAVE_AVX2_COLLECT */
 
 #if BSLZ4_HAVE_SSE2_COLLECT
@@ -467,6 +565,42 @@ inline int bslz4_collect_sse2_u32(const uint32_t *BSLZ4_RESTRICT block,
         uint32_t bits = mnz4 & mgt4;
         while (bits) {
             int b = __builtin_ctz(bits);
+            out_vals[npx] = block[j + b];
+            out_adr[npx] = (uint32_t) (j + i0 + b);
+            npx++;
+            bits &= bits - 1;
+        }
+    }
+    for (; j < block_elems; j++) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
+            out_vals[npx] = block[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+
+/* u8 version of collect sse2: 16 pixels per compare, then the bit loop. */
+__attribute__((target("sse2")))
+inline int bslz4_collect_sse2_u8(const uint8_t *BSLZ4_RESTRICT block,
+                                  const uint8_t *BSLZ4_RESTRICT mask,
+                                  size_t i0, size_t block_elems, uint8_t cut,
+                                  uint8_t *BSLZ4_RESTRICT out_vals,
+                                  uint32_t *BSLZ4_RESTRICT out_adr) {
+    int npx = 0;
+    size_t j = 0;
+    const __m128i bias = _mm_set1_epi8((char) 0x80);
+    const __m128i vcut_b = _mm_xor_si128(_mm_set1_epi8((char) cut), bias);
+    for (; j + 16 <= block_elems; j += 16) {
+        uint32_t mnz = mask
+            ? (~(uint32_t) _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128((const __m128i *) &mask[j + i0]),
+                                                           _mm_setzero_si128()))) & 0xFFFFu
+            : 0xFFFFu;
+        const __m128i v = _mm_loadu_si128((const __m128i *) &block[j]);
+        uint32_t bits = mnz & (uint32_t) _mm_movemask_epi8(_mm_cmpgt_epi8(_mm_xor_si128(v, bias), vcut_b));
+        while (bits) {
+            const int b = __builtin_ctz(bits);
             out_vals[npx] = block[j + b];
             out_adr[npx] = (uint32_t) (j + i0 + b);
             npx++;
@@ -627,6 +761,55 @@ inline int bslz4_collect_vsx_u32(const uint32_t *BSLZ4_RESTRICT block,
     return npx;
 }
 
+/* u8 version of collect vsx: 16 lanes of bytes. */
+inline int bslz4_collect_vsx_u8(const uint8_t *BSLZ4_RESTRICT block,
+                                  const uint8_t *BSLZ4_RESTRICT mask,
+                                  size_t i0, size_t n, uint8_t cut,
+                                  uint8_t *BSLZ4_RESTRICT out_vals,
+                                  uint32_t *BSLZ4_RESTRICT out_adr) {
+    int npx = 0;
+    size_t j = 0;
+    const size_t nv = n & ~(size_t) 15;
+    int dense = 0;
+    __vector unsigned char vcut = vec_splats(cut);
+    while (j < nv) {
+        const size_t end = j + BSLZ4_VSX_WINDOW < nv ? j + BSLZ4_VSX_WINDOW : nv;
+        const int start = npx;
+        if (dense) {
+            for (; j < end; j++) {
+                if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
+                    out_vals[npx] = block[j];
+                    out_adr[npx] = (uint32_t) (j + i0);
+                    npx++;
+                }
+            }
+        } else {
+            for (; j < end; j += 16) {
+                __vector unsigned char v;
+                memcpy(&v, &block[j], sizeof(v));
+                if (!vec_any_gt(v, vcut)) continue;
+                __vector __bool char gt = vec_cmpgt(v, vcut);
+                for (int lane = 0; lane < 16; lane++) {
+                    if (bslz4_mask_ok(mask, j + i0 + lane) && vec_extract((__vector unsigned char) gt, lane)) {
+                        out_vals[npx] = vec_extract(v, lane);
+                        out_adr[npx] = (uint32_t) (j + i0 + lane);
+                        npx++;
+                    }
+                }
+            }
+        }
+        dense = bslz4_vsx_next_dense(dense, npx - start);
+    }
+    for (; j < n; j++) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
+            out_vals[npx] = block[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+
 #endif /* BSLZ4_HAVE_VSX_COLLECT */
 
 #if BSLZ4_HAVE_NEON_COLLECT
@@ -714,12 +897,46 @@ inline int bslz4_collect_neon_u32(const uint32_t *BSLZ4_RESTRICT block,
     return npx;
 }
 
+/* u8 version of collect neon: 16 lanes of bytes. */
+inline int bslz4_collect_neon_u8(const uint8_t *BSLZ4_RESTRICT block,
+                                   const uint8_t *BSLZ4_RESTRICT mask,
+                                   size_t i0, size_t n, uint8_t cut,
+                                   uint8_t *BSLZ4_RESTRICT out_vals,
+                                   uint32_t *BSLZ4_RESTRICT out_adr) {
+    int npx = 0;
+    size_t j = 0;
+    uint8x16_t vcut = vdupq_n_u8(cut);
+    for (; j + 16 <= n; j += 16) {
+        uint8x16_t v = vld1q_u8(&block[j]);
+        uint8x16_t gt = vcgtq_u8(v, vcut);
+        if (vmaxvq_u8(gt) == 0) continue;
+        uint8_t vbuf[16], gbuf[16];
+        vst1q_u8(vbuf, v);
+        vst1q_u8(gbuf, gt);
+        for (int lane = 0; lane < 16; lane++) {
+            if (bslz4_mask_ok(mask, j + i0 + lane) && gbuf[lane]) {
+                out_vals[npx] = vbuf[lane];
+                out_adr[npx] = (uint32_t) (j + i0 + lane);
+                npx++;
+            }
+        }
+    }
+    for (; j < n; j++) {
+        if (bslz4_mask_ok(mask, j + i0) & (block[j] > cut)) {
+            out_vals[npx] = block[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+
 #endif /* BSLZ4_HAVE_NEON_COLLECT */
 
 /*
  * bslz4_collect_gt<T>: mask[j+i0]>0 & block[j]>cut, compacted into
  * (out_vals, out_adr). Generic (scalar) for every T; explicitly
- * specialized for uint16_t/uint32_t to dispatch on the pipeline's
+ * specialized for uint8_t/uint16_t/uint32_t to dispatch on the pipeline's
  * collect value (avx512cs, avx2cs, sse2, vsx, neon -- see the top of this
  * file), any other value meaning the scalar loop. Used by the plain sparse
  * route and by every dense dot (dot_*.hpp).
@@ -890,6 +1107,72 @@ inline int bslz4_collect_nz<uint32_t>(const uint32_t *BSLZ4_RESTRICT block, cons
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
         uint32_t px = block[j];
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (px != 0))) {
+            out_vals[npx] = px;
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+
+template<>
+inline int bslz4_collect_gt<uint8_t>(const uint8_t *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
+                                       size_t i0, size_t n, uint8_t cut, int collect,
+                                       uint8_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
+#if BSLZ4_HAVE_AVX512_COLLECT
+#if BSLZ4_HAVE_VBMI_GFNI
+    if (collect == BSLZ4_COLLECT_AVX512CS) return bslz4_collect_avx512cs_u8(block, mask, i0, n, cut, out_vals, out_adr);
+#endif
+#endif
+#if BSLZ4_HAVE_AVX2_COLLECT
+    if (collect == BSLZ4_COLLECT_AVX2CS) return bslz4_collect_avx2cs_u8(block, mask, i0, n, cut, out_vals, out_adr);
+#endif
+#if BSLZ4_HAVE_SSE2_COLLECT
+    if (collect == BSLZ4_COLLECT_SSE2) return bslz4_collect_sse2_u8(block, mask, i0, n, cut, out_vals, out_adr);
+#endif
+#if BSLZ4_HAVE_VSX_COLLECT
+    if (collect == BSLZ4_COLLECT_VSX) return bslz4_collect_vsx_u8(block, mask, i0, n, cut, out_vals, out_adr);
+#endif
+#if BSLZ4_HAVE_NEON_COLLECT
+    if (collect == BSLZ4_COLLECT_NEON) return bslz4_collect_neon_u8(block, mask, i0, n, cut, out_vals, out_adr);
+#endif
+    int npx = 0;
+    for (size_t j = 0; j < n; j++) {
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (block[j] > cut))) {
+            out_vals[npx] = block[j];
+            out_adr[npx] = (uint32_t) (j + i0);
+            npx++;
+        }
+    }
+    return npx;
+}
+
+template<>
+inline int bslz4_collect_nz<uint8_t>(const uint8_t *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
+                                       size_t i0, size_t n, int collect,
+                                       uint8_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
+    /* unsigned T: !=0 is exactly >0, so cut==0 reuses the same kernels. */
+#if BSLZ4_HAVE_AVX512_COLLECT
+#if BSLZ4_HAVE_VBMI_GFNI
+    if (collect == BSLZ4_COLLECT_AVX512CS) return bslz4_collect_avx512cs_u8(block, mask, i0, n, (uint8_t) 0, out_vals, out_adr);
+#endif
+#endif
+#if BSLZ4_HAVE_AVX2_COLLECT
+    if (collect == BSLZ4_COLLECT_AVX2CS) return bslz4_collect_avx2cs_u8(block, mask, i0, n, (uint8_t) 0, out_vals, out_adr);
+#endif
+#if BSLZ4_HAVE_SSE2_COLLECT
+    if (collect == BSLZ4_COLLECT_SSE2) return bslz4_collect_sse2_u8(block, mask, i0, n, (uint8_t) 0, out_vals, out_adr);
+#endif
+#if BSLZ4_HAVE_VSX_COLLECT
+    if (collect == BSLZ4_COLLECT_VSX) return bslz4_collect_vsx_u8(block, mask, i0, n, (uint8_t) 0, out_vals, out_adr);
+#endif
+#if BSLZ4_HAVE_NEON_COLLECT
+    if (collect == BSLZ4_COLLECT_NEON) return bslz4_collect_neon_u8(block, mask, i0, n, (uint8_t) 0, out_vals, out_adr);
+#endif
+    int npx = 0;
+    for (size_t j = 0; j < n; j++) {
+        uint8_t px = block[j];
         if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (px != 0))) {
             out_vals[npx] = px;
             out_adr[npx] = (uint32_t) (j + i0);

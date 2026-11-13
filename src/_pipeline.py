@@ -55,11 +55,11 @@ VALUES = {
     ),
     "collect": (
         "auto",
-        ("avx512cs", "u16/u32 pixels; AVX-512 BW/VL and VBMI2"),
-        ("avx2cs", "u16/u32 pixels; AVX2"),
-        ("vsx", "u16/u32 pixels; POWER VSX"),
-        ("neon", "u16/u32 pixels; aarch64 NEON"),
-        ("sse2", "u16/u32 pixels; SSE2"),
+        ("avx512cs", "u8/u16/u32 pixels; AVX-512 BW/VL and VBMI2"),
+        ("avx2cs", "u8/u16/u32 pixels; AVX2"),
+        ("vsx", "u8/u16/u32 pixels; POWER VSX"),
+        ("neon", "u8/u16/u32 pixels; aarch64 NEON"),
+        ("sse2", "u8/u16/u32 pixels; SSE2"),
         ("scalar", "any pixel type"),
     ),
     "route": (
@@ -181,7 +181,7 @@ def auto_step(step, suffix, codec, mask_all_valid):
                     return NAMES[step].index(n)
         return NAMES[step].index("kcb")
     if step == "collect":
-        if suffix in ("u16", "u32"):
+        if suffix in ("u8", "u16", "u32"):
             for n in ("avx512cs", "avx2cs", "vsx", "neon", "sse2"):
                 if available(step, NAMES[step].index(n)) == 1:
                     return NAMES[step].index(n)
@@ -232,8 +232,8 @@ def resolve(pipeline, dtype, codec, mask, dot_auto=None, matrix=False):
         raise ValueError("pipeline['untranspose']=%r is for u8/u16 pixels, not %s (use kcb)"
                          % (uname, np.dtype(dtype)))
     cname = NAMES["collect"][vals[COLLECT]]
-    if cname != "scalar" and suffix not in ("u16", "u32"):
-        raise ValueError("pipeline['collect']=%r is for u16/u32 pixels, not %s (use scalar)"
+    if cname != "scalar" and suffix not in ("u8", "u16", "u32"):
+        raise ValueError("pipeline['collect']=%r is for u8/u16/u32 pixels, not %s (use scalar)"
                          % (cname, np.dtype(dtype)))
     if matrix:
         if vals[DOT] == 0:

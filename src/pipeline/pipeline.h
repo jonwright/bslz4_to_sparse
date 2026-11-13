@@ -56,9 +56,10 @@ enum {
     BSLZ4_MASK_N = 4
 };
 
-/* untranspose: the low-planes values handle u16 blocks whose high byte-planes
- * are zero (every value < 256) with half the bit transpose, and fused with
- * the collect where the block itself is not needed; other blocks take kcb */
+/* untranspose: the low-planes values handle u8 blocks, and u16 blocks whose
+ * high byte-planes are zero (every value < 256), with half the bit transpose,
+ * fused with the collect where the block itself is not needed; other blocks
+ * take kcb */
 enum {
     BSLZ4_UNTRANSPOSE_LOWPLANES_VBMI = 1,   /* AVX-512 VBMI/VBMI2 + GFNI */
     BSLZ4_UNTRANSPOSE_LOWPLANES_AVX2 = 2,
@@ -70,7 +71,7 @@ enum {
     BSLZ4_UNTRANSPOSE_N = 8
 };
 
-/* collect: the SIMD values are u16/u32 only */
+/* collect: the SIMD values are u8/u16/u32 only */
 enum {
     BSLZ4_COLLECT_AVX512CS = 1,
     BSLZ4_COLLECT_AVX2CS = 2,

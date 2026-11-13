@@ -448,12 +448,12 @@ def test_simd_collect_matches_scalar(collect, untranspose):
 
 def test_bad_collect_values_refused():
     # the removed tiers ("avx512", "avx2") are unknown names; a SIMD collect
-    # needs u16/u32 pixels; route/dot need a matrix
-    for bad in ("avx512", "avx2", 7):
+    # needs u8/u16/u32 pixels; route/dot need a matrix
+    for bad in ("avx512", "avx2", len(_pipeline.NAMES["collect"])):
         with pytest.raises(ValueError, match="unknown"):
             chunk2sparse(1 - ai.mask, dtype=np.uint16, pipeline={"collect": bad})
-    with pytest.raises(ValueError, match="u16/u32"):
-        chunk2sparse(1 - ai.mask, dtype=np.uint8, pipeline={"collect": "sse2"})
+    with pytest.raises(ValueError, match="u8/u16/u32"):
+        chunk2sparse(1 - ai.mask, dtype=np.int16, pipeline={"collect": "sse2"})
     with pytest.raises(ValueError, match="no matrix"):
         chunk2sparse(1 - ai.mask, dtype=np.uint16, pipeline={"route": "dense"})
 
