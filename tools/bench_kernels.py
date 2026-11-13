@@ -65,6 +65,7 @@ DATASETS = [  # (case key, encodings for sparsify, encodings for the matrices)
     ("ceo2", ["lz4 8k", "zstd-2 256k"], ["lz4 8k"]),
 ]
 SPARSIFY_STEPS = ("decode", "mask", "untranspose", "collect")
+INT_DOTS = ("csc-int", "csc-run-int", "csc-run-int16")   # need a fixed_point_matrix
 FRAMES = 25
 BATCH = 25
 REPEATS = 2
@@ -96,8 +97,8 @@ def run_all(obj, chunks, cut):
         npx, (v, i) = r[0], r[1]
         for k in range(len(npx)):
             sparse.append((v[k, :npx[k]].copy(), i[k, :npx[k]].copy()))
-        if len(r) > 2:
-            powders.append(np.array(r[2], np.float64))
+        if len(r) > 2:   # an integer dot's powder is int64 sums: scale them for the comparison
+            powders.append(np.array(r[2], np.float64) / float(getattr(obj, "powder_scale", None) or 1))
     return sparse, (np.concatenate(powders) if powders else None)
 
 
@@ -233,7 +234,11 @@ def main():
                 for dot in usable("dot"):
                     p = dict(base, dot=dot)
                     try:
-                        obj = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec, pipeline=p)
+                        # the integer dots take the same matrix prepared as fixed point
+                        Mx = (b.fixed_point_matrix(M, mask, dtype,
+                                                   wbits=16 if dot == "csc-run-int16" else 32)
+                              if dot in INT_DOTS else M)
+                        obj = b.chunk2sparseCSC(mask, Mx, dtype=dtype, codec=codec, pipeline=p)
                     except ValueError as e:
                         record(op, "dot", p, err=e)
                         continue
