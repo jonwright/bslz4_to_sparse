@@ -734,7 +734,9 @@ static inline int bslz4_lowplanes_list(int value, uint8_t *BSLZ4_RESTRICT raw, s
 #endif
 #if defined(__POWER8_VECTOR__) && defined(__ALTIVEC__)
     case BSLZ4_UNTRANSPOSE_LOWPLANES_VSX:
-        if (ne % 8 || !bslz4_high_planes_zero_c_nofill(raw, ne, nz_end))
+        /* whole 8-byte plane words only: with ne % 64 != 0 the last word of a plane runs into
+         * the next plane (u8 blocks of 1224 pixels gave pixels that are not there) */
+        if (ne % 64 || !bslz4_high_planes_zero_c_nofill(raw, ne, nz_end))
             return -1;
         if (cut >= 255) return 0;
         /* planes larger than the zero buffer (blocks over 8192 pixels): zero-filled in raw rather
