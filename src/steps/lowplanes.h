@@ -351,7 +351,8 @@ static inline int bslz4_collect_u8_swar(const uint8_t *BSLZ4_RESTRICT v8, const 
  * 8 planes' 8-byte chunks are regrouped by two vec_perm rounds so that each
  * doubleword holds one byte of every plane, then vgbbd (vec_gb: an 8x8 bit
  * transpose per doubleword) gives the 64 pixel bytes; planes at or past
- * nz_end are read from `zeros`; a group whose plane bytes are all zero is
+ * nz_end are read from `zeros` (NULL: zero-filled in raw, for blocks whose planes are larger
+ * than the zero buffer); a group whose plane bytes are all zero is
  * skipped; the pixels > cut (and unmasked) are collected from the bytes with
  * all-zero 8-byte words skipped.  On POWER9 kcb's scalar transpose
  * dominated sparsify after the byte skip. */
@@ -365,9 +366,10 @@ static int bslz4_lowplanes_collect_vsx(uint8_t *BSLZ4_RESTRICT raw, size_t ne, s
     const size_t size = ne / 8;
     if (nz_end > ne) nz_end = ne;
     const size_t np = (nz_end + size - 1) / size;
-    if (nz_end < np * size) memset(raw + nz_end, 0, np * size - nz_end);
+    const size_t fill = zeros ? np * size : ne;    /* no zero buffer: all 8 low planes in raw */
+    if (nz_end < fill) memset(raw + nz_end, 0, fill - nz_end);
     const uint8_t *pl[8];
-    for (size_t p = 0; p < 8; p++) pl[p] = p < np ? raw + p * size : zeros;
+    for (size_t p = 0; p < 8; p++) pl[p] = (p < np || !zeros) ? raw + p * size : zeros;
     /* stage 1: bytes b = 0..3 (lo) or 4..7 (hi) of 4 planes, 4 per b */
     const vu8 P1l = {0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, 3, 11, 19, 27};
     const vu8 P1h = {4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31};
@@ -495,11 +497,15 @@ static inline int bslz4_lowplanes_list(int value, uint8_t *BSLZ4_RESTRICT raw, s
 #endif
 #if defined(__POWER8_VECTOR__) && defined(__ALTIVEC__)
     case BSLZ4_UNTRANSPOSE_LOWPLANES_VSX:
-        if (ne % 8 || ne / 8 > sizeof(bslz4_zero_plane) || !bslz4_high_planes_zero_c_nofill(raw, ne, nz_end))
+        if (ne % 8 || !bslz4_high_planes_zero_c_nofill(raw, ne, nz_end))
             return -1;
         if (cut >= 255) return 0;
-        return bslz4_lowplanes_collect_vsx(raw, ne, nz_end, bslz4_zero_plane, mask, i0, cut, out_vals,
-                                           out_adr, n * BSLZ4_LOWPLANES_BRANCHFREE_RATIO < blocksize);
+        /* planes larger than the zero buffer (blocks over 8192 pixels): zero-filled in raw rather
+         * than refused (kcb's portable untranspose cost 13x on POWER9 at 32 kB blocks) */
+        return bslz4_lowplanes_collect_vsx(raw, ne, nz_end,
+                                           ne / 8 > sizeof(bslz4_zero_plane) ? NULL : bslz4_zero_plane,
+                                           mask, i0, cut, out_vals, out_adr,
+                                           n * BSLZ4_LOWPLANES_BRANCHFREE_RATIO < blocksize);
 #endif
     case BSLZ4_UNTRANSPOSE_LOWPLANES_C:
         if (ne % 8 || !bslz4_high_planes_zero_c(raw, ne, nz_end)) return -1;
