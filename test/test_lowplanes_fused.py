@@ -3,7 +3,8 @@ the high byte-planes empty): the plain sparse output and the sparse-route CSC
 powder must equal numpy at every cut -- including cuts at and above 255, where
 nothing in such a block passes -- for every usable lowplanes-* value, with the
 mask applied per pixel and in the planes (and 'none' for an all-ones mask),
-for sparse and dense-ish blocks, with masked pixels holding values.
+for sparse and dense-ish blocks, with masked pixels holding values, at the
+default 8 kB blocks and at 32 kB (planes larger than the VSX zero buffer).
 """
 
 import os
@@ -47,10 +48,10 @@ def make(kind, rng):
     return a.astype(np.uint16)
 
 
-def chunks_of(frames, path):
+def chunks_of(frames, path, nelems=0):
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
+                              **hdf5plugin.Bitshuffle(nelems=nelems, cname="lz4"))
         return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(ds)
 
 
@@ -65,11 +66,12 @@ LOWPLANES = [n for i, n in enumerate(_pipeline.NAMES["untranspose"])
              if n.startswith("lowplanes") and _pipeline.available("untranspose", i) == 1]
 
 
+@pytest.mark.parametrize("nelems", [0, 16384])       # 8 kB (default), 32 kB blocks
 @pytest.mark.parametrize("kind", ["very sparse", "clustered", "dense <256", "max 255"])
 @pytest.mark.parametrize("mname", ["ones", "holes"])
-def test_sparse(tmp_path, kind, mname):
+def test_sparse(tmp_path, kind, mname, nelems):
     frames = make(kind, np.random.default_rng(17))
-    chunks, codec = chunks_of(frames, tmp_path / "s.h5")
+    chunks, codec = chunks_of(frames, tmp_path / "s.h5", nelems)
     mask = masks()[mname]
     mps = ("pixel", "planes") + (("none",) if mname == "ones" else ())
     for lp, mp in [(lp, mp) for lp in LOWPLANES for mp in mps]:
@@ -81,7 +83,7 @@ def test_sparse(tmp_path, kind, mname):
                 flat = frames[f].ravel()
                 want = np.flatnonzero((flat > cut) & (mask.ravel() > 0))
                 n = int(npx[f])
-                tag = (kind, mname, lp, mp, cut, f)
+                tag = (kind, mname, nelems, lp, mp, cut, f)
                 assert n == want.size, tag
                 assert (adr[f, :n] == want).all(), tag
                 assert (vals[f, :n] == flat[want]).all(), tag
