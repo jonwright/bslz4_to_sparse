@@ -5,6 +5,13 @@ libcuda is opened at run time (ctypes), the kernels come precompiled by nvcc in 
 Uses the device's primary context (shared with cupy, torch, jax).  A kernel runs on the calling
 thread's current stream (Stream.use()), as in cupy.  Every device-to-host copy (.get) waits for its
 stream before returning; .set queues on the stream given; zeros/asarray wait for their copy.
+
+Device memory comes from a memory pool of our own per device (stream-ordered allocator, CUDA 11.2
+drivers on), as cupy's pool: a free returns the block to the pool, without the device-wide wait of
+cuMemFree.  Blocks are taken and given back on the legacy default stream, so an array must not be
+dropped while work queued on another stream still uses it (every array the GPU classes hand out is
+complete).  free_pool() gives the unused blocks back to the driver.  Older drivers, and devices
+without pools: cuMemAlloc / cuMemFree.
 """
 
 import ctypes
@@ -64,6 +71,16 @@ cuLaunchKernel = _sig(
 )
 cuMemAlloc = _sig("cuMemAlloc_v2", ctypes.POINTER(ctypes.c_uint64), _SZ)
 cuMemFree = _sig("cuMemFree_v2", ctypes.c_uint64)
+try:  # stream-ordered allocator: drivers from CUDA 11.2
+    cuMemPoolCreate = _sig("cuMemPoolCreate", ctypes.POINTER(_P), _P)
+    cuMemPoolSetAttribute = _sig("cuMemPoolSetAttribute", _P, ctypes.c_int, _P)
+    cuMemPoolTrimTo = _sig("cuMemPoolTrimTo", _P, _SZ)
+    cuMemAllocFromPoolAsync = _sig(
+        "cuMemAllocFromPoolAsync", ctypes.POINTER(ctypes.c_uint64), _SZ, _P, _P
+    )
+    cuMemFreeAsync = _sig("cuMemFreeAsync", ctypes.c_uint64, _P)
+except AttributeError:
+    cuMemPoolCreate = None
 cuMemHostAlloc = _sig("cuMemHostAlloc", ctypes.POINTER(_P), _SZ, ctypes.c_uint)
 cuMemFreeHost = _sig("cuMemFreeHost", _P)
 cuMemcpyHtoDAsync = _sig("cuMemcpyHtoDAsync_v2", ctypes.c_uint64, _P, _SZ, _P)
@@ -79,6 +96,8 @@ cuGetErrorString = _sig("cuGetErrorString", ctypes.c_int, ctypes.POINTER(ctypes.
 CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X = 5
 CU_POINTER_ATTRIBUTE_DEVICE_ORDINAL = 9
 CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
+CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED = 115
+CU_MEMPOOL_ATTR_RELEASE_THRESHOLD = 4
 CU_STREAM_NON_BLOCKING = 1
 CU_MEMHOSTALLOC_PORTABLE = 1
 
@@ -101,6 +120,13 @@ except CudaError as e:  # a driver but no usable GPU: as for a missing driver, a
 _tls = threading.local()  # .stream: the current stream of this thread
 _ctx = {}  # device -> primary context
 _ctx_lock = threading.Lock()
+_pools = {}  # device -> our memory pool, or None (cuMemAlloc)
+
+
+class _CUmemPoolProps(ctypes.Structure):  # 88 bytes; the fields after location stay zero
+    _fields_ = [("allocType", ctypes.c_int), ("handleTypes", ctypes.c_int),
+                ("locationType", ctypes.c_int), ("locationId", ctypes.c_int),
+                ("win32SecurityAttributes", _P), ("reserved", ctypes.c_ubyte * 64)]
 
 
 def _context(dev):
@@ -115,6 +141,34 @@ def _context(dev):
                 _check(cuCtxPopCurrent(ctypes.byref(_P())))
             _ctx[dev] = c
         return _ctx[dev]
+
+
+def _pool(dev):
+    """Our memory pool on `dev` (made on first use, keeps freed blocks), or None."""
+    with _ctx_lock:
+        if dev not in _pools:
+            pool, ok = None, ctypes.c_int()
+            if cuMemPoolCreate is not None and cuDeviceGetAttribute(
+                ctypes.byref(ok), CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED, dev
+            ) == 0 and ok.value:
+                props, pool = _CUmemPoolProps(), _P()
+                props.allocType, props.locationType, props.locationId = 1, 1, dev  # pinned, device
+                _check(cuMemPoolCreate(ctypes.byref(pool), ctypes.byref(props)))
+                keep = ctypes.c_uint64(2**64 - 1)  # never give blocks back at a synchronize
+                _check(cuMemPoolSetAttribute(pool, CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
+                                             ctypes.byref(keep)))
+            _pools[dev] = pool
+        return _pools[dev]
+
+
+def free_pool():
+    """Give the blocks no array uses back to the driver, on every device (as cupy's
+    free_all_blocks)."""
+    for dev, pool in list(_pools.items()):
+        if pool is not None:
+            with device(dev):
+                _check(cuCtxSynchronize())
+                _check(cuMemPoolTrimTo(pool, 0))
 
 
 def device_id():
@@ -228,17 +282,24 @@ class Stream(object):
 
 
 class _Alloc(object):
-    """One cuMemAlloc, freed with its last view."""
+    """One block of device memory (from our pool, else cuMemAlloc), freed with its last view."""
 
     def __init__(self, nbytes):
         self.dev = device_id()
         self.ctx, p = _context(self.dev), ctypes.c_uint64()
-        _check(cuMemAlloc(ctypes.byref(p), max(int(nbytes), 1)))
+        self.pool = _pool(self.dev)
+        if self.pool is None:
+            _check(cuMemAlloc(ctypes.byref(p), max(int(nbytes), 1)))
+        else:
+            _check(cuMemAllocFromPoolAsync(ctypes.byref(p), max(int(nbytes), 1), self.pool, None))
         self.ptr = p.value
 
     def __del__(self):
         if getattr(self, "ptr", None) and _in_context is not None:  # None: interpreter shutdown
-            _in_context(self.ctx, cuMemFree, self.ptr)
+            if self.pool is None:
+                _in_context(self.ctx, cuMemFree, self.ptr)
+            else:
+                _in_context(self.ctx, cuMemFreeAsync, self.ptr, None)
 
 
 class _Borrowed(object):
