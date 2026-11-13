@@ -128,7 +128,8 @@ int bslz4_step_available(int step, int value) {
         case BSLZ4_UNTRANSPOSE_LOWPLANES_VBMI:
         case BSLZ4_UNTRANSPOSE_LOWPLANES_AVX2:
         case BSLZ4_UNTRANSPOSE_LOWPLANES_VSX:
-        case BSLZ4_UNTRANSPOSE_LOWPLANES_C:  return bslz4_lowplanes_available(value) ? 1 : 0;
+        case BSLZ4_UNTRANSPOSE_LOWPLANES_C:
+        case BSLZ4_UNTRANSPOSE_LOWPLANES_AVX512BW: return bslz4_lowplanes_available(value) ? 1 : 0;
         case BSLZ4_UNTRANSPOSE_KCB:          return 1;
         case BSLZ4_UNTRANSPOSE_NEON:         return BSLZ4_HAVE_BACKEND_NEON ? 1 : 0;
         case BSLZ4_UNTRANSPOSE_SCALAR:       return 1;
@@ -142,6 +143,7 @@ int bslz4_step_available(int step, int value) {
         case BSLZ4_COLLECT_NEON:     return bslz4_available_neon_collect() ? 1 : 0;
         case BSLZ4_COLLECT_SSE2:     return bslz4_available_sse2_collect() ? 1 : 0;
         case BSLZ4_COLLECT_SCALAR:   return 1;
+        case BSLZ4_COLLECT_AVX512F:  return bslz4_available_avx512f_collect() ? 1 : 0;
         default:                     return -1;
         }
     case BSLZ4_STEP_ROUTE:
@@ -175,7 +177,7 @@ int bslz4_resolve(int dtype, const uint16_t *pipeline, int layout, bslz4_pipe *B
     }
     if (!is_dot) p->step[BSLZ4_STEP_ROUTE] = p->step[BSLZ4_STEP_DOT] = 0;
     const uint32_t bit = 1u << dtype;
-    if (p->step[BSLZ4_STEP_UNTRANSPOSE] <= BSLZ4_UNTRANSPOSE_LOWPLANES_C && !(bit & BSLZ4_U8_U16))
+    if (BSLZ4_IS_LOWPLANES(p->step[BSLZ4_STEP_UNTRANSPOSE]) && !(bit & BSLZ4_U8_U16))
         return BSLZ4_ERR_DTYPE;
     if (p->step[BSLZ4_STEP_COLLECT] != BSLZ4_COLLECT_SCALAR && !(bit & BSLZ4_U8_U16_U32))
         return BSLZ4_ERR_DTYPE;

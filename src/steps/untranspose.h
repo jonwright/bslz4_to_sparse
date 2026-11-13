@@ -30,6 +30,12 @@
  *                      at a time, stored straight into u16 for the dense
  *                      route; the fused collect transposes only the 64-pixel
  *                      groups holding data in well-compressed blocks.
+ *   BSLZ4_UNTRANSPOSE_LOWPLANES_AVX512BW  needs AVX-512 F/BW and popcnt only
+ *                      (Skylake-SP, Cascade Lake: no VBMI or GFNI).  Bit
+ *                      transpose by mask loads and masked adds (kcb's
+ *                      avx512bw kernel), 64 pixels at a time; the fused
+ *                      collect skips empty groups as the VBMI value does and
+ *                      compresses as dwords; the u16 dense route block too.
  *   BSLZ4_UNTRANSPOSE_LOWPLANES_AVX2  needs AVX2 and popcnt.  Fused collect:
  *                      planes ORed into a bitmap of non-empty 64-pixel
  *                      groups, only those transposed (kcb's AVX2 kernel) and

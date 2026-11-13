@@ -52,6 +52,7 @@ VALUES = {
         ("kcb", "kcb's bit transpose (SSE2/AVX2/AVX-512 dispatched inside)"),
         ("neon", "bitshuffle's NEON kernels; aarch64"),
         ("scalar", "bitshuffle's scalar kernels"),
+        ("lowplanes-avx512bw", "u8/u16 pixels; AVX-512 F/BW, for CPUs without VBMI and GFNI"),
     ),
     "collect": (
         "auto",
@@ -61,6 +62,7 @@ VALUES = {
         ("neon", "u8/u16/u32 pixels; aarch64 NEON"),
         ("sse2", "u8/u16/u32 pixels; SSE2"),
         ("scalar", "any pixel type"),
+        ("avx512f", "u8/u16/u32 pixels; AVX-512 F/BW, for CPUs without VBMI2"),
     ),
     "route": (
         "auto",
@@ -176,13 +178,14 @@ def auto_step(step, suffix, codec, mask_all_valid):
         return NAMES[step].index("none" if mask_all_valid else "pixel")
     if step == "untranspose":
         if suffix in ("u8", "u16"):
-            for n in ("lowplanes-vbmi", "lowplanes-avx2", "lowplanes-vsx", "lowplanes-c"):
+            for n in ("lowplanes-vbmi", "lowplanes-avx512bw", "lowplanes-avx2", "lowplanes-vsx",
+                      "lowplanes-c"):
                 if available(step, NAMES[step].index(n)) == 1:
                     return NAMES[step].index(n)
         return NAMES[step].index("kcb")
     if step == "collect":
         if suffix in ("u8", "u16", "u32"):
-            for n in ("avx512cs", "avx2cs", "vsx", "neon", "sse2"):
+            for n in ("avx512cs", "avx512f", "avx2cs", "vsx", "neon", "sse2"):
                 if available(step, NAMES[step].index(n)) == 1:
                     return NAMES[step].index(n)
         return NAMES[step].index("scalar")

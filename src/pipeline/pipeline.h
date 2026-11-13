@@ -68,8 +68,12 @@ enum {
     BSLZ4_UNTRANSPOSE_KCB = 5,              /* kcb (dispatches SSE2/AVX2/AVX-512 itself) */
     BSLZ4_UNTRANSPOSE_NEON = 6,             /* bitshuffle's NEON kernels */
     BSLZ4_UNTRANSPOSE_SCALAR = 7,           /* bitshuffle's scalar kernels */
-    BSLZ4_UNTRANSPOSE_N = 8
+    BSLZ4_UNTRANSPOSE_LOWPLANES_AVX512BW = 8,   /* AVX-512 F/BW only (no VBMI, GFNI) */
+    BSLZ4_UNTRANSPOSE_N = 9
 };
+/* the low-planes values (values 1-4 and 8: appended, so the numbers of the others are kept) */
+#define BSLZ4_IS_LOWPLANES(u) (((u) >= BSLZ4_UNTRANSPOSE_LOWPLANES_VBMI && (u) <= BSLZ4_UNTRANSPOSE_LOWPLANES_C) || \
+                               (u) == BSLZ4_UNTRANSPOSE_LOWPLANES_AVX512BW)
 
 /* collect: the SIMD values are u8/u16/u32 only */
 enum {
@@ -79,7 +83,8 @@ enum {
     BSLZ4_COLLECT_NEON = 4,
     BSLZ4_COLLECT_SSE2 = 5,
     BSLZ4_COLLECT_SCALAR = 6,
-    BSLZ4_COLLECT_N = 7
+    BSLZ4_COLLECT_AVX512F = 7,    /* AVX-512 F/BW only (no VBMI2) */
+    BSLZ4_COLLECT_N = 8
 };
 
 enum {

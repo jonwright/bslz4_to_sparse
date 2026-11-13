@@ -299,6 +299,184 @@ static int bslz4_lowplanes_collect_u8(uint8_t *raw, size_t ne, size_t nz_end, co
 }
 #endif
 
+/* ---- AVX-512 F/BW only (no VBMI, VBMI2 or GFNI: Skylake-SP, Cascade Lake) ---------------- */
+
+/* groups with at most this many selected pixels are emitted by a bit loop */
+#ifndef BSLZ4_LOWPLANES_BW_SCALAR_MAX
+#define BSLZ4_LOWPLANES_BW_SCALAR_MAX 2
+#endif
+
+/* One 64-pixel group from the 8 low planes (byte offset i in each plane): each plane's 8 bytes
+ * loaded as a 64-bit mask, the pixel bytes built by masked adds.  This is kcb's
+ * bitshuf_untrans_bit_avx512bw (Copyright (c) 2023 Kal Conley, MIT / Apache-2.0) for one
+ * group. */
+__attribute__((target("avx512f,avx512bw"), always_inline))
+static inline __m512i bslz4_lowplanes_bw_group(const uint8_t *const *BSLZ4_RESTRICT pl, size_t i) {
+    uint64_t a[8];
+    for (int p = 0; p < 8; p++) memcpy(&a[p], pl[p] + i, 8);
+    __m512i u = _mm512_maskz_mov_epi8((__mmask64) a[0], _mm512_set1_epi8(0x01));
+    u = _mm512_mask_add_epi8(u, (__mmask64) a[1], u, _mm512_set1_epi8(0x02));
+    u = _mm512_mask_add_epi8(u, (__mmask64) a[2], u, _mm512_set1_epi8(0x04));
+    u = _mm512_mask_add_epi8(u, (__mmask64) a[3], u, _mm512_set1_epi8(0x08));
+    u = _mm512_mask_add_epi8(u, (__mmask64) a[4], u, _mm512_set1_epi8(0x10));
+    u = _mm512_mask_add_epi8(u, (__mmask64) a[5], u, _mm512_set1_epi8(0x20));
+    u = _mm512_mask_add_epi8(u, (__mmask64) a[6], u, _mm512_set1_epi8(0x40));
+    u = _mm512_mask_add_epi8(u, (__mmask64) a[7], u, _mm512_set1_epi8((char) 0x80));
+    return u;
+}
+
+/* u16 blocks whose high bytes are all zero, for the dense route: the low planes straight into
+ * u16, 64 pixels at a time. */
+__attribute__((target("avx512f,avx512bw")))
+static void bslz4_untrans_lowplanes_u16_bw(uint16_t *BSLZ4_RESTRICT out, const uint8_t *BSLZ4_RESTRICT in,
+                                           size_t ne) {
+    const size_t size = ne / 8;
+    const uint8_t *pl[8];
+    for (int p = 0; p < 8; p++) pl[p] = in + p * size;
+    for (size_t i = 0; i + 8 <= size; i += 8) {
+        const __m512i u = bslz4_lowplanes_bw_group(pl, i);
+        _mm512_storeu_si512((void *) (out + 8 * i), _mm512_cvtepu8_epi16(_mm512_castsi512_si256(u)));
+        _mm512_storeu_si512((void *) (out + 8 * i + 32), _mm512_cvtepu8_epi16(_mm512_extracti64x4_epi64(u, 1)));
+    }
+}
+
+/* 16 pixel bytes b16 (selection mq) at pixel index base: widened to dwords, compressed with their
+ * indices, narrowed back.  Returns the new count. */
+__attribute__((target("avx512f,avx512bw,popcnt"), always_inline))
+static inline int bslz4_lowplanes_bw_emit16(__m128i b16, __mmask16 mq, size_t base, int npx,
+                                            void *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr,
+                                            const int out8) {
+    if (!mq) return npx;
+    const __m512i iota = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    const __m512i c = _mm512_maskz_compress_epi32(mq, _mm512_cvtepu8_epi32(b16));
+    if (out8)
+        _mm_storeu_si128((__m128i *) (void *) ((uint8_t *) out_vals + npx), _mm512_cvtepi32_epi8(c));
+    else
+        _mm256_storeu_si256((__m256i *) (void *) ((uint16_t *) out_vals + npx), _mm512_cvtepi32_epi16(c));
+    _mm512_storeu_si512((void *) (out_adr + npx),
+                        _mm512_maskz_compress_epi32(mq, _mm512_add_epi32(_mm512_set1_epi32((int) base), iota)));
+    return npx + __builtin_popcount((unsigned) mq);
+}
+
+/* Emit one 64-pixel group without a byte compress: 16 pixels at a time widened to dwords and
+ * compressed with vpcompressd (AVX-512F), then narrowed to bytes (u8) or words (u16).  Stores
+ * reach at most 16 entries past the count. */
+__attribute__((target("avx512f,avx512bw,popcnt"), always_inline))
+static inline int bslz4_lowplanes_bw_emit(__m512i u, __mmask64 k, size_t base_px, int npx,
+                                          void *BSLZ4_RESTRICT out_vals,
+                                          uint32_t *BSLZ4_RESTRICT out_adr, const int out8) {
+    /* the lane of _mm512_extracti32x4_epi32 must be a constant: the four quarters spelled out */
+    npx = bslz4_lowplanes_bw_emit16(_mm512_extracti32x4_epi32(u, 0), (__mmask16) k, base_px, npx, out_vals, out_adr, out8);
+    npx = bslz4_lowplanes_bw_emit16(_mm512_extracti32x4_epi32(u, 1), (__mmask16) (k >> 16), base_px + 16, npx, out_vals, out_adr, out8);
+    npx = bslz4_lowplanes_bw_emit16(_mm512_extracti32x4_epi32(u, 2), (__mmask16) (k >> 32), base_px + 32, npx, out_vals, out_adr, out8);
+    npx = bslz4_lowplanes_bw_emit16(_mm512_extracti32x4_epi32(u, 3), (__mmask16) (k >> 48), base_px + 48, npx, out_vals, out_adr, out8);
+    return npx;
+}
+
+/* Transpose one group, select > cut (and unmasked), record bytes and selection for the emit
+ * pass (no data-dependent branch). */
+__attribute__((target("avx512f,avx512bw"), always_inline))
+static inline void bslz4_lowplanes_bw_record(const uint8_t *const *BSLZ4_RESTRICT pl, size_t i,
+                                             __m512i vcut, const uint8_t *BSLZ4_RESTRICT mask, size_t i0,
+                                             uint8_t *BSLZ4_RESTRICT ubuf, __mmask64 *BSLZ4_RESTRICT kv,
+                                             uint64_t *BSLZ4_RESTRICT gm) {
+    const __m512i u = bslz4_lowplanes_bw_group(pl, i);
+    __mmask64 k = _mm512_cmpgt_epu8_mask(u, vcut);
+    if (mask) {
+        const __m512i m = _mm512_loadu_si512((const void *) (mask + i0 + 8 * i));
+        k &= _mm512_test_epi8_mask(m, m);
+    }
+    _mm512_store_si512((void *) (ubuf + 8 * i), u);
+    kv[i / 8] = k;
+    gm[i / 512] |= (uint64_t) (k != 0) << ((i / 8) & 63);
+}
+
+/* The fused low-planes collect of a u8 block or a u16 block with empty high planes, with
+ * AVX-512 F/BW only: as bslz4_lowplanes_collect_body (tiles, the OR scan for groups holding
+ * data on well-compressed blocks, then the emit pass), with the mask-add transpose and the
+ * dword compress. */
+__attribute__((target("avx512f,avx512bw,popcnt"), always_inline))
+static inline int bslz4_lowplanes_bw_body(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
+                                          const uint8_t *BSLZ4_RESTRICT zeros,
+                                          const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
+                                          void *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr,
+                                          int skip, const int out8) {
+    const size_t size = ne / 8;
+    if (nz_end > ne) nz_end = ne;
+    const size_t np = (nz_end + size - 1) / size;
+    if (nz_end < np * size) memset(raw + nz_end, 0, np * size - nz_end);
+    const __m512i vcut = _mm512_set1_epi8((char) cut);
+    int npx = 0;
+    enum { NG = BSLZ4_LOWPLANES_TILE / 64, NW = (NG + 63) / 64 };
+    _Alignas(64) uint8_t ubuf[BSLZ4_LOWPLANES_TILE];
+    __mmask64 kv[NG];
+    for (size_t t = 0; t < ne; t += BSLZ4_LOWPLANES_TILE) {
+        const size_t tsize = (ne - t < BSLZ4_LOWPLANES_TILE ? ne - t : BSLZ4_LOWPLANES_TILE) / 8;
+        const size_t ti0 = i0 + t;
+        const uint8_t *pl[8];
+        for (size_t p = 0; p < 8; p++) pl[p] = p < np ? raw + p * size + t / 8 : zeros;
+        uint64_t gm[NW] = {0};
+        if (skip && tsize % 64 == 0) {
+            uint64_t gnz[NW] = {0};
+            for (size_t i = 0; i < tsize; i += 64) {
+                __m512i acc = _mm512_loadu_si512((const void *) (pl[0] + i));
+                for (size_t p = 1; p < 8; p++)
+                    acc = _mm512_or_si512(acc, _mm512_loadu_si512((const void *) (pl[p] + i)));
+                const size_t g = i / 8;
+                gnz[g >> 6] |= (uint64_t) _mm512_test_epi64_mask(acc, acc) << (g & 63);
+            }
+            for (int gw = 0; gw < NW; gw++)
+                for (uint64_t gbits = gnz[gw]; gbits; gbits &= gbits - 1)
+                    bslz4_lowplanes_bw_record(pl, 8 * (size_t) (64 * gw + bslz4_ctz64(gbits)), vcut, mask,
+                                              ti0, ubuf, kv, gm);
+        } else {
+            for (size_t i = 0; i < tsize; i += 8)
+                bslz4_lowplanes_bw_record(pl, i, vcut, mask, ti0, ubuf, kv, gm);
+        }
+        for (int w = 0; w < NW; w++) {
+            uint64_t bits = gm[w];
+            while (bits) {
+                const size_t g = (size_t) (64 * w + bslz4_ctz64(bits));
+                bits &= bits - 1;
+                const __mmask64 k = kv[g];
+                if (__builtin_popcountll((unsigned long long) k) <= BSLZ4_LOWPLANES_BW_SCALAR_MAX) {
+                    /* one or two pixels (photon noise): stores beat the dword compresses */
+                    for (uint64_t kb = (uint64_t) k; kb; kb &= kb - 1) {
+                        const int bpx = bslz4_ctz64(kb);
+                        if (out8) ((uint8_t *) out_vals)[npx] = ubuf[64 * g + bpx];
+                        else ((uint16_t *) out_vals)[npx] = ubuf[64 * g + bpx];
+                        out_adr[npx++] = (uint32_t) (ti0 + 64 * g + bpx);
+                    }
+                    continue;
+                }
+                npx = bslz4_lowplanes_bw_emit(_mm512_load_si512((const void *) (ubuf + 64 * g)), k,
+                                              ti0 + 64 * g, npx, out_vals, out_adr, out8);
+            }
+        }
+    }
+    return npx;
+}
+
+__attribute__((target("avx512f,avx512bw,popcnt")))
+static int bslz4_lowplanes_bw_u16(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
+                                  const uint8_t *BSLZ4_RESTRICT zeros, const uint8_t *BSLZ4_RESTRICT mask,
+                                  size_t i0, unsigned cut, uint16_t *BSLZ4_RESTRICT out_vals,
+                                  uint32_t *BSLZ4_RESTRICT out_adr, int skip) {
+    return bslz4_lowplanes_bw_body(raw, ne, nz_end, zeros, mask, i0, cut, out_vals, out_adr, skip, 0);
+}
+
+__attribute__((target("avx512f,avx512bw,popcnt")))
+static int bslz4_lowplanes_bw_u8(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
+                                 const uint8_t *BSLZ4_RESTRICT zeros, const uint8_t *BSLZ4_RESTRICT mask,
+                                 size_t i0, unsigned cut, uint8_t *BSLZ4_RESTRICT out_vals,
+                                 uint32_t *BSLZ4_RESTRICT out_adr, int skip) {
+    return bslz4_lowplanes_bw_body(raw, ne, nz_end, zeros, mask, i0, cut, out_vals, out_adr, skip, 1);
+}
+
+static int bslz4_lowplanes_bw_capable(void) {
+    return (c2py_amd64_avx512f && c2py_amd64_avx512bw && c2py_amd64_popcnt) != 0;
+}
+
 static int bslz4_lowplanes_collect_capable(void) {
 #if BSLZ4_HAVE_VBMI_GFNI
     return (bslz4_lowplanes_u16_capable() && c2py_amd64_avx512vl && c2py_amd64_avx512vbmi2 &&
@@ -497,6 +675,12 @@ static inline int bslz4_lowplanes_capable(int value) {
 #else
         return 0;
 #endif
+    case BSLZ4_UNTRANSPOSE_LOWPLANES_AVX512BW:
+#if BSLZ4_X86_SIMD
+        return bslz4_lowplanes_bw_capable();
+#else
+        return 0;
+#endif
     case BSLZ4_UNTRANSPOSE_LOWPLANES_VSX:
 #if defined(__POWER8_VECTOR__) && defined(__ALTIVEC__)
         return 1;
@@ -533,6 +717,15 @@ static inline int bslz4_lowplanes_list(int value, uint8_t *BSLZ4_RESTRICT raw, s
                     : bslz4_lowplanes_collect_u16(raw, ne, nz_end, bslz4_zero_plane, mask, i0, cut,
                                                   (uint16_t *) out_vals, out_adr,
                                                   n * BSLZ4_LOWPLANES_SKIP_RATIO < blocksize);
+    case BSLZ4_UNTRANSPOSE_LOWPLANES_AVX512BW:
+        if (ne % 64 || !bslz4_high_planes_zero(raw, ne, nz_end)) return -1;
+        if (cut >= 255) return 0;
+        return out8 ? bslz4_lowplanes_bw_u8(raw, ne, nz_end, bslz4_zero_plane, mask, i0, cut,
+                                            (uint8_t *) out_vals, out_adr,
+                                            n * BSLZ4_LOWPLANES_SKIP_RATIO < blocksize)
+                    : bslz4_lowplanes_bw_u16(raw, ne, nz_end, bslz4_zero_plane, mask, i0, cut,
+                                             (uint16_t *) out_vals, out_adr,
+                                             n * BSLZ4_LOWPLANES_SKIP_RATIO < blocksize);
     case BSLZ4_UNTRANSPOSE_LOWPLANES_AVX2:
         if (ne % 256 || !bslz4_high_planes_zero_c_nofill(raw, ne, nz_end)) return -1;
         if (cut >= 255) return 0;
@@ -578,6 +771,9 @@ static inline int bslz4_lowplanes_block(int value, uint16_t *BSLZ4_RESTRICT bloc
             case BSLZ4_UNTRANSPOSE_LOWPLANES_VBMI:
                 bslz4_untrans_lowplanes_u16(block, raw, ne);
                 return 1;
+            case BSLZ4_UNTRANSPOSE_LOWPLANES_AVX512BW:
+                bslz4_untrans_lowplanes_u16_bw(block, raw, ne);
+                return 1;
             case BSLZ4_UNTRANSPOSE_LOWPLANES_AVX2:
                 if (bitshuf_decode_block((char *) scratch, (const char *) raw, NULL, ne, 1) < 0) break;
                 bslz4_widen_u8_u16_avx2(block, scratch, ne);
@@ -597,6 +793,10 @@ static inline int bslz4_lowplanes_block(int value, uint16_t *BSLZ4_RESTRICT bloc
     case BSLZ4_UNTRANSPOSE_LOWPLANES_VBMI:
         if (!bslz4_all_zero_avx512(raw + ne, ne)) return 0;
         bslz4_untrans_lowplanes_u16(block, raw, ne);
+        return 1;
+    case BSLZ4_UNTRANSPOSE_LOWPLANES_AVX512BW:
+        if (!bslz4_all_zero_avx512(raw + ne, ne)) return 0;
+        bslz4_untrans_lowplanes_u16_bw(block, raw, ne);
         return 1;
     case BSLZ4_UNTRANSPOSE_LOWPLANES_AVX2:
         if (!bslz4_all_zero_c(raw + ne, ne)) return 0;

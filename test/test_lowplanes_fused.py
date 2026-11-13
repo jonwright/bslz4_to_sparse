@@ -121,3 +121,28 @@ def test_u8_auto_takes_lowplanes():
     for dt in (np.uint8, np.uint16):
         integ = b.chunk2sparse(mask, dtype=dt, codec=b.CODEC_LZ4)
         assert b.describe(integ.pipeline)["untranspose"] in LOWPLANES, np.dtype(dt).name
+
+
+@pytest.mark.parametrize("dtype", [np.uint16, np.uint8])
+@pytest.mark.parametrize("kind", ["clustered", "dense <256", "max 255"])
+def test_csc_dense_route(tmp_path, kind, dtype):
+    """The dense route builds the pixel block from the low planes (u16; u8 blocks take kcb): the
+    powder and the sparse output of every low-planes value equal numpy's."""
+    frames = make(kind, np.random.default_rng(19)).astype(dtype)
+    chunks, codec = chunks_of(frames, tmp_path / "d.h5")
+    mask = masks()["holes"]
+    npix = SHAPE[0] * SHAPE[1]
+    M = sp.random(120, npix, density=0.02, format="csc", random_state=11, dtype=np.float32)
+    ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
+    for lp in LOWPLANES + ["kcb"]:
+        integ = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec,
+                                  pipeline={"untranspose": lp, "route": "dense"})
+        for cut in (0, 9):
+            npx, (vals, adr), p = integ.multi(chunks, cut)
+            assert np.allclose(p, ref, rtol=1e-9, atol=1e-9), (kind, lp, cut)
+            for f in range(len(frames)):
+                flat = frames[f].ravel()
+                want = np.flatnonzero((flat > cut) & (mask.ravel() > 0))
+                n = int(npx[f])
+                assert n == want.size and (adr[f, :n] == want).all(), (kind, lp, cut, f)
+                assert (vals[f, :n] == flat[want]).all(), (kind, lp, cut, f)

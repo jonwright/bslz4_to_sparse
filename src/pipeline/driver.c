@@ -93,7 +93,7 @@ static inline int bslz4_untranspose_full(const bslz4_pipe *BSLZ4_RESTRICT p, uin
                                          size_t ne, size_t nz_end) {
     const int u = p->step[BSLZ4_STEP_UNTRANSPOSE];
     const size_t NB = p->elem_size;
-    if (u <= BSLZ4_UNTRANSPOSE_LOWPLANES_C && NB == 2) {  /* the u16 block; u8 blocks take kcb */
+    if (BSLZ4_IS_LOWPLANES(u) && NB == 2) {           /* the u16 block; u8 blocks take kcb */
         if (bslz4_lowplanes_block(u, (uint16_t *) (void *) block, raw, scratch, ne, nz_end)) return 0;
     } else if (nz_end < ne * NB) {
         memset(raw + nz_end, 0, ne * NB - nz_end);
@@ -210,7 +210,7 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                            emask != NULL && block_elems <= BSLZ4_MASKPLANE_MAX_ELEMS &&
                            block_elems % 64 == 0;
     uint64_t maskbits[BSLZ4_MASKPLANE_MAX_ELEMS / 64];
-    const int lowplanes = untranspose <= BSLZ4_UNTRANSPOSE_LOWPLANES_C;
+    const int lowplanes = BSLZ4_IS_LOWPLANES(untranspose);
 
     if (is_dot) {
         /* The derived layouts index a per-block pointer array by
