@@ -472,6 +472,35 @@ def test_driver_backend_arrays_are_shared_without_a_copy():
         a.__dlpack__(dl_device=(2, 99))
 
 
+def test_driver_backend_reuses_freed_memory():
+    """Issue 43: a freed array's block goes back to the pool (no cuMemFree, which waits for the
+    device) and the next array of its size takes it; without a pool, cuMemAlloc."""
+    import gc
+
+    from bslz4_to_sparse.cuda import _backend_drv as drv
+
+    dev = drv.device_id()
+    host = np.arange(1 << 20, dtype=np.uint32)
+    pool = drv._pool(dev)
+    if pool is None:
+        pytest.skip("this driver or device has no memory pools")
+    a = drv.asarray(host)
+    p = a.ptr
+    del a
+    gc.collect()
+    b = drv.asarray(host[::-1])
+    assert b.ptr == p and (b.get() == host[::-1]).all()
+    del b
+    drv.free_pool()
+    drv._pools[dev] = None  # as on a driver before CUDA 11.2
+    try:
+        c = drv.asarray(host)
+        assert c._alloc.pool is None and (c.get() == host).all()
+        del c
+    finally:
+        drv._pools[dev] = pool
+
+
 def _device_of(a):
     ptr = a.data.ptr if hasattr(a, "data") and hasattr(a.data, "ptr") else getattr(a, "ptr", None)
     return None if not ptr else cp.cuda.runtime.pointerGetAttributes(ptr).device

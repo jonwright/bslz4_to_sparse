@@ -164,7 +164,9 @@ subpackages `src/cuda/` and `src/conveyor/` are optional and Python 3 only.
   and abandoned, in comments, commits and pull requests.
 - Stage files by name, one at a time. Never `git add -A` or `git add .`: trees here
   hold large untracked data and test output.
-- Commits end with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
+- Commits end with a `Co-Authored-By:` line naming the model that actually wrote the change (for
+  example `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`), and say in the message when a
+  change was drafted by another worker.
 - Do not push or open pull requests unless asked; leave merging to a person.
 - Never modify a checkout you did not create (`bslz4_to_sparse`, `_llm`, `_dirty`
   are the owner's working copies).
