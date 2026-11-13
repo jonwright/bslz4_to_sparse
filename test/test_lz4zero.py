@@ -82,12 +82,12 @@ MASKS = ("pixel", "planes")
 
 
 def untransposes(dt):
-    """The untranspose values usable here for this dtype (lowplanes-* are u16 only)."""
+    """The untranspose values usable here for this dtype (lowplanes-* are u8 and u16 only)."""
     out = []
     for i, n in enumerate(_pipeline.NAMES["untranspose"]):
         if i == 0 or _pipeline.available("untranspose", i) != 1:
             continue
-        if n.startswith("lowplanes") and np.dtype(dt) != np.uint16:
+        if n.startswith("lowplanes") and np.dtype(dt) not in (np.uint8, np.uint16):
             continue
         out.append(n)
     return out
@@ -142,9 +142,9 @@ def test_powder_unchanged(tmp_path, dt, kind, route):
 
 
 def test_bad_values_refused():
-    """lowplanes-* is u16 only; 'none' needs a mask with no zeros; the old
+    """lowplanes-* is u8 and u16 only; 'none' needs a mask with no zeros; the old
     option names are not pipeline values."""
-    with pytest.raises(ValueError, match="is for u16 pixels"):
+    with pytest.raises(ValueError, match="is for u8/u16 pixels"):
         b.chunk2sparse(MASK, dtype=np.uint32, pipeline={"untranspose": "lowplanes-c"})
     with pytest.raises(ValueError, match="masked pixels"):
         b.chunk2sparse(MASK, dtype=np.uint16, pipeline={"mask": "none"})

@@ -1,5 +1,5 @@
-"""The low-planes untranspose's fused transpose + collect (u16 blocks with
-the high byte-planes empty): the plain sparse output and the sparse-route CSC
+"""The low-planes untranspose's fused transpose + collect (u8 blocks, and u16
+blocks with the high byte-planes empty): the plain sparse output and the sparse-route CSC
 powder must equal numpy at every cut -- including cuts at and above 255, where
 nothing in such a block passes -- for every usable lowplanes-* value, with the
 mask applied per pixel and in the planes (and 'none' for an all-ones mask),
@@ -66,16 +66,17 @@ LOWPLANES = [n for i, n in enumerate(_pipeline.NAMES["untranspose"])
              if n.startswith("lowplanes") and _pipeline.available("untranspose", i) == 1]
 
 
-@pytest.mark.parametrize("nelems", [0, 16384])       # 8 kB (default), 32 kB blocks
+@pytest.mark.parametrize("dtype", [np.uint16, np.uint8])
+@pytest.mark.parametrize("nelems", [0, 16384])       # default blocks; 32 kB of u16, 16 kB of u8
 @pytest.mark.parametrize("kind", ["very sparse", "clustered", "dense <256", "max 255"])
 @pytest.mark.parametrize("mname", ["ones", "holes"])
-def test_sparse(tmp_path, kind, mname, nelems):
-    frames = make(kind, np.random.default_rng(17))
+def test_sparse(tmp_path, kind, mname, nelems, dtype):
+    frames = make(kind, np.random.default_rng(17)).astype(dtype)
     chunks, codec = chunks_of(frames, tmp_path / "s.h5", nelems)
     mask = masks()[mname]
     mps = ("pixel", "planes") + (("none",) if mname == "ones" else ())
     for lp, mp in [(lp, mp) for lp in LOWPLANES for mp in mps]:
-        integ = b.chunk2sparse(mask, dtype=np.uint16, codec=codec,
+        integ = b.chunk2sparse(mask, dtype=dtype, codec=codec,
                                pipeline={"untranspose": lp, "mask": mp})
         for cut in (0, 1, 100, 254, 255, 256, 1000):
             npx, (vals, adr) = integ.multi(chunks, cut)
@@ -83,16 +84,17 @@ def test_sparse(tmp_path, kind, mname, nelems):
                 flat = frames[f].ravel()
                 want = np.flatnonzero((flat > cut) & (mask.ravel() > 0))
                 n = int(npx[f])
-                tag = (kind, mname, nelems, lp, mp, cut, f)
+                tag = (kind, mname, nelems, np.dtype(dtype).name, lp, mp, cut, f)
                 assert n == want.size, tag
                 assert (adr[f, :n] == want).all(), tag
                 assert (vals[f, :n] == flat[want]).all(), tag
 
 
+@pytest.mark.parametrize("dtype", [np.uint16, np.uint8])
 @pytest.mark.parametrize("kind", ["very sparse", "clustered", "max 255"])
 @pytest.mark.parametrize("mname", ["ones", "holes"])
-def test_csc_sparse_route(tmp_path, kind, mname):
-    frames = make(kind, np.random.default_rng(18))
+def test_csc_sparse_route(tmp_path, kind, mname, dtype):
+    frames = make(kind, np.random.default_rng(18)).astype(dtype)
     chunks, codec = chunks_of(frames, tmp_path / "c.h5")
     mask = masks()[mname]
     npix = SHAPE[0] * SHAPE[1]
@@ -100,7 +102,7 @@ def test_csc_sparse_route(tmp_path, kind, mname):
     ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
     for skip in LOWPLANES + ["kcb"]:
         # every block takes the sparse route
-        integ = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec,
+        integ = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec,
                                   pipeline={"untranspose": skip, "route": "sparse"})
         for cut in (0, 7, 255):
             npx, (vals, adr), p = integ.multi(chunks, cut)
@@ -111,3 +113,11 @@ def test_csc_sparse_route(tmp_path, kind, mname):
                 n = int(npx[f])
                 assert n == want.size and (adr[f, :n] == want).all(), (kind, mname, skip, cut, f)
                 assert (vals[f, :n] == flat[want]).all()
+
+
+def test_u8_auto_takes_lowplanes():
+    """The automatic untranspose for u8 is a low-planes value, as for u16."""
+    mask = np.ones(SHAPE, np.uint8)
+    for dt in (np.uint8, np.uint16):
+        integ = b.chunk2sparse(mask, dtype=dt, codec=b.CODEC_LZ4)
+        assert b.describe(integ.pipeline)["untranspose"] in LOWPLANES, np.dtype(dt).name

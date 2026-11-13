@@ -27,7 +27,7 @@ typedef char bslz4_value_slots_cover_every_step
 #define BSLZ4_INT_DTYPES 0x0FFu                 /* u8 .. i64 */
 #define BSLZ4_INT32_DTYPES 0x077u               /* u8 u16 u32 i8 i16 i32: sums of 2**31 values fit int64 */
 #define BSLZ4_U16_U32 ((1u << 1) | (1u << 2))
-#define BSLZ4_U16 (1u << 1)
+#define BSLZ4_U8_U16 ((1u << 0) | (1u << 1))   /* the low-planes values: u8, and u16 blocks < 256 */
 
 /* Each dot: the C entry (layout) it is reached through, the pixel dtypes it
  * takes, the powder element size (bytes; 0 = the pixel dtype, a packed
@@ -175,7 +175,7 @@ int bslz4_resolve(int dtype, const uint16_t *pipeline, int layout, bslz4_pipe *B
     }
     if (!is_dot) p->step[BSLZ4_STEP_ROUTE] = p->step[BSLZ4_STEP_DOT] = 0;
     const uint32_t bit = 1u << dtype;
-    if (p->step[BSLZ4_STEP_UNTRANSPOSE] <= BSLZ4_UNTRANSPOSE_LOWPLANES_C && !(bit & BSLZ4_U16))
+    if (p->step[BSLZ4_STEP_UNTRANSPOSE] <= BSLZ4_UNTRANSPOSE_LOWPLANES_C && !(bit & BSLZ4_U8_U16))
         return BSLZ4_ERR_DTYPE;
     if (p->step[BSLZ4_STEP_COLLECT] != BSLZ4_COLLECT_SCALAR && !(bit & BSLZ4_U16_U32))
         return BSLZ4_ERR_DTYPE;

@@ -23,10 +23,22 @@
 #if BSLZ4_HAVE_AVX2_COLLECT
 static const uint8_t bslz4_zero_plane8[1024] = {0};
 
+/* 8 selected bytes stored as u16 values, or as they are for u8 pixels */
+__attribute__((target("avx2")))
+static inline void bslz4_lowplanes_store8(uint16_t *o, __m128i b8) {
+    _mm_storeu_si128((__m128i *) (void *) o, _mm_cvtepu8_epi16(b8));
+}
+__attribute__((target("avx2")))
+static inline void bslz4_lowplanes_store8(uint8_t *o, __m128i b8) {
+    _mm_storel_epi64((__m128i *) (void *) o, b8);
+}
+
+/* TO: uint16_t for u16 blocks (the values widened), uint8_t for u8 blocks */
+template<typename TO>
 __attribute__((target("avx2,popcnt")))
 static int bslz4_lowplanes_collect_avx2_impl(uint8_t *BSLZ4_RESTRICT raw, size_t ne, size_t nz_end,
                                              const uint8_t *BSLZ4_RESTRICT mask, size_t i0, unsigned cut,
-                                             uint16_t *BSLZ4_RESTRICT out_vals,
+                                             TO *BSLZ4_RESTRICT out_vals,
                                              uint32_t *BSLZ4_RESTRICT out_adr) {
     const size_t size = ne / 8;                       /* bytes per plane; a multiple of 32 */
     if (nz_end > ne) nz_end = ne;
@@ -136,7 +148,7 @@ static int bslz4_lowplanes_collect_avx2_impl(uint8_t *BSLZ4_RESTRICT raw, size_t
                                             _mm256_add_epi32(_mm256_set1_epi32((int) (base + 8 * q)), iota8),
                                             _mm256_cvtepu8_epi32(sel)));
                     const __m128i b8 = _mm_loadl_epi64((const __m128i *) (const void *) (ub + 8 * q));
-                    _mm_storeu_si128((__m128i *) (void *) &out_vals[npx], _mm_cvtepu8_epi16(_mm_shuffle_epi8(b8, sel)));
+                    bslz4_lowplanes_store8(&out_vals[npx], _mm_shuffle_epi8(b8, sel));
                     npx += __builtin_popcount(m);
                 }
             }

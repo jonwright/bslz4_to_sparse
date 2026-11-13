@@ -4,8 +4,8 @@ A pipeline is six step values, in this order:
 
     decode       compressed block -> bit-planes
     mask         how the pixel mask is applied
-    untranspose  bit-planes -> pixels (the low-planes values: u16 blocks
-                 whose values are all < 256, fused with the collect)
+    untranspose  bit-planes -> pixels (the low-planes values: u8 blocks, and
+                 u16 blocks whose values are all < 256, fused with the collect)
     collect      pixels -> list of (index, value) above the cut
     route        matrix objects: per block, dot over the block (dense) or
                  over the list of non-zero pixels (sparse)
@@ -45,10 +45,10 @@ VALUES = {
     ),
     "untranspose": (
         "auto",
-        ("lowplanes-vbmi", "u16 pixels; AVX-512 VBMI, VBMI2 and GFNI"),
-        ("lowplanes-avx2", "u16 pixels; AVX2"),
-        ("lowplanes-vsx", "u16 pixels; POWER8 VSX"),
-        ("lowplanes-c", "u16 pixels; portable C"),
+        ("lowplanes-vbmi", "u8/u16 pixels; AVX-512 VBMI, VBMI2 and GFNI"),
+        ("lowplanes-avx2", "u8/u16 pixels; AVX2"),
+        ("lowplanes-vsx", "u8/u16 pixels; POWER8 VSX"),
+        ("lowplanes-c", "u8/u16 pixels; portable C"),
         ("kcb", "kcb's bit transpose (SSE2/AVX2/AVX-512 dispatched inside)"),
         ("neon", "bitshuffle's NEON kernels; aarch64"),
         ("scalar", "bitshuffle's scalar kernels"),
@@ -175,7 +175,7 @@ def auto_step(step, suffix, codec, mask_all_valid):
     if step == "mask":
         return NAMES[step].index("none" if mask_all_valid else "pixel")
     if step == "untranspose":
-        if suffix == "u16":
+        if suffix in ("u8", "u16"):
             for n in ("lowplanes-vbmi", "lowplanes-avx2", "lowplanes-vsx", "lowplanes-c"):
                 if available(step, NAMES[step].index(n)) == 1:
                     return NAMES[step].index(n)
@@ -228,8 +228,8 @@ def resolve(pipeline, dtype, codec, mask, dot_auto=None, matrix=False):
         raise ValueError("pipeline['mask']='none': the mask has %d masked pixels (use 'pixel' or 'planes')"
                          % int((np.asarray(mask) == 0).sum()))
     uname = NAMES["untranspose"][vals[UNTRANSPOSE]]
-    if uname.startswith("lowplanes") and suffix != "u16":
-        raise ValueError("pipeline['untranspose']=%r is for u16 pixels, not %s (use kcb)"
+    if uname.startswith("lowplanes") and suffix not in ("u8", "u16"):
+        raise ValueError("pipeline['untranspose']=%r is for u8/u16 pixels, not %s (use kcb)"
                          % (uname, np.dtype(dtype)))
     cname = NAMES["collect"][vals[COLLECT]]
     if cname != "scalar" and suffix not in ("u16", "u32"):

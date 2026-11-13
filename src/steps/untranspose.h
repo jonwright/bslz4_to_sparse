@@ -2,7 +2,7 @@
 #define BSLZ4_STEP_UNTRANSPOSE_H
 /*
  * Step "untranspose": bit-planes -> pixel block, with kcb or bitshuffle's
- * kernels (the low-planes values, for u16 blocks < 256, are lowplanes.h).
+ * kernels (the low-planes values, for u8 blocks and u16 blocks < 256, are lowplanes.h).
  *
  * Each backend exposes a function of the uniform signature
  *   int64_t (*)(void *BSLZ4_RESTRICT out, const void *BSLZ4_RESTRICT in, void *BSLZ4_RESTRICT scratch, size_t size, size_t elem_size)
@@ -16,13 +16,14 @@
  * the temporary buffer, so nothing is allocated).
  *
  * The values (the low-planes ones: src/steps/lowplanes.h, lowplanes_avx2.hpp).
- * Each low-planes value handles only u16 blocks whose high byte-planes are
- * all zero (every value < 256), with half the bit transpose and no byte
- * transpose; any other block, or a block size the kernel does not take, is
- * untransposed with kcb.  They write the pixel list directly, fused with the
- * collect (the block is never written), on the sparse route and in plain
- * sparsify; the dense dot route needs the pixel block, which only the VBMI
- * and AVX2 values build from the low planes (VSX, C: kcb).
+ * Each low-planes value handles u8 blocks (eight bit-planes are all there is)
+ * and u16 blocks whose high byte-planes are all zero (every value < 256),
+ * with half the bit transpose and no byte transpose; any other block, or a
+ * block size the kernel does not take, is untransposed with kcb.  They write
+ * the pixel list directly, fused with the collect (the block is never
+ * written), on the sparse route and in plain sparsify; the dense dot route
+ * needs the pixel block, which only the VBMI and AVX2 values build from the
+ * low planes of a u16 block (VSX, C, and every u8 block: kcb).
  *
  *   BSLZ4_UNTRANSPOSE_LOWPLANES_VBMI  needs AVX-512 F/BW/VL/VBMI/VBMI2, GFNI
  *                      and popcnt.  Bit transpose by gf2p8affineqb, 64 pixels
