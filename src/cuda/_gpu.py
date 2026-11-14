@@ -18,8 +18,9 @@ Differences from the CPU classes:
     at most 1/16 of the device memory (a guess, for small cards).  Measured on Eiger 4M u16
     frames, kernel time per frame: L40S (96 MB L2) best at 8; H200 (60 MB) and A100 (40 MB) best
     at 64, and 3 to 16 slower there.
-    `group` = frames uploaded and unblocked together; None: every frame of the call, at most 256.
-    The block headers of a frame are walked by one GPU thread, so the walk costs about the same
+    `group` = frames uploaded and unblocked together; None: every frame of the call, at most 256
+    (at least `batch` when room allows), and fewer when their compressed chunks would take more than 1/16 of the
+    device memory or of the host memory (the chunks are staged in both).  The block headers of a frame are walked by one GPU thread, so the walk costs about the same
     for 1 or 256 frames.
     `unblock` = 'gpu' (that walk, a kernel) or 'cpu' (bslz4_to_sparse.block_starts on the host,
     uploaded: for a small group, or a small GPU).
@@ -102,6 +103,17 @@ def _digest(arrays):
         h.update(repr((a.dtype.str, a.shape)).encode())
         h.update(memoryview(a).cast("B"))
     return h.hexdigest()
+
+
+def _slab_room(dev):
+    """The bytes a group's slab of chunks may take: 1/16 of the memory of device `dev`, and of the
+    host's (it is pinned there too) where the host tells its size."""
+    room = cu.memory_bytes(dev)
+    try:
+        room = min(room, os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"))
+    except (AttributeError, ValueError, OSError):  # no sysconf (Windows), or no such name
+        pass
+    return room // 16
 
 
 def _shared(dev, kind, arrays):
@@ -238,6 +250,7 @@ class chunk2sparse(object):
             batch = max(1, min(fit if fit >= 8 else 64, 64, room))
         self.batch = int(batch)
         self.group = None if group is None else int(group)
+        self._room = _slab_room(self._dev)  # the most a slab of chunks takes, group None
         if self.batch < 1 or (self.group is not None and self.group < 1):
             raise ValueError("batch and group must be at least 1")
         if unblock not in ("gpu", "cpu"):
@@ -286,12 +299,13 @@ class chunk2sparse(object):
     def _ensure(self, nframes, slab_bytes, G, lists=True):
         G = min(G, nframes)
         B = min(self.batch, G)
+        # the capacities are set once their buffers are made: a failed allocation (out of memory)
+        # leaves them describing the buffers the object still has
         if self._gcap < G or self._slab_cap < slab_bytes:  # one group: chunks and block starts
-            self._gcap = max(self._gcap, G)
-            self._slab_cap = max(self._slab_cap, int(slab_bytes * 1.25) + 64)
-            g = self._gcap
-            self.h_slab = cu.pinned(self._slab_cap)
-            self.d_slab = cu.empty(self._slab_cap, np.uint8)
+            g = max(self._gcap, G)
+            slab_cap = max(self._slab_cap, int(slab_bytes * 1.25) + 64)
+            self.h_slab = cu.pinned(slab_cap)
+            self.d_slab = cu.empty(slab_cap, np.uint8)
             self.d_off = cu.empty(g, np.int64)
             self.d_end = cu.empty(g, np.int64)
             self.d_err = cu.empty(g, np.int32)
@@ -300,9 +314,9 @@ class chunk2sparse(object):
                 ns = g * max(self.nstored, 1)
                 self.h_starts = np.frombuffer(cu.pinned(ns * 4), np.uint32, ns)
                 self.h_err = np.frombuffer(cu.pinned(g * 4), np.int32, g)
+            self._gcap, self._slab_cap = g, slab_cap
         if self._cap < B:  # one batch: dense frames, counts, lists
-            self._cap = max(self._cap, B)
-            n = self._cap
+            n = max(self._cap, B)
             if getattr(self, "d_dense", None) is None or self.d_dense.size < n * self.stride:
                 self.d_dense = cu.empty(n * self.stride, np.uint8)
             lv = self._ndev_thr + 1  # levels: the cut, then each threshold
@@ -318,6 +332,7 @@ class chunk2sparse(object):
             self.h_outv = np.frombuffer(cu.pinned(nl * self.bpp), self.dtype, nl)
             self.h_outi = np.frombuffer(cu.pinned(nl * 4), np.uint32, nl)
             self._on_resize(n)
+            self._cap = n
         if not lists:  # decompress / integrate: results stay on the device
             return
         if self._nframes < nframes:  # host results keep the largest size seen; views are returned
@@ -572,7 +587,7 @@ class chunk2sparse(object):
 
     def _run_from(self, source, cut):
         nf, slab_bytes, upload = source
-        G = max(self.batch, min(nf, 256)) if self.group is None else self.group
+        G = self._group(nf, slab_bytes)
         self._ensure(nf, slab_bytes(G), G)
         npx = np.zeros(nf, np.int32)
         self.last_cut = np.empty(nf, np.float64)  # the cut each frame used (top_pixels)
@@ -596,6 +611,25 @@ class chunk2sparse(object):
     def _bad_chunks(self, f0, n):
         """waits for the stream; raises if a chunk of frames f0 .. f0 + n of the call was bad"""
         _raise_bad_chunks(self.d_err[:n].get(), f0)
+
+    def _group(self, nf, slab_bytes):
+        """The frames of a group: `group`, else the most, up to max(batch, min(nf, 256)), whose
+        slab (slab_bytes(G) x 1.25, on the device and pinned on the host) takes at most 1/16 of
+        the device memory and of the host memory; at least 1."""
+        if self.group is not None:
+            return self.group
+        hi = max(self.batch, min(nf, 256))
+        room = self._room
+        if slab_bytes(hi) * 1.25 <= room:
+            return hi
+        lo = 1  # taken even if it does not fit: one frame per group is the least there is
+        while hi - lo > 1:  # the largest G that fits, by bisection
+            mid = (lo + hi) // 2
+            if slab_bytes(mid) * 1.25 <= room:
+                lo = mid
+            else:
+                hi = mid
+        return lo
 
     # -- where the chunks come from: (frames, staging bytes for a group of G, upload(g0, G))
     def _host_chunks(self, views):
@@ -630,7 +664,7 @@ class chunk2sparse(object):
     def _groups(self, source):
         """(first frame, frames) of each group uploaded and unblocked, for decompress / integrate"""
         nf, slab_bytes, upload = source
-        G = max(self.batch, min(nf, 256)) if self.group is None else self.group
+        G = self._group(nf, slab_bytes)
         self._ensure(nf, slab_bytes(G), G, False)
         for g0 in range(0, nf, G):
             yield g0, upload(g0, G)

@@ -320,6 +320,73 @@ def test_batch_and_group_give_the_same_result(tmp_path, dt):
         c.multi(chunks[:9] + [bytes(bad)] + chunks[10:], 1)
 
 
+def test_default_group_fits_the_memory(tmp_path, monkeypatch):
+    """group None on a card too small for every frame's chunks at once: smaller groups, the same
+    results as group=batch."""
+    from bslz4_to_sparse.cuda import _gpu
+
+    dt = np.uint16
+    mask, frames = mixed_frames(dt, (93, 217))
+    frames = np.concatenate([frames, frames[::-1], frames[1:3]])  # 12 frames, dense ones among
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 60, 3)
+    biggest3 = max(sum(len(c) for c in chunks[i : i + 3]) for i in range(0, len(chunks), 3))
+    ref = g.chunk2sparseCSC(mask, M, dt, codec, batch=2, group=2)
+    n0, (v0, i0), p0 = ref.multi(chunks, 1)
+    d0, q0 = ref.decompress(chunks).get(), ref.integrate(chunks).get()
+    monkeypatch.setattr(_gpu.cu, "memory_bytes", lambda dev: int(16 * 1.25 * biggest3))
+    c = g.chunk2sparseCSC(mask, M, dt, codec, batch=2)  # group None
+    assert c._group(len(chunks), lambda G: max(
+        sum(len(x) for x in chunks[i : i + G]) for i in range(0, len(chunks), G))) == 3
+    n1, (v1, i1), p1 = c.multi(chunks, 1)
+    assert c._gcap == 3  # not 12
+    assert (n1 == n0).all() and (p1 == p0).all()
+    for f in range(len(frames)):
+        assert (i1[f, : n1[f]] == i0[f, : n0[f]]).all()
+        assert (v1[f, : n1[f]] == v0[f, : n0[f]]).all()
+    assert (c.decompress(chunks).get() == d0).all() and (c.integrate(chunks).get() == q0).all()
+    monkeypatch.setattr(_gpu.cu, "memory_bytes", lambda dev: 16)  # not even one frame fits
+    assert g.chunk2sparse(mask, dt, codec, batch=2)._group(len(chunks), lambda G: 10**6 * G) == 1
+
+
+def test_a_failed_allocation_leaves_the_object_usable(tmp_path, monkeypatch):
+    """Out of memory while the buffers grow: the object keeps its old buffers and their sizes, and
+    the next, smaller call is right."""
+    from bslz4_to_sparse.cuda import _gpu
+
+    dt = np.uint16
+    mask, frames = mixed_frames(dt, (93, 217))
+    frames = np.concatenate([frames, frames[::-1], frames[1:3]])
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 60, 3)
+    ref = g.chunk2sparseCSC(mask, M, dt, codec, batch=4)
+    n0, (v0, i0), p0 = ref.multi(chunks, 1)
+    empty = _gpu.cu.empty
+    for which in ("group", "batch"):  # the group's buffers, then the batch's
+        c = g.chunk2sparseCSC(mask, M, dt, codec, batch=4)
+        c.multi(chunks[:1], 1)  # small buffers: one frame
+        failed = []
+
+        def fail_once(*a, **k):
+            if not failed and (which == "group" or a[0] == 4 * c.stride):
+                failed.append(a)
+                raise MemoryError("out of memory (forced)")
+            return empty(*a, **k)
+
+        monkeypatch.setattr(_gpu.cu, "empty", fail_once)
+        with pytest.raises(MemoryError):
+            c.multi(chunks, 1)
+        monkeypatch.setattr(_gpu.cu, "empty", empty)
+        assert failed
+        assert c.d_slab.size >= c._slab_cap and c.d_starts.shape[0] >= c._gcap
+        assert c.d_dense.size >= c._cap * c.stride and c.d_outv.size >= c._cap * c._hm
+        n1, (v1, i1), p1 = c.multi(chunks[:5], 1)  # bigger than the first call
+        assert (n1 == n0[:5]).all() and (p1 == p0[:5]).all(), which
+        for f in range(5):
+            assert (i1[f, : n1[f]] == i0[f, : n0[f]]).all()
+            assert (v1[f, : n1[f]] == v0[f, : n0[f]]).all()
+
+
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32, np.float32])
 def test_unblock_on_the_cpu_gives_the_same_result(tmp_path, dt):
     mask, frames = mixed_frames(dt, (93, 217))
