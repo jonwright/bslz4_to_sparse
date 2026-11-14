@@ -613,6 +613,7 @@ class chunk2sparse(object):
         if self.unblock == "cpu":
             raise ValueError("chunks in GPU memory need unblock='gpu'")
         slab = cu.device_bytes(buf, self._dev)
+        cu.wait_default(self.stream)  # work on the default stream (torch's) may still write buf
         offs = np.asarray(offsets, np.int64).ravel()
         lens = np.asarray(lengths, np.int64).ravel()
         if len(offs) == 0:
@@ -641,8 +642,10 @@ class chunk2sparse(object):
         out: the caller's GPU array to write and return (cupy, torch, numba, ours: any
         __cuda_array_interface__), on this object's GPU, C-contiguous, writeable, of the pixel
         dtype and at least nframes x ni x nj pixels; nothing is allocated for the result.  It is
-        written as soon as the call starts: work queued on it must be finished (a version 3
-        interface's stream, cupy's, is waited for; torch's names no stream: synchronize first).
+        written as soon as the call starts: work queued on it must be finished, except on the
+        legacy default stream (torch's and cupy's default), which is waited for, and on a version
+        3 interface's stream (cupy's), which is waited for too.  Work on a torch.cuda.Stream:
+        synchronize it first.
 
         Without out, a new array: a cupy array with the cupy backend; with the driver backend
         (bslz4_to_sparse.cuda.backend) an array that cupy, numba, pycuda and torch take through
@@ -652,7 +655,8 @@ class chunk2sparse(object):
         another stream that reads it must be finished by then.  With the driver backend, work
         queued on the legacy default stream (torch's and cupy's default) is waited for, and the
         array's record_stream(stream), as torch's Tensor.record_stream, names any other stream
-        to wait for."""
+        to wait for; torch.from_dlpack and cupy.from_dlpack record their current stream
+        themselves (through __dlpack__)."""
         cu.use_device(self._dev)
         return self._decompress_from(
             self._host_chunks([memoryview(c).cast("B") for c in chunks]), out
@@ -662,8 +666,8 @@ class chunk2sparse(object):
         """As decompress, for chunks already in GPU memory (read there by GPUDirect Storage, say):
         chunk i is the lengths[i] bytes at byte offsets[i] of buf, any C-contiguous array of this
         object's GPU with __cuda_array_interface__ (cupy, torch, numba, jax, kvikio, ours); its
-        stream is waited for.  The chunks are read in place, never copied to the host: their
-        headers are checked on the GPU."""
+        stream (version 3) and the legacy default stream are waited for.  The chunks are read in
+        place, never copied to the host: their headers are checked on the GPU."""
         cu.use_device(self._dev)
         return self._decompress_from(self._device_chunks(buf, offsets, lengths), out)
 
@@ -681,6 +685,7 @@ class chunk2sparse(object):
                 raise ValueError("out has dtype %s, the results are %s" % (cai["typestr"], dtype))
             if cai["data"][1]:
                 raise ValueError("out is read-only")
+            cu.wait_default(self.stream)  # work on the default stream (torch's) may still use out
         flat = cu.device_bytes(out, self._dev, "out")  # waits for out's stream (version 3)
         need = int(np.prod(shape, dtype=np.int64)) * dtype.itemsize
         if flat.size < need:

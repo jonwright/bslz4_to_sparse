@@ -259,23 +259,24 @@ tensorflow sum of each frame
 Whose memory.  Every array above is ours: a block of the pool, given back as soon as the last
 reference to it is dropped, a library's view (torch.from_dlpack, cp.asarray, ...) included.  The
 next call may then get the same block and write it while work your library queued earlier
-still reads it: on any stream of its own (torch.cuda.Stream, jax's), and with the cupy backend
-on the default stream too.  Three ways to use a result safely:
+still reads it.  The driver backend waits for the default stream (torch's, cupy's) before it
+reuses a block, and for the stream torch.from_dlpack or cupy.from_dlpack was called on; any
+other stream (jax's, or one a view moved to later) it does not know about, and the cupy backend
+waits for none.  Three ways to use a result safely:
 
   1. out=: the results go into an array your library owns, made once and reused, and nothing
      is allocated per call.  It must be on this GPU, C-contiguous and of the result's dtype
      (decompress: the pixels'; integrate: float64 here).  The call writes it as soon as it
-     starts, on a stream of its own: whatever your library still has queued on that array must
-     be finished first.  cupy tells us its stream and we wait for it; torch does not, so
-     synchronize torch before each call.
+     starts: work queued on that array on the default stream, or on a cupy array's stream, is
+     waited for; work on any other stream (a torch.cuda.Stream) must be finished first.
   2. a copy your library owns, then drop ours.  The copy is queued on your library's stream:
      keep our array until the copy is done (synchronize, block_until_ready), or the pool may
      give its block to the next call while the copy is still reading it.
-  3. ours, used in place on a stream of your library's: name that stream with
-     d.record_stream(stream) (the driver backend's arrays, as torch's Tensor.record_stream).
-     The block then goes back to the pool only once the work queued on that stream before
-     the drop is done, so ours may be dropped at once.  Not for jax, whose streams are not
-     public: use 2 there.
+  3. ours, used in place on a stream of your library's: take it with from_dlpack while that
+     stream is current (torch, cupy), or name the stream with d.record_stream(stream) (the
+     driver backend's arrays, as torch's Tensor.record_stream).  The block then goes back to
+     the pool only once the work queued on that stream before the drop is done, so ours may
+     be dropped at once.  Not for jax, whose streams are not public: use 2 there.
 
 ```python
 kept = {}
@@ -292,9 +293,8 @@ if results.get("torch") != "not installed":
     t_powder = torch.empty((n, nq), dtype=torch.float64, device="cuda")  # 1. torch's memory
     total = torch.zeros(nq, dtype=torch.float64, device="cuda")
     for _ in range(3):  # a loop over the same frames, as over the batches of a scan
-        torch.cuda.current_stream().synchronize()  # torch is done with t_powder: it may be written
-        gpu1.integrate(chunks, out=t_powder)
-        total += t_powder.sum(dim=0)  # queued on torch's stream, reading t_powder
+        gpu1.integrate(chunks, out=t_powder)  # waits for torch's default stream to be done with it
+        total += t_powder.sum(dim=0)  # queued on torch's default stream, reading t_powder
     assert np.allclose(total.cpu().numpy(), 3 * d_powder.get().sum(axis=0), rtol=1e-12, atol=0)
 
     d = gpu1.integrate(chunks)  # 2. a new array of ours ...
@@ -305,14 +305,13 @@ if results.get("torch") != "not installed":
 
     s = torch.cuda.Stream()  # 3. a stream of torch's own
     d = gpu1.integrate(chunks)
-    with torch.cuda.stream(s):  # queued on s, reading ours in place
+    with torch.cuda.stream(s):  # from_dlpack on s: s is recorded; the division is queued on s
         intensity = torch.from_dlpack(d) / torch.as_tensor(norm1, device="cuda").clamp(min=1e-30)
-    d.record_stream(s)  # s reads d ...
-    del d  # ... so the block waits for s's work before it goes back to the pool
+    del d  # the block waits for s's work before it goes back to the pool
     s.synchronize()
     assert (intensity.cpu().numpy() == d_powder.get() / np.maximum(norm1, 1e-30)).all()
     kept["torch"] = ("integrate(chunks, out=torch tensor) in a loop; a clone of ours; ours on a "
-                     "torch stream, recorded")
+                     "torch stream, recorded by from_dlpack")
 if results.get("jax") != "not installed":
     import jax
     import jax.numpy as jnp
@@ -333,7 +332,7 @@ for name, what in kept.items():
 
 ```text
 cupy       kept: decompress(chunks, out=cupy array)
-torch      kept: integrate(chunks, out=torch tensor) in a loop; a clone of ours; ours on a torch stream, recorded
+torch      kept: integrate(chunks, out=torch tensor) in a loop; a clone of ours; ours on a torch stream, recorded by from_dlpack
 jax        kept: a copy of ours
 ```
 

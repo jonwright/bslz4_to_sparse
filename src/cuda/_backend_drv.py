@@ -15,8 +15,10 @@ legacy default stream (torch's and cupy's default streams) is done.  Work on any
 that reads an array must be finished before the array is dropped, or that stream named with the
 array's record_stream(stream), as torch's Tensor.record_stream: the block is then given back on a
 stream of ours that first waits for the legacy default stream and every stream recorded (every
-array the GPU classes hand out is complete).  free_pool() gives the unused blocks back to the
-driver.  Older drivers, and devices without pools: cuMemAlloc / cuMemFree.
+array the GPU classes hand out is complete).  __dlpack__ records the stream the consumer passes
+(torch.from_dlpack and cupy.from_dlpack: their current stream); __cuda_array_interface__ cannot.
+free_pool() gives the unused blocks back to the driver.  Older drivers, and devices without pools:
+cuMemAlloc / cuMemFree.
 """
 
 import ctypes
@@ -295,7 +297,7 @@ class Stream(object):
         _check(cuStreamSynchronize(self.handle))
 
     def __del__(self):
-        if getattr(self, "handle", None):
+        if getattr(self, "handle", None) and _in_context is not None:  # None: interpreter shutdown
             _in_context(self._ctx, cuStreamDestroy, self.handle)
 
 
@@ -330,17 +332,29 @@ def _free_after(dev, ptr, streams):
     try:
         fs = _free_streams[dev]  # made with the pool (no lock here: __del__ may run under one)
         for s in [None] + list(streams):
-            ev = _P()
-            _check(cuEventCreate(ctypes.byref(ev), CU_EVENT_DISABLE_TIMING))
-            try:
-                _check(cuEventRecord(ev, s))
-                _check(cuStreamWaitEvent(fs, ev, 0))
-            finally:
-                cuEventDestroy(ev)  # released once it has completed
+            _wait(fs, s)
         _check(cuMemFreeAsync(ptr, fs))
     except CudaError:  # a stream already destroyed, say: wait for the whole device instead
         cuCtxSynchronize()
         cuMemFreeAsync(ptr, None)
+
+
+def _wait(stream, other):
+    """Work queued on `stream` from now on waits for the work queued on `other` up to now (handles;
+    None: the legacy default stream).  No host wait."""
+    ev = _P()
+    _check(cuEventCreate(ctypes.byref(ev), CU_EVENT_DISABLE_TIMING))
+    try:
+        _check(cuEventRecord(ev, other))
+        _check(cuStreamWaitEvent(stream, ev, 0))
+    finally:
+        cuEventDestroy(ev)  # released once it has completed
+
+
+def wait_default(stream):
+    """Work queued on `stream` (ours) from now on waits for the work queued on the legacy default
+    stream (torch's and cupy's default) up to now.  No host wait."""
+    _wait(stream.handle, None)
 
 
 def _stream_handle(stream):
@@ -386,11 +400,16 @@ class ndarray(object):
 
     def __dlpack__(self, stream=None, max_version=None, dl_device=None, copy=None):
         """A DLPack (0.8, unversioned) capsule viewing this memory; it keeps the memory alive until
-        the consumer calls its deleter.  `stream` is not needed: the data is complete."""
+        the consumer calls its deleter.  The data is complete: nothing to wait for.  `stream`, the
+        consumer's (torch.from_dlpack and cupy.from_dlpack pass their current stream), is recorded
+        as with record_stream, unless it is a default stream (1: legacy, always waited for; 2:
+        per-thread, not recorded) or none (None, -1)."""
         if copy:
             raise BufferError("a device array is exported without a copy")
         if dl_device is not None and tuple(dl_device) != self.__dlpack_device__():
             raise BufferError("the array is on %s, not on %s" % (self.__dlpack_device__(), dl_device))
+        if stream is not None and int(stream) > 2:
+            self.record_stream(int(stream))
         return _dlpack_capsule(self)
 
     def __getitem__(self, key):

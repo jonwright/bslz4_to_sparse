@@ -621,20 +621,59 @@ def test_driver_backend_record_stream(tmp_path):
     if drv._pool(0) is None:
         pytest.skip("this driver or device has no memory pools")
     s = cp.cuda.Stream(non_blocking=True)
-    for record in (s, s.ptr):  # a stream object, or its handle
+    for record in (s, s.ptr, "dlpack"):  # a stream object, its handle, or from_dlpack's stream
         d = c.decompress(a_chunks)
         got = cp.empty(one.size, np.uint32)
         with s:  # about a second of spinning, then the read of d
-            spin((1,), (256,), (cp.asarray(d).reshape(-1), got, np.int64(one.size),
-                                np.int64(2 * 10**9)))
-        d[1:].record_stream(record)  # a view: the whole block is recorded
-        del d
+            x = cp.from_dlpack(d) if record == "dlpack" else cp.asarray(d)
+            spin((1,), (256,), (x.reshape(-1), got, np.int64(one.size), np.int64(2 * 10**9)))
+        if record != "dlpack":
+            d[1:].record_stream(record)  # a view: the whole block is recorded
+        del d, x
         gc.collect()
         c.decompress(b_chunks)
         s.synchronize()
         assert (got.get() == 1).all()
     assert drv._stream_handle(type("T", (), {"cuda_stream": 1234})()) == 1234  # torch's name
     assert drv._stream_handle(None) == 0
+
+
+class _NoStream(object):
+    """A cupy array behind a version 2 interface, which names no stream (as torch's)"""
+
+    def __init__(self, a):
+        self.a = a
+        self.__cuda_array_interface__ = dict(a.__cuda_array_interface__, version=2)
+        self.__cuda_array_interface__.pop("stream", None)
+
+
+def test_out_and_device_chunks_wait_for_the_default_stream(tmp_path):
+    """out, and the chunks in GPU memory, still being written on the legacy default stream
+    (torch's) when the call starts: the call waits for that work."""
+    shape = (256, 512)
+    mask = np.ones(shape, np.uint8)
+    one = np.full((2,) + shape, 1, np.uint32)
+    chunks, _ = write_chunks(tmp_path / "a.h5", one)
+    spin = cp.RawKernel(_SPIN_COPY, "spin_copy")
+    c = g.chunk2sparse(mask, np.uint32, device=0)
+    c.decompress(chunks)
+    sevens = cp.full(one.size, 7, np.uint32)
+    out = cp.zeros(one.shape, np.uint32)
+    with cp.cuda.Stream.null:  # about a second of spinning, then 7s written into out
+        spin((1,), (256,), (sevens, out.reshape(-1), np.int64(one.size), np.int64(2 * 10**9)))
+    c.decompress(chunks, out=_NoStream(out))
+    cp.cuda.Stream.null.synchronize()
+    assert (out.get() == 1).all()  # written after the 7s
+
+    raw = b"".join(bytes(ch) for ch in chunks)
+    lengths = [len(ch) for ch in chunks]
+    offsets = np.cumsum([0] + lengths[:-1])
+    src = np.frombuffer(raw + b"\0" * (-len(raw) % 4), np.uint32)
+    d_src, buf = cp.asarray(src), cp.zeros(src.size, np.uint32)
+    with cp.cuda.Stream.null:  # about a second of spinning, then the chunks copied into buf
+        spin((1,), (256,), (d_src, buf, np.int64(src.size), np.int64(2 * 10**9)))
+    d = c.decompress_from_device(_NoStream(buf), offsets, lengths)
+    assert (cp.asarray(d).get() == one).all()
 
 
 def _device_of(a):
