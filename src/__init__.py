@@ -505,7 +505,8 @@ class chunk2sparse:
 
     cut is compared in the pixel type: for integer pixels a fractional cut is
     floored and a cut above the type's maximum selects nothing; a negative cut
-    is an error.
+    is an error.  So with signed pixels (i8 .. i64) negative values are never
+    returned.
 
     c(chunk, cut) -> npixels, (values, indices) for one frame (the arrays
     are full size: slice [:npixels]); c.multi(chunks, cut) -> the same per
@@ -730,6 +731,11 @@ class chunk2sparseCSC:
           sum above 2**53 is rounded in that last cast
     howmany, thresholds: as chunk2sparse; they limit the pixels returned
           only: the powder always uses every unmasked pixel
+
+    Signed pixels: the cut is never negative, so negative pixels are not in the returned
+    list, but the powder sums every unmasked pixel as it is, negative ones included (CCD
+    frames with the dark subtracted).  A Pilatus's negative markers for gaps and bad pixels
+    (-1, -2) must be masked to keep them out of the powder.
 
     The array of the powder is the object's own and is overwritten by the next call.
     The object owns copies of the matrix and the mask, taken here (read-only): later changes to

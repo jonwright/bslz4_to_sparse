@@ -35,6 +35,19 @@ the free-threaded builds (the GPU decoder and the conveyor need Python 3).
 Decoding releases the GIL, and objects are not
 shared between threads: use one per thread.
 
+## Pixel types and negative values
+
+Eiger data are unsigned (u8, u16, u32), and those are the types the fast paths are tuned for.
+Signed pixels (i8, i16, i32, i64), as older Pilatus detectors and dark-subtracted CCD frames
+have, are decoded the same way, with these rules:
+
+- The cut is never negative (a negative cut is an error), so the sparse pixel list holds only
+  pixels above a cut of zero or more: negative pixels never appear in it.
+- The integration uses every unmasked pixel as it is, negative ones included: the powder is
+  the matrix times the masked frame.  That is right for CCD data, where (intensity - dark) is
+  negative by noise.  The negative markers a Pilatus writes for its gaps and bad pixels (-1,
+  -2) belong in the detector mask; unmasked, they would be summed into the powder.
+
 ## More than sparse pixels
 
 A processor can limit how many pixels a frame returns.  The pixels are chosen as
