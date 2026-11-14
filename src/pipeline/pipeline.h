@@ -75,7 +75,7 @@ enum {
 #define BSLZ4_IS_LOWPLANES(u) (((u) >= BSLZ4_UNTRANSPOSE_LOWPLANES_VBMI && (u) <= BSLZ4_UNTRANSPOSE_LOWPLANES_C) || \
                                (u) == BSLZ4_UNTRANSPOSE_LOWPLANES_AVX512BW)
 
-/* collect: the SIMD values are u8/u16/u32 only */
+/* collect: the SIMD values take u8/u16/u32 and i8/i16/i32 (a signed compare) */
 enum {
     BSLZ4_COLLECT_AVX512CS = 1,
     BSLZ4_COLLECT_AVX2CS = 2,

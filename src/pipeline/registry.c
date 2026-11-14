@@ -26,8 +26,9 @@ typedef char bslz4_value_slots_cover_every_step
 #define BSLZ4_ALL_DTYPES 0x3FFu
 #define BSLZ4_INT_DTYPES 0x0FFu                 /* u8 .. i64 */
 #define BSLZ4_INT32_DTYPES 0x077u               /* u8 u16 u32 i8 i16 i32: sums of 2**31 values fit int64 */
-#define BSLZ4_U8_U16_U32 ((1u << 0) | (1u << 1) | (1u << 2))   /* the SIMD collects */
-#define BSLZ4_U8_U16 ((1u << 0) | (1u << 1))   /* the low-planes values: u8, and u16 blocks < 256 */
+#define BSLZ4_SIMD_COLLECT_DTYPES 0x077u        /* the SIMD collects: u8 u16 u32 i8 i16 i32 (signed: a signed compare) */
+#define BSLZ4_LOWPLANES_DTYPES ((1u << 0) | (1u << 1) | (1u << 5))   /* the low-planes values: u8, and
+                                       u16 / i16 blocks in 0..255 (a negative i16 sets the high planes) */
 
 /* Each dot: the C entry (layout) it is reached through, the pixel dtypes it
  * takes, the powder element size (bytes; 0 = the pixel dtype, a packed
@@ -177,9 +178,9 @@ int bslz4_resolve(int dtype, const uint16_t *pipeline, int layout, bslz4_pipe *B
     }
     if (!is_dot) p->step[BSLZ4_STEP_ROUTE] = p->step[BSLZ4_STEP_DOT] = 0;
     const uint32_t bit = 1u << dtype;
-    if (BSLZ4_IS_LOWPLANES(p->step[BSLZ4_STEP_UNTRANSPOSE]) && !(bit & BSLZ4_U8_U16))
+    if (BSLZ4_IS_LOWPLANES(p->step[BSLZ4_STEP_UNTRANSPOSE]) && !(bit & BSLZ4_LOWPLANES_DTYPES))
         return BSLZ4_ERR_DTYPE;
-    if (p->step[BSLZ4_STEP_COLLECT] != BSLZ4_COLLECT_SCALAR && !(bit & BSLZ4_U8_U16_U32))
+    if (p->step[BSLZ4_STEP_COLLECT] != BSLZ4_COLLECT_SCALAR && !(bit & BSLZ4_SIMD_COLLECT_DTYPES))
         return BSLZ4_ERR_DTYPE;
     if (is_dot) {
         const bslz4_dot_desc *d = &bslz4_dots[p->step[BSLZ4_STEP_DOT]];

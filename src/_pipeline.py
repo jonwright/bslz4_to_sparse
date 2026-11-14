@@ -45,24 +45,24 @@ VALUES = {
     ),
     "untranspose": (
         "auto",
-        ("lowplanes-vbmi", "u8/u16 pixels; AVX-512 VBMI, VBMI2 and GFNI"),
-        ("lowplanes-avx2", "u8/u16 pixels; AVX2"),
-        ("lowplanes-vsx", "u8/u16 pixels; POWER8 VSX"),
-        ("lowplanes-c", "u8/u16 pixels; portable C"),
+        ("lowplanes-vbmi", "u8/u16/i16 pixels; AVX-512 VBMI, VBMI2 and GFNI"),
+        ("lowplanes-avx2", "u8/u16/i16 pixels; AVX2"),
+        ("lowplanes-vsx", "u8/u16/i16 pixels; POWER8 VSX"),
+        ("lowplanes-c", "u8/u16/i16 pixels; portable C"),
         ("kcb", "kcb's bit transpose (SSE2/AVX2/AVX-512 dispatched inside)"),
         ("neon", "bitshuffle's NEON kernels; aarch64"),
         ("scalar", "bitshuffle's scalar kernels"),
-        ("lowplanes-avx512bw", "u8/u16 pixels; AVX-512 F/BW, for CPUs without VBMI and GFNI"),
+        ("lowplanes-avx512bw", "u8/u16/i16 pixels; AVX-512 F/BW, for CPUs without VBMI and GFNI"),
     ),
     "collect": (
         "auto",
-        ("avx512cs", "u8/u16/u32 pixels; AVX-512 BW/VL and VBMI2"),
-        ("avx2cs", "u8/u16/u32 pixels; AVX2"),
-        ("vsx", "u8/u16/u32 pixels; POWER VSX"),
-        ("neon", "u8/u16/u32 pixels; aarch64 NEON"),
-        ("sse2", "u8/u16/u32 pixels; SSE2"),
+        ("avx512cs", "u8/u16/u32/i8/i16/i32 pixels; AVX-512 BW/VL and VBMI2"),
+        ("avx2cs", "u8/u16/u32/i8/i16/i32 pixels; AVX2"),
+        ("vsx", "u8/u16/u32/i8/i16/i32 pixels; POWER VSX"),
+        ("neon", "u8/u16/u32/i8/i16/i32 pixels; aarch64 NEON"),
+        ("sse2", "u8/u16/u32/i8/i16/i32 pixels; SSE2"),
         ("scalar", "any pixel type"),
-        ("avx512f", "u8/u16/u32 pixels; AVX-512 F/BW, for CPUs without VBMI2"),
+        ("avx512f", "u8/u16/u32/i8/i16/i32 pixels; AVX-512 F/BW, for CPUs without VBMI2"),
     ),
     "route": (
         "auto",
@@ -96,6 +96,12 @@ DTYPE_INDEX = {"u8": 0, "u16": 1, "u32": 2, "u64": 3, "i8": 4, "i16": 5, "i32": 
 _SUFFIX = {("u", 1): "u8", ("u", 2): "u16", ("u", 4): "u32", ("u", 8): "u64",
            ("i", 1): "i8", ("i", 2): "i16", ("i", 4): "i32", ("i", 8): "i64",
            ("f", 4): "f32", ("f", 8): "f64"}
+
+
+# the pixel dtypes of the SIMD collects (signed ones compare as signed)
+SIMD_COLLECT_DTYPES = ("u8", "u16", "u32", "i8", "i16", "i32")
+# the pixel dtypes of the low-planes untransposes (i16: a block with a negative pixel takes kcb)
+LOWPLANES_DTYPES = ("u8", "u16", "i16")
 
 
 def dtype_suffix(dtype):
@@ -177,14 +183,14 @@ def auto_step(step, suffix, codec, mask_all_valid):
     if step == "mask":
         return NAMES[step].index("none" if mask_all_valid else "pixel")
     if step == "untranspose":
-        if suffix in ("u8", "u16"):
+        if suffix in LOWPLANES_DTYPES:
             for n in ("lowplanes-vbmi", "lowplanes-avx512bw", "lowplanes-avx2", "lowplanes-vsx",
                       "lowplanes-c"):
                 if available(step, NAMES[step].index(n)) == 1:
                     return NAMES[step].index(n)
         return NAMES[step].index("kcb")
     if step == "collect":
-        if suffix in ("u8", "u16", "u32"):
+        if suffix in SIMD_COLLECT_DTYPES:
             for n in ("avx512cs", "avx512f", "avx2cs", "vsx", "neon", "sse2"):
                 if available(step, NAMES[step].index(n)) == 1:
                     return NAMES[step].index(n)
@@ -231,12 +237,12 @@ def resolve(pipeline, dtype, codec, mask, dot_auto=None, matrix=False):
         raise ValueError("pipeline['mask']='none': the mask has %d masked pixels (use 'pixel' or 'planes')"
                          % int((np.asarray(mask) == 0).sum()))
     uname = NAMES["untranspose"][vals[UNTRANSPOSE]]
-    if uname.startswith("lowplanes") and suffix not in ("u8", "u16"):
-        raise ValueError("pipeline['untranspose']=%r is for u8/u16 pixels, not %s (use kcb)"
+    if uname.startswith("lowplanes") and suffix not in LOWPLANES_DTYPES:
+        raise ValueError("pipeline['untranspose']=%r is for u8/u16/i16 pixels, not %s (use kcb)"
                          % (uname, np.dtype(dtype)))
     cname = NAMES["collect"][vals[COLLECT]]
-    if cname != "scalar" and suffix not in ("u8", "u16", "u32"):
-        raise ValueError("pipeline['collect']=%r is for u8/u16/u32 pixels, not %s (use scalar)"
+    if cname != "scalar" and suffix not in SIMD_COLLECT_DTYPES:
+        raise ValueError("pipeline['collect']=%r is for u8/u16/u32/i8/i16/i32 pixels, not %s (use scalar)"
                          % (cname, np.dtype(dtype)))
     if matrix:
         if vals[DOT] == 0:

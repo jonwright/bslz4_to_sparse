@@ -1,6 +1,7 @@
 """Every available collect value (avx512cs, avx2cs, vsx, neon, sse2, scalar)
 must give exactly numpy's selection: the values > cut of the unmasked
-pixels, with their flat indices, in order.  Run for u8, u16 and u32 over sparse,
+pixels, with their flat indices, in order.  Run for u8, u16, u32 and i8, i16, i32 (with
+negative pixels, as a Pilatus writes gaps and bad pixels; cuts are never negative) over sparse,
 medium, dense and all-maximum data, several cuts, with a mask and with an
 all-ones mask (mask step 'none'), on a shape that leaves a tail; and the CSC
 powder must agree across collect values on both routes.
@@ -45,7 +46,14 @@ def make(kind, dt, rng):
         a = rng.poisson(30, n)
     else:  # "max"
         a = np.full(n, top, np.int64)
-    return np.minimum(a, top).astype(dt)
+    a = np.minimum(a, top)
+    if np.iinfo(dt).min < 0:          # signed: some pixels -1 (gaps), some at the minimum
+        a[rng.random(n) < 0.02] = -1
+        a[rng.random(n) < 0.002] = np.iinfo(dt).min
+    return a.astype(dt)
+
+
+DTYPES = [np.uint8, np.uint16, np.uint32, np.int8, np.int16, np.int32]
 
 
 def chunks_of(frames, path):
@@ -55,7 +63,7 @@ def chunks_of(frames, path):
         return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(ds)
 
 
-@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32])
+@pytest.mark.parametrize("dt", DTYPES)
 @pytest.mark.parametrize("kind", ["sparse", "medium", "dense", "max"])
 @pytest.mark.parametrize("masked", [True, False])
 def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
@@ -80,7 +88,7 @@ def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
                 assert (vals[f, :n] == flat[want]).all(), (tier, kind, cut, f)
 
 
-@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32])
+@pytest.mark.parametrize("dt", DTYPES)
 @pytest.mark.parametrize("route", ["dense", "sparse"])
 def test_powder_same_for_every_tier(tmp_path, dt, route):
     rng = np.random.default_rng(22)
