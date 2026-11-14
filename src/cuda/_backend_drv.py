@@ -394,16 +394,16 @@ class _CUDA_MEMCPY2D(ctypes.Structure):
                 ("dstArray", _P), ("dstPitch", _SZ), ("WidthInBytes", _SZ), ("Height", _SZ)]
 
 
-def device_bytes(obj, dev):
+def device_bytes(obj, dev, what="the chunks"):
     """The GPU memory of obj (__cuda_array_interface__, C-contiguous, on device dev) as a uint8
-    array viewing it; waits for obj's stream first (version 3)."""
+    array viewing it; waits for obj's stream first (version 3).  `what` names obj in errors."""
     cai = obj.__cuda_array_interface__
     shape, dt = tuple(cai["shape"]), np.dtype(cai["typestr"])
     st = cai.get("strides")
     if st is not None and tuple(st) != tuple(
         int(np.prod(shape[k + 1 :])) * dt.itemsize for k in range(len(shape))
     ):
-        raise ValueError("the chunks must be in one C-contiguous GPU buffer")
+        raise ValueError("%s must be in one C-contiguous GPU buffer" % what)
     ptr = int(cai["data"][0])
     if cai.get("stream"):
         _check(cuStreamSynchronize(_P(cai["stream"])))

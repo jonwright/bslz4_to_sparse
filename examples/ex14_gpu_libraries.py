@@ -5,8 +5,9 @@ it needs no CUDA toolkit, compiler or cupy: the kernels come compiled in the pac
 code for every GPU generation from Fermi on) and are launched through the CUDA driver, libcuda, with
 ctypes.  Two calls keep their results on the GPU:
 
-    decompress(chunks)   the dense frames: (nframes, ni, nj) of the pixel dtype
-    integrate(chunks)    each frame's powder, the sums of pyFAI's sparse matrix: (nframes, nbins)
+    decompress(chunks, out=None)   the dense frames: (nframes, ni, nj) of the pixel dtype
+    integrate(chunks, out=None)    each frame's powder, the sums of pyFAI's sparse matrix:
+                                   (nframes, nbins)
 
 The arrays they return follow the two conventions GPU libraries use to share memory,
 __cuda_array_interface__ (cupy, numba, pycuda, torch) and DLPack (torch, jax, tensorflow, cupy), so
@@ -15,12 +16,17 @@ the call returns.  This example gives the frames, a 1D powder pattern and a 2D (
 to each of these libraries that is installed, computes something there, and checks it against the
 CPU (h5py's decompression and pyFAI's integration).  A library uses the device's primary context,
 as the driver backend does (pycuda needs to be told: retain_primary_context).
+
+Whose memory: without `out`, each call returns a new array whose memory goes back to a pool (the
+driver backend's, or cupy's) as soon as nothing refers to it.  With `out`, the results go into an
+array you own and reuse.  The last part of this example shows both, and how to keep a result.
 """
 
 import os
 
 os.environ["BSLZ4_CUDA_BACKEND"] = "driver"  # set before bslz4_to_sparse.cuda is imported
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")  # jax: allocate as needed
+os.environ.setdefault("JAX_ENABLE_X64", "1")  # jax: float64 as it is (else a float32 copy)
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # tensorflow: errors only
 
 import h5py
@@ -106,11 +112,14 @@ def with_jax():
     import jax
     import jax.numpy as jnp
 
-    c = jax.dlpack.from_dlpack(d_cake).reshape(n, nq, nazim)  # DLPack: no copy
+    x = jax.dlpack.from_dlpack(d_cake)  # DLPack: no copy
+    assert x.dtype == np.float64 and x.unsafe_buffer_pointer() == d_cake.__cuda_array_interface__[
+        "data"][0]
+    c = x.reshape(n, nq, nazim)
     spread = jnp.std(c, axis=2) / jnp.maximum(jnp.mean(c, axis=2), 1e-30)  # azimuthal variation
     want = host_cake.std(axis=2) / np.maximum(host_cake.mean(axis=2), 1e-30)
     assert np.allclose(np.asarray(spread), want, rtol=1e-6, atol=1e-9)
-    return "azimuthal spread of each q bin, (%d, %d)" % spread.shape
+    return "azimuthal spread of each q bin, (%d, %d), same memory" % spread.shape
 
 
 def with_numba():
@@ -171,6 +180,58 @@ for name, fn in [("cupy", with_cupy), ("torch", with_torch), ("jax", with_jax),
     results[name] = fn()
 for name, what in results.items():
     print("%-10s %s" % (name, what))
+
+# Whose memory.  Every array above is ours: a block of the pool, given back as soon as the last
+# reference to it is dropped, a library's view (torch.from_dlpack, cp.asarray, ...) included.  The
+# next call may then get the same block and write into it at once.  Two ways to keep a result:
+#
+#   1. out=: the results go into an array your library owns, made once and reused, and nothing
+#      is allocated per call.  It must be on this GPU, C-contiguous and of the result's dtype
+#      (decompress: the pixels'; integrate: float64 here).  The call writes it as soon as it
+#      starts, on a stream of its own: whatever your library still has queued on that array must
+#      be finished first.  cupy tells us its stream and we wait for it; torch does not, so
+#      synchronize torch before each call.
+#   2. a copy your library owns, then drop ours.  The copy is queued on your library's stream:
+#      keep our array until the copy is done (synchronize, block_until_ready), or the pool may
+#      give its block to the next call while the copy is still reading it.
+kept = {}
+if results.get("cupy") != "not installed":
+    import cupy as cp
+
+    c_frames = cp.empty(frames.shape, dtype)  # 1. cupy's memory, ours to reuse
+    assert gpu1.decompress(chunks, out=c_frames) is c_frames
+    assert (c_frames.get() == frames).all()
+    kept["cupy"] = "decompress(chunks, out=cupy array)"
+if results.get("torch") != "not installed":
+    import torch
+
+    t_powder = torch.empty((n, nq), dtype=torch.float64, device="cuda")  # 1. torch's memory
+    total = torch.zeros(nq, dtype=torch.float64, device="cuda")
+    for _ in range(3):  # a loop over the same frames, as over the batches of a scan
+        torch.cuda.current_stream().synchronize()  # torch is done with t_powder: it may be written
+        gpu1.integrate(chunks, out=t_powder)
+        total += t_powder.sum(dim=0)  # queued on torch's stream, reading t_powder
+    assert np.allclose(total.cpu().numpy(), 3 * d_powder.get().sum(axis=0), rtol=1e-12, atol=0)
+
+    d = gpu1.integrate(chunks)  # 2. a new array of ours ...
+    mine = torch.from_dlpack(d).clone()  # ... copied into torch's memory, on torch's stream
+    torch.cuda.current_stream().synchronize()  # the copy is done ...
+    del d  # ... so our block may go back to the pool
+    assert (mine.cpu().numpy() == d_powder.get()).all()
+    kept["torch"] = "integrate(chunks, out=torch tensor) in a loop; a clone of ours"
+if results.get("jax") != "not installed":
+    import jax
+    import jax.numpy as jnp
+
+    d = gpu2.integrate(chunks)  # 2. jax arrays cannot be written: jax keeps a copy of ours
+    mine = jnp.array(jax.dlpack.from_dlpack(d), copy=True)
+    mine.block_until_ready()  # the copy is done ...
+    assert mine.unsafe_buffer_pointer() != d.__cuda_array_interface__["data"][0]
+    del d  # ... so our block may go back to the pool
+    assert (np.asarray(mine) == host_cake.reshape(n, -1)).all()
+    kept["jax"] = "a copy of ours"
+for name, what in kept.items():
+    print("%-10s kept: %s" % (name, what))
 
 # The other direction: chunks already in GPU memory, as a GPUDirect Storage read (kvikio, cuFile)
 # would leave them, one buffer with the chunks at known offsets.  Here a copy made by one of the

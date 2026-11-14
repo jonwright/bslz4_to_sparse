@@ -25,7 +25,8 @@ Differences from the CPU classes:
     uploaded: for a small group, or a small GPU).
     The result arrays are numpy (as the CPU classes) and are
     overwritten by the next call.  decompress(chunks) and, for chunk2sparseCSC, integrate(chunks)
-    keep their result on the GPU instead: a new device array each call (see their docstrings).
+    keep their result on the GPU instead: in the caller's GPU array `out`, else a new device array
+    each call (see their docstrings).
   * `device`: the GPU (None: the current one), made current in the calling thread.
   * where the chunks are and where the results go, by name:
         chunks in host memory          multi, from_buffer, __call__   -> lists on the host
@@ -633,36 +634,68 @@ class chunk2sparse(object):
         for g0 in range(0, nf, G):
             yield g0, upload(g0, G)
 
-    def decompress(self, chunks):
-        """Decode chunks (one frame each) into dense frames that stay on the GPU: a new
-        C-contiguous device array (nframes, ni, nj) of the pixel dtype, complete when returned.
-        Every pixel as stored (no cut, no mask).  A cupy array with the cupy backend; with the
-        driver backend (bslz4_to_sparse.cuda.backend) an array that cupy, numba, pycuda and torch take
-        through __cuda_array_interface__, and torch, jax, tensorflow and cupy through DLPack,
-        without a copy."""
-        cu.use_device(self._dev)
-        return self._decompress_from(self._host_chunks([memoryview(c).cast("B") for c in chunks]))
+    def decompress(self, chunks, out=None):
+        """Decode chunks (one frame each) into dense frames that stay on the GPU: (nframes, ni, nj)
+        of the pixel dtype, complete when returned.  Every pixel as stored (no cut, no mask).
 
-    def decompress_from_device(self, buf, offsets, lengths):
+        out: the caller's GPU array to write and return (cupy, torch, numba, ours: any
+        __cuda_array_interface__), on this object's GPU, C-contiguous, writeable, of the pixel
+        dtype and at least nframes x ni x nj pixels; nothing is allocated for the result.  It is
+        written as soon as the call starts: work queued on it must be finished (a version 3
+        interface's stream, cupy's, is waited for; torch's names no stream: synchronize first).
+
+        Without out, a new array: a cupy array with the cupy backend; with the driver backend
+        (bslz4_to_sparse.cuda.backend) an array that cupy, numba, pycuda and torch take through
+        __cuda_array_interface__, and torch, jax, tensorflow and cupy through DLPack, without a
+        copy.  Its memory goes back to a pool (cupy's, or the driver backend's) when the last
+        reference to it, a view taken by another library included, is dropped: work queued on
+        another stream that reads it must be finished by then."""
+        cu.use_device(self._dev)
+        return self._decompress_from(
+            self._host_chunks([memoryview(c).cast("B") for c in chunks]), out
+        )
+
+    def decompress_from_device(self, buf, offsets, lengths, out=None):
         """As decompress, for chunks already in GPU memory (read there by GPUDirect Storage, say):
         chunk i is the lengths[i] bytes at byte offsets[i] of buf, any C-contiguous array of this
         object's GPU with __cuda_array_interface__ (cupy, torch, numba, jax, kvikio, ours); its
         stream is waited for.  The chunks are read in place, never copied to the host: their
         headers are checked on the GPU."""
         cu.use_device(self._dev)
-        return self._decompress_from(self._device_chunks(buf, offsets, lengths))
+        return self._decompress_from(self._device_chunks(buf, offsets, lengths), out)
 
-    def _decompress_from(self, source):
-        out = cu.empty((source[0], self.npix // self.nfast, self.nfast), self.dtype)
+    def _result(self, out, shape, dtype):
+        """(the array to return, a flat array of dtype viewing it for the kernels, its address):
+        the caller's out, checked, else a new device array"""
+        if out is None:
+            out = cu.empty(shape, dtype)
+        else:
+            cai = getattr(out, "__cuda_array_interface__", None)
+            if cai is None:
+                raise TypeError("out must be a GPU array with __cuda_array_interface__")
+            if np.dtype(cai["typestr"]) != dtype:
+                raise ValueError("out has dtype %s, the results are %s" % (cai["typestr"], dtype))
+            if cai["data"][1]:
+                raise ValueError("out is read-only")
+        flat = cu.device_bytes(out, self._dev, "out")  # waits for out's stream (version 3)
+        need = int(np.prod(shape, dtype=np.int64)) * dtype.itemsize
+        if flat.size < need:
+            raise ValueError("out holds %d bytes, the results %d" % (flat.size, need))
+        return out, flat[:need].view(dtype), int(out.__cuda_array_interface__["data"][0])
+
+    def _decompress_from(self, source, out):
+        out, dst, ptr = self._result(
+            out, (source[0], self.npix // self.nfast, self.nfast), self.dtype
+        )
         for g0, ng in self._groups(source):
-            if self.nbytes % 16 == 0:  # frames decode straight into place (16-byte stores)
-                self._decompress(0, ng, out[g0:], self.nbytes)
+            if self.nbytes % 16 == 0 and ptr % 16 == 0:  # straight into place (16-byte stores)
+                self._decompress(0, ng, dst[g0 * self.npix :], self.nbytes)
             else:  # through the padded frames of a batch
                 for s0 in range(0, ng, self.batch):
                     n = min(self.batch, ng - s0)
                     self._decompress(s0, n, self.d_dense, self.stride)
-                    cu.copy_rows(out[g0 + s0 :], self.nbytes, self.d_dense, self.stride,
-                                 self.nbytes, n)
+                    cu.copy_rows(dst[(g0 + s0) * self.npix :], self.nbytes, self.d_dense,
+                                 self.stride, self.nbytes, n)
             self._bad_chunks(g0, ng)
         return out
 
@@ -816,27 +849,29 @@ class chunk2sparseCSC(chunk2sparse):
             cu.pinned(shape[0] * shape[1] * dt.itemsize), dt, shape[0] * shape[1]
         ).reshape(shape)
 
-    def integrate(self, chunks):
-        """The powder of each frame, kept on the GPU: a new device array (nframes, nbins),
-        complete when returned: float64 (acc 'f64'), float32 ('f32'), or the int64 sums of a
-        fixed_point_matrix (divide by powder_scale).  The same sums as the powder of multi, without
-        a cut or lists of pixels: decompress, then the matrix product.  The array types are those
-        of decompress."""
+    def integrate(self, chunks, out=None):
+        """The powder of each frame, kept on the GPU: (nframes, nbins), complete when returned:
+        float64 (acc 'f64'), float32 ('f32'), or the int64 sums of a fixed_point_matrix (divide by
+        powder_scale).  The same sums as the powder of multi, without a cut or lists of pixels:
+        decompress, then the matrix product.  out, and the arrays returned without it, as for
+        decompress (out of the dtype above, at least nframes x nbins)."""
         cu.use_device(self._dev)
-        return self._integrate_from(self._host_chunks([memoryview(c).cast("B") for c in chunks]))
+        return self._integrate_from(
+            self._host_chunks([memoryview(c).cast("B") for c in chunks]), out
+        )
 
-    def integrate_from_device(self, buf, offsets, lengths):
+    def integrate_from_device(self, buf, offsets, lengths, out=None):
         """As integrate, for chunks already in GPU memory: see decompress_from_device."""
         cu.use_device(self._dev)
-        return self._integrate_from(self._device_chunks(buf, offsets, lengths))
+        return self._integrate_from(self._device_chunks(buf, offsets, lengths), out)
 
-    def _integrate_from(self, source):
-        out = cu.empty((source[0], self.nbins), np.dtype(_fixed_np(self.acc)))
+    def _integrate_from(self, source, out):
+        out, dst, _ = self._result(out, (source[0], self.nbins), np.dtype(_fixed_np(self.acc)))
         for g0, ng in self._groups(source):
             for s0 in range(0, ng, self.batch):
                 n = min(self.batch, ng - s0)
                 self._decompress(s0, n, self.d_dense, self.stride)
-                self._dot(n, out[g0 + s0 :])
+                self._dot(n, dst[(g0 + s0) * self.nbins :])
             self._bad_chunks(g0, ng)
         return out
 

@@ -392,6 +392,60 @@ def test_decompress_and_integrate_stay_on_the_device(tmp_path, dt, shape):
         c.decompress(chunks[:4] + [bytes(bad)] + chunks[5:])
 
 
+@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32])
+@pytest.mark.parametrize("shape", [(61, 83), (64, 128)])
+def test_decompress_and_integrate_into_the_callers_array(tmp_path, dt, shape, monkeypatch):
+    rng = np.random.default_rng(5)
+    mask = (rng.random(shape) > 0.2).astype(np.uint8)
+    frames = rng.poisson(2.0, (7,) + shape).astype(dt)
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 40, 2)
+    c = g.chunk2sparseCSC(mask, M, dt, codec, batch=2, group=3, device=0)
+    want_p = cp.asarray(c.integrate(chunks)).get()
+    for skip in (0, 1):  # 1: out not 16-byte aligned, so the frames go through the batch
+        big = cp.full(skip + frames.size + 5, 7, dt)  # longer than the frames: the tail is kept
+        out = big[skip : skip + frames.size].reshape(frames.shape)
+        assert c.decompress(chunks, out=out) is out
+        assert (out.get() == frames).all() and (big[skip + frames.size :].get() == 7).all()
+    p_out = cp.zeros(want_p.shape, want_p.dtype)
+    assert c.integrate(chunks, out=p_out) is p_out and (p_out.get() == want_p).all()
+    lens = np.array([len(x) for x in chunks], np.int64)
+    d_buf = cp.asarray(np.frombuffer(b"".join(chunks), np.uint8))
+    offs = np.concatenate(([0], np.cumsum(lens)[:-1]))
+    out[...] = 0
+    assert c.decompress_from_device(d_buf, offs, lens, out=out) is out
+    assert (out.get() == frames).all()
+    p_out[...] = 0
+    assert c.integrate_from_device(d_buf, offs, lens, out=p_out) is p_out
+    assert (p_out.get() == want_p).all()
+    if g.backend == "driver":  # the driver backend's own arrays are taken as out too
+        from bslz4_to_sparse.cuda import _backend_drv as drv
+
+        o = drv.empty(frames.shape, dt)
+        assert c.decompress(chunks, out=o) is o and (o.get() == frames).all()
+    # once the object's buffers are made, a call with out allocates no GPU memory
+    from bslz4_to_sparse.cuda import _gpu
+
+    made = []
+    real = _gpu.cu.empty
+    monkeypatch.setattr(_gpu.cu, "empty", lambda *a: made.append(a) or real(*a))
+    for _ in range(3):
+        c.decompress(chunks, out=out)
+        c.integrate(chunks, out=p_out)
+    assert made == [] and (out.get() == frames).all() and (p_out.get() == want_p).all()
+    monkeypatch.undo()
+    for bad, err, match in (
+        (cp.empty(frames.shape, np.float64), ValueError, "dtype"),
+        (cp.empty(frames.size - 1, dt), ValueError, "bytes"),
+        (cp.empty(frames.shape[::-1], dt).T, ValueError, "out must be in one C-contiguous"),
+        (np.empty(frames.shape, dt), TypeError, "__cuda_array_interface__"),
+    ):
+        with pytest.raises(err, match=match):
+            c.decompress(chunks, out=bad)
+    with pytest.raises(ValueError, match="dtype"):
+        c.integrate(chunks, out=cp.empty(want_p.shape, np.float32))
+
+
 def write_chunks_codec(path, frames, cname):
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset(

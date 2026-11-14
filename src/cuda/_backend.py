@@ -66,14 +66,14 @@ def empty(shape, dtype):
     return cp.empty(shape, dtype)
 
 
-def device_bytes(obj, dev):
+def device_bytes(obj, dev, what="the chunks"):
     """The GPU memory of obj (__cuda_array_interface__, C-contiguous, on device dev) as a uint8
-    array viewing it; cupy waits for obj's stream."""
+    array viewing it; cupy waits for obj's stream.  `what` names obj in errors."""
     a = cp.asarray(obj)
     if a.device.id != dev:
         raise ValueError("the buffer is on GPU %d, this object on GPU %d" % (a.device.id, dev))
     if not a.flags.c_contiguous:
-        raise ValueError("the chunks must be in one C-contiguous GPU buffer")
+        raise ValueError("%s must be in one C-contiguous GPU buffer" % what)
     return a.reshape(-1).view(cp.uint8)
 
 
