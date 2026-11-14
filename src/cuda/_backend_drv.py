@@ -8,10 +8,17 @@ stream before returning; .set queues on the stream given; zeros/asarray wait for
 
 Device memory comes from a memory pool of our own per device (stream-ordered allocator, CUDA 11.2
 drivers on), as cupy's pool: a free returns the block to the pool, without the device-wide wait of
-cuMemFree.  Blocks are taken and given back on the legacy default stream, so an array must not be
-dropped while work queued on another stream still uses it (every array the GPU classes hand out is
-complete).  free_pool() gives the unused blocks back to the driver.  Older drivers, and devices
-without pools: cuMemAlloc / cuMemFree.
+cuMemFree.  empty() takes its block on the current stream (the GPU classes': their kernels write
+it there), zeros() and asarray() on the legacy default stream; every block is given back on the
+legacy default stream.  A block is taken again only once work queued before its free on the
+legacy default stream (torch's and cupy's default streams) is done.  Work on any other stream
+that reads an array must be finished before the array is dropped, or that stream named with the
+array's record_stream(stream), as torch's Tensor.record_stream: the block is then given back on a
+stream of ours that first waits for the legacy default stream and every stream recorded (every
+array the GPU classes hand out is complete).  __dlpack__ records the stream the consumer passes
+(torch.from_dlpack and cupy.from_dlpack: their current stream); __cuda_array_interface__ cannot.
+free_pool() gives the unused blocks back to the driver.  Older drivers, and devices without pools:
+cuMemAlloc / cuMemFree.
 """
 
 import ctypes
@@ -91,6 +98,10 @@ cuMemsetD8Async = _sig("cuMemsetD8Async", ctypes.c_uint64, ctypes.c_ubyte, _SZ, 
 cuStreamCreate = _sig("cuStreamCreate", ctypes.POINTER(_P), ctypes.c_uint)
 cuStreamDestroy = _sig("cuStreamDestroy_v2", _P)
 cuStreamSynchronize = _sig("cuStreamSynchronize", _P)
+cuStreamWaitEvent = _sig("cuStreamWaitEvent", _P, _P, ctypes.c_uint)
+cuEventCreate = _sig("cuEventCreate", ctypes.POINTER(_P), ctypes.c_uint)
+cuEventRecord = _sig("cuEventRecord", _P, _P)
+cuEventDestroy = _sig("cuEventDestroy_v2", _P)
 cuGetErrorString = _sig("cuGetErrorString", ctypes.c_int, ctypes.POINTER(ctypes.c_char_p))
 
 CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X = 5
@@ -99,6 +110,7 @@ CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
 CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED = 115
 CU_MEMPOOL_ATTR_RELEASE_THRESHOLD = 4
 CU_STREAM_NON_BLOCKING = 1
+CU_EVENT_DISABLE_TIMING = 2
 CU_MEMHOSTALLOC_PORTABLE = 1
 
 
@@ -121,6 +133,7 @@ _tls = threading.local()  # .stream: the current stream of this thread
 _ctx = {}  # device -> primary context
 _ctx_lock = threading.Lock()
 _pools = {}  # device -> our memory pool, or None (cuMemAlloc)
+_free_streams = {}  # device -> the stream blocks with recorded streams are given back on
 
 
 class _CUmemPoolProps(ctypes.Structure):  # 88 bytes; the fields after location stay zero
@@ -157,6 +170,13 @@ def _pool(dev):
                 keep = ctypes.c_uint64(2**64 - 1)  # never give blocks back at a synchronize
                 _check(cuMemPoolSetAttribute(pool, CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
                                              ctypes.byref(keep)))
+                fs = _P()  # where blocks with recorded streams are given back
+                _check(cuCtxPushCurrent(_ctx[dev]))  # (not device(): it takes _ctx_lock)
+                try:
+                    _check(cuStreamCreate(ctypes.byref(fs), CU_STREAM_NON_BLOCKING))
+                finally:
+                    _check(cuCtxPopCurrent(ctypes.byref(_P())))
+                _free_streams[dev] = fs
             _pools[dev] = pool
         return _pools[dev]
 
@@ -277,29 +297,76 @@ class Stream(object):
         _check(cuStreamSynchronize(self.handle))
 
     def __del__(self):
-        if getattr(self, "handle", None):
+        if getattr(self, "handle", None) and _in_context is not None:  # None: interpreter shutdown
             _in_context(self._ctx, cuStreamDestroy, self.handle)
 
 
 class _Alloc(object):
     """One block of device memory (from our pool, else cuMemAlloc), freed with its last view."""
 
-    def __init__(self, nbytes):
+    def __init__(self, nbytes, stream=None):
+        """stream: the handle the block is taken on (None: the legacy default stream)"""
+        self.streams = []  # handles of the streams recorded (record_stream)
         self.dev = device_id()
         self.ctx, p = _context(self.dev), ctypes.c_uint64()
         self.pool = _pool(self.dev)
         if self.pool is None:
             _check(cuMemAlloc(ctypes.byref(p), max(int(nbytes), 1)))
         else:
-            _check(cuMemAllocFromPoolAsync(ctypes.byref(p), max(int(nbytes), 1), self.pool, None))
+            _check(cuMemAllocFromPoolAsync(ctypes.byref(p), max(int(nbytes), 1), self.pool, stream))
         self.ptr = p.value
 
     def __del__(self):
         if getattr(self, "ptr", None) and _in_context is not None:  # None: interpreter shutdown
-            if self.pool is None:
+            if self.pool is None:  # cuMemFree waits for the device: recorded streams included
                 _in_context(self.ctx, cuMemFree, self.ptr)
+            elif self.streams:
+                _in_context(self.ctx, _free_after, self.dev, self.ptr, self.streams)
             else:
                 _in_context(self.ctx, cuMemFreeAsync, self.ptr, None)
+
+
+def _free_after(dev, ptr, streams):
+    """Give ptr back to the pool once the legacy default stream and `streams` have reached this
+    point: on a stream of ours that waits for each (its context current)."""
+    try:
+        fs = _free_streams[dev]  # made with the pool (no lock here: __del__ may run under one)
+        for s in [None] + list(streams):
+            _wait(fs, s)
+        _check(cuMemFreeAsync(ptr, fs))
+    except CudaError:  # a stream already destroyed, say: wait for the whole device instead
+        cuCtxSynchronize()
+        cuMemFreeAsync(ptr, None)
+
+
+def _wait(stream, other):
+    """Work queued on `stream` from now on waits for the work queued on `other` up to now (handles;
+    None: the legacy default stream).  No host wait."""
+    ev = _P()
+    _check(cuEventCreate(ctypes.byref(ev), CU_EVENT_DISABLE_TIMING))
+    try:
+        _check(cuEventRecord(ev, other))
+        _check(cuStreamWaitEvent(stream, ev, 0))
+    finally:
+        cuEventDestroy(ev)  # released once it has completed
+
+
+def wait_default(stream):
+    """Work queued on `stream` (ours) from now on waits for the work queued on the legacy default
+    stream (torch's and cupy's default) up to now.  No host wait."""
+    _wait(stream.handle, None)
+
+
+def _stream_handle(stream):
+    """The CUstream of a torch (.cuda_stream), cupy (.ptr), numba or our (.handle) stream, or of an
+    int handle"""
+    for name in ("cuda_stream", "ptr", "handle"):
+        if hasattr(stream, name):
+            stream = getattr(stream, name)
+            break
+    if hasattr(stream, "value"):  # ctypes c_void_p
+        stream = stream.value
+    return int(stream or 0)
 
 
 class _Borrowed(object):
@@ -333,11 +400,16 @@ class ndarray(object):
 
     def __dlpack__(self, stream=None, max_version=None, dl_device=None, copy=None):
         """A DLPack (0.8, unversioned) capsule viewing this memory; it keeps the memory alive until
-        the consumer calls its deleter.  `stream` is not needed: the data is complete."""
+        the consumer calls its deleter.  The data is complete: nothing to wait for.  `stream`, the
+        consumer's (torch.from_dlpack and cupy.from_dlpack pass their current stream), is recorded
+        as with record_stream, unless it is a default stream (1: legacy, always waited for; 2:
+        per-thread, not recorded) or none (None, -1)."""
         if copy:
             raise BufferError("a device array is exported without a copy")
         if dl_device is not None and tuple(dl_device) != self.__dlpack_device__():
             raise BufferError("the array is on %s, not on %s" % (self.__dlpack_device__(), dl_device))
+        if stream is not None and int(stream) > 2:
+            self.record_stream(int(stream))
         return _dlpack_capsule(self)
 
     def __getitem__(self, key):
@@ -375,6 +447,17 @@ class ndarray(object):
         _check(cuStreamSynchronize(h))
         return out
 
+    def record_stream(self, stream):
+        """As torch's Tensor.record_stream: the memory of this array (and of every view of the same
+        block) is in use on `stream`, a torch, cupy, numba or our stream, or its handle as an int.
+        When its last reference is dropped the block goes back to the pool only once the work
+        queued on `stream` up to then is done, so it may be dropped while that work still reads
+        it.  The legacy default stream is always waited for: no need to record it."""
+        h = _stream_handle(stream)
+        streams = getattr(self._alloc, "streams", None)  # None: another library's memory
+        if h and streams is not None and h not in streams:
+            streams.append(h)
+
     def fill(self, byte, stream=None):
         """Every byte set to `byte`; returns once done."""
         h = stream.handle if stream is not None else _current_stream()
@@ -383,7 +466,9 @@ class ndarray(object):
 
 
 def empty(shape, dtype):
-    return ndarray(shape, dtype)
+    """Uninitialised, its block taken on the current stream (see the module docstring)."""
+    n = int(np.prod(shape, dtype=np.int64)) * np.dtype(dtype).itemsize
+    return ndarray(shape, dtype, _Alloc(n, _current_stream()))
 
 
 class _CUDA_MEMCPY2D(ctypes.Structure):
@@ -394,16 +479,16 @@ class _CUDA_MEMCPY2D(ctypes.Structure):
                 ("dstArray", _P), ("dstPitch", _SZ), ("WidthInBytes", _SZ), ("Height", _SZ)]
 
 
-def device_bytes(obj, dev):
+def device_bytes(obj, dev, what="the chunks"):
     """The GPU memory of obj (__cuda_array_interface__, C-contiguous, on device dev) as a uint8
-    array viewing it; waits for obj's stream first (version 3)."""
+    array viewing it; waits for obj's stream first (version 3).  `what` names obj in errors."""
     cai = obj.__cuda_array_interface__
     shape, dt = tuple(cai["shape"]), np.dtype(cai["typestr"])
     st = cai.get("strides")
     if st is not None and tuple(st) != tuple(
         int(np.prod(shape[k + 1 :])) * dt.itemsize for k in range(len(shape))
     ):
-        raise ValueError("the chunks must be in one C-contiguous GPU buffer")
+        raise ValueError("%s must be in one C-contiguous GPU buffer" % what)
     ptr = int(cai["data"][0])
     if cai.get("stream"):
         _check(cuStreamSynchronize(_P(cai["stream"])))

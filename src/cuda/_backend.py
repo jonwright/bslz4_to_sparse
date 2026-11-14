@@ -61,19 +61,31 @@ def Stream():
     return cp.cuda.Stream(non_blocking=True)
 
 
+def wait_default(stream):
+    """Work queued on `stream` (ours) from now on waits for the work queued on the legacy default
+    stream (torch's and cupy's default) up to now.  No host wait."""
+    e = cp.cuda.Event(disable_timing=True)
+    e.record(cp.cuda.ExternalStream(1))  # cudaStreamLegacy, even under cupy's per-thread default
+    stream.wait_event(e)
+
+
 def empty(shape, dtype):
     """An uninitialised device array."""
     return cp.empty(shape, dtype)
 
 
-def device_bytes(obj, dev):
+def device_bytes(obj, dev, what="the chunks"):
     """The GPU memory of obj (__cuda_array_interface__, C-contiguous, on device dev) as a uint8
-    array viewing it; cupy waits for obj's stream."""
+    array viewing it; waits for obj's stream first (version 3).  `what` names obj in errors."""
+    if isinstance(obj, cp.ndarray):  # (cupy waits for another library's array's stream itself)
+        s = obj.__cuda_array_interface__.get("stream")
+        if s:
+            cp.cuda.ExternalStream(s).synchronize()
     a = cp.asarray(obj)
     if a.device.id != dev:
         raise ValueError("the buffer is on GPU %d, this object on GPU %d" % (a.device.id, dev))
     if not a.flags.c_contiguous:
-        raise ValueError("the chunks must be in one C-contiguous GPU buffer")
+        raise ValueError("%s must be in one C-contiguous GPU buffer" % what)
     return a.reshape(-1).view(cp.uint8)
 
 

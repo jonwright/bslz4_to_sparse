@@ -320,6 +320,73 @@ def test_batch_and_group_give_the_same_result(tmp_path, dt):
         c.multi(chunks[:9] + [bytes(bad)] + chunks[10:], 1)
 
 
+def test_default_group_fits_the_memory(tmp_path, monkeypatch):
+    """group None on a card too small for every frame's chunks at once: smaller groups, the same
+    results as group=batch."""
+    from bslz4_to_sparse.cuda import _gpu
+
+    dt = np.uint16
+    mask, frames = mixed_frames(dt, (93, 217))
+    frames = np.concatenate([frames, frames[::-1], frames[1:3]])  # 12 frames, dense ones among
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 60, 3)
+    biggest3 = max(sum(len(c) for c in chunks[i : i + 3]) for i in range(0, len(chunks), 3))
+    ref = g.chunk2sparseCSC(mask, M, dt, codec, batch=2, group=2)
+    n0, (v0, i0), p0 = ref.multi(chunks, 1)
+    d0, q0 = ref.decompress(chunks).get(), ref.integrate(chunks).get()
+    monkeypatch.setattr(_gpu.cu, "memory_bytes", lambda dev: int(16 * 1.25 * biggest3))
+    c = g.chunk2sparseCSC(mask, M, dt, codec, batch=2)  # group None
+    assert c._group(len(chunks), lambda G: max(
+        sum(len(x) for x in chunks[i : i + G]) for i in range(0, len(chunks), G))) == 3
+    n1, (v1, i1), p1 = c.multi(chunks, 1)
+    assert c._gcap == 3  # not 12
+    assert (n1 == n0).all() and (p1 == p0).all()
+    for f in range(len(frames)):
+        assert (i1[f, : n1[f]] == i0[f, : n0[f]]).all()
+        assert (v1[f, : n1[f]] == v0[f, : n0[f]]).all()
+    assert (c.decompress(chunks).get() == d0).all() and (c.integrate(chunks).get() == q0).all()
+    monkeypatch.setattr(_gpu.cu, "memory_bytes", lambda dev: 16)  # not even one frame fits
+    assert g.chunk2sparse(mask, dt, codec, batch=2)._group(len(chunks), lambda G: 10**6 * G) == 1
+
+
+def test_a_failed_allocation_leaves_the_object_usable(tmp_path, monkeypatch):
+    """Out of memory while the buffers grow: the object keeps its old buffers and their sizes, and
+    the next, smaller call is right."""
+    from bslz4_to_sparse.cuda import _gpu
+
+    dt = np.uint16
+    mask, frames = mixed_frames(dt, (93, 217))
+    frames = np.concatenate([frames, frames[::-1], frames[1:3]])
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 60, 3)
+    ref = g.chunk2sparseCSC(mask, M, dt, codec, batch=4)
+    n0, (v0, i0), p0 = ref.multi(chunks, 1)
+    empty = _gpu.cu.empty
+    for which in ("group", "batch"):  # the group's buffers, then the batch's
+        c = g.chunk2sparseCSC(mask, M, dt, codec, batch=4)
+        c.multi(chunks[:1], 1)  # small buffers: one frame
+        failed = []
+
+        def fail_once(*a, **k):
+            if not failed and (which == "group" or a[0] == 4 * c.stride):
+                failed.append(a)
+                raise MemoryError("out of memory (forced)")
+            return empty(*a, **k)
+
+        monkeypatch.setattr(_gpu.cu, "empty", fail_once)
+        with pytest.raises(MemoryError):
+            c.multi(chunks, 1)
+        monkeypatch.setattr(_gpu.cu, "empty", empty)
+        assert failed
+        assert c.d_slab.size >= c._slab_cap and c.d_starts.shape[0] >= c._gcap
+        assert c.d_dense.size >= c._cap * c.stride and c.d_outv.size >= c._cap * c._hm
+        n1, (v1, i1), p1 = c.multi(chunks[:5], 1)  # bigger than the first call
+        assert (n1 == n0[:5]).all() and (p1 == p0[:5]).all(), which
+        for f in range(5):
+            assert (i1[f, : n1[f]] == i0[f, : n0[f]]).all()
+            assert (v1[f, : n1[f]] == v0[f, : n0[f]]).all()
+
+
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32, np.float32])
 def test_unblock_on_the_cpu_gives_the_same_result(tmp_path, dt):
     mask, frames = mixed_frames(dt, (93, 217))
@@ -390,6 +457,60 @@ def test_decompress_and_integrate_stay_on_the_device(tmp_path, dt, shape):
     bad[12:16] = (len(bad)).to_bytes(4, "big")
     with pytest.raises(Exception, match=r"chunks \[4\]"):
         c.decompress(chunks[:4] + [bytes(bad)] + chunks[5:])
+
+
+@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32])
+@pytest.mark.parametrize("shape", [(61, 83), (64, 128)])
+def test_decompress_and_integrate_into_the_callers_array(tmp_path, dt, shape, monkeypatch):
+    rng = np.random.default_rng(5)
+    mask = (rng.random(shape) > 0.2).astype(np.uint8)
+    frames = rng.poisson(2.0, (7,) + shape).astype(dt)
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    M = make_split_1d(mask.size, 40, 2)
+    c = g.chunk2sparseCSC(mask, M, dt, codec, batch=2, group=3, device=0)
+    want_p = cp.asarray(c.integrate(chunks)).get()
+    for skip in (0, 1):  # 1: out not 16-byte aligned, so the frames go through the batch
+        big = cp.full(skip + frames.size + 5, 7, dt)  # longer than the frames: the tail is kept
+        out = big[skip : skip + frames.size].reshape(frames.shape)
+        assert c.decompress(chunks, out=out) is out
+        assert (out.get() == frames).all() and (big[skip + frames.size :].get() == 7).all()
+    p_out = cp.zeros(want_p.shape, want_p.dtype)
+    assert c.integrate(chunks, out=p_out) is p_out and (p_out.get() == want_p).all()
+    lens = np.array([len(x) for x in chunks], np.int64)
+    d_buf = cp.asarray(np.frombuffer(b"".join(chunks), np.uint8))
+    offs = np.concatenate(([0], np.cumsum(lens)[:-1]))
+    out[...] = 0
+    assert c.decompress_from_device(d_buf, offs, lens, out=out) is out
+    assert (out.get() == frames).all()
+    p_out[...] = 0
+    assert c.integrate_from_device(d_buf, offs, lens, out=p_out) is p_out
+    assert (p_out.get() == want_p).all()
+    if g.backend == "driver":  # the driver backend's own arrays are taken as out too
+        from bslz4_to_sparse.cuda import _backend_drv as drv
+
+        o = drv.empty(frames.shape, dt)
+        assert c.decompress(chunks, out=o) is o and (o.get() == frames).all()
+    # once the object's buffers are made, a call with out allocates no GPU memory
+    from bslz4_to_sparse.cuda import _gpu
+
+    made = []
+    real = _gpu.cu.empty
+    monkeypatch.setattr(_gpu.cu, "empty", lambda *a: made.append(a) or real(*a))
+    for _ in range(3):
+        c.decompress(chunks, out=out)
+        c.integrate(chunks, out=p_out)
+    assert made == [] and (out.get() == frames).all() and (p_out.get() == want_p).all()
+    monkeypatch.undo()
+    for bad, err, match in (
+        (cp.empty(frames.shape, np.float64), ValueError, "dtype"),
+        (cp.empty(frames.size - 1, dt), ValueError, "bytes"),
+        (cp.empty(frames.shape[::-1], dt).T, ValueError, "out must be in one C-contiguous"),
+        (np.empty(frames.shape, dt), TypeError, "__cuda_array_interface__"),
+    ):
+        with pytest.raises(err, match=match):
+            c.decompress(chunks, out=bad)
+    with pytest.raises(ValueError, match="dtype"):
+        c.integrate(chunks, out=cp.empty(want_p.shape, np.float32))
 
 
 def write_chunks_codec(path, frames, cname):
@@ -499,6 +620,127 @@ def test_driver_backend_reuses_freed_memory():
         del c
     finally:
         drv._pools[dev] = pool
+
+
+_SPIN_COPY = r"""
+extern "C" __global__ void spin_copy(const unsigned int* a, unsigned int* b, long long n,
+                                     long long cycles)
+{
+    long long t0 = clock64();
+    while (clock64() - t0 < cycles) {}
+    for (long long i = threadIdx.x; i < n; i += blockDim.x) b[i] = a[i];
+}
+"""
+
+
+def test_driver_backend_waits_for_the_default_stream_before_reusing_a_block(tmp_path):
+    """A reader on the legacy default stream (torch's, cupy's) that is still queued when our
+    array is dropped: the next result, in this thread or another, must not take its block."""
+    if g.backend != "driver":
+        pytest.skip("the driver backend's pool (cupy's own pool reuses the block at once)")
+    import gc
+    import threading
+
+    shape = (256, 512)
+    mask = np.ones(shape, np.uint8)
+    one, two = (np.full((2,) + shape, v, np.uint32) for v in (1, 2))
+    a_chunks, _ = write_chunks(tmp_path / "a.h5", one)
+    b_chunks, _ = write_chunks(tmp_path / "b.h5", two)
+    spin = cp.RawKernel(_SPIN_COPY, "spin_copy")
+    c = g.chunk2sparse(mask, np.uint32, device=0)
+    c.decompress(b_chunks)  # the object's buffers made, its stream current in this thread
+    for where in ("this thread", "another thread"):
+        d = c.decompress(a_chunks)
+        got = cp.empty(one.size, np.uint32)
+        with cp.cuda.Stream.null:  # queued: about a second of spinning, then the read of d
+            spin((1,), (256,), (cp.asarray(d).reshape(-1), got, np.int64(one.size),
+                                np.int64(2 * 10**9)))
+        del d
+        gc.collect()
+        if where == "this thread":
+            c.decompress(b_chunks)
+        else:
+            t = threading.Thread(target=lambda: g.chunk2sparse(mask, np.uint32, device=0)
+                                 .decompress(b_chunks))
+            t.start()
+            t.join()
+        cp.cuda.Stream.null.synchronize()
+        assert (got.get() == 1).all(), where
+
+
+def test_driver_backend_record_stream(tmp_path):
+    """A reader on a stream of its own, named with record_stream: the array may be dropped while
+    that reader is still queued, and the next result does not take its block."""
+    if g.backend != "driver":
+        pytest.skip("record_stream is the driver backend's")
+    import gc
+
+    from bslz4_to_sparse.cuda import _backend_drv as drv
+
+    shape = (256, 512)
+    mask = np.ones(shape, np.uint8)
+    one, two = (np.full((2,) + shape, v, np.uint32) for v in (1, 2))
+    a_chunks, _ = write_chunks(tmp_path / "a.h5", one)
+    b_chunks, _ = write_chunks(tmp_path / "b.h5", two)
+    spin = cp.RawKernel(_SPIN_COPY, "spin_copy")
+    c = g.chunk2sparse(mask, np.uint32, device=0)
+    c.decompress(b_chunks)
+    if drv._pool(0) is None:
+        pytest.skip("this driver or device has no memory pools")
+    s = cp.cuda.Stream(non_blocking=True)
+    for record in (s, s.ptr, "dlpack"):  # a stream object, its handle, or from_dlpack's stream
+        d = c.decompress(a_chunks)
+        got = cp.empty(one.size, np.uint32)
+        with s:  # about a second of spinning, then the read of d
+            x = cp.from_dlpack(d) if record == "dlpack" else cp.asarray(d)
+            spin((1,), (256,), (x.reshape(-1), got, np.int64(one.size), np.int64(2 * 10**9)))
+        if record != "dlpack":
+            d[1:].record_stream(record)  # a view: the whole block is recorded
+        del d, x
+        gc.collect()
+        c.decompress(b_chunks)
+        s.synchronize()
+        assert (got.get() == 1).all()
+    assert drv._stream_handle(type("T", (), {"cuda_stream": 1234})()) == 1234  # torch's name
+    assert drv._stream_handle(None) == 0
+
+
+class _NoStream(object):
+    """A cupy array behind a version 2 interface, which names no stream (as torch's)"""
+
+    def __init__(self, a):
+        self.a = a
+        self.__cuda_array_interface__ = dict(a.__cuda_array_interface__, version=2)
+        self.__cuda_array_interface__.pop("stream", None)
+
+
+def test_out_and_device_chunks_wait_for_the_default_stream(tmp_path):
+    """out, and the chunks in GPU memory, still being written on the legacy default stream
+    (torch's) when the call starts: the call waits for that work."""
+    shape = (256, 512)
+    mask = np.ones(shape, np.uint8)
+    one = np.full((2,) + shape, 1, np.uint32)
+    chunks, _ = write_chunks(tmp_path / "a.h5", one)
+    spin = cp.RawKernel(_SPIN_COPY, "spin_copy")
+    c = g.chunk2sparse(mask, np.uint32, device=0)
+    c.decompress(chunks)
+    sevens = cp.full(one.size, 7, np.uint32)
+    out = cp.zeros(one.shape, np.uint32)
+    with cp.cuda.Stream.null:  # about a second of spinning, then 7s written into out
+        spin((1,), (256,), (sevens, out.reshape(-1), np.int64(one.size), np.int64(2 * 10**9)))
+    c.decompress(chunks, out=_NoStream(out))
+    cp.cuda.Stream.null.synchronize()
+    assert (out.get() == 1).all()  # written after the 7s
+
+    raw = b"".join(bytes(ch) for ch in chunks)
+    lengths = [len(ch) for ch in chunks]
+    offsets = np.cumsum([0] + lengths[:-1])
+    src = np.frombuffer(raw + b"\0" * (-len(raw) % 4), np.uint32)
+    d_src, buf = cp.asarray(src), cp.zeros(src.size, np.uint32)
+    with cp.cuda.Stream.null:  # about a second of spinning, then the chunks copied into buf
+        spin((1,), (256,), (d_src, buf, np.int64(src.size), np.int64(2 * 10**9)))
+    d = c.decompress_from_device(_NoStream(buf), offsets, lengths)
+    assert (cp.asarray(d).get() == one).all()
 
 
 def _device_of(a):
