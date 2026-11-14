@@ -26,7 +26,8 @@ using namespace bslz4;
  * "no sparse output" arrives as exactly the maximum.  uint64_t and the
  * floating types are never skipped. */
 template<typename T> inline bool bslz4_cut_above_max(const bslz4_work *w) {
-    return w->threshold >= (int64_t) std::numeric_limits<T>::max();
+    return w->threshold >= (int64_t) std::numeric_limits<T>::max() &&
+           !(w->collect & BSLZ4_COLLECT_NEGATIVES);          /* negatives are still listed */
 }
 /* The cut as the pixel type: integers from the int64 (u64: its bit pattern), floats from cutf, so
  * a fractional cut is exact. */
@@ -184,7 +185,7 @@ int sparse_dot_core(const bslz4_work *BSLZ4_RESTRICT w, const bslz4_mat_csc *BSL
     const int skip = bslz4_cut_above_max<T>(w);
     for (int kk = 0; kk < nz; kk++) {
         T val = tv[kk];
-        if (!skip && BSLZ4_UNLIKELY(val > cut)) {
+        if (!skip && BSLZ4_UNLIKELY(bslz4_keep(val, cut, w->collect))) {
             ov[npx] = val;
             out_adr[npx] = tidx[kk];
             npx++;
@@ -269,7 +270,7 @@ int run_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
     const int skip = bslz4_cut_above_max<T>(w);
     for (int kk = 0; kk < nz; kk++) {
         T val = tv[kk];
-        if (!skip && BSLZ4_UNLIKELY(val > cut)) {
+        if (!skip && BSLZ4_UNLIKELY(bslz4_keep(val, cut, w->collect))) {
             ov[npx] = val;
             out_adr[npx] = tidx[kk];
             npx++;
@@ -318,7 +319,7 @@ int nosplit_sparse_core(const bslz4_work *BSLZ4_RESTRICT w, const uint32_t *BSLZ
     const int skip = bslz4_cut_above_max<T>(w);
     for (int kk = 0; kk < nz; kk++) {
         T val = tv[kk];
-        if (!skip && BSLZ4_UNLIKELY(val > cut)) {
+        if (!skip && BSLZ4_UNLIKELY(bslz4_keep(val, cut, w->collect))) {
             ov[npx] = val;
             out_adr[npx] = tidx[kk];
             npx++;

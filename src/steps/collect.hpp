@@ -93,6 +93,20 @@ inline bool bslz4_gt(U a, U b) {
     return S ? (I) a > (I) b : a > b;
 }
 
+/* v < 0, false for unsigned and float-free of -Wtype-limits */
+template<typename T, bool SIGNED = std::is_signed<T>::value> struct bslz4_neg {
+    static inline bool of(T) { return false; }
+};
+template<typename T> struct bslz4_neg<T, true> {
+    static inline bool of(T v) { return v < T(0); }
+};
+
+/* a pixel of the list: above the cut, or negative with negatives="list" */
+template<typename T>
+inline bool bslz4_keep(T v, T cut, int collect) {
+    return (v > cut) | (((collect & BSLZ4_COLLECT_NEGATIVES) != 0) & bslz4_neg<T>::of(v));
+}
+
 #if BSLZ4_HAVE_VSX_COLLECT
 /* the VSX compares, unsigned or (S) signed */
 template<bool S>
@@ -1144,10 +1158,10 @@ template<typename T>
 inline int bslz4_collect_gt(const T *BSLZ4_RESTRICT block, const uint8_t *BSLZ4_RESTRICT mask,
                              size_t i0, size_t n, T cut, int collect,
                              T *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
-    (void) collect;  /* only the scalar tier is valid for non-SIMD dtypes */
+    /* only the scalar tier is valid for non-SIMD dtypes; collect may carry BSLZ4_COLLECT_NEGATIVES */
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
-        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (block[j] > cut))) {
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & bslz4_keep(block[j], cut, collect))) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -1410,29 +1424,33 @@ inline int bslz4_collect_gt<int8_t>(const int8_t *BSLZ4_RESTRICT block, const ui
     uint8_t *uo = (uint8_t *) (void *) out_vals;
     const uint8_t uc = (uint8_t) cut;
     (void) ub; (void) uo; (void) uc;
+    /* negatives="list": the unsigned compare on the same bits keeps v > cut and every v < 0
+     * (the cut is never negative), so the same kernels serve with S = false */
+    const bool neg = (collect & BSLZ4_COLLECT_NEGATIVES) != 0;
+    collect &= ~BSLZ4_COLLECT_NEGATIVES;
 #if BSLZ4_HAVE_AVX512_COLLECT
 #if BSLZ4_HAVE_VBMI_GFNI
-    if (collect == BSLZ4_COLLECT_AVX512CS) return bslz4_collect_avx512cs_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX512CS) return neg ? bslz4_collect_avx512cs_u8<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_avx512cs_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #endif
 #if BSLZ4_HAVE_AVX512_COLLECT
-    if (collect == BSLZ4_COLLECT_AVX512F) return bslz4_collect_avx512f_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX512F) return neg ? bslz4_collect_avx512f_u8<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_avx512f_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (collect == BSLZ4_COLLECT_AVX2CS) return bslz4_collect_avx2cs_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX2CS) return neg ? bslz4_collect_avx2cs_u8<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_avx2cs_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
-    if (collect == BSLZ4_COLLECT_SSE2) return bslz4_collect_sse2_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_SSE2) return neg ? bslz4_collect_sse2_u8<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_sse2_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_VSX_COLLECT
-    if (collect == BSLZ4_COLLECT_VSX) return bslz4_collect_vsx_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_VSX) return neg ? bslz4_collect_vsx_u8<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_vsx_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_NEON_COLLECT
-    if (collect == BSLZ4_COLLECT_NEON) return bslz4_collect_neon_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_NEON) return neg ? bslz4_collect_neon_u8<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_neon_u8<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
-        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (block[j] > cut))) {
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & ((block[j] > cut) | (neg & (block[j] < 0))))) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -1446,7 +1464,8 @@ inline int bslz4_collect_nz<int8_t>(const int8_t *BSLZ4_RESTRICT block, const ui
                                    size_t i0, size_t n, int collect,
                                    int8_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
     /* != 0 is the same test on the unsigned bits (> 0 there): the unsigned kernels, cut 0 */
-    return bslz4_collect_nz<uint8_t>((const uint8_t *) (const void *) block, mask, i0, n, collect,
+    return bslz4_collect_nz<uint8_t>((const uint8_t *) (const void *) block, mask, i0, n,
+                                    collect & ~BSLZ4_COLLECT_NEGATIVES,
                                     (uint8_t *) (void *) out_vals, out_adr);
 }
 
@@ -1459,29 +1478,33 @@ inline int bslz4_collect_gt<int16_t>(const int16_t *BSLZ4_RESTRICT block, const 
     uint16_t *uo = (uint16_t *) (void *) out_vals;
     const uint16_t uc = (uint16_t) cut;
     (void) ub; (void) uo; (void) uc;
+    /* negatives="list": the unsigned compare on the same bits keeps v > cut and every v < 0
+     * (the cut is never negative), so the same kernels serve with S = false */
+    const bool neg = (collect & BSLZ4_COLLECT_NEGATIVES) != 0;
+    collect &= ~BSLZ4_COLLECT_NEGATIVES;
 #if BSLZ4_HAVE_AVX512_COLLECT
 #if BSLZ4_HAVE_VBMI_GFNI
-    if (collect == BSLZ4_COLLECT_AVX512CS) return bslz4_collect_avx512cs_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX512CS) return neg ? bslz4_collect_avx512cs_u16<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_avx512cs_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #endif
 #if BSLZ4_HAVE_AVX512_COLLECT
-    if (collect == BSLZ4_COLLECT_AVX512F) return bslz4_collect_avx512f_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX512F) return neg ? bslz4_collect_avx512f_u16<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_avx512f_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (collect == BSLZ4_COLLECT_AVX2CS) return bslz4_collect_avx2cs_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX2CS) return neg ? bslz4_collect_avx2cs_u16<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_avx2cs_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
-    if (collect == BSLZ4_COLLECT_SSE2) return bslz4_collect_sse2_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_SSE2) return neg ? bslz4_collect_sse2_u16<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_sse2_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_VSX_COLLECT
-    if (collect == BSLZ4_COLLECT_VSX) return bslz4_collect_vsx_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_VSX) return neg ? bslz4_collect_vsx_u16<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_vsx_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_NEON_COLLECT
-    if (collect == BSLZ4_COLLECT_NEON) return bslz4_collect_neon_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_NEON) return neg ? bslz4_collect_neon_u16<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_neon_u16<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
-        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (block[j] > cut))) {
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & ((block[j] > cut) | (neg & (block[j] < 0))))) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -1495,7 +1518,8 @@ inline int bslz4_collect_nz<int16_t>(const int16_t *BSLZ4_RESTRICT block, const 
                                    size_t i0, size_t n, int collect,
                                    int16_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
     /* != 0 is the same test on the unsigned bits (> 0 there): the unsigned kernels, cut 0 */
-    return bslz4_collect_nz<uint16_t>((const uint16_t *) (const void *) block, mask, i0, n, collect,
+    return bslz4_collect_nz<uint16_t>((const uint16_t *) (const void *) block, mask, i0, n,
+                                    collect & ~BSLZ4_COLLECT_NEGATIVES,
                                     (uint16_t *) (void *) out_vals, out_adr);
 }
 
@@ -1508,29 +1532,33 @@ inline int bslz4_collect_gt<int32_t>(const int32_t *BSLZ4_RESTRICT block, const 
     uint32_t *uo = (uint32_t *) (void *) out_vals;
     const uint32_t uc = (uint32_t) cut;
     (void) ub; (void) uo; (void) uc;
+    /* negatives="list": the unsigned compare on the same bits keeps v > cut and every v < 0
+     * (the cut is never negative), so the same kernels serve with S = false */
+    const bool neg = (collect & BSLZ4_COLLECT_NEGATIVES) != 0;
+    collect &= ~BSLZ4_COLLECT_NEGATIVES;
 #if BSLZ4_HAVE_AVX512_COLLECT
 #if BSLZ4_HAVE_VBMI_GFNI
-    if (collect == BSLZ4_COLLECT_AVX512CS) return bslz4_collect_avx512cs_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX512CS) return neg ? bslz4_collect_avx512cs_u32<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_avx512cs_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #endif
 #if BSLZ4_HAVE_AVX512_COLLECT
-    if (collect == BSLZ4_COLLECT_AVX512F) return bslz4_collect_avx512f_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX512F) return neg ? bslz4_collect_avx512f_u32<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_avx512f_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_AVX2_COLLECT
-    if (collect == BSLZ4_COLLECT_AVX2CS) return bslz4_collect_avx2cs_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_AVX2CS) return neg ? bslz4_collect_avx2cs_u32<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_avx2cs_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_SSE2_COLLECT
-    if (collect == BSLZ4_COLLECT_SSE2) return bslz4_collect_sse2_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_SSE2) return neg ? bslz4_collect_sse2_u32<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_sse2_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_VSX_COLLECT
-    if (collect == BSLZ4_COLLECT_VSX) return bslz4_collect_vsx_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_VSX) return neg ? bslz4_collect_vsx_u32<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_vsx_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
 #if BSLZ4_HAVE_NEON_COLLECT
-    if (collect == BSLZ4_COLLECT_NEON) return bslz4_collect_neon_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
+    if (collect == BSLZ4_COLLECT_NEON) return neg ? bslz4_collect_neon_u32<false>(ub, mask, i0, n, uc, uo, out_adr) : bslz4_collect_neon_u32<true>(ub, mask, i0, n, uc, uo, out_adr);
 #endif
     int npx = 0;
     for (size_t j = 0; j < n; j++) {
-        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & (block[j] > cut))) {
+        if (BSLZ4_UNLIKELY(bslz4_mask_ok(mask, j + i0) & ((block[j] > cut) | (neg & (block[j] < 0))))) {
             out_vals[npx] = block[j];
             out_adr[npx] = (uint32_t) (j + i0);
             npx++;
@@ -1544,7 +1572,8 @@ inline int bslz4_collect_nz<int32_t>(const int32_t *BSLZ4_RESTRICT block, const 
                                    size_t i0, size_t n, int collect,
                                    int32_t *BSLZ4_RESTRICT out_vals, uint32_t *BSLZ4_RESTRICT out_adr) {
     /* != 0 is the same test on the unsigned bits (> 0 there): the unsigned kernels, cut 0 */
-    return bslz4_collect_nz<uint32_t>((const uint32_t *) (const void *) block, mask, i0, n, collect,
+    return bslz4_collect_nz<uint32_t>((const uint32_t *) (const void *) block, mask, i0, n,
+                                    collect & ~BSLZ4_COLLECT_NEGATIVES,
                                     (uint32_t *) (void *) out_vals, out_adr);
 }
 

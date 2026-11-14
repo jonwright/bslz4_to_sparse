@@ -165,8 +165,10 @@ static size_t bslz4_elem_size(int dtype) {
 int bslz4_resolve(int dtype, const uint16_t *pipeline, int layout, bslz4_pipe *BSLZ4_RESTRICT p) {
     if (dtype < 0 || dtype > 9) return BSLZ4_ERR_DTYPE;
     const int is_dot = layout >= 0;
+    const int negatives = (pipeline[BSLZ4_STEP_COLLECT] & BSLZ4_COLLECT_NEGATIVES) != 0;
+    if (negatives && !(dtype >= 4 && dtype <= 7)) return BSLZ4_ERR_DTYPE;    /* i8 .. i64 only */
     for (int s = 0; s < BSLZ4_NSTEPS; s++) {
-        const int v = pipeline[s];
+        const int v = s == BSLZ4_STEP_COLLECT ? (pipeline[s] & ~BSLZ4_COLLECT_NEGATIVES) : pipeline[s];
         if (!is_dot && (s == BSLZ4_STEP_ROUTE || s == BSLZ4_STEP_DOT)) {
             if (v != 0) return BSLZ4_ERR_BAD_PIPELINE;      /* a plain sparsify has no dot */
             continue;
@@ -189,6 +191,7 @@ int bslz4_resolve(int dtype, const uint16_t *pipeline, int layout, bslz4_pipe *B
     }
     p->dtype = dtype;
     p->elem_size = bslz4_elem_size(dtype);
+    p->list_negatives = negatives;
     return 0;
 }
 

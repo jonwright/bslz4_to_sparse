@@ -193,7 +193,7 @@ int padded_sparse(const bslz4_work *BSLZ4_RESTRICT w) {
     const int skip = bslz4_cut_above_max<T>(w);
     for (int kk = 0; kk < nz; kk++) {
         T val = tv[kk];
-        if (!skip && BSLZ4_UNLIKELY(val > cut)) {
+        if (!skip && BSLZ4_UNLIKELY(bslz4_keep(val, cut, w->collect))) {
             ov[npx] = val;
             out_adr[npx] = tidx[kk];
             npx++;
