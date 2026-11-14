@@ -11,10 +11,12 @@ drivers on), as cupy's pool: a free returns the block to the pool, without the d
 cuMemFree.  empty() takes its block on the current stream (the GPU classes': their kernels write
 it there), zeros() and asarray() on the legacy default stream; every block is given back on the
 legacy default stream.  A block is taken again only once work queued before its free on the
-legacy default stream (torch's and cupy's default streams) is done; work on any other stream that
-still reads an array must be finished before the array is dropped (every array the GPU classes
-hand out is complete).  free_pool() gives the unused blocks back to the driver.  Older drivers,
-and devices without pools: cuMemAlloc / cuMemFree.
+legacy default stream (torch's and cupy's default streams) is done.  Work on any other stream
+that reads an array must be finished before the array is dropped, or that stream named with the
+array's record_stream(stream), as torch's Tensor.record_stream: the block is then given back on a
+stream of ours that first waits for the legacy default stream and every stream recorded (every
+array the GPU classes hand out is complete).  free_pool() gives the unused blocks back to the
+driver.  Older drivers, and devices without pools: cuMemAlloc / cuMemFree.
 """
 
 import ctypes
@@ -94,6 +96,10 @@ cuMemsetD8Async = _sig("cuMemsetD8Async", ctypes.c_uint64, ctypes.c_ubyte, _SZ, 
 cuStreamCreate = _sig("cuStreamCreate", ctypes.POINTER(_P), ctypes.c_uint)
 cuStreamDestroy = _sig("cuStreamDestroy_v2", _P)
 cuStreamSynchronize = _sig("cuStreamSynchronize", _P)
+cuStreamWaitEvent = _sig("cuStreamWaitEvent", _P, _P, ctypes.c_uint)
+cuEventCreate = _sig("cuEventCreate", ctypes.POINTER(_P), ctypes.c_uint)
+cuEventRecord = _sig("cuEventRecord", _P, _P)
+cuEventDestroy = _sig("cuEventDestroy_v2", _P)
 cuGetErrorString = _sig("cuGetErrorString", ctypes.c_int, ctypes.POINTER(ctypes.c_char_p))
 
 CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X = 5
@@ -102,6 +108,7 @@ CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
 CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED = 115
 CU_MEMPOOL_ATTR_RELEASE_THRESHOLD = 4
 CU_STREAM_NON_BLOCKING = 1
+CU_EVENT_DISABLE_TIMING = 2
 CU_MEMHOSTALLOC_PORTABLE = 1
 
 
@@ -124,6 +131,7 @@ _tls = threading.local()  # .stream: the current stream of this thread
 _ctx = {}  # device -> primary context
 _ctx_lock = threading.Lock()
 _pools = {}  # device -> our memory pool, or None (cuMemAlloc)
+_free_streams = {}  # device -> the stream blocks with recorded streams are given back on
 
 
 class _CUmemPoolProps(ctypes.Structure):  # 88 bytes; the fields after location stay zero
@@ -160,6 +168,13 @@ def _pool(dev):
                 keep = ctypes.c_uint64(2**64 - 1)  # never give blocks back at a synchronize
                 _check(cuMemPoolSetAttribute(pool, CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
                                              ctypes.byref(keep)))
+                fs = _P()  # where blocks with recorded streams are given back
+                _check(cuCtxPushCurrent(_ctx[dev]))  # (not device(): it takes _ctx_lock)
+                try:
+                    _check(cuStreamCreate(ctypes.byref(fs), CU_STREAM_NON_BLOCKING))
+                finally:
+                    _check(cuCtxPopCurrent(ctypes.byref(_P())))
+                _free_streams[dev] = fs
             _pools[dev] = pool
         return _pools[dev]
 
@@ -289,6 +304,7 @@ class _Alloc(object):
 
     def __init__(self, nbytes, stream=None):
         """stream: the handle the block is taken on (None: the legacy default stream)"""
+        self.streams = []  # handles of the streams recorded (record_stream)
         self.dev = device_id()
         self.ctx, p = _context(self.dev), ctypes.c_uint64()
         self.pool = _pool(self.dev)
@@ -300,10 +316,43 @@ class _Alloc(object):
 
     def __del__(self):
         if getattr(self, "ptr", None) and _in_context is not None:  # None: interpreter shutdown
-            if self.pool is None:
+            if self.pool is None:  # cuMemFree waits for the device: recorded streams included
                 _in_context(self.ctx, cuMemFree, self.ptr)
+            elif self.streams:
+                _in_context(self.ctx, _free_after, self.dev, self.ptr, self.streams)
             else:
                 _in_context(self.ctx, cuMemFreeAsync, self.ptr, None)
+
+
+def _free_after(dev, ptr, streams):
+    """Give ptr back to the pool once the legacy default stream and `streams` have reached this
+    point: on a stream of ours that waits for each (its context current)."""
+    try:
+        fs = _free_streams[dev]  # made with the pool (no lock here: __del__ may run under one)
+        for s in [None] + list(streams):
+            ev = _P()
+            _check(cuEventCreate(ctypes.byref(ev), CU_EVENT_DISABLE_TIMING))
+            try:
+                _check(cuEventRecord(ev, s))
+                _check(cuStreamWaitEvent(fs, ev, 0))
+            finally:
+                cuEventDestroy(ev)  # released once it has completed
+        _check(cuMemFreeAsync(ptr, fs))
+    except CudaError:  # a stream already destroyed, say: wait for the whole device instead
+        cuCtxSynchronize()
+        cuMemFreeAsync(ptr, None)
+
+
+def _stream_handle(stream):
+    """The CUstream of a torch (.cuda_stream), cupy (.ptr), numba or our (.handle) stream, or of an
+    int handle"""
+    for name in ("cuda_stream", "ptr", "handle"):
+        if hasattr(stream, name):
+            stream = getattr(stream, name)
+            break
+    if hasattr(stream, "value"):  # ctypes c_void_p
+        stream = stream.value
+    return int(stream or 0)
 
 
 class _Borrowed(object):
@@ -378,6 +427,17 @@ class ndarray(object):
         _check(cuMemcpyDtoHAsync(out.ctypes.data, self.ptr, self.nbytes, h))
         _check(cuStreamSynchronize(h))
         return out
+
+    def record_stream(self, stream):
+        """As torch's Tensor.record_stream: the memory of this array (and of every view of the same
+        block) is in use on `stream`, a torch, cupy, numba or our stream, or its handle as an int.
+        When its last reference is dropped the block goes back to the pool only once the work
+        queued on `stream` up to then is done, so it may be dropped while that work still reads
+        it.  The legacy default stream is always waited for: no need to record it."""
+        h = _stream_handle(stream)
+        streams = getattr(self._alloc, "streams", None)  # None: another library's memory
+        if h and streams is not None and h not in streams:
+            streams.append(h)
 
     def fill(self, byte, stream=None):
         """Every byte set to `byte`; returns once done."""

@@ -601,6 +601,42 @@ def test_driver_backend_waits_for_the_default_stream_before_reusing_a_block(tmp_
         assert (got.get() == 1).all(), where
 
 
+def test_driver_backend_record_stream(tmp_path):
+    """A reader on a stream of its own, named with record_stream: the array may be dropped while
+    that reader is still queued, and the next result does not take its block."""
+    if g.backend != "driver":
+        pytest.skip("record_stream is the driver backend's")
+    import gc
+
+    from bslz4_to_sparse.cuda import _backend_drv as drv
+
+    shape = (256, 512)
+    mask = np.ones(shape, np.uint8)
+    one, two = (np.full((2,) + shape, v, np.uint32) for v in (1, 2))
+    a_chunks, _ = write_chunks(tmp_path / "a.h5", one)
+    b_chunks, _ = write_chunks(tmp_path / "b.h5", two)
+    spin = cp.RawKernel(_SPIN_COPY, "spin_copy")
+    c = g.chunk2sparse(mask, np.uint32, device=0)
+    c.decompress(b_chunks)
+    if drv._pool(0) is None:
+        pytest.skip("this driver or device has no memory pools")
+    s = cp.cuda.Stream(non_blocking=True)
+    for record in (s, s.ptr):  # a stream object, or its handle
+        d = c.decompress(a_chunks)
+        got = cp.empty(one.size, np.uint32)
+        with s:  # about a second of spinning, then the read of d
+            spin((1,), (256,), (cp.asarray(d).reshape(-1), got, np.int64(one.size),
+                                np.int64(2 * 10**9)))
+        d[1:].record_stream(record)  # a view: the whole block is recorded
+        del d
+        gc.collect()
+        c.decompress(b_chunks)
+        s.synchronize()
+        assert (got.get() == 1).all()
+    assert drv._stream_handle(type("T", (), {"cuda_stream": 1234})()) == 1234  # torch's name
+    assert drv._stream_handle(None) == 0
+
+
 def _device_of(a):
     ptr = a.data.ptr if hasattr(a, "data") and hasattr(a.data, "ptr") else getattr(a, "ptr", None)
     return None if not ptr else cp.cuda.runtime.pointerGetAttributes(ptr).device

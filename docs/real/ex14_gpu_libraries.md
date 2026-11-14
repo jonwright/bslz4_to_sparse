@@ -19,7 +19,8 @@ as the driver backend does (pycuda needs to be told: retain_primary_context).
 
 Whose memory: without `out`, each call returns a new array whose memory goes back to a pool (the
 driver backend's, or cupy's) as soon as nothing refers to it.  With `out`, the results go into an
-array you own and reuse.  The last part of this example shows both, and how to keep a result.
+array you own and reuse.  The last part of this example shows both, and how to use a result
+safely on a stream of your library's.
 
 Source: [`examples/ex14_gpu_libraries.py`](https://github.com/jonwright/bslz4_to_sparse/blob/main/examples/ex14_gpu_libraries.py), run as `python examples/ex14_gpu_libraries.py`, or download the [notebook](ex14_gpu_libraries.ipynb) (figures and output as run when this page was built).
 
@@ -259,7 +260,7 @@ Whose memory.  Every array above is ours: a block of the pool, given back as soo
 reference to it is dropped, a library's view (torch.from_dlpack, cp.asarray, ...) included.  The
 next call may then get the same block and write it while work your library queued earlier
 still reads it: on any stream of its own (torch.cuda.Stream, jax's), and with the cupy backend
-on the default stream too.  Two ways to keep a result:
+on the default stream too.  Three ways to use a result safely:
 
   1. out=: the results go into an array your library owns, made once and reused, and nothing
      is allocated per call.  It must be on this GPU, C-contiguous and of the result's dtype
@@ -270,6 +271,11 @@ on the default stream too.  Two ways to keep a result:
   2. a copy your library owns, then drop ours.  The copy is queued on your library's stream:
      keep our array until the copy is done (synchronize, block_until_ready), or the pool may
      give its block to the next call while the copy is still reading it.
+  3. ours, used in place on a stream of your library's: name that stream with
+     d.record_stream(stream) (the driver backend's arrays, as torch's Tensor.record_stream).
+     The block then goes back to the pool only once the work queued on that stream before
+     the drop is done, so ours may be dropped at once.  Not for jax, whose streams are not
+     public: use 2 there.
 
 ```python
 kept = {}
@@ -296,7 +302,17 @@ if results.get("torch") != "not installed":
     torch.cuda.current_stream().synchronize()  # the copy is done ...
     del d  # ... so our block may go back to the pool
     assert (mine.cpu().numpy() == d_powder.get()).all()
-    kept["torch"] = "integrate(chunks, out=torch tensor) in a loop; a clone of ours"
+
+    s = torch.cuda.Stream()  # 3. a stream of torch's own
+    d = gpu1.integrate(chunks)
+    with torch.cuda.stream(s):  # queued on s, reading ours in place
+        intensity = torch.from_dlpack(d) / torch.as_tensor(norm1, device="cuda").clamp(min=1e-30)
+    d.record_stream(s)  # s reads d ...
+    del d  # ... so the block waits for s's work before it goes back to the pool
+    s.synchronize()
+    assert (intensity.cpu().numpy() == d_powder.get() / np.maximum(norm1, 1e-30)).all()
+    kept["torch"] = ("integrate(chunks, out=torch tensor) in a loop; a clone of ours; ours on a "
+                     "torch stream, recorded")
 if results.get("jax") != "not installed":
     import jax
     import jax.numpy as jnp
@@ -317,7 +333,7 @@ for name, what in kept.items():
 
 ```text
 cupy       kept: decompress(chunks, out=cupy array)
-torch      kept: integrate(chunks, out=torch tensor) in a loop; a clone of ours
+torch      kept: integrate(chunks, out=torch tensor) in a loop; a clone of ours; ours on a torch stream, recorded
 jax        kept: a copy of ours
 ```
 

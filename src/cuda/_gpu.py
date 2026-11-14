@@ -649,7 +649,10 @@ class chunk2sparse(object):
         __cuda_array_interface__, and torch, jax, tensorflow and cupy through DLPack, without a
         copy.  Its memory goes back to a pool (cupy's, or the driver backend's) when the last
         reference to it, a view taken by another library included, is dropped: work queued on
-        another stream that reads it must be finished by then."""
+        another stream that reads it must be finished by then.  With the driver backend, work
+        queued on the legacy default stream (torch's and cupy's default) is waited for, and the
+        array's record_stream(stream), as torch's Tensor.record_stream, names any other stream
+        to wait for."""
         cu.use_device(self._dev)
         return self._decompress_from(
             self._host_chunks([memoryview(c).cast("B") for c in chunks]), out
