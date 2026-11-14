@@ -75,7 +75,13 @@ enum {
 #define BSLZ4_IS_LOWPLANES(u) (((u) >= BSLZ4_UNTRANSPOSE_LOWPLANES_VBMI && (u) <= BSLZ4_UNTRANSPOSE_LOWPLANES_C) || \
                                (u) == BSLZ4_UNTRANSPOSE_LOWPLANES_AVX512BW)
 
-/* collect: the SIMD values are u8/u16/u32 only */
+/* collect: the SIMD values take u8/u16/u32, i8/i16/i32 (a signed compare) and f32 (a float compare) */
+
+/* negatives="list" (signed integer pixels): OR'ed into the pipeline's collect value by Python and
+ * into bslz4_work.collect by the driver -- the pixel list also holds every negative pixel (for
+ * markers such as a Pilatus's -1/-2 that change per frame; the caller corrects the powder and
+ * its normalisation from the list).  Not a step value: bslz4_resolve takes it off. */
+#define BSLZ4_COLLECT_NEGATIVES 0x100
 enum {
     BSLZ4_COLLECT_AVX512CS = 1,
     BSLZ4_COLLECT_AVX2CS = 2,
@@ -158,6 +164,7 @@ typedef struct bslz4_pipe {
     uint16_t step[BSLZ4_NSTEPS];
     int dtype;                   /* pixel dtype index 0..9: u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 */
     size_t elem_size;            /* sizeof(pixel dtype) */
+    int list_negatives;          /* BSLZ4_COLLECT_NEGATIVES given (signed integer pixels only) */
 } bslz4_pipe;
 
 /* top_pixels inside the block loop (ImageD11's rules, see src/_toppix.py).  Each frame starts at

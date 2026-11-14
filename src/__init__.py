@@ -287,6 +287,34 @@ def _mask_auto_pending(pipeline, dtype, mask):
             and not bool((mask != 0).all()))
 
 
+NEGATIVES_FLAG = 0x100      # BSLZ4_COLLECT_NEGATIVES (src/pipeline/pipeline.h)
+
+
+def _negatives_flag(negatives, dtype, howmany):
+    """negatives="drop" (default) or "list": the flag OR'ed into the collect step for C."""
+    if negatives in (None, "drop"):
+        return 0
+    if negatives != "list":
+        raise ValueError('negatives must be "drop" or "list", not %r' % (negatives,))
+    if np.dtype(dtype).kind != "i":
+        raise ValueError('negatives="list" is for signed integer pixels (i8, i16, i32, i64), not %s: '
+                         "in unsigned containers markers such as 2**32-1 are above any cut "
+                         "already" % np.dtype(dtype))
+    if howmany is not None:
+        raise ValueError('negatives="list" does not go with howmany (the thresholds would drop '
+                         "the negative pixels and the markers would use up the limit)")
+    return NEGATIVES_FLAG
+
+
+def _with_negatives(pipe, flag):
+    """The pipeline array handed to C: the collect step with the negatives flag."""
+    if not flag:
+        return pipe
+    p = pipe.copy()
+    p[_pipeline.COLLECT] |= flag
+    return p
+
+
 def _cut_array(cut, dtype):
     """The cut as a contiguous one-element array of the pixel dtype, which is how the C code takes
     it (it is compared in the pixel type).  A Python number or a 0-d / one-element array.  Integer
@@ -502,10 +530,17 @@ class chunk2sparse:
             howmany of them in pixel order.
     thresholds = None: max(cut, 1) * 2**i for i in 0..15, or up to 16 sorted
             values.  Only used when howmany is set.
+    negatives = "drop" (default) or "list", for signed integer pixels (i8 .. i64).  "drop": the
+            list holds the pixels above the cut only, so negative pixels never appear in it (CCD
+            frames with the dark subtracted).  "list": every negative pixel is in the list too,
+            whatever the cut -- for detectors that mark gaps and bad pixels with negative values
+            that change from frame to frame (older Pilatus: -1, -2), so the caller can correct
+            for them: see docs/index.md, "Pixel types and negative values".  Not with howmany.
 
     cut is compared in the pixel type: for integer pixels a fractional cut is
     floored and a cut above the type's maximum selects nothing; a negative cut
-    is an error.
+    is an error.  So with signed pixels (i8 .. i64) negative values are only
+    returned with negatives="list".
 
     c(chunk, cut) -> npixels, (values, indices) for one frame (the arrays
     are full size: slice [:npixels]); c.multi(chunks, cut) -> the same per
@@ -516,9 +551,12 @@ class chunk2sparse:
     """
 
     def __init__(
-        self, mask, dtype=np.uint16, codec=None, pipeline=None, howmany=None, thresholds=None
+        self, mask, dtype=np.uint16, codec=None, pipeline=None, howmany=None, thresholds=None,
+        negatives="drop",
     ):
         self.howmany, self.thresholds = _toppix.check(howmany, thresholds)
+        self._negflag = _negatives_flag(negatives, dtype, howmany)
+        self.negatives = "list" if self._negflag else "drop"
         self.nfast = mask.shape[1]
         self.mask = mask.ravel()
         self.npix = mask.size
@@ -584,7 +622,7 @@ class chunk2sparse:
             req.top,
             req.out,
             self._di,
-            pipe,
+            _with_negatives(pipe, self._negflag),
         )
         if ret < 0:
             self._npx[:] = 0
@@ -728,8 +766,14 @@ class chunk2sparseCSC:
           pixels of at most 32 bits is auto "csc-nosplit-int": the sums are accumulated in int64
           (no weights, no conversion to float) and returned as float64 like any float dot; a bin
           sum above 2**53 is rounded in that last cast
-    howmany, thresholds: as chunk2sparse; they limit the pixels returned
-          only: the powder always uses every unmasked pixel
+    howmany, thresholds, negatives: as chunk2sparse; they choose the pixels returned only:
+          the powder always uses every unmasked pixel as it is, negative ones included
+
+    Signed pixels: the powder sums negative pixels as values either way (right for CCD frames
+    with the dark subtracted).  For negative markers that change from frame to frame (older
+    Pilatus: -1, -2), negatives="list" returns them in the pixel list, and the caller removes
+    them from the powder and from the normalisation afterwards (docs/index.md, "Pixel types
+    and negative values").
 
     The array of the powder is the object's own and is overwritten by the next call.
     The object owns copies of the matrix and the mask, taken here (read-only): later changes to
@@ -751,8 +795,11 @@ class chunk2sparseCSC:
         pipeline=None,
         howmany=None,
         thresholds=None,
+        negatives="drop",
     ):
         self.howmany, self.thresholds = _toppix.check(howmany, thresholds)
+        self._negflag = _negatives_flag(negatives, dtype, howmany)
+        self.negatives = "list" if self._negflag else "drop"
         # the matrix and mask are copies, so a later change to the caller's arrays changes nothing
         # here; a plan is used as it is (shared, its arrays read-only)
         if isinstance(csc, _matrix._Family):
@@ -879,7 +926,7 @@ class chunk2sparseCSC:
         req = _toppix.Request(self.howmany, self.thresholds, cut_a[0].item(), self.dtype, len(pointers))
         head = (pointers, lengths, self.mask, self._values.ravel(), self._indices.ravel(),
                 self._npx, cut_a, self._powder.ravel())
-        tail = (self._di, pipe)
+        tail = (self._di, _with_negatives(pipe, self._negflag))
         if lay.entry == "csc":
             ret = _ext.sparsify_and_dot(
                 *(head + a + (self._workspace, self._cursors, req.top, req.out, lay.nout) + tail)
@@ -997,8 +1044,9 @@ class plan(_matrix._Family):
         self.context()      # refuses a pipeline or matrix that do not go together now, and makes
         #                     the first layout
 
-    def context(self, howmany=None, thresholds=None):
+    def context(self, howmany=None, thresholds=None, negatives="drop"):
         """A chunk2sparseCSC on this plan, for one thread: its own workspace, output arrays and
-        pipeline; the matrix and layouts are the plan's.  howmany, thresholds: as chunk2sparse."""
+        pipeline; the matrix and layouts are the plan's.  howmany, thresholds, negatives: as
+        chunk2sparse."""
         return chunk2sparseCSC(self.mask.reshape(self.shape), self, self.dtype, self._defaults[0],
-                               self._defaults[1], howmany, thresholds)
+                               self._defaults[1], howmany, thresholds, negatives)

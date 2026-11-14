@@ -1,6 +1,7 @@
 """Every available collect value (avx512cs, avx2cs, vsx, neon, sse2, scalar)
 must give exactly numpy's selection: the values > cut of the unmasked
-pixels, with their flat indices, in order.  Run for u8, u16 and u32 over sparse,
+pixels, with their flat indices, in order.  Run for u8, u16, u32 and i8, i16, i32 (with
+negative pixels, as a Pilatus writes gaps and bad pixels; cuts are never negative) over sparse,
 medium, dense and all-maximum data, several cuts, with a mask and with an
 all-ones mask (mask step 'none'), on a shape that leaves a tail; and the CSC
 powder must agree across collect values on both routes.
@@ -32,8 +33,10 @@ TIERS = [n for i, n in enumerate(_pipeline.NAMES["collect"])
          if i and _pipeline.available("collect", i) == 1]
 
 
-def make(kind, dt, rng):
+def make(kind, dt, rng, specials=True):
     n = (3,) + SHAPE
+    if np.dtype(dt).kind == "f":
+        return make_float(kind, dt, rng, specials)
     top = np.iinfo(dt).max
     if kind == "sparse":
         a = np.zeros(n, np.int64)
@@ -45,7 +48,37 @@ def make(kind, dt, rng):
         a = rng.poisson(30, n)
     else:  # "max"
         a = np.full(n, top, np.int64)
-    return np.minimum(a, top).astype(dt)
+    a = np.minimum(a, top)
+    if np.iinfo(dt).min < 0:          # signed: some pixels -1 (gaps), some at the minimum
+        a[rng.random(n) < 0.02] = -1
+        a[rng.random(n) < 0.002] = np.iinfo(dt).min
+    return a.astype(dt)
+
+
+def make_float(kind, dt, rng, specials):
+    """Fractional values with negatives (dark-subtracted frames); specials: also -0.0, NaN and
+    +-inf, which numpy and the kernels both never count as above a finite cut (but inf)."""
+    n = (3,) + SHAPE
+    if kind == "sparse":
+        a = np.zeros(n)
+        a[rng.random(n) < 1e-3] = 900.5
+        a[:, 10:14, 50:54] = 900.25
+    elif kind == "medium":
+        a = rng.poisson(0.1, n) + rng.normal(0, 0.3, n)
+    elif kind == "dense":
+        a = rng.normal(30, 10, n)
+    else:  # "max"
+        a = np.full(n, 3.0e38)
+    a = a.astype(dt)
+    if specials:
+        a[rng.random(n) < 0.005] = -0.0
+        a[rng.random(n) < 0.002] = np.nan
+        a[rng.random(n) < 0.001] = np.inf
+        a[rng.random(n) < 0.001] = -np.inf
+    return a
+
+
+DTYPES = [np.uint8, np.uint16, np.uint32, np.int8, np.int16, np.int32, np.float32]
 
 
 def chunks_of(frames, path):
@@ -55,7 +88,7 @@ def chunks_of(frames, path):
         return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(ds)
 
 
-@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32])
+@pytest.mark.parametrize("dt", DTYPES)
 @pytest.mark.parametrize("kind", ["sparse", "medium", "dense", "max"])
 @pytest.mark.parametrize("masked", [True, False])
 def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
@@ -64,8 +97,12 @@ def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
     chunks, codec = chunks_of(frames, tmp_path / "c.h5")
     mask = ((rng.random(SHAPE) > 0.15) if masked else np.ones(SHAPE, bool)).astype(np.uint8)
     # the threshold is a C int: the largest cut tried is min(max - 1, 2**31 - 1)
-    top = min(int(np.iinfo(dt).max) - 1, 2 ** 31 - 1)
-    for cut in sorted(set(min(c, top) for c in (0, 3, 600, top))):
+    if np.dtype(dt).kind == "f":
+        cuts = (0, 0.25, 3, 600.5, 1e30)
+    else:
+        top = min(int(np.iinfo(dt).max) - 1, 2 ** 31 - 1)
+        cuts = sorted(set(min(c, top) for c in (0, 3, 600, top)))
+    for cut in cuts:
         for tier in TIERS:
             p = {"collect": tier, "untranspose": "kcb",
                  "mask": "pixel" if masked else "none"}
@@ -77,14 +114,14 @@ def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
                 n = int(npx[f])
                 assert n == want.size, (tier, kind, cut, f)
                 assert (adr[f, :n] == want).all(), (tier, kind, cut, f)
-                assert (vals[f, :n] == flat[want]).all(), (tier, kind, cut, f)
+                assert np.array_equal(vals[f, :n], flat[want]), (tier, kind, cut, f)
 
 
-@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32])
+@pytest.mark.parametrize("dt", DTYPES)
 @pytest.mark.parametrize("route", ["dense", "sparse"])
 def test_powder_same_for_every_tier(tmp_path, dt, route):
     rng = np.random.default_rng(22)
-    frames = make("medium", dt, rng)
+    frames = make("medium", dt, rng, specials=False)
     chunks, codec = chunks_of(frames, tmp_path / "p.h5")
     npix = SHAPE[0] * SHAPE[1]
     mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)

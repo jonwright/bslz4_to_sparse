@@ -260,7 +260,7 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
      * block or tail. */
     bslz4_work wbase = {0};
     wbase.dtype = p->dtype;
-    wbase.collect = collect;
+    wbase.collect = collect | (p->list_negatives ? BSLZ4_COLLECT_NEGATIVES : 0);
     wbase.dot = dot;
     wbase.no_mask = emask == NULL;
     wbase.threshold = cut_i;

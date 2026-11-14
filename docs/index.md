@@ -35,6 +35,34 @@ the free-threaded builds (the GPU decoder and the conveyor need Python 3).
 Decoding releases the GIL, and objects are not
 shared between threads: use one per thread.
 
+## Pixel types and negative values
+
+Eiger data are unsigned (u8, u16, u32), and those are the types the fast paths are tuned for.
+Signed pixels (i8, i16, i32, i64) are decoded the same way.  The cut is never negative (a
+negative cut is an error), and the integration always uses every unmasked pixel as it is,
+negative ones included: the powder is the matrix times the masked frame.  What differs is
+whether negative pixels are returned in the pixel list, which a processor chooses when it is
+made (`negatives`).
+
+Dark-subtracted CCD frames (the default, `negatives="drop"`).  Negative values are noise and
+belong in the integration as they are; the pixel list holds the pixels above the cut only.
+Such frames are usually already decompressed, so the processor's `from_frames` call (the back
+half of the pipeline, no decompression) is the one that applies.
+
+Detectors that mark gaps and bad pixels with negative values that change from frame to frame
+(older Pilatus detectors write -1 and -2; `negatives="list"`).  A fixed mask cannot follow
+such markers, so the processor returns every negative pixel in the pixel list as well, at no
+extra cost, and the caller corrects each frame afterwards from the list: with the marked
+pixels' positions and values, subtract what they added to the powder (the matrix columns of
+those pixels times their values), and subtract the same columns times the normalisation image
+(solid angle, polarisation, flat field) from the normalisation sum.  Both are sparse products
+over a few columns, and the intensity is the corrected powder over the corrected
+normalisation.  The pixels always marked are better put in the mask.  Markers stored in an
+unsigned container (2**16-1, 2**32-1) need no option: they are above any cut, so they are in
+the list already; the correction is the same, with the powder accumulated in float64 (or in
+exact int64 sums for an integer matrix) so that subtracting such large values loses nothing
+that matters.  A limit on the pixels per frame (`howmany`) does not go with `negatives="list"`.
+
 ## More than sparse pixels
 
 A processor can limit how many pixels a frame returns.  The pixels are chosen as

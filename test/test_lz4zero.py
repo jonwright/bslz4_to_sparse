@@ -142,9 +142,9 @@ def test_powder_unchanged(tmp_path, dt, kind, route):
 
 
 def test_bad_values_refused():
-    """lowplanes-* is u8 and u16 only; 'none' needs a mask with no zeros; the old
+    """lowplanes-* is u8, u16 and i16 only; 'none' needs a mask with no zeros; the old
     option names are not pipeline values."""
-    with pytest.raises(ValueError, match="is for u8/u16 pixels"):
+    with pytest.raises(ValueError, match="is for u8/u16/i16 pixels"):
         b.chunk2sparse(MASK, dtype=np.uint32, pipeline={"untranspose": "lowplanes-c"})
     with pytest.raises(ValueError, match="masked pixels"):
         b.chunk2sparse(MASK, dtype=np.uint16, pipeline={"mask": "none"})

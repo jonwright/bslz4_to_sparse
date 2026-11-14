@@ -1,5 +1,6 @@
-"""The low-planes untranspose's fused transpose + collect (u8 blocks, and u16
-blocks with the high byte-planes empty): the plain sparse output and the sparse-route CSC
+"""The low-planes untranspose's fused transpose + collect (u8 blocks, and u16 or i16
+blocks with the high byte-planes empty; i16 frames also hold -1 pixels, as a Pilatus writes
+gaps, whose blocks take kcb): the plain sparse output and the sparse-route CSC
 powder must equal numpy at every cut -- including cuts at and above 255, where
 nothing in such a block passes -- for every usable lowplanes-* value, with the
 mask applied per pixel and in the planes (and 'none' for an all-ones mask),
@@ -48,6 +49,17 @@ def make(kind, rng):
     return a.astype(np.uint16)
 
 
+def as_dtype(frames, dtype):
+    """The frames in dtype; i16: some pixels -1 (the blocks holding them fall back to kcb)."""
+    out = frames.astype(dtype)
+    if np.dtype(dtype).kind == "i":
+        out[:, ::17, 150] = -1
+    return out
+
+
+DTYPES = [np.uint16, np.uint8, np.int16]
+
+
 def chunks_of(frames, path, nelems=0):
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
@@ -66,12 +78,12 @@ LOWPLANES = [n for i, n in enumerate(_pipeline.NAMES["untranspose"])
              if n.startswith("lowplanes") and _pipeline.available("untranspose", i) == 1]
 
 
-@pytest.mark.parametrize("dtype", [np.uint16, np.uint8])
+@pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("nelems", [0, 16384])       # default blocks; 32 kB of u16, 16 kB of u8
 @pytest.mark.parametrize("kind", ["very sparse", "clustered", "dense <256", "max 255"])
 @pytest.mark.parametrize("mname", ["ones", "holes"])
 def test_sparse(tmp_path, kind, mname, nelems, dtype):
-    frames = make(kind, np.random.default_rng(17)).astype(dtype)
+    frames = as_dtype(make(kind, np.random.default_rng(17)), dtype)
     chunks, codec = chunks_of(frames, tmp_path / "s.h5", nelems)
     mask = masks()[mname]
     mps = ("pixel", "planes") + (("none",) if mname == "ones" else ())
@@ -90,11 +102,11 @@ def test_sparse(tmp_path, kind, mname, nelems, dtype):
                 assert (vals[f, :n] == flat[want]).all(), tag
 
 
-@pytest.mark.parametrize("dtype", [np.uint16, np.uint8])
+@pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("kind", ["very sparse", "clustered", "max 255"])
 @pytest.mark.parametrize("mname", ["ones", "holes"])
 def test_csc_sparse_route(tmp_path, kind, mname, dtype):
-    frames = make(kind, np.random.default_rng(18)).astype(dtype)
+    frames = as_dtype(make(kind, np.random.default_rng(18)), dtype)
     chunks, codec = chunks_of(frames, tmp_path / "c.h5")
     mask = masks()[mname]
     npix = SHAPE[0] * SHAPE[1]
@@ -116,19 +128,19 @@ def test_csc_sparse_route(tmp_path, kind, mname, dtype):
 
 
 def test_u8_auto_takes_lowplanes():
-    """The automatic untranspose for u8 is a low-planes value, as for u16."""
+    """The automatic untranspose for u8 and i16 is a low-planes value, as for u16."""
     mask = np.ones(SHAPE, np.uint8)
-    for dt in (np.uint8, np.uint16):
+    for dt in (np.uint8, np.uint16, np.int16):
         integ = b.chunk2sparse(mask, dtype=dt, codec=b.CODEC_LZ4)
         assert b.describe(integ.pipeline)["untranspose"] in LOWPLANES, np.dtype(dt).name
 
 
-@pytest.mark.parametrize("dtype", [np.uint16, np.uint8])
+@pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("kind", ["clustered", "dense <256", "max 255"])
 def test_csc_dense_route(tmp_path, kind, dtype):
     """The dense route builds the pixel block from the low planes (u16; u8 blocks take kcb): the
     powder and the sparse output of every low-planes value equal numpy's."""
-    frames = make(kind, np.random.default_rng(19)).astype(dtype)
+    frames = as_dtype(make(kind, np.random.default_rng(19)), dtype)
     chunks, codec = chunks_of(frames, tmp_path / "d.h5")
     mask = masks()["holes"]
     npix = SHAPE[0] * SHAPE[1]
