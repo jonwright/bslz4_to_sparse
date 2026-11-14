@@ -71,11 +71,11 @@ def make_split_1d(npix, nbins, seed):
 
 @pytest.mark.parametrize("block", sorted(BLOCK_BYTES))
 @pytest.mark.parametrize("cname", CODECS)
-@pytest.mark.parametrize("dt", [np.uint16, np.uint32])
+@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32])
 def test_sparsify_every_step_matches_numpy(cname, block, dt):
     rng = np.random.default_rng(11)
     frames = np.minimum(rng.poisson(0.3, (2,) + SHAPE), np.iinfo(dt).max).astype(dt)
-    frames[:, 10:14, 50:54] = 900
+    frames[:, 10:14, 50:54] = min(900, np.iinfo(dt).max)
     chunks, codec = write_chunks(frames, cname, BLOCK_BYTES[block])
     assert int.from_bytes(bytes(chunks[0][8:12]), "big") == BLOCK_BYTES[block]
     mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)

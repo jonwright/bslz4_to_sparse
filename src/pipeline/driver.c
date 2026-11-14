@@ -4,7 +4,7 @@
  *
  *   decode       src/steps/decode.h       compressed block -> bit-planes (raw)
  *   mask         src/steps/mask.h         (BSLZ4_MASK_PLANES: ANDed into raw)
- *   untranspose  src/steps/lowplanes.h    u16 < 256: raw -> pixel list (fused) or block
+ *   untranspose  src/steps/lowplanes.h    u16 < 256, and u8: raw -> pixel list (fused); u16 < 256: block
  *                src/steps/untranspose.h  raw -> pixel block (kcb, bitshuffle)
  *   collect      src/steps/collect.hpp    block -> pixel list    } src/steps/kernels.cpp,
  *   dot          src/steps/dot_*.hpp      block or list -> powder } one call per block
@@ -93,7 +93,7 @@ static inline int bslz4_untranspose_full(const bslz4_pipe *BSLZ4_RESTRICT p, uin
                                          size_t ne, size_t nz_end) {
     const int u = p->step[BSLZ4_STEP_UNTRANSPOSE];
     const size_t NB = p->elem_size;
-    if (u <= BSLZ4_UNTRANSPOSE_LOWPLANES_C) {          /* u16 only (bslz4_resolve) */
+    if (BSLZ4_IS_LOWPLANES(u) && NB == 2) {           /* the u16 block; u8 blocks take kcb */
         if (bslz4_lowplanes_block(u, (uint16_t *) (void *) block, raw, scratch, ne, nz_end)) return 0;
     } else if (nz_end < ne * NB) {
         memset(raw + nz_end, 0, ne * NB - nz_end);
@@ -210,7 +210,7 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                            emask != NULL && block_elems <= BSLZ4_MASKPLANE_MAX_ELEMS &&
                            block_elems % 64 == 0;
     uint64_t maskbits[BSLZ4_MASKPLANE_MAX_ELEMS / 64];
-    const int lowplanes = untranspose <= BSLZ4_UNTRANSPOSE_LOWPLANES_C;
+    const int lowplanes = BSLZ4_IS_LOWPLANES(untranspose);
 
     if (is_dot) {
         /* The derived layouts index a per-block pointer array by
@@ -333,18 +333,18 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
                 w.powder = (uint8_t *) powder + (size_t) f * nout * (size_t) out_size;
             }
 
-            /* untranspose + collect fused, for u16 blocks < 256 that need
-             * only the list: the plain sparsify's > cut pixels, or the sparse
-             * route's non-zero ones */
+            /* untranspose + collect fused, for u16 blocks < 256 and u8 blocks
+             * that need only the list: the plain sparsify's > cut pixels, or
+             * the sparse route's non-zero ones */
             if (lowplanes && sparse && !pixels) {
                 const int r =
                     is_dot ? bslz4_lowplanes_list(untranspose, raw, block_elems, nz_end, nbytes,
                                                   blocksize, scratch, bmask, (size_t) i0, 0u,
-                                                  (uint16_t *) tval, tidx)
+                                                  tval, tidx, NB == 1)
                            : bslz4_lowplanes_list(untranspose, raw, block_elems, nz_end, nbytes,
                                                   blocksize, scratch, bmask, (size_t) i0,
                                                   thr_f > 65535 ? 65535u : (unsigned) thr_f,
-                                                  (uint16_t *) (void *) out_vals, out_adr);
+                                                  (void *) out_vals, out_adr, NB == 1);
                 if (r >= 0) {
                     bslz4_counters_bump(BSLZ4_STEP_UNTRANSPOSE, untranspose);
                     bslz4_counters_bump(BSLZ4_STEP_COLLECT, collect);

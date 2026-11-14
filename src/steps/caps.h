@@ -26,6 +26,7 @@ extern "C" {
 
 int bslz4_available_avx512cs_collect(void);
 int bslz4_available_avx2cs_collect(void);
+int bslz4_available_avx512f_collect(void);
 int bslz4_available_sse2_collect(void);
 int bslz4_available_vsx_collect(void);
 int bslz4_available_neon_collect(void);
@@ -34,6 +35,8 @@ int bslz4_available_avx2_padded(void);
 /* the AVX2 low-planes collect (lowplanes.h); -1 if not built */
 int bslz4_lowplanes_collect_avx2(uint8_t *raw, size_t ne, size_t nz_end, const uint8_t *mask,
                                  size_t i0, unsigned cut, uint16_t *out_vals, uint32_t *out_adr);
+int bslz4_lowplanes_collect_avx2_u8(uint8_t *raw, size_t ne, size_t nz_end, const uint8_t *mask,
+                                    size_t i0, unsigned cut, uint8_t *out_vals, uint32_t *out_adr);
 
 #ifdef __cplusplus
 }

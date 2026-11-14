@@ -201,7 +201,7 @@ def _usable(step):
 def test_every_available_untranspose_matches():
     """Each untranspose value usable here must decode identically -- they
     differ only in the bit/byte de-shuffle kernel (the lowplanes-* values are
-    u16 only). Also checks a value this CPU lacks is refused rather than
+    u8 and u16 only). Also checks a value this CPU lacks is refused rather than
     silently running upstream bitshuffle's absent-ISA stub, and that the
     removed "sse" backend is an unknown name."""
     usable = _usable("untranspose")
@@ -210,8 +210,8 @@ def test_every_available_untranspose_matches():
     for uname in usable:
         for dsname in chunks:
             dt, shp, chunklist = chunks[dsname]
-            if uname.startswith("lowplanes") and np.dtype(dt) != np.uint16:
-                with pytest.raises(ValueError, match="is for u16 pixels"):
+            if uname.startswith("lowplanes") and np.dtype(dt) not in (np.uint8, np.uint16):
+                with pytest.raises(ValueError, match="is for u8/u16 pixels"):
                     chunk2sparse(1 - ai.mask, dtype=np.dtype(dt), pipeline={"untranspose": uname})
                 continue
             bufs = [c for (filt, c) in chunklist]
@@ -448,12 +448,12 @@ def test_simd_collect_matches_scalar(collect, untranspose):
 
 def test_bad_collect_values_refused():
     # the removed tiers ("avx512", "avx2") are unknown names; a SIMD collect
-    # needs u16/u32 pixels; route/dot need a matrix
-    for bad in ("avx512", "avx2", 7):
+    # needs u8/u16/u32 pixels; route/dot need a matrix
+    for bad in ("avx512", "avx2", len(_pipeline.NAMES["collect"])):
         with pytest.raises(ValueError, match="unknown"):
             chunk2sparse(1 - ai.mask, dtype=np.uint16, pipeline={"collect": bad})
-    with pytest.raises(ValueError, match="u16/u32"):
-        chunk2sparse(1 - ai.mask, dtype=np.uint8, pipeline={"collect": "sse2"})
+    with pytest.raises(ValueError, match="u8/u16/u32"):
+        chunk2sparse(1 - ai.mask, dtype=np.int16, pipeline={"collect": "sse2"})
     with pytest.raises(ValueError, match="no matrix"):
         chunk2sparse(1 - ai.mask, dtype=np.uint16, pipeline={"route": "dense"})
 

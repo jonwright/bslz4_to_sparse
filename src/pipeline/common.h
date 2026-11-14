@@ -12,9 +12,11 @@
 #if defined(_MSC_VER)
 #define BSLZ4_RESTRICT __restrict
 #define BSLZ4_NOINLINE __declspec(noinline)
+#define BSLZ4_ALWAYS_INLINE __forceinline
 #else
 #define BSLZ4_RESTRICT __restrict__
 #define BSLZ4_NOINLINE __attribute__((noinline))
+#define BSLZ4_ALWAYS_INLINE inline __attribute__((always_inline))
 #endif
 
 /* AVX-512 VBMI/VBMI2 and GFNI need gcc >= 8 or clang >= 7 (target

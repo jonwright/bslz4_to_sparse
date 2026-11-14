@@ -31,6 +31,7 @@
 
 extern "C" int bslz4_available_avx512cs_collect(void) { return bslz4_avx512cs_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_avx2cs_collect(void)   { return bslz4_avx2cs_collect_capable() ? 1 : 0; }
+extern "C" int bslz4_available_avx512f_collect(void)  { return bslz4_avx512f_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_sse2_collect(void)     { return bslz4_sse2_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_vsx_collect(void)      { return bslz4_vsx_collect_capable() ? 1 : 0; }
 extern "C" int bslz4_available_neon_collect(void)     { return bslz4_neon_collect_capable() ? 1 : 0; }
@@ -40,7 +41,18 @@ extern "C" int bslz4_lowplanes_collect_avx2(uint8_t *raw, size_t ne, size_t nz_e
                                             size_t i0, unsigned cut, uint16_t *out_vals, uint32_t *out_adr) {
 #if BSLZ4_HAVE_AVX2_COLLECT
     if (ne % 256) return -1;
-    return bslz4_lowplanes_collect_avx2_impl(raw, ne, nz_end, mask, i0, cut, out_vals, out_adr);
+    return bslz4_lowplanes_collect_avx2_impl<uint16_t>(raw, ne, nz_end, mask, i0, cut, out_vals, out_adr);
+#else
+    (void) raw; (void) ne; (void) nz_end; (void) mask; (void) i0; (void) cut; (void) out_vals; (void) out_adr;
+    return -1;
+#endif
+}
+
+extern "C" int bslz4_lowplanes_collect_avx2_u8(uint8_t *raw, size_t ne, size_t nz_end, const uint8_t *mask,
+                                               size_t i0, unsigned cut, uint8_t *out_vals, uint32_t *out_adr) {
+#if BSLZ4_HAVE_AVX2_COLLECT
+    if (ne % 256) return -1;
+    return bslz4_lowplanes_collect_avx2_impl<uint8_t>(raw, ne, nz_end, mask, i0, cut, out_vals, out_adr);
 #else
     (void) raw; (void) ne; (void) nz_end; (void) mask; (void) i0; (void) cut; (void) out_vals; (void) out_adr;
     return -1;
