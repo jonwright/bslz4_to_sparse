@@ -555,6 +555,52 @@ def test_driver_backend_reuses_freed_memory():
         drv._pools[dev] = pool
 
 
+_SPIN_COPY = r"""
+extern "C" __global__ void spin_copy(const unsigned int* a, unsigned int* b, long long n,
+                                     long long cycles)
+{
+    long long t0 = clock64();
+    while (clock64() - t0 < cycles) {}
+    for (long long i = threadIdx.x; i < n; i += blockDim.x) b[i] = a[i];
+}
+"""
+
+
+def test_driver_backend_waits_for_the_default_stream_before_reusing_a_block(tmp_path):
+    """A reader on the legacy default stream (torch's, cupy's) that is still queued when our
+    array is dropped: the next result, in this thread or another, must not take its block."""
+    if g.backend != "driver":
+        pytest.skip("the driver backend's pool (cupy's own pool reuses the block at once)")
+    import gc
+    import threading
+
+    shape = (256, 512)
+    mask = np.ones(shape, np.uint8)
+    one, two = (np.full((2,) + shape, v, np.uint32) for v in (1, 2))
+    a_chunks, _ = write_chunks(tmp_path / "a.h5", one)
+    b_chunks, _ = write_chunks(tmp_path / "b.h5", two)
+    spin = cp.RawKernel(_SPIN_COPY, "spin_copy")
+    c = g.chunk2sparse(mask, np.uint32, device=0)
+    c.decompress(b_chunks)  # the object's buffers made, its stream current in this thread
+    for where in ("this thread", "another thread"):
+        d = c.decompress(a_chunks)
+        got = cp.empty(one.size, np.uint32)
+        with cp.cuda.Stream.null:  # queued: about a second of spinning, then the read of d
+            spin((1,), (256,), (cp.asarray(d).reshape(-1), got, np.int64(one.size),
+                                np.int64(2 * 10**9)))
+        del d
+        gc.collect()
+        if where == "this thread":
+            c.decompress(b_chunks)
+        else:
+            t = threading.Thread(target=lambda: g.chunk2sparse(mask, np.uint32, device=0)
+                                 .decompress(b_chunks))
+            t.start()
+            t.join()
+        cp.cuda.Stream.null.synchronize()
+        assert (got.get() == 1).all(), where
+
+
 def _device_of(a):
     ptr = a.data.ptr if hasattr(a, "data") and hasattr(a.data, "ptr") else getattr(a, "ptr", None)
     return None if not ptr else cp.cuda.runtime.pointerGetAttributes(ptr).device

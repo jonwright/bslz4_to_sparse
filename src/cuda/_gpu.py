@@ -668,6 +668,7 @@ class chunk2sparse(object):
         """(the array to return, a flat array of dtype viewing it for the kernels, its address):
         the caller's out, checked, else a new device array"""
         if out is None:
+            self.stream.use()  # taken on the stream the kernels write it on
             out = cu.empty(shape, dtype)
         else:
             cai = getattr(out, "__cuda_array_interface__", None)

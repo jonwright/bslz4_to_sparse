@@ -8,10 +8,13 @@ stream before returning; .set queues on the stream given; zeros/asarray wait for
 
 Device memory comes from a memory pool of our own per device (stream-ordered allocator, CUDA 11.2
 drivers on), as cupy's pool: a free returns the block to the pool, without the device-wide wait of
-cuMemFree.  Blocks are taken and given back on the legacy default stream, so an array must not be
-dropped while work queued on another stream still uses it (every array the GPU classes hand out is
-complete).  free_pool() gives the unused blocks back to the driver.  Older drivers, and devices
-without pools: cuMemAlloc / cuMemFree.
+cuMemFree.  empty() takes its block on the current stream (the GPU classes': their kernels write
+it there), zeros() and asarray() on the legacy default stream; every block is given back on the
+legacy default stream.  A block is taken again only once work queued before its free on the
+legacy default stream (torch's and cupy's default streams) is done; work on any other stream that
+still reads an array must be finished before the array is dropped (every array the GPU classes
+hand out is complete).  free_pool() gives the unused blocks back to the driver.  Older drivers,
+and devices without pools: cuMemAlloc / cuMemFree.
 """
 
 import ctypes
@@ -284,14 +287,15 @@ class Stream(object):
 class _Alloc(object):
     """One block of device memory (from our pool, else cuMemAlloc), freed with its last view."""
 
-    def __init__(self, nbytes):
+    def __init__(self, nbytes, stream=None):
+        """stream: the handle the block is taken on (None: the legacy default stream)"""
         self.dev = device_id()
         self.ctx, p = _context(self.dev), ctypes.c_uint64()
         self.pool = _pool(self.dev)
         if self.pool is None:
             _check(cuMemAlloc(ctypes.byref(p), max(int(nbytes), 1)))
         else:
-            _check(cuMemAllocFromPoolAsync(ctypes.byref(p), max(int(nbytes), 1), self.pool, None))
+            _check(cuMemAllocFromPoolAsync(ctypes.byref(p), max(int(nbytes), 1), self.pool, stream))
         self.ptr = p.value
 
     def __del__(self):
@@ -383,7 +387,9 @@ class ndarray(object):
 
 
 def empty(shape, dtype):
-    return ndarray(shape, dtype)
+    """Uninitialised, its block taken on the current stream (see the module docstring)."""
+    n = int(np.prod(shape, dtype=np.int64)) * np.dtype(dtype).itemsize
+    return ndarray(shape, dtype, _Alloc(n, _current_stream()))
 
 
 class _CUDA_MEMCPY2D(ctypes.Structure):
