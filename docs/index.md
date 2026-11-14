@@ -45,8 +45,10 @@ have, are decoded the same way, with these rules:
   pixels above a cut of zero or more: negative pixels never appear in it.
 - The integration uses every unmasked pixel as it is, negative ones included: the powder is
   the matrix times the masked frame.  That is right for CCD data, where (intensity - dark) is
-  negative by noise.  The negative markers a Pilatus writes for its gaps and bad pixels (-1,
-  -2) belong in the detector mask; unmasked, they would be summed into the powder.
+  negative by noise.
+- Older Pilatus detectors mark gaps and bad pixels with negative values (-1, -2) that can
+  change from frame to frame.  Pixels that are always marked can go in the detector mask, but
+  markers that move are not supported: they are summed into the powder as values.
 
 ## More than sparse pixels
 

@@ -734,8 +734,9 @@ class chunk2sparseCSC:
 
     Signed pixels: the cut is never negative, so negative pixels are not in the returned
     list, but the powder sums every unmasked pixel as it is, negative ones included (CCD
-    frames with the dark subtracted).  A Pilatus's negative markers for gaps and bad pixels
-    (-1, -2) must be masked to keep them out of the powder.
+    frames with the dark subtracted).  Negative markers that change from frame to frame (older
+    Pilatus detectors: -1, -2) are not supported: they are summed into the powder as values;
+    only the pixels always marked can go in the mask.
 
     The array of the powder is the object's own and is overwritten by the next call.
     The object owns copies of the matrix and the mask, taken here (read-only): later changes to
