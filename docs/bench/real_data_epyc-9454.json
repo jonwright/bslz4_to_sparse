@@ -35,19 +35,19 @@
    ]
   }
  ],
- "date_utc": "2026-10-14 17:28",
+ "date_utc": "2026-11-17 20:54",
  "machine": {
   "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
   "cores_usable": 1,
   "cpu": "AMD EPYC 9454 48-Core Processor",
-  "git": "v0.0.21a1-83-ga1a55ac",
-  "numpy": "2.5.3",
+  "git": "v0.0.22.a3-54-gc703c77",
+  "numpy": "1.26.4",
   "platform": "linux_x86_64",
-  "pyFAI": "2026.9.0",
-  "py_sha256": "ce1cdafcbf561f89fc4d0566480206f89e48fabe66aefe8ebd05fa664dd0e04c",
-  "python": "3.12.15",
-  "src_sha256": "5a0108f1b0c2ee9c73862247fa0efa3c7dcdd89f7fd3bef37c9e006a716d2f9c",
-  "version": "0.0.22a1"
+  "pyFAI": "2025.3.0",
+  "py_sha256": "38f39098a0f7b54f0379f3af70628b6feca5596c0b74cf1393d360f070652fef",
+  "python": "3.12.9",
+  "src_sha256": "23701b7ac063c0c54d961d1dedc1e160235045427c54ab3c80dbbab2e3f5c46d",
+  "version": "0.0.22a3"
  },
  "method": {
   "batch": 25,
@@ -77,13 +77,14 @@
   "1D no-split": "chunk2sparseCSC, pyFAI 1D no-split matrix: a histogram, every pixel in one bin with weight 1 (r_mm, one bin per pixel width)",
   "2D": "chunk2sparseCSC, pyFAI 2D bbox matrix (q_nm^-1, one radial bin per pixel width x 72 azimuthal bins)",
   "2D+rings": "chunk2sparseCSC, 8 LaB6 ring windows x 72 azimuthal bins summed from the 2D matrix, the windows sized to hold ~8 % of the unmasked pixels",
+  "FAZIT": "chunk2sparseCSC, FAZIT: the unmasked pixels sorted by radius (one pixel wide) and azimuth, each to its own output slot (a permutation, weight 1)",
   "sparsify": "chunk2sparse: decode, mask and threshold to (values, indices)"
  },
  "results": [
   {
    "case": "silicon",
-   "compressed_gbs": 0.26465941652716796,
-   "fps": 1770.2471309984958,
+   "compressed_gbs": 0.25712824046382904,
+   "fps": 1719.8727933153261,
    "matrix": null,
    "op": "sparsify",
    "pipeline": {
@@ -92,13 +93,13 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 15.829606493296742,
-   "seconds": 0.05648928799200803
+   "pixel_gbs": 15.379157553755032,
+   "seconds": 0.05814383504912257
   },
   {
    "case": "silicon",
-   "compressed_gbs": 0.15432221347359637,
-   "fps": 1032.2264714239932,
+   "compressed_gbs": 0.1563852639139384,
+   "fps": 1046.0257504031554,
    "matrix": {
     "bins": 1542,
     "bins_per_pixel_max": 3,
@@ -118,13 +119,13 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 9.230202138720433,
-   "seconds": 0.09687796502839774
+   "pixel_gbs": 9.353595732929028,
+   "seconds": 0.09559994097799063
   },
   {
    "case": "silicon",
-   "compressed_gbs": 0.21115898686006504,
-   "fps": 1412.3948264474743,
+   "compressed_gbs": 0.21313958910966743,
+   "fps": 1425.6426280787755,
    "matrix": {
     "bins": 1542,
     "bins_per_pixel_max": 1,
@@ -144,13 +145,13 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 12.629679734727763,
-   "seconds": 0.07080173201393336
+   "pixel_gbs": 12.74814200084451,
+   "seconds": 0.07014380604960024
   },
   {
    "case": "silicon",
-   "compressed_gbs": 0.11798995026189506,
-   "fps": 789.2081592204893,
+   "compressed_gbs": 0.1200347347659258,
+   "fps": 802.8852614723905,
    "matrix": {
     "bins": 6000,
     "bins_per_pixel_max": 7,
@@ -170,22 +171,22 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.057124614410711,
-   "seconds": 0.12670928300940432
+   "pixel_gbs": 7.179425700414483,
+   "seconds": 0.12455079797655344
   },
   {
    "case": "silicon",
-   "compressed_gbs": 0.11620390151068939,
-   "fps": 777.2616820494391,
+   "compressed_gbs": 0.11619488816871462,
+   "fps": 777.2013938383453,
    "matrix": {
     "bins": 111024,
     "bins_per_pixel_max": 88,
-    "bins_per_pixel_mean": 2.340561165603965,
+    "bins_per_pixel_mean": 2.340635650716699,
     "bins_shape": [
      1542,
      72
     ],
-    "nnz": 9835464,
+    "nnz": 9835777,
     "pixel_frac": 1.0
    },
    "op": "2D",
@@ -197,23 +198,23 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.95029883325991,
-   "seconds": 0.12865679900278337
+   "pixel_gbs": 6.9497597341470865,
+   "seconds": 0.12866677902638912
   },
   {
    "case": "silicon",
-   "compressed_gbs": 0.19478271442888043,
-   "fps": 1302.8576345796823,
+   "compressed_gbs": 0.20397405012841668,
+   "fps": 1364.3364055437144,
    "matrix": {
     "bins": 576,
     "bins_per_pixel_max": 2,
-    "bins_per_pixel_mean": 1.0197698139551308,
+    "bins_per_pixel_mean": 1.0197697065510583,
     "bins_shape": [
      8,
      72
     ],
-    "nnz": 375415,
-    "pixel_frac": 0.08760615318422667
+    "nnz": 375417,
+    "pixel_frac": 0.08760662912743904
    },
    "op": "2D+rings",
    "pipeline": {
@@ -224,13 +225,39 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 11.650194659855826,
-   "seconds": 0.0767543569963891
+   "pixel_gbs": 12.19993979713687,
+   "seconds": 0.07329570595175028
+  },
+  {
+   "case": "silicon",
+   "compressed_gbs": 0.13170115432832746,
+   "fps": 880.9193100256799,
+   "matrix": {
+    "bins": 4202182,
+    "bins_per_pixel_max": 1,
+    "bins_per_pixel_mean": 1.0,
+    "bins_shape": [
+     4202182
+    ],
+    "nnz": 4202182,
+    "pixel_frac": 1.0
+   },
+   "op": "FAZIT",
+   "pipeline": {
+    "collect": "avx512cs",
+    "decode": "lz4-band",
+    "dot": "csc-permute",
+    "mask": "pixel",
+    "route": "bpp",
+    "untranspose": "lowplanes-vbmi"
+   },
+   "pixel_gbs": 7.877208659667551,
+   "seconds": 0.11351777496747673
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 1.7203107349675393,
-   "fps": 437.7253814658482,
+   "compressed_gbs": 1.7768471325044544,
+   "fps": 452.11081525727195,
    "matrix": null,
    "op": "sparsify",
    "pipeline": {
@@ -239,13 +266,13 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.828308736559643,
-   "seconds": 0.16448669199598953
+   "pixel_gbs": 8.085578755153227,
+   "seconds": 0.15925299189984798
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 0.42489585713490363,
-   "fps": 108.112852734796,
+   "compressed_gbs": 0.47580692393670637,
+   "fps": 121.06694625039152,
    "matrix": {
     "bins": 1542,
     "bins_per_pixel_max": 3,
@@ -265,13 +292,13 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.9334971775316665,
-   "seconds": 0.6659707720100414
+   "pixel_gbs": 2.1651690150265623,
+   "seconds": 0.5947122829966247
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 0.9118469976926313,
-   "fps": 232.01539512047913,
+   "compressed_gbs": 0.893494093273841,
+   "fps": 227.34558057800766,
    "matrix": {
     "bins": 1542,
     "bins_per_pixel_max": 1,
@@ -291,13 +318,13 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.149378175319937,
-   "seconds": 0.3103242350043729
+   "pixel_gbs": 4.065862913174246,
+   "seconds": 0.31669848086312413
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 0.3295792659823646,
-   "fps": 83.85997191843771,
+   "compressed_gbs": 0.3721011523400706,
+   "fps": 94.67947594654314,
    "matrix": {
     "bins": 6000,
     "bins_per_pixel_max": 7,
@@ -317,22 +344,22 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.4997571048275429,
-   "seconds": 0.8585741010028869
+   "pixel_gbs": 1.6932538073144379,
+   "seconds": 0.7604604829102755
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 0.28647430336099017,
-   "fps": 72.8921067397854,
+   "compressed_gbs": 0.2958506099482932,
+   "fps": 75.27786606468167,
    "matrix": {
     "bins": 111024,
     "bins_per_pixel_max": 88,
-    "bins_per_pixel_mean": 2.340561165603965,
+    "bins_per_pixel_mean": 2.340635650716699,
     "bins_shape": [
      1542,
      72
     ],
-    "nnz": 9835464,
+    "nnz": 9835777,
     "pixel_frac": 1.0
    },
    "op": "2D",
@@ -344,23 +371,23 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.3036071020291535,
-   "seconds": 0.98776127101155
+   "pixel_gbs": 1.3462741744841953,
+   "seconds": 0.9564564428292215
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 1.3001435749035055,
-   "fps": 330.81572457649463,
+   "compressed_gbs": 1.3007258972968019,
+   "fps": 330.9638939080931,
    "matrix": {
     "bins": 576,
     "bins_per_pixel_max": 2,
-    "bins_per_pixel_mean": 1.0197698139551308,
+    "bins_per_pixel_mean": 1.0197697065510583,
     "bins_shape": [
      8,
      72
     ],
-    "nnz": 375415,
-    "pixel_frac": 0.08760615318422667
+    "nnz": 375417,
+    "pixel_frac": 0.08760662912743904
    },
    "op": "2D+rings",
    "pipeline": {
@@ -371,8 +398,34 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.916329590532403,
-   "seconds": 0.21764382600667886
+   "pixel_gbs": 5.918979460341547,
+   "seconds": 0.21754638897255063
+  },
+  {
+   "case": "ceo2",
+   "compressed_gbs": 0.4239402799160305,
+   "fps": 107.8697103802497,
+   "matrix": {
+    "bins": 4202182,
+    "bins_per_pixel_max": 1,
+    "bins_per_pixel_mean": 1.0,
+    "bins_shape": [
+     4202182
+    ],
+    "nnz": 4202182,
+    "pixel_frac": 1.0
+   },
+   "op": "FAZIT",
+   "pipeline": {
+    "collect": "avx512cs",
+    "decode": "lz4-band",
+    "dot": "csc-permute",
+    "mask": "pixel",
+    "route": "bpp",
+    "untranspose": "kcb"
+   },
+   "pixel_gbs": 1.9291488041018499,
+   "seconds": 0.6674718949943781
   }
  ],
  "schema": 1,
