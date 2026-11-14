@@ -141,7 +141,9 @@ def with_torch():
 
 ```python
 def with_jax():
-    """jax computes in float32 unless told otherwise (x64), so three ways to take the cake."""
+    """jax computes in float32 unless told otherwise (x64), so three ways to take the cake.  Not
+    the int64 sums of a fixed_point_matrix: without x64 jax turns them into int32, wrapping each
+    sum above 2**31 without a word; take them under x64 only."""
     import jax
     import jax.numpy as jnp
     from jax.experimental import enable_x64

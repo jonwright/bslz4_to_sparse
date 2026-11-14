@@ -855,7 +855,9 @@ class chunk2sparseCSC(chunk2sparse):
         float64 (acc 'f64'), float32 ('f32'), or the int64 sums of a fixed_point_matrix (divide by
         powder_scale).  The same sums as the powder of multi, without a cut or lists of pixels:
         decompress, then the matrix product.  out, and the arrays returned without it, as for
-        decompress (out of the dtype above, at least nframes x nbins)."""
+        decompress (out of the dtype above, at least nframes x nbins).  jax without x64 takes
+        int64 as int32, wrapping sums above 2**31 silently, and float64 as a rounded float32
+        copy."""
         cu.use_device(self._dev)
         return self._integrate_from(
             self._host_chunks([memoryview(c).cast("B") for c in chunks]), out
