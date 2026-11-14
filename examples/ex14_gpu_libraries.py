@@ -26,7 +26,6 @@ import os
 
 os.environ["BSLZ4_CUDA_BACKEND"] = "driver"  # set before bslz4_to_sparse.cuda is imported
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")  # jax: allocate as needed
-os.environ.setdefault("JAX_ENABLE_X64", "1")  # jax: float64 as it is (else a float32 copy)
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # tensorflow: errors only
 
 import h5py
@@ -109,17 +108,43 @@ def with_torch():
 
 
 def with_jax():
+    """jax computes in float32 unless told otherwise (x64), so three ways to take the cake."""
     import jax
     import jax.numpy as jnp
+    from jax.experimental import enable_x64
 
-    x = jax.dlpack.from_dlpack(d_cake)  # DLPack: no copy
-    assert x.dtype == np.float64 and x.unsafe_buffer_pointer() == d_cake.__cuda_array_interface__[
-        "data"][0]
-    c = x.reshape(n, nq, nazim)
-    spread = jnp.std(c, axis=2) / jnp.maximum(jnp.mean(c, axis=2), 1e-30)  # azimuthal variation
+    sums = host_cake.reshape(n, -1)  # the float64 sums, as the GPU gave them
+    cai_ptr = lambda a: a.__cuda_array_interface__["data"][0]
+
+    # 1. exact: our float64 with jax's x64, here for one block (JAX_ENABLE_X64=1: the whole
+    #    program).  No copy.
+    with enable_x64():
+        x = jax.dlpack.from_dlpack(d_cake)
+        assert x.dtype == np.float64 and x.unsafe_buffer_pointer() == cai_ptr(d_cake)
+        assert (np.asarray(x) == sums).all()
+        c = x.reshape(n, nq, nazim)
+        spread = jnp.std(c, axis=2) / jnp.maximum(jnp.mean(c, axis=2), 1e-30)  # azimuthal
+        spread = np.asarray(spread)  # variation of each q bin
     want = host_cake.std(axis=2) / np.maximum(host_cake.mean(axis=2), 1e-30)
-    assert np.allclose(np.asarray(spread), want, rtol=1e-6, atol=1e-9)
-    return "azimuthal spread of each q bin, (%d, %d), same memory" % spread.shape
+    assert np.allclose(spread, want, rtol=1e-12, atol=0)
+
+    # 2. fast: float32 sums on the GPU (acc="f32", relative error about 1e-6), jax's default
+    #    float32.  No copy.
+    d_cake32 = cuda.chunk2sparseCSC(mask, engine2, dtype, acc="f32").integrate(chunks)
+    x = jax.dlpack.from_dlpack(d_cake32)
+    assert x.dtype == np.float32 and x.unsafe_buffer_pointer() == cai_ptr(d_cake32)
+    nz = sums != 0
+    err32 = (np.abs(np.asarray(x, np.float64) - sums)[nz] / np.abs(sums[nz])).max()
+    assert np.allclose(np.asarray(x), sums, rtol=1e-6, atol=0)
+
+    # 3. our float64 into jax's default float32: from_dlpack silently makes a float32 copy, each
+    #    sum rounded.  The copy is jax's own: keep ours until it is done.
+    x = jax.dlpack.from_dlpack(d_cake)
+    x.block_until_ready()
+    assert x.dtype == np.float32 and x.unsafe_buffer_pointer() != cai_ptr(d_cake)
+    assert (np.asarray(x) == sums.astype(np.float32)).all()
+    return ("cake 3 ways: float64 under x64, same memory, exact; acc='f32', same memory "
+            "(largest relative error %.1e); float64 to float32, copied and rounded" % err32)
 
 
 def with_numba():
@@ -183,7 +208,9 @@ for name, what in results.items():
 
 # Whose memory.  Every array above is ours: a block of the pool, given back as soon as the last
 # reference to it is dropped, a library's view (torch.from_dlpack, cp.asarray, ...) included.  The
-# next call may then get the same block and write into it at once.  Two ways to keep a result:
+# next call may then get the same block and write it while work your library queued earlier
+# still reads it: on any stream of its own (torch.cuda.Stream, jax's), and with the cupy backend
+# on the default stream too.  Two ways to keep a result:
 #
 #   1. out=: the results go into an array your library owns, made once and reused, and nothing
 #      is allocated per call.  It must be on this GPU, C-contiguous and of the result's dtype
@@ -223,12 +250,15 @@ if results.get("jax") != "not installed":
     import jax
     import jax.numpy as jnp
 
+    from jax.experimental import enable_x64
+
     d = gpu2.integrate(chunks)  # 2. jax arrays cannot be written: jax keeps a copy of ours
-    mine = jnp.array(jax.dlpack.from_dlpack(d), copy=True)
-    mine.block_until_ready()  # the copy is done ...
-    assert mine.unsafe_buffer_pointer() != d.__cuda_array_interface__["data"][0]
-    del d  # ... so our block may go back to the pool
-    assert (np.asarray(mine) == host_cake.reshape(n, -1)).all()
+    with enable_x64():  # float64 kept as it is (without x64 the copy is float32, see above)
+        mine = jnp.array(jax.dlpack.from_dlpack(d), copy=True)
+        mine.block_until_ready()  # the copy is done ...
+        assert mine.unsafe_buffer_pointer() != d.__cuda_array_interface__["data"][0]
+        del d  # ... so our block may go back to the pool
+        assert mine.dtype == np.float64 and (np.asarray(mine) == host_cake.reshape(n, -1)).all()
     kept["jax"] = "a copy of ours"
 for name, what in kept.items():
     print("%-10s kept: %s" % (name, what))
