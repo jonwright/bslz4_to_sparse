@@ -26,7 +26,7 @@ typedef char bslz4_value_slots_cover_every_step
 #define BSLZ4_ALL_DTYPES 0x3FFu
 #define BSLZ4_INT_DTYPES 0x0FFu                 /* u8 .. i64 */
 #define BSLZ4_INT32_DTYPES 0x077u               /* u8 u16 u32 i8 i16 i32: sums of 2**31 values fit int64 */
-#define BSLZ4_SIMD_COLLECT_DTYPES 0x077u        /* the SIMD collects: u8 u16 u32 i8 i16 i32 (signed: a signed compare) */
+#define BSLZ4_SIMD_COLLECT_DTYPES 0x177u        /* the SIMD collects: u8 u16 u32 i8 i16 i32 f32 (signed, float: their own compare) */
 #define BSLZ4_LOWPLANES_DTYPES ((1u << 0) | (1u << 1) | (1u << 5))   /* the low-planes values: u8, and
                                        u16 / i16 blocks in 0..255 (a negative i16 sets the high planes) */
 

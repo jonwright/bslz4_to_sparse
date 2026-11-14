@@ -33,8 +33,10 @@ TIERS = [n for i, n in enumerate(_pipeline.NAMES["collect"])
          if i and _pipeline.available("collect", i) == 1]
 
 
-def make(kind, dt, rng):
+def make(kind, dt, rng, specials=True):
     n = (3,) + SHAPE
+    if np.dtype(dt).kind == "f":
+        return make_float(kind, dt, rng, specials)
     top = np.iinfo(dt).max
     if kind == "sparse":
         a = np.zeros(n, np.int64)
@@ -53,7 +55,30 @@ def make(kind, dt, rng):
     return a.astype(dt)
 
 
-DTYPES = [np.uint8, np.uint16, np.uint32, np.int8, np.int16, np.int32]
+def make_float(kind, dt, rng, specials):
+    """Fractional values with negatives (dark-subtracted frames); specials: also -0.0, NaN and
+    +-inf, which numpy and the kernels both never count as above a finite cut (but inf)."""
+    n = (3,) + SHAPE
+    if kind == "sparse":
+        a = np.zeros(n)
+        a[rng.random(n) < 1e-3] = 900.5
+        a[:, 10:14, 50:54] = 900.25
+    elif kind == "medium":
+        a = rng.poisson(0.1, n) + rng.normal(0, 0.3, n)
+    elif kind == "dense":
+        a = rng.normal(30, 10, n)
+    else:  # "max"
+        a = np.full(n, 3.0e38)
+    a = a.astype(dt)
+    if specials:
+        a[rng.random(n) < 0.005] = -0.0
+        a[rng.random(n) < 0.002] = np.nan
+        a[rng.random(n) < 0.001] = np.inf
+        a[rng.random(n) < 0.001] = -np.inf
+    return a
+
+
+DTYPES = [np.uint8, np.uint16, np.uint32, np.int8, np.int16, np.int32, np.float32]
 
 
 def chunks_of(frames, path):
@@ -72,8 +97,12 @@ def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
     chunks, codec = chunks_of(frames, tmp_path / "c.h5")
     mask = ((rng.random(SHAPE) > 0.15) if masked else np.ones(SHAPE, bool)).astype(np.uint8)
     # the threshold is a C int: the largest cut tried is min(max - 1, 2**31 - 1)
-    top = min(int(np.iinfo(dt).max) - 1, 2 ** 31 - 1)
-    for cut in sorted(set(min(c, top) for c in (0, 3, 600, top))):
+    if np.dtype(dt).kind == "f":
+        cuts = (0, 0.25, 3, 600.5, 1e30)
+    else:
+        top = min(int(np.iinfo(dt).max) - 1, 2 ** 31 - 1)
+        cuts = sorted(set(min(c, top) for c in (0, 3, 600, top)))
+    for cut in cuts:
         for tier in TIERS:
             p = {"collect": tier, "untranspose": "kcb",
                  "mask": "pixel" if masked else "none"}
@@ -85,14 +114,14 @@ def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
                 n = int(npx[f])
                 assert n == want.size, (tier, kind, cut, f)
                 assert (adr[f, :n] == want).all(), (tier, kind, cut, f)
-                assert (vals[f, :n] == flat[want]).all(), (tier, kind, cut, f)
+                assert np.array_equal(vals[f, :n], flat[want]), (tier, kind, cut, f)
 
 
 @pytest.mark.parametrize("dt", DTYPES)
 @pytest.mark.parametrize("route", ["dense", "sparse"])
 def test_powder_same_for_every_tier(tmp_path, dt, route):
     rng = np.random.default_rng(22)
-    frames = make("medium", dt, rng)
+    frames = make("medium", dt, rng, specials=False)
     chunks, codec = chunks_of(frames, tmp_path / "p.h5")
     npix = SHAPE[0] * SHAPE[1]
     mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)

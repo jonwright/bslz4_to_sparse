@@ -75,7 +75,7 @@ enum {
 #define BSLZ4_IS_LOWPLANES(u) (((u) >= BSLZ4_UNTRANSPOSE_LOWPLANES_VBMI && (u) <= BSLZ4_UNTRANSPOSE_LOWPLANES_C) || \
                                (u) == BSLZ4_UNTRANSPOSE_LOWPLANES_AVX512BW)
 
-/* collect: the SIMD values take u8/u16/u32 and i8/i16/i32 (a signed compare) */
+/* collect: the SIMD values take u8/u16/u32, i8/i16/i32 (a signed compare) and f32 (a float compare) */
 
 /* negatives="list" (signed integer pixels): OR'ed into the pipeline's collect value by Python and
  * into bslz4_work.collect by the driver -- the pixel list also holds every negative pixel (for

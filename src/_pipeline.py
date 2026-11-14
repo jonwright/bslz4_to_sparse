@@ -56,13 +56,13 @@ VALUES = {
     ),
     "collect": (
         "auto",
-        ("avx512cs", "u8/u16/u32/i8/i16/i32 pixels; AVX-512 BW/VL and VBMI2"),
-        ("avx2cs", "u8/u16/u32/i8/i16/i32 pixels; AVX2"),
-        ("vsx", "u8/u16/u32/i8/i16/i32 pixels; POWER VSX"),
-        ("neon", "u8/u16/u32/i8/i16/i32 pixels; aarch64 NEON"),
-        ("sse2", "u8/u16/u32/i8/i16/i32 pixels; SSE2"),
+        ("avx512cs", "u8/u16/u32/i8/i16/i32/f32 pixels; AVX-512 BW/VL and VBMI2"),
+        ("avx2cs", "u8/u16/u32/i8/i16/i32/f32 pixels; AVX2"),
+        ("vsx", "u8/u16/u32/i8/i16/i32/f32 pixels; POWER VSX"),
+        ("neon", "u8/u16/u32/i8/i16/i32/f32 pixels; aarch64 NEON"),
+        ("sse2", "u8/u16/u32/i8/i16/i32/f32 pixels; SSE2"),
         ("scalar", "any pixel type"),
-        ("avx512f", "u8/u16/u32/i8/i16/i32 pixels; AVX-512 F/BW, for CPUs without VBMI2"),
+        ("avx512f", "u8/u16/u32/i8/i16/i32/f32 pixels; AVX-512 F/BW, for CPUs without VBMI2"),
     ),
     "route": (
         "auto",
@@ -98,8 +98,8 @@ _SUFFIX = {("u", 1): "u8", ("u", 2): "u16", ("u", 4): "u32", ("u", 8): "u64",
            ("f", 4): "f32", ("f", 8): "f64"}
 
 
-# the pixel dtypes of the SIMD collects (signed ones compare as signed)
-SIMD_COLLECT_DTYPES = ("u8", "u16", "u32", "i8", "i16", "i32")
+# the pixel dtypes of the SIMD collects (signed and float ones compare as such)
+SIMD_COLLECT_DTYPES = ("u8", "u16", "u32", "i8", "i16", "i32", "f32")
 # the pixel dtypes of the low-planes untransposes (i16: a block with a negative pixel takes kcb)
 LOWPLANES_DTYPES = ("u8", "u16", "i16")
 
@@ -242,7 +242,7 @@ def resolve(pipeline, dtype, codec, mask, dot_auto=None, matrix=False):
                          % (uname, np.dtype(dtype)))
     cname = NAMES["collect"][vals[COLLECT]]
     if cname != "scalar" and suffix not in SIMD_COLLECT_DTYPES:
-        raise ValueError("pipeline['collect']=%r is for u8/u16/u32/i8/i16/i32 pixels, not %s (use scalar)"
+        raise ValueError("pipeline['collect']=%r is for u8/u16/u32/i8/i16/i32/f32 pixels, not %s (use scalar)"
                          % (cname, np.dtype(dtype)))
     if matrix:
         if vals[DOT] == 0:
