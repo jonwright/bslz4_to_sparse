@@ -226,10 +226,10 @@ def test_automatic_dot_any_block_size(data, variant):
     codec = b.CODEC_ZSTD if variant[0] == "zstd" else b.CODEC_LZ4
     masked_frames = frames.reshape(len(frames), -1).astype(np.float64) * (mask.ravel() > 0)
     for mname, M in matrices().items():
-        if mname == "permute":
-            continue                      # auto never picks csc-permute (it changes the output type)
         c = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec)
         npx, (v, i), powder = c.multi(chunks, 0)
+        if mname == "permute":            # a permutation keeps the pixel dtype
+            assert c.dot == "csc-permute" and powder.dtype == np.uint16, (c.dot, powder.dtype)
         ref = np.stack([M.astype(np.float64) @ fr for fr in masked_frames])
         got = np.asarray(powder, np.float64).reshape(ref.shape) * (1.0 / (c.powder_scale or 1))
         assert np.abs(got - ref).max() <= 1e-6 * max(1.0, np.abs(ref).max()), (mname, c.dot)

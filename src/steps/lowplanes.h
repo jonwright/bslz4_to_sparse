@@ -27,6 +27,7 @@
 #include "../pipeline/common.h"
 #include "../pipeline/pipeline.h"
 #include "caps.h"            /* bslz4_lowplanes_collect_avx2 (kernels.cpp) */
+#include "untranspose_u8_neon.h" /* bslz4_untrans_u8_neon (AArch64) */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -751,7 +752,11 @@ static inline int bslz4_lowplanes_list(int value, uint8_t *BSLZ4_RESTRICT raw, s
     case BSLZ4_UNTRANSPOSE_LOWPLANES_C:
         if (ne % 8 || !bslz4_high_planes_zero_c(raw, ne, nz_end)) return -1;
         if (cut >= 255) return 0;
+#if defined(__ARM_NEON) && defined(__aarch64__)
+        bslz4_untrans_u8_neon(scratch, raw, ne);  /* kcb has no NEON: 128 pixels a step */
+#else
         if (bitshuf_decode_block((char *) scratch, (const char *) raw, NULL, ne, 1) < 0) return -1;
+#endif
         return out8 ? bslz4_collect_u8_swar(scratch, mask, i0, ne, cut, out_vals, out_adr, 1)
                     : bslz4_collect_u8_swar(scratch, mask, i0, ne, cut, out_vals, out_adr, 0);
     default:

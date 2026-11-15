@@ -165,6 +165,7 @@ def _module(dtype, acc=None):
         names = ["count_above<%s>" % _ctype(dtype), "collect_write<%s>" % _ctype(dtype)]
         if acc is not None:
             names += [_csr_name(dtype, acc, F) for F in sorted({1, FRAMES_PER_READ})]
+            names += ["permute_gather<%s>" % _ctype(dtype)]
         _mods[key] = cu.build_module(src, names)
     return _mods[key]
 
@@ -820,6 +821,7 @@ class chunk2sparseCSC(chunk2sparse):
         import scipy.sparse as ss
 
         fixed = csc if isinstance(csc, _matrix.FixedPointMatrix) else None
+        acc_given = acc is not None
         if fixed is not None:
             if acc not in (None, "i64"):
                 raise ValueError("a fixed_point_matrix is summed with acc='i64'")
@@ -842,6 +844,19 @@ class chunk2sparseCSC(chunk2sparse):
         else:
             nm = _matrix._fold_mask(_matrix.normalise_matrix(csc, npix=self.npix), self.mask)
         self.nbins = nm.nbins
+        # a permutation (FAZIT) with no acc asked for: its output is the pixels themselves, in the
+        # pixel dtype, as the CPU class's automatic dot (csc-permute)
+        self.permute = fixed is None and not acc_given and _matrix.analyse(nm)["permute"]
+        self.out_dtype = self.dtype if self.permute else np.dtype(_fixed_np(acc))
+        if self.permute:
+            n = np.diff(nm.indptr)
+            src = np.full(self.nbins, -1, np.int32)
+            src[nm.indices[nm.indptr[:-1][n == 1]]] = np.flatnonzero(n == 1)
+            (self.d_src,) = _shared(self._dev, "permute", [src])
+            self.k_perm = self.mod.get_function("permute_gather<%s>" % _ctype(self.dtype))
+            self.scale, self.acc = None, None  # no accumulator: the pixels are copied
+            self.csr_info = dict(nnz=int(nm.indices.size), nbins=int(self.nbins), kernel="permute_gather")
+            return
         M = ss.csc_matrix(
             (
                 nm.data if fixed is None else fixed.data,
@@ -879,14 +894,14 @@ class chunk2sparseCSC(chunk2sparse):
     @property
     def powder_scale(self):
         """The integer (2**b) an integer powder is divided by to get float; None for float
-        accumulators."""
+        accumulators and for a permutation (its powder is the pixels)."""
         return self.scale
 
     def _acc(self):
         return self.acc
 
     def _on_resize(self, n):
-        shape, dt = (n, max(self.nbins, 1)), np.dtype(_fixed_np(self.acc))
+        shape, dt = (n, max(self.nbins, 1)), self.out_dtype
         self.d_powder = cu.zeros(shape, dt)
         self.h_powder = np.frombuffer(
             cu.pinned(shape[0] * shape[1] * dt.itemsize), dt, shape[0] * shape[1]
@@ -895,7 +910,8 @@ class chunk2sparseCSC(chunk2sparse):
     def integrate(self, chunks, out=None):
         """The powder of each frame, kept on the GPU: (nframes, nbins), complete when returned:
         float64 (acc 'f64'), float32 ('f32'), or the int64 sums of a fixed_point_matrix (divide by
-        powder_scale).  The same sums as the powder of multi, without a cut or lists of pixels:
+        powder_scale); for a permutation matrix (FAZIT) with no acc given, the pixels in bin order in
+        the pixel dtype.  The same sums as the powder of multi, without a cut or lists of pixels:
         decompress, then the matrix product.  out, and the arrays returned without it, as for
         decompress (out of the dtype above, at least nframes x nbins).  jax without x64 takes
         int64 as int32, wrapping sums above 2**31 silently, and float64 as a rounded float32
@@ -911,7 +927,7 @@ class chunk2sparseCSC(chunk2sparse):
         return self._integrate_from(self._device_chunks(buf, offsets, lengths), out)
 
     def _integrate_from(self, source, out):
-        out, dst, _ = self._result(out, (source[0], self.nbins), np.dtype(_fixed_np(self.acc)))
+        out, dst, _ = self._result(out, (source[0], self.nbins), self.out_dtype)
         for g0, ng in self._groups(source):
             for s0 in range(0, ng, self.batch):
                 n = min(self.batch, ng - s0)
@@ -922,6 +938,21 @@ class chunk2sparseCSC(chunk2sparse):
 
     def _dot(self, n, out=None):
         if self.nbins == 0:
+            return
+        if self.permute:
+            nb = (self.nbins + 255) // 256
+            self.k_perm(
+                (min(nb, cu.max_grid_x(self._dev)), n),
+                (256,),
+                (
+                    self.d_dense,
+                    np.uint64(self.stride_el),
+                    np.int32(n),
+                    self.d_src,
+                    np.int32(self.nbins),
+                    self.d_powder if out is None else out,
+                ),
+            )
             return
         F = FRAMES_PER_READ if n >= FRAMES_PER_READ else 1
         self.k_csr[F](
@@ -942,7 +973,8 @@ class chunk2sparseCSC(chunk2sparse):
     def _prepare_outputs(self, nf):
         if getattr(self, "_powder_buf", None) is None or self._powder_buf.shape[0] < nf:
             self._powder_buf = np.empty(
-                (nf, self.nbins), np.int64 if self.acc == "i64" else np.float64
+                (nf, self.nbins),
+                self.out_dtype if self.permute else (np.int64 if self.acc == "i64" else np.float64),
             )
         self._powder_out = self._powder_buf[:nf]
 

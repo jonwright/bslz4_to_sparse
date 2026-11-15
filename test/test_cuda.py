@@ -180,6 +180,46 @@ def test_matrices(tmp_path, dt, kind, acc):
     assert np.abs(p - ref).max() / max(np.abs(ref).max(), 1.0) < TOL[acc]
 
 
+@pytest.mark.parametrize("dt", [np.uint8, np.int8, np.uint16, np.int16, np.uint32, np.int32, np.float32])
+def test_permutation_keeps_the_pixel_dtype(tmp_path, dt):
+    """A permutation (FAZIT: weight 1, one bin per pixel, each bin reached once) with no acc
+    given: the powder is the pixels in bin order, in the pixel dtype, as the CPU class's automatic
+    csc-permute; with an acc it is the accumulator's sums, as before.  Some bins are reached by no
+    pixel (0)."""
+    shape = (61, 83)
+    npix = shape[0] * shape[1]
+    rng = np.random.default_rng(11)
+    mask = (rng.random(npix) > 0.2).astype(np.uint8).reshape(shape)
+    a = rng.poisson(3.0, (3,) + shape)
+    if np.dtype(dt).kind == "i":
+        a = a - rng.poisson(3.0, a.shape)
+    frames = a.astype(dt)
+    frames[:, mask == 0] = big_value(dt)
+    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    pix = np.flatnonzero(mask.ravel())
+    nbins = pix.size + 5
+    bins = rng.permutation(nbins)[: pix.size]
+    n = np.zeros(npix, np.int64)
+    n[pix] = 1
+    M = sp.csc_matrix(
+        (np.ones(pix.size, np.float32), bins.astype(np.int32),
+         np.concatenate(([0], np.cumsum(n))).astype(np.int32)),
+        shape=(nbins, npix),
+    )
+    want = np.zeros((len(frames), nbins), dt)
+    want[:, bins] = frames.reshape(len(frames), -1)[:, pix]
+    c = g.chunk2sparseCSC(mask, M, dt, codec)
+    for cut in (0, 2):
+        npx, (v, idx), p = c.multi(chunks, cut)
+        assert c.permute and c.powder_scale is None
+        assert p.dtype == np.dtype(dt) and (p == want).all()
+    d = c.integrate(chunks)
+    assert d.dtype == np.dtype(dt) and (d.get() == want).all()
+    c = g.chunk2sparseCSC(mask, M, dt, codec, acc="f64")
+    npx, (v, idx), p = c.multi(chunks, 0)
+    assert not c.permute and p.dtype == np.float64 and (p == want).all()
+
+
 def mixed_frames(dt, shape, seed=7):
     """nearly empty to dense, with a few bright spots, and masked pixels at the maximum"""
     rng = np.random.default_rng(seed)

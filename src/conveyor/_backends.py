@@ -13,6 +13,11 @@ def _prepared_matrix(mask, csc, dtype, exact, maxval, float_asked=False):
     exact=True: fixed_point_matrix or an error; exact=False: csc as it is."""
     import bslz4_to_sparse as b
 
+    # FIXME: a FAZIT permutation matrix (weight 1, one bin per pixel, each bin reached once) should
+    # be passed through as it is: the library then gives csc-permute (CPU) or permute_gather (GPU)
+    # and the powder in the pixel dtype (2 bytes a bin for u16).  Turned into fixed point here, it
+    # comes out int64 through the conveyor.  Check _matrix.analyse(csc)["permute"] before
+    # fixed_point_matrix, and let the sinks take an integer powder with no powder_scale.
     dt = np.dtype(dtype)
     if exact is None:
         if float_asked or dt.kind not in "ui" or (dt.itemsize > 2 and maxval is None):

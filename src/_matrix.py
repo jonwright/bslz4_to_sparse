@@ -465,6 +465,10 @@ def analyse(nm):
             "occupancy": float((n > 0).mean()) if n.size else 0.0,
             "unit_weights": bool(nm.data.size == 0 or (nm.data == 1).all())}
     info["nosplit"] = info["max_bins"] <= 1 and info["unit_weights"]
+    # a permutation (FAZIT): each pixel to at most one bin, weight 1, each bin reached at most once.
+    # Its output is the pixels themselves, so it is kept in the pixel dtype (csc-permute).
+    info["permute"] = bool(info["nosplit"] and nm.indices.size and
+                           np.unique(nm.indices).size == nm.indices.size)
     try:
         _run_starts(nm)
         info["runs"] = True
@@ -477,17 +481,21 @@ BSB_MAX_BLOCK_ELEMS = 65536   # bsb-csr's in-block pixel index is uint16
 
 
 def auto_dot(info, padded_avx2, block_elems=None, int_pixels=False):
-    """The float dot to use for a matrix, from the kernels measured by tools/bench_kernels.py (the
-    Every pipeline page of the documentation): a histogram -> csc-nosplit-int for integer pixels of at
+    """The dot to use for a matrix, from the kernels measured by tools/bench_kernels.py (the
+    Every pipeline page of the documentation): a permutation (FAZIT: weight 1, one bin per pixel,
+    each bin reached once) -> csc-permute, whose output is the pixels in bin order, in the pixel
+    dtype (an accumulator would only make the output wider: 8 bytes a pixel instead of 2 for u16);
+    a histogram -> csc-nosplit-int for integer pixels of at
     most 32 bits (u32: 5 to 30 % over bsb-csr-nosplit on 1 core of an EPYC and of a Xeon, u16 on the
     sparse route a tie), else bsb-csr-nosplit; one run of <= 8
     bins per pixel -> padded-avx2 (on dense frames) or padded; else few occupied pixels (rings) ->
     bsb-csr; runs of 9-64 bins -> padded for decode blocks of <= 8192 pixels, csc for larger ones
     (csc-run was never the best); else csc.  Decode blocks over BSB_MAX_BLOCK_ELEMS pixels rule
-    the bsb-csr dots out (csc-nosplit, csc instead).  Never csc-permute (it changes the output) or
-    the fixed-point integer dots, which need a matrix from fixed_point_matrix.  int_pixels: the pixels
-    are integers of at most 32 bits."""
+    the bsb-csr dots out (csc-nosplit, csc instead).  Never the fixed-point integer dots, which need
+    a matrix from fixed_point_matrix.  int_pixels: the pixels are integers of at most 32 bits."""
     bsb = block_elems is None or block_elems <= BSB_MAX_BLOCK_ELEMS
+    if info.get("permute"):
+        return "csc-permute"
     if info["nosplit"]:
         if int_pixels:
             return "csc-nosplit-int"

@@ -20,6 +20,9 @@
    was asked for (howmany None or > cap), gets level -1: no list is written and the host makes it
    from the dense frame.
 
+   permute_gather  a permutation matrix (FAZIT): one thread per bin copies its pixel, in the pixel
+   type, instead of csr1d.
+
    csr1d accumulators (the `acc` of _gpu.py): f32 = float weights, float sums; f64 = float
    weights, double sums (pyFAI); i64 = u32 fixed-point weights, int64 sums (exact).
 */
@@ -218,6 +221,21 @@ __global__ void csr1d(const T *__restrict__ dense, const unsigned long long stri
 #else
     csr1d_bin<T, W, A, F>(blockIdx.x, dense, stride_el, nframes, coef, idx, indptr, nbins, out);
 #endif
+}
+
+/* A permutation matrix (FAZIT: weight 1, one bin per pixel, each bin reached once): out[f, b] =
+ * the pixel src[b] of frame f (0 for a bin no pixel reaches), in the pixel type.  One thread per
+ * bin (csr1d would launch a thread block per bin); grid (ceil(nbins / blockDim.x) or fewer, nframes) */
+template <typename T>
+__global__ void permute_gather(const T *__restrict__ dense, const unsigned long long stride_el,
+                               const int nframes, const int *__restrict__ src, const int nbins,
+                               T *__restrict__ out) {
+    const int f = blockIdx.y;
+    const T *d = dense + (size_t) f * stride_el;
+    for (int b = blockIdx.x * blockDim.x + threadIdx.x; b < nbins; b += gridDim.x * blockDim.x) {
+        const int p = __ldg(src + b);
+        out[(size_t) f * nbins + b] = p >= 0 ? __ldg(d + p) : (T) 0;
+    }
 }
 
 template <typename T> __device__ __forceinline__ bool above(T v, long long cut_i, float cut_f) {

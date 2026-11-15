@@ -273,6 +273,11 @@ def test_fazit_permutation(setup):
     assert p.dtype == np.uint16
     want = np.array([f.ravel()[pix[order]] for f in frames])
     assert (p == want).all()
+    # the automatic dot sees the permutation: the same output, in the pixel dtype
+    auto = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=codec)
+    _npx, _sparse, pa = auto.multi(chunks, 0)
+    assert auto.dot == "csc-permute" and pa.dtype == np.uint16
+    assert (pa == want).all()
 
 
 @pytest.mark.parametrize("fast", ["az", "rad"])

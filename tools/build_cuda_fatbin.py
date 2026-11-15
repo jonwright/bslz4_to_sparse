@@ -62,6 +62,7 @@ def kernel_names():
     for t in CTYPES:
         names += ["count_above<%s>" % t, "collect_write<%s>" % t]
         names += ["csr1d<%s, %s, %s, %d>" % (t, w, a, f) for w, a in ACCS for f in FRAMES]
+        names += ["permute_gather<%s>" % t]
     return names
 
 
