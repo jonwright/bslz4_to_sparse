@@ -54,11 +54,11 @@
  *   BSLZ4_UNTRANSPOSE_KCB  kcb, any dtype and block: dispatches SSE2, AVX2
  *                      or AVX-512 itself; the full bit and byte transpose
  *                      into the pixel block, collect separate.  kcb has no
- *                      NEON or VSX code: on AArch64 this value runs
- *                      bitshuffle's NEON kernels (as BSLZ4_UNTRANSPOSE_NEON)
- *                      for 2- and 4-byte pixels and our own NEON bit
- *                      transpose for 1-byte pixels (untranspose_u8_neon.h:
- *                      bitshuffle's does the 1-byte bit step in scalar code),
+ *                      NEON or VSX code: on AArch64 this value runs our
+ *                      own NEON bit transpose for 1-byte pixels
+ *                      (untranspose_u8_neon.h: bitshuffle's does the 1-byte
+ *                      bit step in scalar code) and kcb's portable C for
+ *                      wider ones (faster than bitshuffle's NEON there),
  *                      on POWER bitshuffle's SSE2 ones (GCC emulates SSE2 on
  *                      VSX) for 2- and 4-byte pixels.
  *   BSLZ4_UNTRANSPOSE_NEON  bitshuffle's NEON kernels (bshuf_trans_byte_
@@ -125,15 +125,16 @@ static inline int64_t bslz4_untranspose_bshuf_sse(void *BSLZ4_RESTRICT out, cons
 #endif
 
 /* kcb, and the fallback of the low-planes values.  kcb has SIMD only on x86; elsewhere it runs its
- * portable C.  AArch64: bitshuffle's NEON kernels instead, and for 1-byte pixels our own NEON
- * bit transpose (untranspose_u8_neon.h).  POWER: bitshuffle's SSE2 kernels
+ * portable C.  AArch64: our own NEON bit transpose for 1-byte pixels (untranspose_u8_neon.h;
+ * Pinebook, 8 kB blocks: 1.72 vs 0.30 GB/s on A53, 3.26 vs 0.71 on A72), kcb for wider ones
+ * (bitshuffle's NEON was 10-19 % slower than kcb's portable C for u16 and u32).  POWER: bitshuffle's SSE2 kernels
  * (emulated on VSX) for 2- and 4-byte pixels, 1.4 to 1.45x kcb on POWER9 (one core: u32 ceo2
  * 60.5 vs 41.6 fps, u16 silicon full transpose 114 vs 82); kcb for 1-byte pixels (160 vs 134). */
 static inline int64_t bslz4_untranspose_kcb(void *BSLZ4_RESTRICT out, const void *BSLZ4_RESTRICT in, void *BSLZ4_RESTRICT scratch,
                                              size_t size, size_t elem_size) {
 #if BSLZ4_HAVE_BACKEND_NEON
     if (elem_size == 1) return bslz4_untrans_u8_neon((uint8_t *) out, (const uint8_t *) in, size);
-    return bslz4_untranspose_bshuf_neon(out, in, scratch, size, elem_size);
+    return bitshuf_decode_block((char *) out, (const char *) in, (char *) scratch, size, elem_size);
 #elif BSLZ4_HAVE_BACKEND_SSE_EMU
     if (elem_size > 1) return bslz4_untranspose_bshuf_sse(out, in, scratch, size, elem_size);
     return bitshuf_decode_block((char *) out, (const char *) in, (char *) scratch, size, elem_size);
