@@ -10,6 +10,8 @@
  * (128 pixels) are loaded, the 8x8 bit transpose is done lane-wise in three
  * masked-swap rounds, and three zip rounds interleave the eight result
  * vectors into pixel order.  No scratch.  ne must be a multiple of 8.
+ * bslz4_untrans_wide_neon does 2- and 4-byte elements with it, one byte at a
+ * time, then interleaves the bytes.
  */
 #if defined(__ARM_NEON) && defined(__aarch64__)
 #include <arm_neon.h>
@@ -71,6 +73,34 @@ static inline int64_t bslz4_untrans_u8_neon(uint8_t *out, const uint8_t *in, siz
             out[8 * j + i] = (uint8_t) v;
         }
     return (int64_t) ne;
+}
+/* 2- and 4-byte elements.  The bit-planes of byte b of every element are rows 8b..8b+7, i.e. a
+ * 1-byte block at in + b*size: each is untransposed into scratch + b*size, then the es byte
+ * arrays are interleaved (vst2q/vst4q, 16 elements a step).  scratch: size*es bytes, apart from
+ * out and in.  size must be a multiple of 8.  Returns size*es, or -1 for another elem_size. */
+static inline int64_t bslz4_untrans_wide_neon(uint8_t *out, const uint8_t *in, uint8_t *scratch,
+                                              size_t size, size_t es) {
+    size_t k = 0;
+    if (es != 2 && es != 4) return -1;
+    for (size_t b = 0; b < es; b++) bslz4_untrans_u8_neon(scratch + b * size, in + b * size, size);
+    if (es == 2) {
+        const uint8_t *s0 = scratch, *s1 = scratch + size;
+        for (; k + 16 <= size; k += 16) {
+            uint8x16x2_t v = {{vld1q_u8(s0 + k), vld1q_u8(s1 + k)}};
+            vst2q_u8(out + 2 * k, v);
+        }
+        for (; k < size; k++) { out[2 * k] = s0[k]; out[2 * k + 1] = s1[k]; }
+    } else {
+        const uint8_t *s0 = scratch, *s1 = scratch + size, *s2 = scratch + 2 * size, *s3 = scratch + 3 * size;
+        for (; k + 16 <= size; k += 16) {
+            uint8x16x4_t v = {{vld1q_u8(s0 + k), vld1q_u8(s1 + k), vld1q_u8(s2 + k), vld1q_u8(s3 + k)}};
+            vst4q_u8(out + 4 * k, v);
+        }
+        for (; k < size; k++) {
+            out[4 * k] = s0[k]; out[4 * k + 1] = s1[k]; out[4 * k + 2] = s2[k]; out[4 * k + 3] = s3[k];
+        }
+    }
+    return (int64_t) (size * es);
 }
 #undef BSLZ4_U8_NEON_SWAP
 #endif
