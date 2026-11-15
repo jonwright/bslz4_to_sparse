@@ -180,7 +180,7 @@ def test_matrices(tmp_path, dt, kind, acc):
     assert np.abs(p - ref).max() / max(np.abs(ref).max(), 1.0) < TOL[acc]
 
 
-@pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32, np.int32, np.float32])
+@pytest.mark.parametrize("dt", [np.uint8, np.int8, np.uint16, np.int16, np.uint32, np.int32, np.float32])
 def test_permutation_keeps_the_pixel_dtype(tmp_path, dt):
     """A permutation (FAZIT: weight 1, one bin per pixel, each bin reached once) with no acc
     given: the powder is the pixels in bin order, in the pixel dtype, as the CPU class's automatic
@@ -190,7 +190,10 @@ def test_permutation_keeps_the_pixel_dtype(tmp_path, dt):
     npix = shape[0] * shape[1]
     rng = np.random.default_rng(11)
     mask = (rng.random(npix) > 0.2).astype(np.uint8).reshape(shape)
-    frames = rng.poisson(3.0, (3,) + shape).astype(dt)
+    a = rng.poisson(3.0, (3,) + shape)
+    if np.dtype(dt).kind == "i":
+        a = a - rng.poisson(3.0, a.shape)
+    frames = a.astype(dt)
     frames[:, mask == 0] = big_value(dt)
     chunks, codec = write_chunks(tmp_path / "f.h5", frames)
     pix = np.flatnonzero(mask.ravel())
@@ -206,9 +209,10 @@ def test_permutation_keeps_the_pixel_dtype(tmp_path, dt):
     want = np.zeros((len(frames), nbins), dt)
     want[:, bins] = frames.reshape(len(frames), -1)[:, pix]
     c = g.chunk2sparseCSC(mask, M, dt, codec)
-    npx, (v, idx), p = c.multi(chunks, 0)
-    assert c.permute and c.powder_scale is None
-    assert p.dtype == np.dtype(dt) and (p == want).all()
+    for cut in (0, 2):
+        npx, (v, idx), p = c.multi(chunks, cut)
+        assert c.permute and c.powder_scale is None
+        assert p.dtype == np.dtype(dt) and (p == want).all()
     d = c.integrate(chunks)
     assert d.dtype == np.dtype(dt) and (d.get() == want).all()
     c = g.chunk2sparseCSC(mask, M, dt, codec, acc="f64")
