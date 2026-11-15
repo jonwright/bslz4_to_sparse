@@ -49,7 +49,7 @@ VALUES = {
         ("lowplanes-avx2", "u8/u16/i16 pixels; AVX2"),
         ("lowplanes-vsx", "u8/u16/i16 pixels; POWER8 VSX"),
         ("lowplanes-c", "u8/u16/i16 pixels; portable C"),
-        ("kcb", "kcb's bit transpose (SSE2/AVX2/AVX-512 dispatched inside)"),
+        ("kcb", "kcb's bit transpose (SSE2/AVX2/AVX-512 dispatched inside); bitshuffle's NEON on aarch64, its SSE2 (emulated) on POWER for 2-4 byte pixels"),
         ("neon", "bitshuffle's NEON kernels; aarch64"),
         ("scalar", "bitshuffle's scalar kernels"),
         ("lowplanes-avx512bw", "u8/u16/i16 pixels; AVX-512 F/BW, for CPUs without VBMI and GFNI"),
