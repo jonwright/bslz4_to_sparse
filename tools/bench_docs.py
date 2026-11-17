@@ -2,7 +2,7 @@
 """Measure the speed figures shown on the documentation site.
 
 The two ID11 Eiger example files (CASES below; tools/example_data.py: silicon, uint16, sparse; CeO2,
-uint32, dense), each through six operations:
+uint32, dense), each through seven operations:
 
   sparsify   chunk2sparse: decode, mask, threshold to (values, indices)
   1D         chunk2sparseCSC with a pyFAI 1D bbox matrix (r_mm, one bin per
@@ -15,6 +15,9 @@ uint32, dense), each through six operations:
              bin per pixel width x NAZIM azimuth)
   2D+rings   8 ring windows x NAZIM azimuth summed from the 2D matrix, the ring
              widths chosen so the rings hold ~8 % of the unmasked pixels
+  FAZIT      the unmasked pixels sorted by radius (one pixel wide) and azimuth, each to
+             its own output slot: a permutation with no splits (P. Boesecke's fast
+             radial regrouping, as in ImageD11; tools/bench_suite.py fazit_matrix)
 
 The descriptions written into the JSON (OP_TEXT) are what the documentation
 shows, so they are built from the same constants as the matrices.
@@ -71,7 +74,7 @@ CASES = [
     {"key": "silicon", "label": "sparse photon counting, uint16", "cut": 0},
     {"key": "ceo2", "label": "dense powder rings, uint32", "cut": 150},
 ]
-OPS = ("sparsify", "1D", "1D no-split", "1D fine", "2D", "2D+rings")
+OPS = ("sparsify", "1D", "1D no-split", "1D fine", "2D", "2D+rings", "FAZIT")
 NFINE = 6000                   # 1D bins of the fine split (rows <= 8 bins here)
 NAZIM = 72                     # azimuthal bins of the 2D and ring matrices
 OP_TEXT = {
@@ -86,6 +89,8 @@ OP_TEXT = {
     "2D+rings": "chunk2sparseCSC, %d LaB6 ring windows x %d azimuthal bins summed from the "
                 "2D matrix, the windows sized to hold ~%d %% of the unmasked pixels"
                 % (bs.NRINGS, NAZIM, round(100 * bs.RING_FRACTION)),
+    "FAZIT": "chunk2sparseCSC, FAZIT: the unmasked pixels sorted by radius (one pixel wide) "
+             "and azimuth, each to its own output slot (a permutation, weight 1)",
 }
 FRAMES = 100
 BATCH = 25
@@ -120,9 +125,11 @@ def matrices(ai, key=None):
         return bs._f32(S @ m2)
 
     mr = bs._cached("docs_%s_rings_%d" % (key, NAZIM), rings)
+    mf = bs._cached("docs_%s_fazit" % key, lambda: bs.fazit_matrix(ai))
     return {"1D": (m1, [rp]), "1D no-split": (m1n, [rp]), "1D fine": (m1f, [NFINE]),
             "2D": (m2, [rp, NAZIM]),
-            "2D+rings": (mr, [mr.shape[0] // NAZIM, NAZIM])}
+            "2D+rings": (mr, [mr.shape[0] // NAZIM, NAZIM]),
+            "FAZIT": (mf, [mf.shape[0]])}
 
 
 def matrix_info(M, bins_shape, unmasked):
