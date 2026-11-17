@@ -172,23 +172,38 @@ def test_lowplanes_tiles(nelems, masked):
     assert ran >= 1
 
 
+def make_rings(npix, nbins, seed):
+    """Few occupied pixels (< 0.5), each reaching 1-3 arbitrary bins: auto takes bsb-csr."""
+    rng = np.random.default_rng(seed)
+    n = rng.integers(1, 4, npix) * (rng.random(npix) < 0.3)
+    indptr = np.concatenate(([0], np.cumsum(n)))
+    indices = rng.integers(0, nbins, int(n.sum()))
+    data = rng.random(int(n.sum())).astype(np.float32) + 0.25
+    return sp.csc_matrix((data, indices.astype(np.int32), indptr.astype(np.int32)),
+                         shape=(nbins, npix))
+
+
+@pytest.mark.parametrize("kind", ("rings", "nosplit"))
 @pytest.mark.parametrize("dtype", (np.float32, np.uint16))
-def test_auto_dot_falls_back_on_large_blocks(dtype):
-    """An auto dot that is bsb-csr on the default block becomes the csc form
-    on a 1 MB block, and is right; an explicit bsb-csr still refuses.  Integer pixels of at most
-    32 bits take csc-nosplit-int, which has no block limit: it stays."""
+def test_auto_dot_falls_back_on_large_blocks(dtype, kind):
+    """An auto dot that is bsb-csr on the default block becomes csc on a 1 MB block, and is
+    right.  A histogram takes csc-nosplit (float) or csc-nosplit-int, which have no block
+    limit: they stay."""
     rng = np.random.default_rng(14)
     frames = rng.poisson(0.3, (2,) + SHAPE).astype(dtype)
     mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)
-    M = make_nosplit(NPIX, 250, 8)
+    if kind == "rings":
+        M, first, later = make_rings(NPIX, 250, 8), "bsb-csr", "csc"
+    else:
+        M = make_nosplit(NPIX, 250, 8)
+        first = later = "csc-nosplit" if dtype == np.float32 else "csc-nosplit-int"
     ref = reference(M, frames, mask)
-    first = "bsb-csr-nosplit" if dtype == np.float32 else "csc-nosplit-int"
-    for nelems_bytes, want_fallback in ((8192, False), (1024 * 1024, True)):
+    for nelems_bytes, want in ((8192, first), (1024 * 1024, later)):
         chunks, codec = write_chunks(frames, "lz4", nelems_bytes)
         integ = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec)
         assert integ.dot == first
         _npx, _vp, p = integ.multi(chunks, 0)
-        assert (integ.dot == "csc-nosplit") == (want_fallback and dtype == np.float32)
+        assert integ.dot == want
         assert _pipeline.NAMES["dot"][integ.pipeline[_pipeline.DOT]] == integ.dot
         r, tol = expected(integ, frames * (mask > 0), ref)
         assert np.abs(p - r).max() / max(np.abs(r).max(), 1.0) < tol

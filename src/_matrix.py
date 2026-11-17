@@ -487,11 +487,13 @@ def auto_dot(info, padded_avx2, block_elems=None, int_pixels=False):
     dtype (an accumulator would only make the output wider: 8 bytes a pixel instead of 2 for u16);
     a histogram -> csc-nosplit-int for integer pixels of at
     most 32 bits (u32: 5 to 30 % over bsb-csr-nosplit on 1 core of an EPYC and of a Xeon, u16 on the
-    sparse route a tie), else bsb-csr-nosplit; one run of <= 8
-    bins per pixel -> padded-avx2 (on dense frames) or padded; else few occupied pixels (rings) ->
-    bsb-csr; runs of 9-64 bins -> padded for decode blocks of <= 8192 pixels, csc for larger ones
-    (csc-run was never the best); else csc.  Decode blocks over BSB_MAX_BLOCK_ELEMS pixels rule
-    the bsb-csr dots out (csc-nosplit, csc instead).  Never the fixed-point integer dots, which need
+    sparse route a tie), else csc-nosplit (float pixels: bsb-csr-nosplit 30 to 90 % slower on 10
+    of 12 machines, 6 % faster on two small cores; bslz4_perf results, one core); one run of <= 8
+    bins per pixel -> padded-avx2 (on dense frames), else bsb-csr (plain padded up to 2x slower
+    without AVX2, bslz4_perf) or padded for blocks bsb-csr cannot take; else few occupied pixels
+    (rings) -> bsb-csr; runs of 9-64 bins -> padded for decode blocks of <= 8192 pixels, csc for
+    larger ones (csc-run was never the best); else csc.  Decode blocks over BSB_MAX_BLOCK_ELEMS pixels rule
+    the bsb-csr dots out (padded, csc instead).  Never the fixed-point integer dots, which need
     a matrix from fixed_point_matrix.  int_pixels: the pixels are integers of at most 32 bits."""
     bsb = block_elems is None or block_elems <= BSB_MAX_BLOCK_ELEMS
     if info.get("permute"):
@@ -499,9 +501,11 @@ def auto_dot(info, padded_avx2, block_elems=None, int_pixels=False):
     if info["nosplit"]:
         if int_pixels:
             return "csc-nosplit-int"
-        return "bsb-csr-nosplit" if bsb else "csc-nosplit"
+        return "csc-nosplit"
     if info["runs"] and info["max_bins"] <= 8:
-        return "padded-avx2" if padded_avx2 else "padded"
+        if padded_avx2:
+            return "padded-avx2"
+        return "bsb-csr" if bsb else "padded"
     if info["occupancy"] < 0.5 and bsb:
         return "bsb-csr"
     if info["runs"] and info["max_bins"] <= _PADDED_MAX_WIDTH and \

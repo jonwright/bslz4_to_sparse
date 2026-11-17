@@ -105,8 +105,8 @@ def test_refuses_a_matrix_that_splits_pixels():
 
 
 @pytest.mark.parametrize("dtype,want", ((np.uint8, DOT), (np.uint16, DOT), (np.int32, DOT), (np.uint32, DOT),
-                                        (np.uint64, "bsb-csr-nosplit"), (np.int64, "bsb-csr-nosplit"),
-                                        (np.float32, "bsb-csr-nosplit")))
+                                        (np.uint64, "csc-nosplit"), (np.int64, "csc-nosplit"),
+                                        (np.float32, "csc-nosplit")))
 def test_automatic_dot(dtype, want):
     """A histogram of integer pixels of at most 32 bits takes it; wider and float pixels do not."""
     mask = np.ones((16, 64), np.uint8)
