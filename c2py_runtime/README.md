@@ -17,9 +17,16 @@ all. c2py23 is still needed as a developer tool to *regenerate*
 embedded in `src/bslz4_to_sparse.c` -- see the C2PY_BEGIN block there
 and `tools/regenerate_wrapper.py`.
 
-Source: https://github.com/jonwright/c2py23, `v0.5.10`,
-commit `469886e58d19de6004d70c6b5a798c1869fcc5ae`. v0.5.10 passes buffers above 2 GiB to
-pointer-width and 64-bit length parameters (`size_t`, `int64_t`, ...), range-checks every narrow
+Source: https://github.com/jonwright/c2py23, `v0.6.1` (same files as the PyPI
+0.6.1 release), commit `4b363e60c9105c1cd57984b05bb8f404ebee0918`. v0.6.1 hides the
+runtime's globals and helpers (`C2PY`, `C2PY_NDARRAY`, the `c2py_amd64_*`/`c2py_arm64_*`/
+`c2py_ppc64_*` CPU flags, ...) so they are no longer exported from the extension, and
+exports only `PyInit_<mod>`/`init<mod>`, also under `-fvisibility=hidden`. Since v0.5.10:
+v0.6.0 derives element-type and alignment checks from the C signature (the wrapper now
+checks each typed buffer's alignment), bounds-checks `shape[k]`/`strides[k]`, hardens
+buffer pinning, and names the argument in error messages for rejected buffers; v0.6.1 also
+allows `void *` returns and opaque pointer arguments. Earlier: v0.5.10 passes buffers above
+2 GiB to pointer-width and 64-bit length parameters (`size_t`, `int64_t`, ...), range-checks every narrow
 integer receiver instead of only `int`, holds scalar ints as `long long` and declares scalar
 outputs with their own C type (test/test_large_buffer.py). Since v0.5.5:
 v0.5.6 fixes the loader's "overwriting existing module" check to sample

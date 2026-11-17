@@ -49,77 +49,77 @@
 /* CPU feature flags  --  always defined so .c2py files can reference
  * any arch features without link errors.  Non-matching arches stay 0. */
 
-int c2py_amd64_mmx = 0;
-int c2py_amd64_sse = 0;
-int c2py_amd64_sse2 = 0;
-int c2py_amd64_sse3 = 0;
-int c2py_amd64_ssse3 = 0;
-int c2py_amd64_sse4_1 = 0;
-int c2py_amd64_sse4_2 = 0;
-int c2py_amd64_avx = 0;
-int c2py_amd64_avx2 = 0;
-int c2py_amd64_fma = 0;
-int c2py_amd64_avx512f = 0;
-int c2py_amd64_avx512bw = 0;
-int c2py_amd64_avx512dq = 0;
-int c2py_amd64_avx512vl = 0;
-int c2py_amd64_bmi1 = 0;
-int c2py_amd64_bmi2 = 0;
-int c2py_amd64_popcnt = 0;
-int c2py_amd64_lzcnt = 0;
-int c2py_amd64_vendor_intel = 0;
-int c2py_amd64_vendor_amd = 0;
-int c2py_amd64_f16c = 0;
-int c2py_amd64_movbe = 0;
-int c2py_amd64_adx = 0;
-int c2py_amd64_aes = 0;
-int c2py_amd64_pclmulqdq = 0;
-int c2py_amd64_sha_ni = 0;
-int c2py_amd64_gfni = 0;
-int c2py_amd64_vaes = 0;
-int c2py_amd64_vpclmulqdq = 0;
-int c2py_amd64_avx_vnni = 0;
-int c2py_amd64_avx512cd = 0;
-int c2py_amd64_avx512ifma = 0;
-int c2py_amd64_avx512vbmi = 0;
-int c2py_amd64_avx512vbmi2 = 0;
-int c2py_amd64_avx512vnni = 0;
-int c2py_amd64_avx512bitalg = 0;
-int c2py_amd64_avx512vpopcntdq = 0;
+C2PY_HIDDEN int c2py_amd64_mmx = 0;
+C2PY_HIDDEN int c2py_amd64_sse = 0;
+C2PY_HIDDEN int c2py_amd64_sse2 = 0;
+C2PY_HIDDEN int c2py_amd64_sse3 = 0;
+C2PY_HIDDEN int c2py_amd64_ssse3 = 0;
+C2PY_HIDDEN int c2py_amd64_sse4_1 = 0;
+C2PY_HIDDEN int c2py_amd64_sse4_2 = 0;
+C2PY_HIDDEN int c2py_amd64_avx = 0;
+C2PY_HIDDEN int c2py_amd64_avx2 = 0;
+C2PY_HIDDEN int c2py_amd64_fma = 0;
+C2PY_HIDDEN int c2py_amd64_avx512f = 0;
+C2PY_HIDDEN int c2py_amd64_avx512bw = 0;
+C2PY_HIDDEN int c2py_amd64_avx512dq = 0;
+C2PY_HIDDEN int c2py_amd64_avx512vl = 0;
+C2PY_HIDDEN int c2py_amd64_bmi1 = 0;
+C2PY_HIDDEN int c2py_amd64_bmi2 = 0;
+C2PY_HIDDEN int c2py_amd64_popcnt = 0;
+C2PY_HIDDEN int c2py_amd64_lzcnt = 0;
+C2PY_HIDDEN int c2py_amd64_vendor_intel = 0;
+C2PY_HIDDEN int c2py_amd64_vendor_amd = 0;
+C2PY_HIDDEN int c2py_amd64_f16c = 0;
+C2PY_HIDDEN int c2py_amd64_movbe = 0;
+C2PY_HIDDEN int c2py_amd64_adx = 0;
+C2PY_HIDDEN int c2py_amd64_aes = 0;
+C2PY_HIDDEN int c2py_amd64_pclmulqdq = 0;
+C2PY_HIDDEN int c2py_amd64_sha_ni = 0;
+C2PY_HIDDEN int c2py_amd64_gfni = 0;
+C2PY_HIDDEN int c2py_amd64_vaes = 0;
+C2PY_HIDDEN int c2py_amd64_vpclmulqdq = 0;
+C2PY_HIDDEN int c2py_amd64_avx_vnni = 0;
+C2PY_HIDDEN int c2py_amd64_avx512cd = 0;
+C2PY_HIDDEN int c2py_amd64_avx512ifma = 0;
+C2PY_HIDDEN int c2py_amd64_avx512vbmi = 0;
+C2PY_HIDDEN int c2py_amd64_avx512vbmi2 = 0;
+C2PY_HIDDEN int c2py_amd64_avx512vnni = 0;
+C2PY_HIDDEN int c2py_amd64_avx512bitalg = 0;
+C2PY_HIDDEN int c2py_amd64_avx512vpopcntdq = 0;
 
-int c2py_arm64_fp = 0;
-int c2py_arm64_asimd = 0;
-int c2py_arm64_aes = 0;
-int c2py_arm64_pmull = 0;
-int c2py_arm64_sha1 = 0;
-int c2py_arm64_sha2 = 0;
-int c2py_arm64_crc32 = 0;
-int c2py_arm64_sve = 0;
-int c2py_arm64_sve2 = 0;
-int c2py_arm64_atomics = 0;
-int c2py_arm64_fphp = 0;
-int c2py_arm64_asimdhp = 0;
-int c2py_arm64_asimddp = 0;
-int c2py_arm64_i8mm = 0;
-int c2py_arm64_bf16 = 0;
+C2PY_HIDDEN int c2py_arm64_fp = 0;
+C2PY_HIDDEN int c2py_arm64_asimd = 0;
+C2PY_HIDDEN int c2py_arm64_aes = 0;
+C2PY_HIDDEN int c2py_arm64_pmull = 0;
+C2PY_HIDDEN int c2py_arm64_sha1 = 0;
+C2PY_HIDDEN int c2py_arm64_sha2 = 0;
+C2PY_HIDDEN int c2py_arm64_crc32 = 0;
+C2PY_HIDDEN int c2py_arm64_sve = 0;
+C2PY_HIDDEN int c2py_arm64_sve2 = 0;
+C2PY_HIDDEN int c2py_arm64_atomics = 0;
+C2PY_HIDDEN int c2py_arm64_fphp = 0;
+C2PY_HIDDEN int c2py_arm64_asimdhp = 0;
+C2PY_HIDDEN int c2py_arm64_asimddp = 0;
+C2PY_HIDDEN int c2py_arm64_i8mm = 0;
+C2PY_HIDDEN int c2py_arm64_bf16 = 0;
 
-int c2py_ppc64_altivec = 0;
-int c2py_ppc64_vsx = 0;
-int c2py_ppc64_power8 = 0;
-int c2py_ppc64_power9 = 0;
+C2PY_HIDDEN int c2py_ppc64_altivec = 0;
+C2PY_HIDDEN int c2py_ppc64_vsx = 0;
+C2PY_HIDDEN int c2py_ppc64_power8 = 0;
+C2PY_HIDDEN int c2py_ppc64_power9 = 0;
 
 /* Tick source: 0 = wall clock (default), 1 = CPU cycle counter */
-int _c2py_use_cycle_counter = 0;
+C2PY_HIDDEN int _c2py_use_cycle_counter = 0;
 
 /* Detected cycle counter frequency, or 0 if unknown (probed at init). */
-uint64_t c2py_cycle_counter_frequency_hz = 0;
+C2PY_HIDDEN uint64_t c2py_cycle_counter_frequency_hz = 0;
 
 /* Active tick source frequency in Hz. */
-uint64_t c2py_tick_frequency_hz = 0;
+C2PY_HIDDEN uint64_t c2py_tick_frequency_hz = 0;
 
 /* Runtime-discovered numpy ndarray layout (zero = not yet probed).
  * Shared by both backends (extern in c2py_runtime.h). */
-c2py_ndarray_layout_t C2PY_NDARRAY = {0};
+C2PY_HIDDEN c2py_ndarray_layout_t C2PY_NDARRAY = {0};
 
 /* ---- Shared CPU feature probing (called by both backends) ---- */
 
@@ -453,7 +453,7 @@ x86_done:
 /* ---- Nimpy/dlsym backend ---- */
 
 /* Global API table */
-c2py_api_t C2PY = {0};
+C2PY_HIDDEN c2py_api_t C2PY = {0};
 
 static volatile int _c2py_runtime_initialized = 0;
 static int _c2py_init_result = 0;
@@ -469,7 +469,7 @@ static BOOL _c2py_init_cs_ready = FALSE;
 
 /* ---- Public init wrapper ---- */
 
-int c2py_runtime_init(void)
+C2PY_HIDDEN int c2py_runtime_init(void)
 {
 #ifndef _WIN32
     pthread_once(&_c2py_init_once, _c2py_runtime_init_once);
