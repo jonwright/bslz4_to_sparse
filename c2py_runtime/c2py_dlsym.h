@@ -89,9 +89,15 @@ static int c2py_snprintf(char *buf, size_t n, const char *fmt, ...)
 
 /* DLL export attribute for module init functions.
  * On Windows the PyInit_<name> symbol must be in the .pyd export
- * table or Python cannot load the module. */
-#ifdef _WIN32
+ * table or Python cannot load the module.  On ELF/Mach-O the init
+ * function must be visible to the dynamic symbol table, otherwise a
+ * module built with -fvisibility=hidden cannot be imported.  Add a
+ * visibility("default") attribute (CPython's PyMODINIT_FUNC does the
+ * same) so exactly PyInit_<name>/init<name> is exported. */
+#if defined(_WIN32) || defined(__CYGWIN__)
 #define C2PY_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__) || defined(__clang__)
+#define C2PY_EXPORT __attribute__((visibility("default")))
 #else
 #define C2PY_EXPORT
 #endif
@@ -104,18 +110,6 @@ static int c2py_snprintf(char *buf, size_t n, const char *fmt, ...)
 typedef long long Py_ssize_t;
 #else
 typedef long Py_ssize_t;
-#endif
-
-/* sizeof(Py_buffer) differs across CPython versions:
- * < 3.12: includes smalltable[2]  (96 bytes LP64, 52 bytes ILP32)
- * >= 3.12: smalltable removed for PEP 697 stable ABI (80 / 44)
- */
-#if defined(__LP64__) || defined(_WIN64)
-#define C2PY_PYBUFFER_SZ_PRE312   96
-#define C2PY_PYBUFFER_SZ_POST312  80
-#else
-#define C2PY_PYBUFFER_SZ_PRE312   52
-#define C2PY_PYBUFFER_SZ_POST312  44
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -167,9 +161,10 @@ typedef struct _c2py_object_ft {
 typedef void *(*PyCFunction)(PyObject*, PyObject*);
 
 /* Py_buffer: stable since Python 2.6 (PEP 3118).
- * NOTE: includes smalltable[2] field present in CPython 2.7-3.11.
- * In CPython 3.12+ this was removed (PEP 697 stable ABI);
- * we use C2PY.pybuffer_size (set at init) for correct sizeof.
+ * Declared with smalltable[2], which CPython 2.7-3.2 has and 3.3
+ * removed, so sizeof(Py_buffer) here is the larger of the two layouts
+ * (96 bytes LP64, 52 ILP32 vs 80 / 44).  Fields up to suboffsets are
+ * at the same offsets in both; c2py never reads smalltable or internal.
  */
 typedef struct {
     void *buf;
@@ -182,7 +177,7 @@ typedef struct {
     Py_ssize_t *shape;
     Py_ssize_t *strides;
     Py_ssize_t *suboffsets;
-    Py_ssize_t smalltable[2];  /* present on CPython 2.7-3.11 */
+    Py_ssize_t smalltable[2];  /* present on CPython 2.7-3.2 only */
     void *internal;
 } Py_buffer;
 

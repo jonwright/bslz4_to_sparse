@@ -17,62 +17,75 @@
 #ifndef C2PY_AMD64_H
 #define C2PY_AMD64_H
 
+/* Runtime globals and functions must never be exported from the module:
+ * under RTLD_GLOBAL a second c2py23 module would bind to the first one's
+ * tables.  Independent of the user's compiler flags.  Defined identically
+ * (and guarded) in every runtime header so any include order works. */
+#ifndef C2PY_HIDDEN
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(_WIN32)
+#define C2PY_HIDDEN __attribute__((visibility("hidden")))
+#else
+#define C2PY_HIDDEN
+#endif
+#endif
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* Baseline features (always 1 on x86_64, check here for completeness) */
-extern int c2py_amd64_mmx;
-extern int c2py_amd64_sse;
-extern int c2py_amd64_sse2;
+extern C2PY_HIDDEN int c2py_amd64_mmx;
+extern C2PY_HIDDEN int c2py_amd64_sse;
+extern C2PY_HIDDEN int c2py_amd64_sse2;
 
 /* SSE family */
-extern int c2py_amd64_sse3;
-extern int c2py_amd64_ssse3;
-extern int c2py_amd64_sse4_1;
-extern int c2py_amd64_sse4_2;
+extern C2PY_HIDDEN int c2py_amd64_sse3;
+extern C2PY_HIDDEN int c2py_amd64_ssse3;
+extern C2PY_HIDDEN int c2py_amd64_sse4_1;
+extern C2PY_HIDDEN int c2py_amd64_sse4_2;
 
 /* AVX family */
-extern int c2py_amd64_avx;
-extern int c2py_amd64_avx2;
-extern int c2py_amd64_fma;
-extern int c2py_amd64_f16c;
-extern int c2py_amd64_avx_vnni;
+extern C2PY_HIDDEN int c2py_amd64_avx;
+extern C2PY_HIDDEN int c2py_amd64_avx2;
+extern C2PY_HIDDEN int c2py_amd64_fma;
+extern C2PY_HIDDEN int c2py_amd64_f16c;
+extern C2PY_HIDDEN int c2py_amd64_avx_vnni;
 
 /* AVX-512 family */
-extern int c2py_amd64_avx512f;
-extern int c2py_amd64_avx512bw;
-extern int c2py_amd64_avx512dq;
-extern int c2py_amd64_avx512vl;
-extern int c2py_amd64_avx512cd;
-extern int c2py_amd64_avx512ifma;
-extern int c2py_amd64_avx512vbmi;
-extern int c2py_amd64_avx512vbmi2;
-extern int c2py_amd64_avx512vnni;
-extern int c2py_amd64_avx512bitalg;
-extern int c2py_amd64_avx512vpopcntdq;
+extern C2PY_HIDDEN int c2py_amd64_avx512f;
+extern C2PY_HIDDEN int c2py_amd64_avx512bw;
+extern C2PY_HIDDEN int c2py_amd64_avx512dq;
+extern C2PY_HIDDEN int c2py_amd64_avx512vl;
+extern C2PY_HIDDEN int c2py_amd64_avx512cd;
+extern C2PY_HIDDEN int c2py_amd64_avx512ifma;
+extern C2PY_HIDDEN int c2py_amd64_avx512vbmi;
+extern C2PY_HIDDEN int c2py_amd64_avx512vbmi2;
+extern C2PY_HIDDEN int c2py_amd64_avx512vnni;
+extern C2PY_HIDDEN int c2py_amd64_avx512bitalg;
+extern C2PY_HIDDEN int c2py_amd64_avx512vpopcntdq;
 
 /* Crypto / carry-less / Galois field.  gfni is the 128-bit form; its
  * 256-bit form also needs avx and its 512-bit form avx512f.  vaes and
  * vpclmulqdq imply avx. */
-extern int c2py_amd64_aes;
-extern int c2py_amd64_pclmulqdq;
-extern int c2py_amd64_sha_ni;
-extern int c2py_amd64_gfni;
-extern int c2py_amd64_vaes;
-extern int c2py_amd64_vpclmulqdq;
+extern C2PY_HIDDEN int c2py_amd64_aes;
+extern C2PY_HIDDEN int c2py_amd64_pclmulqdq;
+extern C2PY_HIDDEN int c2py_amd64_sha_ni;
+extern C2PY_HIDDEN int c2py_amd64_gfni;
+extern C2PY_HIDDEN int c2py_amd64_vaes;
+extern C2PY_HIDDEN int c2py_amd64_vpclmulqdq;
 
 /* Vendor (from cpuid leaf 0).  Both 0 for other vendors or non-x86. */
-extern int c2py_amd64_vendor_intel;
-extern int c2py_amd64_vendor_amd;
+extern C2PY_HIDDEN int c2py_amd64_vendor_intel;
+extern C2PY_HIDDEN int c2py_amd64_vendor_amd;
 
 /* BMI / bit manipulation */
-extern int c2py_amd64_bmi1;
-extern int c2py_amd64_bmi2;
-extern int c2py_amd64_popcnt;
-extern int c2py_amd64_lzcnt;
-extern int c2py_amd64_adx;
-extern int c2py_amd64_movbe;
+extern C2PY_HIDDEN int c2py_amd64_bmi1;
+extern C2PY_HIDDEN int c2py_amd64_bmi2;
+extern C2PY_HIDDEN int c2py_amd64_popcnt;
+extern C2PY_HIDDEN int c2py_amd64_lzcnt;
+extern C2PY_HIDDEN int c2py_amd64_adx;
+extern C2PY_HIDDEN int c2py_amd64_movbe;
 
 #ifdef __cplusplus
 }
