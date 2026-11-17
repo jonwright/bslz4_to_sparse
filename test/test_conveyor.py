@@ -363,3 +363,55 @@ def test_cpulist_and_nodes_without_cpus():
     assert _cpulist("0-3,8,10-11\n") == [0, 1, 2, 3, 8, 10, 11]
     assert _cpulist("\n") == [] and _cpulist("") == []  # a memory-only node (GPU memory on POWER9)
     assert sum(len(n) for n in cv.numa_nodes()) == len(os.sched_getaffinity(0))
+
+
+def fazit_matrix(mask, extra=5, seed=11):
+    """A permutation (FAZIT): every unmasked pixel to its own bin, weight 1; some bins empty."""
+    import scipy.sparse as sp
+
+    rng = np.random.default_rng(seed)
+    pix = np.flatnonzero(mask.ravel())
+    bins = rng.permutation(pix.size + extra)[: pix.size]
+    return sp.csc_matrix(
+        (np.ones(pix.size, np.float32), (bins, pix)), shape=(pix.size + extra, mask.size)
+    ), pix, bins
+
+
+
+def check_fazit_keeps_the_pixel_dtype(tmp_path, backend, **kw):
+    """With the default exact=None, a permutation matrix gives the pixels in bin order in the
+    pixel dtype, with no powder_scale, whatever exact is; a float dot asked for gives float64 sums of
+    the same values."""
+    paths = make_files(tmp_path, nfiles=2, nframes=11)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
+    mask = (np.random.default_rng(4).random(SHAPE) > 0.1).astype(np.uint8)
+    m, pix, bins = fazit_matrix(mask)
+    frames = {}
+    for fi, p in enumerate(paths):
+        with h5py.File(p, "r") as h:
+            frames[fi] = h[DSET][()].reshape(-1, mask.size)
+    out, scales = {}, []
+
+    class Keep(cv.Sink):
+        lock = threading.Lock()
+
+        def begin(self, meta):
+            scales.append(meta["powder_scale"])
+
+        def write(self, file, frame0, npx, values, indices, powder):
+            with self.lock:
+                for j in range(len(npx)):
+                    out[(file, frame0 + j)] = powder[j].copy()
+
+    cv.run(units, backend(mask, dtype, csc=m, **kw), workers=2, sink=lambda k: Keep(), batch=4)
+    assert scales[0] is None and len(out) == 22
+    for (fi, i), p in out.items():
+        want = np.zeros(m.shape[0], dtype)
+        want[bins] = frames[fi][i, pix]
+        assert p.dtype == (np.float64 if "pipeline" in kw or "acc" in kw else dtype)
+        assert np.array_equal(p, want)
+
+
+@pytest.mark.parametrize("kw", [{}, {"exact": False}, {"exact": True}, {"pipeline": {"dot": "csc-nosplit"}}])
+def test_fazit_keeps_the_pixel_dtype(tmp_path, kw):
+    check_fazit_keeps_the_pixel_dtype(tmp_path, cv.CpuBackend, **kw)
