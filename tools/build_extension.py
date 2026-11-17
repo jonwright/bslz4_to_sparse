@@ -307,10 +307,34 @@ def _build_gcc(srcs, incs, outpath, plat, builddir):
         subprocess.check_call(cmd)
         objs.append(obj)
     link = [cc, "-shared", "-o", outpath] + objs + ["-lm"]
+    link += _export_flags(plat, builddir)
     link += os.environ.get("BSLZ4_EXTRA_LDFLAGS", "").split()
     if not plat.startswith("darwin"):
         link.append("-static-libgcc")
     subprocess.check_call(link)
+
+
+# The only symbols the extension exports: the module init functions (Python 3
+# and Python 2).  Everything else stays local to the .so, so the bundled lz4,
+# zstd and bitshuffle (whose headers force default visibility) and our own C
+# functions cannot collide with, or be interposed by, the same names in another
+# loaded library.  Done at link time so the compiled code does not change.
+# Windows needs nothing: only __declspec(dllexport) symbols are exported there,
+# and only the init functions carry it (we never define LZ4_DLL_EXPORT or
+# ZSTD_DLL_EXPORT).
+_EXPORTS = ["PyInit__bslz4_to_sparse", "init_bslz4_to_sparse"]
+
+
+def _export_flags(plat, builddir):
+    if plat.startswith("win"):
+        return []
+    if plat.startswith("darwin"):
+        return ["-Wl,-exported_symbol,_%s" % name for name in _EXPORTS]
+    path = os.path.join(builddir, "exports.map")
+    with open(path, "w") as f:
+        f.write("{\n  global:\n%s  local: *;\n};\n"
+                % "".join("    %s;\n" % name for name in _EXPORTS))
+    return ["-Wl,--version-script=%s" % path]
 
 
 def _build_msvc(srcs, incs, outpath, builddir):
