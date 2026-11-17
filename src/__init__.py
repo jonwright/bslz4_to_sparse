@@ -51,9 +51,9 @@ from ._pipeline import describe, CODEC_LZ4, CODEC_ZSTD
 _ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse")
 _pipeline._ext = _ext
 
-# Before the next bump: run tools/real_data_pages.py again and commit its output.  docs/real/ was
-# generated from 0.0.22a1; ex13 calls the integer dots that changed in 0.0.22a3.
-version = "0.0.22a3"
+# Before tagging: run tools/real_data_pages.py again and commit its output.  docs/real/ was
+# generated from 0.0.22a1 and 0.0.22a3.
+version = "0.0.22"
 
 __all__ = [
     "version",
