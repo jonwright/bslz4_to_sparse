@@ -13,11 +13,9 @@
 - **dummy / dynamic mask.** Kept in the sparse output and removed later. Dropping a pixel
   changes the normalisation per frame: the Integrator would need a per-pixel normalisation
   image, not only the per-bin sums.
-- **Re-measure docs/bench/*.json.** `tools/bench_docs.py` and `tools/bench_kernels.py` now start from the
-  two example files (`tools/example_data.py`); the committed JSONs were measured on the old data sets and
-  need re-measuring on both machines (they also predate the current code and still list the removed
-  csc-nosplit-moment dot).  `tools/bench_suite.py`, `tools/bench_perf.py` and `tools/lz4_scan.py` still
-  generate synthetic 4M and 16M frames.
+- **Synthetic benchmark data.** `tools/bench_suite.py`, `tools/bench_perf.py` and `tools/lz4_scan.py`
+  still generate synthetic 4M and 16M frames; `tools/bench_docs.py` and `tools/bench_kernels.py` use
+  the two example files (`tools/example_data.py`).
 - **Dark subtraction and error bars** (pyFAI's variance models): not in the sums.
 
 ## Future work: a cut that is an image

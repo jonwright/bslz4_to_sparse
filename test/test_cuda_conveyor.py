@@ -16,7 +16,7 @@ try:
 except Exception:  # noqa: BLE001
     pytest.skip("no CUDA device", allow_module_level=True)
 
-from test_conveyor import DSET, SHAPE, make_files  # noqa: E402
+from test_conveyor import DSET, SHAPE, check_fazit_keeps_the_pixel_dtype, make_files  # noqa: E402
 
 from bslz4_to_sparse import conveyor as cv  # noqa: E402
 
@@ -107,3 +107,8 @@ def test_the_default_is_exact_for_16_bit_pixels_on_both_and_float_for_32_bit(tmp
     # 32-bit pixels: float on both
     for be in (cv.CpuBackend(mask, np.uint32, csc=m), cv.GpuBackend(mask, np.uint32, csc=m)):
         assert be.make_worker().powder_scale is None
+
+
+@pytest.mark.parametrize("kw", [{}, {"exact": False}, {"exact": True}, {"acc": "f64"}])
+def test_fazit_keeps_the_pixel_dtype(tmp_path, kw):
+    check_fazit_keeps_the_pixel_dtype(tmp_path, cv.GpuBackend, **kw)

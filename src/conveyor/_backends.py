@@ -6,18 +6,20 @@ import threading
 import numpy as np
 
 
-def _prepared_matrix(mask, csc, dtype, exact, maxval, float_asked=False):
+def _prepared_matrix(mask, csc, dtype, exact, maxval, float_asked=False, auto=False):
     """The matrix a backend gives the decoder: the demo's policy for exact sums.  exact=None:
     bslz4_to_sparse.fixed_point_matrix for 8 and 16-bit integer pixels (and wider ones when maxval
     is given), unless float_asked or the matrix cannot be fixed-point, then csc as it is;
-    exact=True: fixed_point_matrix or an error; exact=False: csc as it is."""
+    exact=True: fixed_point_matrix or an error; exact=False: csc as it is.  A permutation (FAZIT:
+    weight 1, one bin per pixel, each bin reached once) is passed as it is whenever the decoder
+    picks its own dot (auto): its powder is then the pixels in bin order, in the pixel dtype
+    (csc-permute, permute_gather), which is exact."""
     import bslz4_to_sparse as b
 
-    # FIXME: a FAZIT permutation matrix (weight 1, one bin per pixel, each bin reached once) should
-    # be passed through as it is: the library then gives csc-permute (CPU) or permute_gather (GPU)
-    # and the powder in the pixel dtype (2 bytes a bin for u16).  Turned into fixed point here, it
-    # comes out int64 through the conveyor.  Check _matrix.analyse(csc)["permute"] before
-    # fixed_point_matrix, and let the sinks take an integer powder with no powder_scale.
+    if auto and not isinstance(csc, b._matrix.FixedPointMatrix):
+        nm = b._matrix._fold_mask(b._matrix.normalise_matrix(csc, npix=mask.size), mask.ravel())
+        if b._matrix.analyse(nm)["permute"]:
+            return csc
     dt = np.dtype(dtype)
     if exact is None:
         if float_asked or dt.kind not in "ui" or (dt.itemsize > 2 and maxval is None):
@@ -29,10 +31,16 @@ def _prepared_matrix(mask, csc, dtype, exact, maxval, float_asked=False):
     return b.fixed_point_matrix(csc, mask, dt, maxval) if exact else csc
 
 
+def _dot_name(pipeline):
+    import bslz4_to_sparse as b
+
+    return b._pipeline.NAMES["dot"][b._pipeline.parse(pipeline)[b._pipeline.DOT]]
+
+
 def _names_float_dot(pipeline):
     import bslz4_to_sparse as b
 
-    name = b._pipeline.NAMES["dot"][b._pipeline.parse(pipeline)[b._pipeline.DOT]]
+    name = _dot_name(pipeline)
     return name != "auto" and name not in b._matrix.INT_DOTS
 
 
@@ -41,8 +49,9 @@ class CpuBackend(object):
     mask, dtype: the detector mask and pixel type; csc: a pyFAI CSC matrix or None; cut, howmany,
     thresholds: as chunk2sparse; pipeline: passed through to it; exact, maxval: as chunk2sparseCSC:
     by default the powder is int64 fixed-point sums for 16-bit pixels (the scale goes to the sink's
-    meta as powder_scale) and float64 sums otherwise; exact=False for a matrix that is not a sum of
-    counts (rings, q-weighted rows)."""
+    meta as powder_scale), the pixels in the pixel dtype for a permutation matrix (FAZIT, no
+    powder_scale) and float64 sums otherwise; exact=False for a matrix that is not a sum of counts
+    (rings, q-weighted rows)."""
 
     name = "cpu"
 
@@ -83,6 +92,7 @@ class CpuBackend(object):
                 self.exact,
                 self.maxval,
                 float_asked=_names_float_dot(self.pipeline),
+                auto=_dot_name(self.pipeline) == "auto",
             )
         return self._fixed
 
@@ -202,6 +212,7 @@ class GpuBackend(object):
                 self.exact,
                 self.maxval,
                 float_asked=self.acc not in (None, "i64"),
+                auto=self.acc is None,
             )
         return self._fixed
 
