@@ -5,6 +5,8 @@
    Edited in order to :
       - remove compression and only keep decompression
       - suppress assert for pycuda caching
+      - bounds checks on the output (as nvcomp 2.1's OOB_CHECKING), offset 0 refused and the
+        decoded size checked: decompressStream returns false on a corrupt block
 
 */
 
@@ -370,11 +372,15 @@ inline __device__ position_type lengthOfMatch(
   return match_length;
 }
 
-inline __device__ void decompressStream(
+/* Returns true when the block decodes to exactly decomp_end bytes; false, with nothing written
+   outside decompData[0, decomp_end) or read before it, on a corrupt block.  The whole warp takes
+   the same branches (every value tested is warp-uniform). */
+inline __device__ bool decompressStream(
     uint8_t* buffer,
     uint8_t* decompData,
     const uint8_t* compData,
-    const position_type comp_end)
+    const position_type comp_end,
+    const position_type decomp_end)
 {
   BufferControl ctrl(buffer, compData, comp_end);
   ctrl.loadAt(0);
@@ -397,6 +403,10 @@ inline __device__ void decompressStream(
       num_literals += ctrl.readLSIC(comp_idx);
     }
     const position_type literalStart = comp_idx;
+
+    if (num_literals > decomp_end - decomp_idx) {
+      return false;
+    }
 
     // copy the literals to the out stream
     if (num_literals + comp_idx > ctrl.end()) {
@@ -435,6 +445,10 @@ inline __device__ void decompressStream(
         match += ctrl.readLSIC(comp_idx);
       }
 
+      if (offset == 0 || offset > decomp_idx || match > decomp_end - decomp_idx) {
+        return false;
+      }
+
       // copy match
       if (offset <= num_literals
           && (ctrl.begin() <= literalStart
@@ -461,5 +475,5 @@ inline __device__ void decompressStream(
       decomp_idx += match;
     }
   }
-  assert(comp_idx == comp_end);
+  return decomp_idx == decomp_end;
 }

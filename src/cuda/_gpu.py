@@ -180,17 +180,18 @@ def _chunk_header(cmp):
     return int.from_bytes(h[:8], "big"), int.from_bytes(h[8:12], "big")
 
 
-_UNBLOCK_ERRORS = {  # err of the unblock kernel (bslz4_split.cu)
+_UNBLOCK_ERRORS = {  # err of the unblock and decompress kernels (bslz4_split.cu)
     1: "a chunk is corrupt or truncated (a block lies outside it)",
     2: "a chunk is corrupt or truncated (its raw tail lies outside it)",
     3: "-106: a chunk is not a frame of the mask's size",
     4: "a chunk's blocks are not %d bytes, the only size the GPU decoder takes" % BLOCK,
     5: "a chunk is zstd: the GPU decoder does lz4 only",
+    6: "a chunk is corrupt (an lz4 block does not decode to its size)",
 }
 
 
 def _raise_bad_chunks(err, f0):
-    """err: the unblock kernel's codes of frames f0 .. of the call"""
+    """err: the unblock and decompress kernels' codes of frames f0 .. of the call"""
     if err.any():
         raise Exception("Error decoding batch: " + ". ".join(
             "%s; chunks %s" % (_UNBLOCK_ERRORS.get(int(e), "error %d" % e),

@@ -335,6 +335,53 @@ def test_corrupt_is_reported(tmp_path):
         c.multi([bytes(bad)], 0)
 
 
+def _lz4_sequence(lits, offset=None, match=None):
+    """One lz4 sequence, written by hand: literals, then a match (offset, length) unless last"""
+    def lsic(n):
+        return b"\xff" * (n // 255) + bytes([n % 255])
+
+    tok = min(len(lits), 15) << 4
+    ext = lsic(len(lits) - 15) if len(lits) >= 15 else b""
+    if offset is None:
+        return bytes([tok]) + ext + lits
+    m = match - 4
+    return (bytes([tok | min(m, 15)]) + ext + lits + offset.to_bytes(2, "little")
+            + (lsic(m - 15) if m >= 15 else b""))
+
+
+def test_corrupt_lz4_content_is_reported():
+    """Blocks whose lz4 streams are corrupt inside correct framing: err 6, the context survives and
+    the other frames decode.  65 x 64 uint16: a full 8 kB block and a 128-byte one."""
+    rng = np.random.default_rng(3)
+
+    def r(n):
+        return rng.integers(0, 256, n, np.uint8).tobytes()
+
+    def chunk(b0, b1):
+        return (b"".join(x.to_bytes(n, "big") for x, n in ((65 * 64 * 2, 8), (8192, 4)))
+                + b"".join(len(x).to_bytes(4, "big") + x for x in (b0, b1)))
+
+    s = _lz4_sequence
+    full = s(r(16), 16, 100) + s(r(8192 - 116))
+    good = [chunk(full, s(r(128))), chunk(s(r(8192)), s(r(10), 3, 50) + s(r(68)))]
+    bad = [
+        chunk(s(r(8000)), s(r(128))),  # short
+        chunk(s(r(9000)), s(r(128))),  # literals past the block
+        chunk(s(r(16), 16, 9000) + s(r(8)), s(r(128))),  # match past the block
+        chunk(s(r(16), 0, 100) + s(r(8192 - 116)), s(r(128))),  # offset 0
+        chunk(s(r(16), 1000, 100) + s(r(8192 - 116)), s(r(128))),  # before the block's start
+        chunk(full, s(r(100))),  # the partial block short
+        chunk(full, s(r(16), 16, 200)),  # the partial block overrun
+    ]
+    c = g.chunk2sparse(np.ones((65, 64), np.uint8), np.uint16, LZ4)
+    want = b.decompress(good, np.uint16).reshape(2, 65, 64)
+    assert (cp.asarray(c.decompress(good)).get() == want).all()
+    for x in bad:
+        with pytest.raises(Exception, match=r"corrupt \(an lz4 block.*chunks \[1\]"):
+            c.decompress([good[0], x, good[1]])
+    assert (cp.asarray(c.decompress(good)).get() == want).all()
+
+
 @pytest.mark.parametrize("dt", [np.uint16, np.int32, np.float32])
 def test_batch_and_group_give_the_same_result(tmp_path, dt):
     mask, frames = mixed_frames(dt, (93, 217))
