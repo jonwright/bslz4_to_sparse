@@ -1,5 +1,5 @@
 """The CUDA calls the GPU classes need (the interface of _backend.py), on the CUDA driver API alone:
-libcuda is opened at run time (ctypes), the kernels come precompiled by nvcc in one fatbin
+libcuda is opened at run time (ctypes), the kernels come precompiled with NVRTC in one fatbin
 (tools/build_cuda_fatbin.py).  No cupy, NVRTC or CUDA runtime.
 
 Uses the device's primary context (shared with cupy, torch, jax).  A kernel runs on the calling
