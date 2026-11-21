@@ -35,7 +35,9 @@ inline __device__ uint32_t read32be(const uint8_t *address) {
 /* One thread per image: check the header and walk the block headers. starts[i*nstored + b] = offset
    of block b's 4-byte length word in chunk i.  err[i]: 0 good; 1, 2 corrupt (a block outside the
    chunk, or the tocopy raw bytes after the last block are); 3 not total_bytes of pixels; 4 blocks
-   not 8 kB; 5 zstd (the first block starts with the zstd magic number).  A bad chunk is skipped.
+   not 8 kB; 5 zstd (the first block starts with the zstd magic number).  The decompress kernel adds
+   6: an lz4 block is corrupt (it would write outside its block, refer back before its start, or
+   does not decode to the block's size).  A bad chunk is skipped.
    Bytes after the raw ones are ignored, as by the HDF5 filter.
  */
 extern "C" __global__ void unblock(const uint8_t *const slab, const int64_t *const chunk_off,
@@ -80,7 +82,7 @@ extern "C" __global__ void unblock(const uint8_t *const slab, const int64_t *con
 
 /* grid (frames, (ntot + 1) / 2), block (32, 2) */
 extern "C" __global__ void decompress(const uint8_t *const slab, const int64_t *const chunk_off,
-                                      const uint32_t *const starts, const int32_t *const err,
+                                      const uint32_t *const starts, int32_t *const err,
                                       const uint32_t nstored, const uint32_t ntot,
                                       const uint32_t total_bytes, const uint32_t bpp,
                                       uint8_t *const dense, const unsigned long long stride) {
@@ -97,8 +99,11 @@ extern "C" __global__ void decompress(const uint8_t *const slab, const int64_t *
                    bsize = part - tocopy;
     if (blockid < nstored) {
         const uint32_t *st = starts + (size_t) im * nstored;
-        decompressStream(inbuf + w * DECOMP_INPUT_BUFFER_SIZE, dec[w], comp + st[blockid] + 4,
-                         read32be(comp + st[blockid]));
+        if (!decompressStream(inbuf + w * DECOMP_INPUT_BUFFER_SIZE, dec[w], comp + st[blockid] + 4,
+                              read32be(comp + st[blockid]), blockid < nfull ? 8192 : bsize)) {
+            if (lane == 0) err[im] = 6;
+            return;
+        }
     }
     __syncwarp();
     if (blockid < nfull) {

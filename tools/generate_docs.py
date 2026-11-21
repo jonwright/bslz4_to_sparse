@@ -300,8 +300,9 @@ def gpu_page():
     init, gpu = tree("__init__.py"), tree("_gpu.py")
     parts = [
         "# GPU decoder\n",
-        "Optional: `bslz4_to_sparse.cuda` needs cupy and a CUDA GPU, and Python 3.  The text "
-        "below is read from the docstrings in `src/cuda/`.\n",
+        "Optional: `bslz4_to_sparse.cuda` needs a CUDA GPU and Python 3, and either cupy or only "
+        "the NVIDIA driver (the precompiled kernels).  The text below is read from the docstrings "
+        "in `src/cuda/` and `tools/build_cuda_fatbin.py`.\n",
         "## The package\n",
         need(init, "the package"),
         "## How it differs from the CPU classes\n",
@@ -336,6 +337,12 @@ def gpu_page():
     for n in gpu.body:
         if isinstance(n, ast.FunctionDef) and n.name == "release_shared":
             parts += ["## release_shared\n", fence("python", _ast_signature(n)), need(n, n.name)]
+    with open(os.path.join(REPO, "tools", "build_cuda_fatbin.py")) as fh:
+        build = ast.parse(fh.read())
+    parts += [
+        "## Building the kernels (bslz4_kernels.fatbin)\n",
+        need(build, "build_cuda_fatbin.py"),
+    ]
     parts.append("\n" + provenance())
     return "\n".join(parts)
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile the CUDA kernels (src/cuda/*.cu*) ahead of time into one fatbin, for the driver-API
+r"""Compile the CUDA kernels (src/cuda/*.cu*) ahead of time into one fatbin, for the driver-API
 backend (src/cuda/_backend_drv.py): no NVRTC, cupy or CUDA runtime at run time.
 
     python3 tools/build_cuda_fatbin.py --nvrtc .../libnvrtc.so.12 --fatbinary .../bin/fatbinary \
@@ -22,12 +22,26 @@ cubins, each from the toolkit given, for GPUs CUDA 12 dropped: Kepler (CUDA 11.8
 it) and Fermi (CUDA 8.0; an sm_20 cubin also runs on CC 2.1).  Before CUDA 11.1 NVRTC gives PTX
 only: the toolkit's bin/ptxas makes the cubin.  Driver 340 (CUDA 6.5) loads such cubins.  Each
 NVRTC loads its libnvrtc-builtins from LD_LIBRARY_PATH: list every toolkit's lib64, CUDA 8's first
-(it asks for the unversioned libnvrtc-builtins.so).
+(it asks for the unversioned libnvrtc-builtins.so).  Measured with driver 340: it loads sm_35
+cubins from CUDA 10.1, 11.4 and 11.8, and refuses PTX 6.4 (its JIT stops at PTX 4.1), so the old
+GPUs need cubins, not PTX.
 
-The shipped src/cuda/bslz4_kernels.fatbin (CI has no CUDA; test/test_cuda_fatbin.py checks it
-matches the source), at the ESRF (the cuda modules conflict, so 11.8 is named by its path; CUDA 8
-is not on cvmfs: unpacked from NVIDIA's cuda_8.0.61_375.26_linux.run, md5 33e1bd98...), in a
-shell with no other module loaded (after jupyter-slurm, NVRTC fails: "failed to load builtins"):
+CUDA 8.0 and 11.8 come from NVIDIA's CUDA toolkit archive.  CUDA 8.0 unpacks without root or
+install (cuda_8.0.61_375.26_linux.run, md5 33e1bd980e91af4e55f3ef835c103f9b):
+
+    sh cuda_8.0.61_375.26_linux.run --nox11 --extract=$PWD/parts
+    mkdir cuda-8.0 && sh parts/cuda-linux64-rel-8.0.61-21551265.run --nox11 --tar mxf -C cuda-8.0
+
+(--nox11: without a terminal, the runfile otherwise reopens itself in an xterm.)
+
+The shipped fatbin must hold the sm_20 and sm_35 cubins (test/test_cuda_fatbin.py checks them and
+that the fatbin matches the source; CI has no CUDA).  Without the old toolkits, develop on the
+cupy backend (BSLZ4_CUDA_BACKEND=cupy compiles the source at run time) and leave the rebuild of
+the shipped fatbin to someone who has them.
+
+The shipped src/cuda/bslz4_kernels.fatbin, as built at the ESRF (site paths: the cuda modules
+conflict, so 11.8 is named by its path; CUDA 8 is not on cvmfs, unpacked as above), in a shell
+with no other module loaded (after jupyter-slurm, NVRTC fails: "failed to load builtins"):
 
     module load cuda/12.9.1
     C118=/cvmfs/hpc.esrf.fr/software/packages/ubuntu24.04/x86_64/cuda/11.8.0
