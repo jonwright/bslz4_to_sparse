@@ -31,7 +31,7 @@
 #include "c2py_amd64.h"
 #endif
 
-#define BSLZ4_MASKPLANE_MAX_ELEMS 8192   /* largest block packed (8 kB of u8) */
+#define BSLZ4_MASKPLANE_STACK_ELEMS 8192 /* stack buffer threshold (1 kB); larger blocks heap-allocate */
 
 /* AND a pixel bitmap with the mask (bytes mask[e] != 0), packed 64 pixels
  * per word. */
@@ -91,7 +91,7 @@ static inline size_t bslz4_mask_planes_avx512(uint8_t *BSLZ4_RESTRICT raw, const
 
 static inline void bslz4_mask_planes(uint8_t *BSLZ4_RESTRICT raw, const uint64_t *BSLZ4_RESTRICT bits,
                               size_t nb, size_t nz_end) {
-    const uint8_t *mb = (const uint8_t *) bits;
+    const uint8_t *BSLZ4_RESTRICT mb = (const uint8_t *) bits;
     size_t i = 0;
 #if BSLZ4_X86_SIMD
     if (c2py_amd64_avx512f && nb % 64 == 0) i = bslz4_mask_planes_avx512(raw, bits, nb, nz_end);

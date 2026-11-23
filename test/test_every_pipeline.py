@@ -207,7 +207,7 @@ def test_automatic_mask_from_first_frame(data, variant, fill):
     got = b.describe(c.pipeline)["mask"]
     if fill == "valid":
         assert got == "none"
-    elif fill == "max" and variant[2] // 2 <= 8192:
+    elif fill == "max":
         assert got == "planes"
     else:
         assert got == "pixel"

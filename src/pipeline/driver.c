@@ -38,6 +38,7 @@
 #include "../steps/untranspose.h"
 #include "../steps/lowplanes.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 int bslz4_lowplanes_available(int value) { return bslz4_lowplanes_capable(value); }
@@ -205,11 +206,12 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
 
     const size_t block_elems = blocksize / NB;
     const uint8_t *BSLZ4_RESTRICT emask = p->step[BSLZ4_STEP_MASK] == BSLZ4_MASK_NONE ? NULL : mask;
-    /* mask in the bit-plane domain: needs blocks of <= 8192 pixels */
-    const int maskplanes = !pixels && p->step[BSLZ4_STEP_MASK] == BSLZ4_MASK_PLANES &&
-                           emask != NULL && block_elems <= BSLZ4_MASKPLANE_MAX_ELEMS &&
-                           block_elems % 64 == 0;
-    uint64_t maskbits[BSLZ4_MASKPLANE_MAX_ELEMS / 64];
+    /* mask in the bit-plane domain: needs blocks of a multiple of 64 pixels */
+    int maskplanes = !pixels && p->step[BSLZ4_STEP_MASK] == BSLZ4_MASK_PLANES &&
+                     emask != NULL && block_elems > 0 && block_elems % 64 == 0;
+    uint64_t maskbits_stack[BSLZ4_MASKPLANE_STACK_ELEMS / 64];
+    uint64_t *maskbits = maskbits_stack;
+    uint64_t *maskbits_heap = NULL;
     const int lowplanes = BSLZ4_IS_LOWPLANES(untranspose);
 
     if (is_dot) {
@@ -230,6 +232,15 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
     }
     if (workspace_len < 3 * blocksize + (is_dot ? block_elems * (sizeof(uint32_t) + NB) : 0))
         return BSLZ4_ERR_WORKSPACE_TOO_SMALL;
+
+    if (maskplanes && block_elems > BSLZ4_MASKPLANE_STACK_ELEMS) {
+        maskbits_heap = (uint64_t *) malloc(block_elems / 8);
+        if (maskbits_heap) {
+            maskbits = maskbits_heap;
+        } else {
+            maskplanes = 0; /* fall back to per-pixel masking on OOM */
+        }
+    }
 
     /* raw: the decoded planes (scratch follows it: the zero-aware decoder's
      * slack); scratch: the untranspose's; block: the pixels */
@@ -285,17 +296,24 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             size_t nz_end = blocksize;
             if (!pixels) {
                 int64_t pos = cursors[f];
-                if (BSLZ4_UNLIKELY(clen - pos < 4)) return BSLZ4_ERR_CORRUPT_CHUNK;
+                if (BSLZ4_UNLIKELY(clen - pos < 4)) {
+                    rc = BSLZ4_ERR_CORRUPT_CHUNK;
+                    goto free_maskbits;
+                }
                 nbytes = bslz4_read_be32((const uint8_t *) cf + pos);
-                if (BSLZ4_UNLIKELY((int64_t) nbytes > clen - pos - 4))
-                    return BSLZ4_ERR_CORRUPT_CHUNK;
+                if (BSLZ4_UNLIKELY((int64_t) nbytes > clen - pos - 4)) {
+                    rc = BSLZ4_ERR_CORRUPT_CHUNK;
+                    goto free_maskbits;
+                }
                 cursors[f] = pos + (int64_t) nbytes + 4;
 
                 /* decode: raw[nz_end..blocksize) is zero, maybe unwritten */
                 if (BSLZ4_UNLIKELY(bslz4_decode_block(decode, (const uint8_t *) cf + pos + 4,
                                                       nbytes, raw, blocksize,
-                                                      &nz_end) != (int) blocksize))
-                    return BSLZ4_ERR_DECOMPRESS;
+                                                      &nz_end) != (int) blocksize)) {
+                    rc = BSLZ4_ERR_DECOMPRESS;
+                    goto free_maskbits;
+                }
                 bslz4_counters_bump(BSLZ4_STEP_DECODE, decode);
             }
 
@@ -364,8 +382,10 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
             /* untranspose to the block, then collect (and dot) over it */
             if (!pixels) {
                 if (BSLZ4_UNLIKELY(
-                        bslz4_untranspose_full(p, block, raw, scratch, block_elems, nz_end) < 0))
-                    return BSLZ4_ERR_UNTRANSPOSE;
+                        bslz4_untranspose_full(p, block, raw, scratch, block_elems, nz_end) < 0)) {
+                    rc = BSLZ4_ERR_UNTRANSPOSE;
+                    goto free_maskbits;
+                }
                 bslz4_counters_bump(BSLZ4_STEP_UNTRANSPOSE, untranspose);
             }
             bslz4_counters_bump(BSLZ4_STEP_COLLECT, collect);
@@ -379,6 +399,10 @@ int bslz4_driver_run(const int64_t *BSLZ4_RESTRICT compressed_ptrs,
         }
         i0 += (int) block_elems;
     }
+
+free_maskbits:
+    free(maskbits_heap);
+    if (rc) return rc;
 
     /* The tail: the last partial block (a multiple of 8 elements, compressed
      * like the others) and any remainder stored raw right after the last

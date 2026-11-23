@@ -1,10 +1,10 @@
 """Decode blocks far from the default 8 kB: 256 kB and 1 MB, lz4 and zstd.
 
 Some steps are written for blocks of up to a few thousand pixels (lowplanes
-VSX and C values, mask planes: <= 8192 pixels; bsb-csr: <= 65536 pixels).  The
-lowplanes VBMI and AVX2 values take any size, in tiles of 8192 pixels.  Larger
-blocks must fall back to a generic step or be refused with an error, never
-give wrong numbers.
+VSX and C values: <= 8192 pixels; bsb-csr: <= 65536 pixels; mask planes: any
+multiple of 64 pixels, heap-allocating above 8192).  The lowplanes VBMI and AVX2
+values take any size, in tiles of 8192 pixels.  Larger blocks must fall back to
+a generic step or be refused with an error, never give wrong numbers.
 
   * sparsify: every untranspose x collect x mask the CPU offers, against numpy;
   * dots: every dot against numpy `M @ (img * mask)` on both routes.  The
@@ -76,14 +76,15 @@ def test_sparsify_every_step_matches_numpy(cname, block, dt):
     rng = np.random.default_rng(11)
     frames = np.minimum(rng.poisson(0.3, (2,) + SHAPE), np.iinfo(dt).max).astype(dt)
     frames[:, 10:14, 50:54] = min(900, np.iinfo(dt).max)
+    mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)
+    frames[1, mask == 0] = np.iinfo(dt).max
     chunks, codec = write_chunks(frames, cname, BLOCK_BYTES[block])
     assert int.from_bytes(bytes(chunks[0][8:12]), "big") == BLOCK_BYTES[block]
-    mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)
     ran = 0
     for un in available("untranspose"):
         for co in available("collect"):
-            for mk in ("pixel", "none"):
-                m = mask if mk == "pixel" else np.ones(SHAPE, np.uint8)
+            for mk in ("pixel", "planes", "none"):
+                m = np.ones(SHAPE, np.uint8) if mk == "none" else mask
                 try:
                     integ = b.chunk2sparse(m, dtype=dt, codec=codec,
                                            pipeline={"untranspose": un, "collect": co, "mask": mk})
@@ -151,24 +152,27 @@ def test_lowplanes_tiles(nelems, masked):
     frames = np.minimum(rng.poisson(0.5, (3,) + SHAPE), 255).astype(np.uint16)
     frames[1, 500:510, 600:610] = 900
     frames[2] = np.where(rng.random(SHAPE) < 1e-3, 7, 0)
-    chunks, codec = write_chunks(frames, "lz4", nelems * 2)
     mask = ((rng.random(SHAPE) > 0.1) if masked else np.ones(SHAPE, bool)).astype(np.uint8)
+    if masked:
+        frames[0, mask == 0] = 65535
+        frames[2, mask == 0] = 65535
+    chunks, codec = write_chunks(frames, "lz4", nelems * 2)
     ran = 0
     for un in [n for n in available("untranspose") if n.startswith("lowplanes")]:
         for co in available("collect"):
-            integ = b.chunk2sparse(mask, dtype=np.uint16, codec=codec,
-                                   pipeline={"untranspose": un, "collect": co,
-                                             "mask": "pixel" if masked else "none"})
-            for cut in (0, 3):
-                npx, (vals, adr) = integ.multi(chunks, cut)
-                for f in range(3):
-                    flat = frames[f].ravel()
-                    want = np.flatnonzero((flat > cut) & (mask.ravel() > 0))
-                    n = int(npx[f])
-                    assert n == want.size, (un, co, cut, f)
-                    assert (adr[f, :n] == want).all(), (un, co, cut, f)
-                    assert (vals[f, :n] == flat[want]).all(), (un, co, cut, f)
-            ran += 1
+            for mk in (("pixel", "planes") if masked else ("none",)):
+                integ = b.chunk2sparse(mask, dtype=np.uint16, codec=codec,
+                                       pipeline={"untranspose": un, "collect": co, "mask": mk})
+                for cut in (0, 3):
+                    npx, (vals, adr) = integ.multi(chunks, cut)
+                    for f in range(3):
+                        flat = frames[f].ravel()
+                        want = np.flatnonzero((flat > cut) & (mask.ravel() > 0))
+                        n = int(npx[f])
+                        assert n == want.size, (un, co, mk, cut, f)
+                        assert (adr[f, :n] == want).all(), (un, co, mk, cut, f)
+                        assert (vals[f, :n] == flat[want]).all(), (un, co, mk, cut, f)
+                ran += 1
     assert ran >= 1
 
 

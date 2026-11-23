@@ -10,7 +10,7 @@ step, resolved when the object is made (0 / None: the best guess for this
 CPU, data and matrix) and kept in `.pipeline`; describe() names the values.
 An automatic mask step on uint16 data with masked pixels is settled by the
 first frame decoded: 'planes' when most masked pixels hold 65535 there (and
-the decode block is at most 8192 pixels, a multiple of 64), 'pixel' otherwise.
+the decode block is a multiple of 64 pixels), 'pixel' otherwise.
 Nothing is global, so objects with different pipelines can run in
 different threads.
 
@@ -347,7 +347,7 @@ def _settle_mask(obj, pointers, lengths, cmp):
     65535: if most masked pixels hold it, switch obj's mask step to 'planes'."""
     obj._mask_pending = False
     block_elems = _blocksize_bytes(cmp) // 2
-    if block_elems > 8192 or block_elems % 64:      # BSLZ4_MASKPLANE_MAX_ELEMS: no planes
+    if block_elems == 0 or block_elems % 64:
         return
     p = obj.pipeline.copy()
     p[_pipeline.MASK] = _pipeline.NAMES["mask"].index("none")
