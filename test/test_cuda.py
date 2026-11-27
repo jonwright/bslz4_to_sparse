@@ -1,5 +1,5 @@
 """The GPU classes (bslz4_to_sparse.cuda), against numpy and against the CPU classes.  Skipped
-without cupy and a CUDA GPU.
+without a CUDA GPU; with or without cupy (the tests of exchange with other libraries need it).
 
   * collect: every pixel above the cut, exactly (dense frames take the host fallback);
   * matrices: the powder against numpy for the layouts and accumulators;
@@ -12,7 +12,7 @@ Matrix makers as in test_layouts.py.
 
 from __future__ import absolute_import, division, print_function
 
-from conftest import bitshuffle
+from conftest import bitshuffle, zstd_writer_available
 import os
 import struct
 import sys
@@ -28,15 +28,29 @@ import pytest
 h5py = pytest.importorskip("h5py")
 hdf5plugin = pytest.importorskip("hdf5plugin")
 sp = pytest.importorskip("scipy.sparse")
-cp = pytest.importorskip("cupy")
-try:
-    if cp.cuda.runtime.getDeviceCount() < 1:
-        pytest.skip("no CUDA device", allow_module_level=True)
-except Exception:  # noqa: BLE001 (no driver: cupy raises various errors)
-    pytest.skip("no CUDA device", allow_module_level=True)
-
 import bslz4_to_sparse as b  # noqa: E402
-from bslz4_to_sparse import cuda as g  # noqa: E402
+
+try:  # cupy is optional: without it the GPU classes use the driver backend (ctypes, the fatbin)
+    from bslz4_to_sparse import cuda as g
+
+    if g.device_count() < 1:
+        pytest.skip("no CUDA device", allow_module_level=True)
+except Exception:  # noqa: BLE001 (no driver, or no GPU)
+    pytest.skip("no CUDA device", allow_module_level=True)
+try:
+    import cupy as cp
+except ImportError:
+    cp = None
+needs_cupy = pytest.mark.skipif(cp is None, reason="needs cupy: another library's GPU arrays")
+
+
+def to_device(host):
+    """A host array copied to the GPU, as an array of the backend in use."""
+    if g.backend == "cupy":
+        return cp.asarray(host)
+    from bslz4_to_sparse.cuda import _backend_drv as drv
+
+    return drv.asarray(host)
 
 LZ4 = b.CODEC_LZ4
 
@@ -379,11 +393,11 @@ def test_corrupt_lz4_content_is_reported():
     ]
     c = g.chunk2sparse(np.ones((65, 64), np.uint8), np.uint16, LZ4)
     want = b.decompress(good, np.uint16).reshape(2, 65, 64)
-    assert (cp.asarray(c.decompress(good)).get() == want).all()
+    assert (c.decompress(good).get() == want).all()
     for x in bad:
         with pytest.raises(Exception, match=r"corrupt \(an lz4 block.*chunks \[1\]"):
             c.decompress([good[0], x, good[1]])
-    assert (cp.asarray(c.decompress(good)).get() == want).all()
+    assert (c.decompress(good).get() == want).all()
 
 
 @pytest.mark.parametrize("dt", [np.uint16, np.int32, np.float32])
@@ -425,7 +439,9 @@ def test_default_group_fits_the_memory(tmpdir, monkeypatch):
     ref = g.chunk2sparseCSC(mask, M, dt, codec, batch=2, group=2)
     n0, (v0, i0), p0 = ref.multi(chunks, 1)
     d0, q0 = ref.decompress(chunks).get(), ref.integrate(chunks).get()
-    monkeypatch.setattr(_gpu.cu, "memory_bytes", lambda dev: int(16 * 1.25 * biggest3))
+    # room (memory // 16) for exactly the three biggest consecutive frames, x 1.25, rounded up
+    room = -(-biggest3 * 5 // 4)
+    monkeypatch.setattr(_gpu.cu, "memory_bytes", lambda dev: 16 * room)
     c = g.chunk2sparseCSC(mask, M, dt, codec, batch=2)  # group None
     assert c._group(len(chunks), lambda G: max(
         sum(len(x) for x in chunks[i : i + G]) for i in range(0, len(chunks), G))) == 3
@@ -519,9 +535,9 @@ def test_extra_bytes_after_a_chunk_are_ignored(tmpdir, dt, shape, unblock):
     if unblock == "gpu":
         lens = np.array([len(x) for x in padded])
         offs = np.concatenate(([0], np.cumsum(lens)[:-1]))
-        d_buf = cp.asarray(np.frombuffer(b"".join(padded), np.uint8))
+        d_buf = to_device(np.frombuffer(b"".join(padded), np.uint8))
         dense = c.decompress_from_device(d_buf, offs, lens)
-        assert (cp.asnumpy(dense) == frames).all()
+        assert (dense.get() == frames).all()
     if frames[0].size % 8:  # the raw pixels cut short
         with pytest.raises(Exception, match=r"chunks \[1\]"):
             c.multi([chunks[0], chunks[1][:-1]], 0)
@@ -538,18 +554,33 @@ def test_decompress_and_integrate_stay_on_the_device(tmpdir, dt, shape):
     c = g.chunk2sparseCSC(mask, M, dt, codec, batch=2, group=3, device=0)
     d = c.decompress(chunks)
     assert d.shape == frames.shape and d.dtype == frames.dtype
-    assert (cp.asarray(d).get() == frames).all()  # __cuda_array_interface__ (or a cupy array)
-    assert (cp.from_dlpack(d).get() == frames).all()
-    assert int(cp.asarray(d[2:5]).sum()) == int(frames[2:5].astype(np.int64).sum())
+    assert (d.get() == frames).all() and (d[2:5].get() == frames[2:5]).all()
     p = c.integrate(chunks)
     _, _, p0 = c.multi(chunks, 0)
-    assert p.shape == (len(frames), M.shape[0]) and (cp.asarray(p).get() == p0).all()
+    assert p.shape == (len(frames), M.shape[0]) and (p.get() == p0).all()
     bad = bytearray(chunks[4])
     bad[12:16] = struct.pack(">I", len(bad))
     with pytest.raises(Exception, match=r"chunks \[4\]"):
         c.decompress(chunks[:4] + [bytes(bad)] + chunks[5:])
 
 
+@needs_cupy
+def test_results_go_to_other_libraries_without_a_copy(tmpdir):
+    rng = np.random.RandomState(4)
+    shape = (61, 83)
+    mask = (rng.random_sample(shape) > 0.2).astype(np.uint8)
+    frames = rng.poisson(2.0, (7,) + shape).astype(np.uint16)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
+    c = g.chunk2sparseCSC(mask, make_split_1d(mask.size, 40, 2), np.uint16, codec, batch=2, group=3)
+    d = c.decompress(chunks)
+    assert (cp.asarray(d).get() == frames).all()  # __cuda_array_interface__ (or a cupy array)
+    assert (cp.from_dlpack(d).get() == frames).all()
+    assert int(cp.asarray(d[2:5]).sum()) == int(frames[2:5].astype(np.int64).sum())
+    p = c.integrate(chunks)
+    assert (cp.asarray(p).get() == p.get()).all()
+
+
+@needs_cupy
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32])
 @pytest.mark.parametrize("shape", [(61, 83), (64, 128)])
 def test_decompress_and_integrate_into_the_callers_array(tmpdir, dt, shape, monkeypatch):
@@ -620,7 +651,7 @@ def test_chunks_already_on_the_device(tmpdir, dt):
     chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     lens = np.array([len(c) for c in chunks], np.int64)
     offs = 100 + np.concatenate(([0], np.cumsum(lens)[:-1]))  # the chunks start 100 bytes in
-    d_buf = cp.asarray(np.frombuffer(b"x" * 100 + b"".join(chunks), np.uint8))
+    d_buf = to_device(np.frombuffer(b"x" * 100 + b"".join(chunks), np.uint8))
     M = make_split_1d(mask.size, 50, 5)
     c = g.chunk2sparseCSC(mask, M, dt, codec, batch=3, group=4)
     n0, (v0, i0), p0 = _flat(c.multi(chunks, 1))  # copies: the next call reuses the buffers
@@ -628,25 +659,27 @@ def test_chunks_already_on_the_device(tmpdir, dt):
     assert (n1 == n0).all() and (p1 == p0).all()
     for f in range(len(frames)):
         assert (i1[f, : n1[f]] == i0[f, : n0[f]]).all() and (v1[f, : n1[f]] == v0[f, : n0[f]]).all()
-    assert (cp.asarray(c.decompress_from_device(d_buf, offs, lens)).get() == frames).all()
-    want = cp.asarray(c.integrate(chunks)).get()
-    assert (cp.asarray(c.integrate_from_device(d_buf, offs, lens)).get() == want).all()
+    assert (c.decompress_from_device(d_buf, offs, lens).get() == frames).all()
+    want = c.integrate(chunks).get()
+    assert (c.integrate_from_device(d_buf, offs, lens).get() == want).all()
     # the header checks are on the GPU: a frame of another size, a zstd chunk, offsets outside
     other = write_chunks_codec(os.path.join(str(tmpdir), "o.h5"), frames[:2, :60], "lz4")[1]
-    zst = write_chunks_codec(os.path.join(str(tmpdir), "z.h5"), frames[:2], "zstd")[1]
-    for bad, match in ((other, "-106"), (zst, "zstd")):
+    bads = [(other, "-106")]
+    if zstd_writer_available():  # hdf5plugin 2.3.2 (Python 2.7) cannot write the zstd chunk
+        bads.append((write_chunks_codec(os.path.join(str(tmpdir), "z.h5"), frames[:2], "zstd")[1], "zstd"))
+    for bad, match in bads:
         blob = b"".join(chunks[:5]) + bad + b"".join(chunks[6:])
         ln = np.array([len(x) for x in chunks[:5]] + [len(bad)] + [len(x) for x in chunks[6:]])
         of = np.concatenate(([0], np.cumsum(ln)[:-1]))
         with pytest.raises(Exception, match=match + r".*chunks \[5\]"):
-            c.decompress_from_device(cp.asarray(np.frombuffer(blob, np.uint8)), of, ln)
+            c.decompress_from_device(to_device(np.frombuffer(blob, np.uint8)), of, ln)
     with pytest.raises(Exception, match="-108"):
         c.from_device(d_buf, offs + 10**6, lens, 1)
     bad = bytearray(chunks[4])
     bad[12:16] = struct.pack(">I", len(bad))
     blob = b"".join(chunks[:4]) + bytes(bad) + b"".join(chunks[5:])
     with pytest.raises(Exception, match=r"corrupt.*chunks \[4\]"):
-        c.integrate_from_device(cp.asarray(np.frombuffer(blob, np.uint8)), offs - 100, lens)
+        c.integrate_from_device(to_device(np.frombuffer(blob, np.uint8)), offs - 100, lens)
 
 
 def _flat(r):
@@ -654,6 +687,7 @@ def _flat(r):
     return npx.copy(), (v.copy(), i.copy()), p.copy()
 
 
+@needs_cupy
 def test_driver_backend_arrays_are_shared_without_a_copy():
     """The driver backend's exports, whichever backend the GPU classes use in this run."""
     import gc
@@ -696,6 +730,10 @@ def test_driver_backend_reuses_freed_memory():
     pool = drv._pool(dev)
     if pool is None:
         pytest.skip("this driver or device has no memory pools")
+    # an empty pool, so that the next block of this size is the one freed below: arrays of earlier
+    # tests may still be waiting for the collector (Python 2 keeps the last traceback's frames)
+    gc.collect()
+    drv.free_pool()
     a = drv.asarray(host)
     p = a.ptr
     del a
@@ -724,6 +762,7 @@ extern "C" __global__ void spin_copy(const unsigned int* a, unsigned int* b, lon
 """
 
 
+@needs_cupy
 def test_driver_backend_waits_for_the_default_stream_before_reusing_a_block(tmpdir):
     """A reader on the legacy default stream (torch's, cupy's) that is still queued when our
     array is dropped: the next result, in this thread or another, must not take its block."""
@@ -759,6 +798,7 @@ def test_driver_backend_waits_for_the_default_stream_before_reusing_a_block(tmpd
         assert (got.get() == 1).all(), where
 
 
+@needs_cupy
 def test_driver_backend_record_stream(tmpdir):
     """A reader on a stream of its own, named with record_stream: the array may be dropped while
     that reader is still queued, and the next result does not take its block."""
@@ -805,6 +845,7 @@ class _NoStream(object):
         self.__cuda_array_interface__.pop("stream", None)
 
 
+@needs_cupy
 def test_out_and_device_chunks_wait_for_the_default_stream(tmpdir):
     """out, and the chunks in GPU memory, still being written on the legacy default stream
     (torch's) when the call starts: the call waits for that work."""
@@ -839,6 +880,7 @@ def _device_of(a):
     return None if not ptr else cp.cuda.runtime.pointerGetAttributes(ptr).device
 
 
+@needs_cupy
 def test_each_object_keeps_its_buffers_on_its_own_gpu(tmpdir):
     if g.device_count() < 2:
         pytest.skip("needs two GPUs")

@@ -1,5 +1,5 @@
 """The conveyor with the GPU backend: the exact int64 powder equals the CPU backend's.  Skipped
-without cupy and a CUDA GPU."""
+without a CUDA GPU (cupy is optional)."""
 
 from __future__ import absolute_import, division, print_function
 
@@ -11,11 +11,12 @@ import pytest
 pytest.importorskip("h5py")
 pytest.importorskip("hdf5plugin")
 sp = pytest.importorskip("scipy.sparse")
-cp = pytest.importorskip("cupy")
-try:
-    if cp.cuda.runtime.getDeviceCount() < 1:
+try:  # cupy is optional: without it the GPU backend uses the driver API (ctypes, the fatbin)
+    from bslz4_to_sparse import cuda
+
+    if cuda.device_count() < 1:
         pytest.skip("no CUDA device", allow_module_level=True)
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001 (no driver, or no GPU)
     pytest.skip("no CUDA device", allow_module_level=True)
 
 from test_conveyor import DSET, SHAPE, check_fazit_keeps_the_pixel_dtype, make_files  # noqa: E402
