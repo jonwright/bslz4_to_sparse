@@ -5,14 +5,18 @@
         [--index-dir DIR] [--procs 16] [--force] [--check] [--limit N]
 
 HDF5 (through h5py) is read here and nowhere else: it takes a global lock, so the files are shared
-out over forked processes, not threads.  Each file costs a few hundred ms cold (dozens of small
-reads of the B-tree nodes spread through it, not the data).  --index-dir keeps the sidecars away
-from read-only data directories.  --check verifies existing sidecars against a fresh harvest."""
+out over plain subprocesses (this script again, each given its share of the files in its
+arguments), not threads.  No multiprocessing: its semaphores and temporary files in /dev/shm and
+/tmp can collide between jobs on a node.  No pipe either: a subprocess exits 0 when every file of
+its share is done, prints what failed to stderr, and the sidecars are then found on disk.  Each file
+costs a few hundred ms cold (dozens of small reads of the B-tree nodes spread through it, not the
+data).  --index-dir keeps the sidecars away from read-only data directories.  --check verifies
+existing sidecars against a fresh harvest."""
 
 import argparse
 import glob
-import multiprocessing as mp
 import os
+import subprocess
 import sys
 import time
 
@@ -25,31 +29,42 @@ import bench_suite  # noqa: E402,F401  (puts lib/ or $BSLZ4_TO_SPARSE_PATH on sy
 from bslz4_to_sparse import conveyor  # noqa: E402
 
 
-def one(args):
-    path, dset, index_dir, force, check = args
+def fresh(path, index_dir):
+    """True when path has a sidecar that matches the file as it is now."""
     try:
-        t = time.perf_counter()
-        sc = conveyor.sidecar_path(path, index_dir)
-        if check:
-            have = conveyor.read_index(path, index_dir)
-            fresh = conveyor.harvest(path, dset)
-            ok = (
-                np.array_equal(have.offsets, fresh.offsets)
-                and np.array_equal(have.lengths, fresh.lengths)
-                and have.shape == fresh.shape
-                and have.codec == fresh.codec
-            )
-            return path, "ok" if ok else "DIFFERS", time.perf_counter() - t
-        if os.path.exists(sc) and not force:
-            try:
-                conveyor.read_index(path, index_dir)
-                return path, "kept", 0.0
-            except conveyor.StaleIndex:
-                pass
+        conveyor.read_index(path, index_dir)
+        return True
+    except (EnvironmentError, conveyor.StaleIndex):
+        return False
+
+
+def one(path, dset, index_dir, check):
+    """Write (or with check, verify) the sidecar of one file; raises when that fails."""
+    if check:
+        have, new = conveyor.read_index(path, index_dir), conveyor.harvest(path, dset)
+        if not (
+            np.array_equal(have.offsets, new.offsets)
+            and np.array_equal(have.lengths, new.lengths)
+            and have.shape == new.shape
+            and have.codec == new.codec
+        ):
+            raise ValueError("the sidecar differs from a fresh harvest")
+    else:
         conveyor.write_index(conveyor.harvest(path, dset), path, index_dir)
-        return path, "written", time.perf_counter() - t
-    except Exception as e:  # noqa: BLE001 (report per file, carry on)
-        return path, "ERROR %r" % (e,), 0.0
+
+
+def worker(argv):
+    """A subprocess: argv is dset, index_dir ("" for none), check ("0"/"1"), then its files.
+    Exits 0 when all of them are done, else 1."""
+    dset, index_dir, check, paths = argv[0], argv[1] or None, argv[2] == "1", argv[3:]
+    status = 0
+    for p in paths:
+        try:
+            one(p, dset, index_dir, check)
+        except Exception as e:  # noqa: BLE001 (report per file, carry on)
+            print("index_chunks: %s: %r" % (p, e), file=sys.stderr)
+            status = 1
+    return status
 
 
 def main():
@@ -66,20 +81,24 @@ def main():
     if a.limit:
         paths = paths[: a.limit]
     t0 = time.perf_counter()
-    work = [(p, a.dset, a.index_dir, a.force, a.check) for p in paths]
-    with mp.get_context("fork").Pool(a.procs) as pool:
-        res = pool.map(one, work, chunksize=1)
-    bad = [r for r in res if r[1] not in ("written", "kept", "ok")]
-    from collections import Counter
-
+    todo = paths if (a.check or a.force) else [p for p in paths if not fresh(p, a.index_dir)]
+    n = max(1, min(a.procs, len(todo)))
+    head = [sys.executable, os.path.abspath(__file__), "--worker", a.dset, a.index_dir or "", "1" if a.check else "0"]
+    procs = [subprocess.Popen(head + todo[i::n], stdin=subprocess.DEVNULL) for i in range(n) if todo[i::n]]
+    failed = sum(p.wait() != 0 for p in procs)
+    bad = [p for p in todo if not fresh(p, a.index_dir)]
+    done = "checked" if a.check else "written"
     print(
-        dict(Counter(r[1].split(" ")[0] for r in res)),
-        "%.1f s for %d files" % (time.perf_counter() - t0, len(paths)),
+        {"kept": len(paths) - len(todo), done: len(todo) - len(bad), "missing": len(bad)},
+        "%.1f s for %d files in %d processes" % (time.perf_counter() - t0, len(paths), len(procs)),
+        "; %d processes failed (errors above)" % failed if failed else "",
     )
-    for p, s, _ in bad[:10]:
-        print("  ", p, s)
-    return 1 if bad else 0
+    for p in bad[:10]:
+        print("  ", p)
+    return 1 if (bad or failed) else 0
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--worker"]:
+        sys.exit(worker(sys.argv[2:]))
     sys.exit(main())
