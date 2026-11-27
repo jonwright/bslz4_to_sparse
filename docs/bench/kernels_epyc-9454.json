@@ -254,19 +254,19 @@
    ]
   }
  ],
- "date_utc": "2026-11-17 22:48",
+ "date_utc": "2026-11-27 20:54",
  "machine": {
   "compiler": "gcc (conda-forge gcc 13.3.0-2) 13.3.0",
   "cores_usable": 1,
   "cpu": "AMD EPYC 9454 48-Core Processor",
-  "git": "v0.0.22.a3-66-g987679a",
+  "git": "v0.0.22-19-g0a5b878",
   "numpy": "1.26.4",
   "platform": "linux_x86_64",
   "pyFAI": "2025.3.0",
-  "py_sha256": "7a0e1f6e86520c340c7979ef56c6bbc472b98cb6e7543540a8528f1376e41aed",
+  "py_sha256": "066f71c49a4594223fa24f94429f81072328b848885915fb03c993db2267fe1f",
   "python": "3.12.9",
   "src_sha256": "9d7c5680cc022612c01d061f0f0dd19b00031c369add934d68c6614875d57dfb",
-  "version": "0.0.22"
+  "version": "0.0.23a1"
  },
  "matrices": {
   "1D": {
@@ -354,7 +354,7 @@
   "mask": "mask.h5 of the example data; the masked pixels of the frames are -1 in the pixel type",
   "no_mask": "the same frames with the masked pixels 0 and an all-valid mask",
   "repeats": 2,
-  "seconds": 308,
+  "seconds": 292,
   "shape": [
    2162,
    2068
@@ -372,9 +372,9 @@
  "results": [
   {
    "axis": "decode",
-   "compressed_gbs": 0.1944873073113759,
+   "compressed_gbs": 0.2060885915328371,
    "data": "silicon",
-   "fps": 853.6538475543169,
+   "fps": 904.5748102080184,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -382,15 +382,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.6334000217538245,
+   "pixel_gbs": 8.088736899274029,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.19419742203598014,
+   "compressed_gbs": 0.20600005584577252,
    "data": "silicon",
-   "fps": 852.3814679624975,
+   "fps": 904.1862047460306,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -398,15 +398,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.622022362727627,
+   "pixel_gbs": 8.085261976797558,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.19331828398971276,
+   "compressed_gbs": 0.20955990079115058,
    "data": "silicon",
-   "fps": 848.5227093313956,
+   "fps": 919.8112621152166,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -414,7 +414,7 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.587517219568038,
+   "pixel_gbs": 8.224981739794654,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
@@ -433,9 +433,9 @@
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.1640134543568609,
+   "compressed_gbs": 0.16287954601032234,
    "data": "silicon",
-   "fps": 719.8964204807992,
+   "fps": 714.9194107407914,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -443,15 +443,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.437336828624762,
+   "pixel_gbs": 6.3928322482653,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.19446463144709292,
+   "compressed_gbs": 0.20602767950434003,
    "data": "silicon",
-   "fps": 853.5543174664188,
+   "fps": 904.3074519510316,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -459,7 +459,7 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.632510020522876,
+   "pixel_gbs": 8.086346173184587,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
@@ -478,9 +478,9 @@
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.19462781387083078,
+   "compressed_gbs": 0.2065600061765691,
    "data": "silicon",
-   "fps": 854.270566283901,
+   "fps": 906.6439679848341,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -488,15 +488,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.638914740368763,
+   "pixel_gbs": 8.107239374327364,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.1908637363871145,
+   "compressed_gbs": 0.19197225492548506,
    "data": "silicon",
-   "fps": 837.7490807901327,
+   "fps": 842.6146482579893,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -504,15 +504,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-avx2"
    },
-   "pixel_gbs": 7.491179088395953,
+   "pixel_gbs": 7.534687148391685,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.13508046149824302,
+   "compressed_gbs": 0.13389970851958669,
    "data": "silicon",
-   "fps": 592.9022170211472,
+   "fps": 587.7195943750972,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -520,15 +520,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-c"
    },
-   "pixel_gbs": 5.301750597474042,
+   "pixel_gbs": 5.255407419929139,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.15783805160127065,
+   "compressed_gbs": 0.15474163419868525,
    "data": "silicon",
-   "fps": 692.7910201573364,
+   "fps": 679.2000631643473,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -536,15 +536,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.194959471559548,
+   "pixel_gbs": 6.073428699217615,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.023142925546958643,
+   "compressed_gbs": 0.023174008941324903,
    "data": "silicon",
-   "fps": 101.58013759321958,
+   "fps": 101.71657045129459,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -552,15 +552,15 @@
     "mask": "planes",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.9083328409229724,
+   "pixel_gbs": 0.9095528279057308,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.1835534642898635,
+   "compressed_gbs": 0.18323251208283559,
    "data": "silicon",
-   "fps": 805.662452676678,
+   "fps": 804.2537124858758,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -568,15 +568,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 7.204259433033339,
+   "pixel_gbs": 7.1916624331675,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.15915843500577667,
+   "compressed_gbs": 0.15512479216102476,
    "data": "silicon",
-   "fps": 698.5865159615889,
+   "fps": 680.8818401054436,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -584,15 +584,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.246782980497039,
+   "pixel_gbs": 6.08846720244176,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.1415723500559425,
+   "compressed_gbs": 0.1395802993157802,
    "data": "silicon",
-   "fps": 621.3967533576572,
+   "fps": 612.653140201759,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx2cs",
@@ -600,15 +600,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.556549653220277,
+   "pixel_gbs": 5.4783639845846155,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.1141902205547731,
+   "compressed_gbs": 0.11251778181676347,
    "data": "silicon",
-   "fps": 501.2096803499546,
+   "fps": 493.86892488761964,
    "kind": "sparsify",
    "pipeline": {
     "collect": "sse2",
@@ -616,15 +616,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.481833000399065,
+   "pixel_gbs": 4.416191730150691,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.0634083338277295,
+   "compressed_gbs": 0.06288438411788291,
    "data": "silicon",
-   "fps": 278.3151707293124,
+   "fps": 276.0154232963377,
    "kind": "sparsify",
    "pipeline": {
     "collect": "scalar",
@@ -632,15 +632,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.488703162746975,
+   "pixel_gbs": 2.468138747609397,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.1561912534239031,
+   "compressed_gbs": 0.1543853361166267,
    "data": "silicon",
-   "fps": 685.5628075830087,
+   "fps": 677.6361810127036,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512f",
@@ -648,15 +648,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.130324563417107,
+   "pixel_gbs": 6.059444414973388,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.2646923124107896,
+   "compressed_gbs": 0.2669749591018317,
    "data": "silicon",
-   "fps": 1771.568942274956,
+   "fps": 1786.8465525206252,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -664,15 +664,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 15.841426172028811,
+   "pixel_gbs": 15.97803905172911,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.2591490983201861,
+   "compressed_gbs": 0.27035343676324863,
    "data": "silicon",
-   "fps": 1734.4685601979218,
+   "fps": 1809.4584902932913,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -680,15 +680,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 15.509673368283742,
+   "pixel_gbs": 16.1802357228743,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.16630797794702315,
+   "compressed_gbs": 0.16929462339675388,
    "data": "silicon",
-   "fps": 1113.0888007289354,
+   "fps": 1133.0782302372556,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -696,7 +696,7 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 9.953275674959764,
+   "pixel_gbs": 10.132021793284908,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
@@ -715,9 +715,9 @@
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.2594003314931136,
+   "compressed_gbs": 0.264786917151419,
    "data": "silicon",
-   "fps": 1736.150047969039,
+   "fps": 1772.2021258334985,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -725,15 +725,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 15.524709285740682,
+   "pixel_gbs": 15.84708811967117,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.2612542455905371,
+   "compressed_gbs": 0.26844145685017623,
    "data": "silicon",
-   "fps": 1748.5581780228656,
+   "fps": 1796.661729399851,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -741,15 +741,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 15.63566318174216,
+   "pixel_gbs": 16.06580667746881,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.2656330338610785,
+   "compressed_gbs": 0.27048340808331267,
    "data": "silicon",
-   "fps": 1777.8651315729562,
+   "fps": 1810.3283801360103,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -757,15 +757,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 15.897726898209584,
+   "pixel_gbs": 16.18801430568437,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.26346629387534026,
+   "compressed_gbs": 0.2709812182654796,
    "data": "silicon",
-   "fps": 1763.3632775910319,
+   "fps": 1813.660192268531,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -773,15 +773,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 15.768050855843889,
+   "pixel_gbs": 16.217807476391357,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.24039052443893943,
+   "compressed_gbs": 0.2425413135367959,
    "data": "silicon",
-   "fps": 1608.9186090614028,
+   "fps": 1623.3137047573923,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -789,15 +789,15 @@
     "mask": "none",
     "untranspose": "lowplanes-avx2"
    },
-   "pixel_gbs": 14.387001687622552,
+   "pixel_gbs": 14.515723093979155,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.1321017980913087,
+   "compressed_gbs": 0.12897824086622361,
    "data": "silicon",
-   "fps": 884.1489977013022,
+   "fps": 863.2432263210158,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -805,15 +805,15 @@
     "mask": "none",
     "untranspose": "lowplanes-c"
    },
-   "pixel_gbs": 7.906088630212969,
+   "pixel_gbs": 7.719148553545766,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.13865117648445338,
+   "compressed_gbs": 0.13666850899747088,
    "data": "silicon",
-   "fps": 927.9835739563729,
+   "fps": 914.7137055918342,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -821,15 +821,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 8.298058813792252,
+   "pixel_gbs": 8.179399226240761,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.015774934813788576,
+   "compressed_gbs": 0.01581875110460494,
    "data": "silicon",
-   "fps": 105.58064315501683,
+   "fps": 105.87390282421148,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -837,15 +837,15 @@
     "mask": "none",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.9441054896727414,
+   "pixel_gbs": 0.9467278270189895,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.24573069030570777,
+   "compressed_gbs": 0.2523206813116688,
    "data": "silicon",
-   "fps": 1644.6600021906502,
+   "fps": 1688.766396100245,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -853,15 +853,15 @@
     "mask": "none",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 14.706602368708865,
+   "pixel_gbs": 15.101003154453066,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.14002337229873993,
+   "compressed_gbs": 0.13661859634192028,
    "data": "silicon",
-   "fps": 937.1675939423295,
+   "fps": 914.3796433382139,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -869,15 +869,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 8.380182614395316,
+   "pixel_gbs": 8.176412030878895,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.12041058970951017,
+   "compressed_gbs": 0.1181182479677125,
    "data": "silicon",
-   "fps": 805.9004778322579,
+   "fps": 790.5579792237352,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx2cs",
@@ -885,15 +885,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.206387861591341,
+   "pixel_gbs": 7.069194748073975,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.10049527439577025,
+   "compressed_gbs": 0.09882400397600949,
    "data": "silicon",
-   "fps": 672.608529289833,
+   "fps": 661.422821843989,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "sse2",
@@ -901,15 +901,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.014486992382624,
+   "pixel_gbs": 5.91446403845925,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.046197087080810335,
+   "compressed_gbs": 0.045872034473004066,
    "data": "silicon",
-   "fps": 309.1941883409196,
+   "fps": 307.0186317508915,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "scalar",
@@ -917,15 +917,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.7648243263585295,
+   "pixel_gbs": 2.7453704297126875,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.13690704813678364,
+   "compressed_gbs": 0.1345748853042759,
    "data": "silicon",
-   "fps": 916.3102329970867,
+   "fps": 900.7012143415441,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512f",
@@ -933,15 +933,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 8.193675425387404,
+   "pixel_gbs": 8.054099081080945,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.1445619016572895,
+   "compressed_gbs": 0.1637127696622896,
    "data": "silicon",
-   "fps": 634.518649394123,
+   "fps": 718.5766395142678,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -951,16 +951,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.673886067479029,
+   "pixel_gbs": 6.425535304989047,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.02866209168813507,
+   "compressed_gbs": 0.02900027201671453,
    "data": "silicon",
-   "fps": 125.80514989267868,
+   "fps": 127.28950865444017,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -970,16 +970,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 1.1249536761051295,
+   "pixel_gbs": 1.138226859652281,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.14824868247185416,
+   "compressed_gbs": 0.16345933835822543,
    "data": "silicon",
-   "fps": 650.7008603103541,
+   "fps": 717.4642655974511,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -989,16 +989,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.818587915322717,
+   "pixel_gbs": 6.415588421828907,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.146378616406729,
+   "compressed_gbs": 0.1629766327678349,
    "data": "silicon",
-   "fps": 642.4926686615336,
+   "fps": 715.3455490078223,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1008,16 +1008,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.74519000293683,
+   "pixel_gbs": 6.396642790285516,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.12670567427188004,
+   "compressed_gbs": 0.14479669752560126,
    "data": "silicon",
-   "fps": 556.1431635021038,
+   "fps": 635.5492276829843,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1027,16 +1027,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.9730499646170445,
+   "pixel_gbs": 5.683101531516532,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.15034236872212584,
+   "compressed_gbs": 0.164229965952636,
    "data": "silicon",
-   "fps": 659.890577355768,
+   "fps": 720.8467444856332,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1046,16 +1046,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.900762659213752,
+   "pixel_gbs": 6.445834656286355,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1477705377327287,
+   "compressed_gbs": 0.16391571086482223,
    "data": "silicon",
-   "fps": 648.6021624473167,
+   "fps": 719.4673996402844,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1065,16 +1065,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.799821291873104,
+   "pixel_gbs": 6.4335005105402105,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1364457971411882,
+   "compressed_gbs": 0.1506753682850568,
    "data": "silicon",
-   "fps": 598.8950195382656,
+   "fps": 661.3521964303475,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1084,7 +1084,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.3553384293517965,
+   "pixel_gbs": 5.913832503750453,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -1102,9 +1102,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1306302645466958,
+   "compressed_gbs": 0.1444406449556732,
    "data": "silicon",
-   "fps": 573.3691801223398,
+   "fps": 633.986423146007,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1114,7 +1114,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.127085556467727,
+   "pixel_gbs": 5.669126883337136,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -1143,9 +1143,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.13014682590116275,
+   "compressed_gbs": 0.13607700885155707,
    "data": "silicon",
-   "fps": 571.2472459687912,
+   "fps": 597.2763147151659,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1155,16 +1155,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.108111153364803,
+   "pixel_gbs": 5.340863919025084,
    "powder_rel": 3.2596686996314593e-13,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1331637672832963,
+   "compressed_gbs": 0.14711428352450134,
    "data": "silicon",
-   "fps": 584.4893626616861,
+   "fps": 645.7216971996279,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1174,16 +1174,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.226522584580401,
+   "pixel_gbs": 5.774064079453383,
    "powder_rel": 3.2596686996314593e-13,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.13228607658483962,
+   "compressed_gbs": 0.15127691278402647,
    "data": "silicon",
-   "fps": 580.6369568051916,
+   "fps": 663.9925269646095,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1193,7 +1193,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.192074248134641,
+   "pixel_gbs": 5.937442423878401,
    "powder_rel": 9.086238887101384e-06,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -1211,9 +1211,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.1733860540320935,
+   "compressed_gbs": 0.19192787782713455,
    "data": "silicon",
-   "fps": 761.0351245173512,
+   "fps": 842.4198659800408,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1223,16 +1223,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.805200436558139,
+   "pixel_gbs": 7.532945399029236,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.06589332204035249,
+   "compressed_gbs": 0.06711081366062266,
    "data": "silicon",
-   "fps": 289.2224107860452,
+   "fps": 294.5662885967694,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1242,16 +1242,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 2.5862360523659618,
+   "pixel_gbs": 2.6340211787535477,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.17434124224871636,
+   "compressed_gbs": 0.19171087892304595,
    "data": "silicon",
-   "fps": 765.2276865283682,
+   "fps": 841.4674030561043,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1261,16 +1261,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.842690460222637,
+   "pixel_gbs": 7.524428445084583,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.1743984998180686,
+   "compressed_gbs": 0.1919657139484796,
    "data": "silicon",
-   "fps": 765.4790044423999,
+   "fps": 842.5859382600742,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1280,16 +1280,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.844937753052082,
+   "pixel_gbs": 7.534430422671608,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1501943150834383,
+   "compressed_gbs": 0.16447418680686707,
    "data": "silicon",
-   "fps": 659.2407325918231,
+   "fps": 721.9186914149697,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1299,16 +1299,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.894951726539525,
+   "pixel_gbs": 6.455420040030783,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1672928891569963,
+   "compressed_gbs": 0.17800726466323225,
    "data": "silicon",
-   "fps": 734.290686994331,
+   "fps": 781.3187835908693,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1318,16 +1318,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.566050820405292,
+   "pixel_gbs": 6.986577565070629,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.16749425667220652,
+   "compressed_gbs": 0.17825850816095304,
    "data": "silicon",
-   "fps": 735.1745398097563,
+   "fps": 782.4215546738121,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1337,16 +1337,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.573954260564115,
+   "pixel_gbs": 6.9964385793829775,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.15642449300504688,
+   "compressed_gbs": 0.1613153062268342,
    "data": "silicon",
-   "fps": 686.5865549349455,
+   "fps": 708.0535677810021,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1356,16 +1356,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.13947894499804,
+   "pixel_gbs": 6.33143766081189,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.18046251449380457,
+   "compressed_gbs": 0.18812755990220723,
    "data": "silicon",
-   "fps": 792.0954943878344,
+   "fps": 825.7393120488276,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1375,16 +1375,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.082943257871836,
+   "pixel_gbs": 7.383787351998602,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.156428454018923,
+   "compressed_gbs": 0.16575209237767616,
    "data": "silicon",
-   "fps": 686.603940823939,
+   "fps": 727.5277412928918,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1394,16 +1394,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.139634410173768,
+   "pixel_gbs": 6.50557634352876,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.18285455271099307,
+   "compressed_gbs": 0.19029777767668554,
    "data": "silicon",
-   "fps": 802.5947534697174,
+   "fps": 835.2649452576217,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1413,7 +1413,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.176827968558324,
+   "pixel_gbs": 7.4689658689719005,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -1431,9 +1431,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.15082393711733935,
+   "compressed_gbs": 0.15120917672704437,
    "data": "silicon",
-   "fps": 662.0043025089287,
+   "fps": 663.6952163253688,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1443,16 +1443,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.919663657172522,
+   "pixel_gbs": 5.93478386262837,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.15425216667996636,
+   "compressed_gbs": 0.16186865294944608,
    "data": "silicon",
-   "fps": 677.0516667657162,
+   "fps": 710.4823461178472,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1462,16 +1462,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.0542176698723695,
+   "pixel_gbs": 6.353155874420866,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.16259395168982926,
+   "compressed_gbs": 0.1679902174011744,
    "data": "silicon",
-   "fps": 713.6658652323523,
+   "fps": 737.3514365459604,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1481,16 +1481,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.381623004215381,
+   "pixel_gbs": 6.593420140839948,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.18194716567235183,
+   "compressed_gbs": 0.18979081664721,
    "data": "silicon",
-   "fps": 798.6120028858097,
+   "fps": 833.0397654278704,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -1500,16 +1500,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.141214085389003,
+   "pixel_gbs": 7.449068239728511,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.13196375430363824,
+   "compressed_gbs": 0.1358707325042068,
    "data": "silicon",
-   "fps": 579.2222030132666,
+   "fps": 596.3709157973174,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1519,16 +1519,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.179423474455126,
+   "pixel_gbs": 5.3327678129289176,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.021724233708027493,
+   "compressed_gbs": 0.021794302939953818,
    "data": "silicon",
-   "fps": 95.35314127382198,
+   "fps": 95.66069280639226,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1538,16 +1538,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 0.8526508405710368,
+   "pixel_gbs": 0.8554009762169295,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.13133669792348288,
+   "compressed_gbs": 0.1304014912735476,
    "data": "silicon",
-   "fps": 576.4698943975885,
+   "fps": 572.3650365227378,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1557,16 +1557,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.154812242739857,
+   "pixel_gbs": 5.11810647226749,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.13181714992810306,
+   "compressed_gbs": 0.1269246847141627,
    "data": "silicon",
-   "fps": 578.5787194308468,
+   "fps": 557.1044555745466,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1576,16 +1576,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.173669423669654,
+   "pixel_gbs": 4.981645869090174,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.11746356555191265,
+   "compressed_gbs": 0.11686462492595992,
    "data": "silicon",
-   "fps": 515.5772171820994,
+   "fps": 512.9483157032869,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1595,16 +1595,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.610307974513283,
+   "pixel_gbs": 4.586800253364894,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.13193072331609304,
+   "compressed_gbs": 0.12897851117833578,
    "data": "silicon",
-   "fps": 579.0772216774855,
+   "fps": 566.1192179648924,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1614,16 +1614,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.178127046711169,
+   "pixel_gbs": 5.062256162857043,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.129643489214341,
+   "compressed_gbs": 0.13097243012549825,
    "data": "silicon",
-   "fps": 569.0379742931196,
+   "fps": 574.8710311525346,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1633,16 +1633,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.088355775344253,
+   "pixel_gbs": 5.140515156438961,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.12079399997215744,
+   "compressed_gbs": 0.11906011223409209,
    "data": "silicon",
-   "fps": 530.1953338919861,
+   "fps": 522.5848632690522,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1652,7 +1652,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.741023641912824,
+   "pixel_gbs": 4.6729705700674895,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -1670,9 +1670,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.11538361031232094,
+   "compressed_gbs": 0.11611276012731175,
    "data": "silicon",
-   "fps": 506.44776900594917,
+   "fps": 509.6481914582683,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1682,7 +1682,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.528672156779805,
+   "pixel_gbs": 4.557290436761962,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -1711,9 +1711,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.10101669877670613,
+   "compressed_gbs": 0.09936446642226814,
    "data": "silicon",
-   "fps": 443.3877704929628,
+   "fps": 436.1357059448038,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1723,16 +1723,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.9647876321567286,
+   "pixel_gbs": 3.8999394389010256,
    "powder_rel": 2.8503940301529694e-11,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.11046224841882735,
+   "compressed_gbs": 0.11465853278800284,
    "data": "silicon",
-   "fps": 484.84667033444583,
+   "fps": 503.2652208645511,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1742,16 +1742,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.335514441224065,
+   "pixel_gbs": 4.500213709457884,
    "powder_rel": 2.8503940301529694e-11,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.10294815822271576,
+   "compressed_gbs": 0.11374144927133562,
    "data": "silicon",
-   "fps": 451.86543317581084,
+   "fps": 499.2399099928333,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -1761,7 +1761,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.040595163151962,
+   "pixel_gbs": 4.464219250833035,
    "powder_rel": 9.362785421662182e-05,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -1779,9 +1779,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.10968807751829766,
+   "compressed_gbs": 0.12417274207489792,
    "data": "silicon",
-   "fps": 481.4486389819746,
+   "fps": 545.0254852050506,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1791,16 +1791,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.305129136133265,
+   "pixel_gbs": 4.8736353295190895,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.018774816216880288,
+   "compressed_gbs": 0.019329445458676965,
    "data": "silicon",
-   "fps": 82.40740397009746,
+   "fps": 84.84181160713595,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1810,16 +1810,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 0.7368896433375385,
+   "pixel_gbs": 0.7586581943289812,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.10379290608999116,
+   "compressed_gbs": 0.1258517048371391,
    "data": "silicon",
-   "fps": 455.5732446370411,
+   "fps": 552.3948762553002,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1829,16 +1829,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.07375053188825,
+   "pixel_gbs": 4.9395326601109355,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.10217809478402054,
+   "compressed_gbs": 0.12616772487911307,
    "data": "silicon",
-   "fps": 448.48543050936104,
+   "fps": 553.7819679296348,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1848,16 +1848,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.010371071148483,
+   "pixel_gbs": 4.9519360782497674,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.10387264099734508,
+   "compressed_gbs": 0.1235557012241676,
    "data": "silicon",
-   "fps": 455.923221257048,
+   "fps": 542.317137274248,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1867,7 +1867,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.0768800340236035,
+   "pixel_gbs": 4.849417195654718,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -1918,9 +1918,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.12698499225228063,
+   "compressed_gbs": 0.13101711689192963,
    "data": "silicon",
-   "fps": 557.3691605707882,
+   "fps": 575.067172641798,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1930,7 +1930,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.984012869637126,
+   "pixel_gbs": 5.142269059912482,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -1959,9 +1959,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.11886074858370986,
+   "compressed_gbs": 0.12293939694889996,
    "data": "silicon",
-   "fps": 521.7098059217942,
+   "fps": 539.6120223589385,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -1971,7 +1971,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.665145779266473,
+   "pixel_gbs": 4.825227971518344,
    "powder_rel": 2.9706571273444235e-12,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -2011,9 +2011,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.1853865058330141,
+   "compressed_gbs": 0.18842686873406453,
    "data": "silicon",
-   "fps": 813.708134359813,
+   "fps": 827.0530540068717,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2023,16 +2023,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.276204176105748,
+   "pixel_gbs": 7.395534874627175,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.12157536834548026,
+   "compressed_gbs": 0.12138750467596801,
    "data": "silicon",
-   "fps": 533.6249567679735,
+   "fps": 532.8003757374075,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2042,16 +2042,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.771691439417835,
+   "pixel_gbs": 4.7643180094559225,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.17566778860013046,
+   "compressed_gbs": 0.187776555755151,
    "data": "silicon",
-   "fps": 771.0502330610876,
+   "fps": 824.1986663132046,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2061,16 +2061,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.894755857639704,
+   "pixel_gbs": 7.370010848529998,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.17622087139870474,
+   "compressed_gbs": 0.18763053247336742,
    "data": "silicon",
-   "fps": 773.4778529687617,
+   "fps": 823.5577332978305,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2080,16 +2080,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.916463712537962,
+   "pixel_gbs": 7.364279604996666,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1762545657095937,
+   "compressed_gbs": 0.18643982876369805,
    "data": "silicon",
-   "fps": 773.6257457980095,
+   "fps": 818.3314343834796,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2099,16 +2099,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.917786174949666,
+   "pixel_gbs": 7.317545872862975,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.17549470476426737,
+   "compressed_gbs": 0.18781381661869279,
    "data": "silicon",
-   "fps": 770.2905244483429,
+   "fps": 824.3622136416413,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2118,16 +2118,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.887962518913865,
+   "pixel_gbs": 7.371473293974394,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1765424719995827,
+   "compressed_gbs": 0.18645939113019125,
    "data": "silicon",
-   "fps": 774.889439123717,
+   "fps": 818.4172985442572,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2137,16 +2137,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.929086161106329,
+   "pixel_gbs": 7.318313672936301,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.17909235093289114,
+   "compressed_gbs": 0.18047298417306948,
    "data": "silicon",
-   "fps": 786.0815009210017,
+   "fps": 792.1414484509078,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2156,7 +2156,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.029165935843627,
+   "pixel_gbs": 7.083354180574368,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -2174,9 +2174,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1802514405690726,
+   "compressed_gbs": 0.18720979793884743,
    "data": "silicon",
-   "fps": 791.1690376927589,
+   "fps": 821.7110233034506,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2186,7 +2186,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.074658852457856,
+   "pixel_gbs": 7.347766265132201,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -2215,9 +2215,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1330207713388503,
+   "compressed_gbs": 0.187962788542985,
    "data": "silicon",
-   "fps": 583.8617173934755,
+   "fps": 825.0160889927256,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2227,16 +2227,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.220910160507414,
+   "pixel_gbs": 7.3773202682878,
    "powder_rel": 2.442965761930939e-13,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.16909301058204929,
+   "compressed_gbs": 0.18191309967043662,
    "data": "silicon",
-   "fps": 742.1918739756551,
+   "fps": 798.4624786108957,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2246,16 +2246,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.6367034872302755,
+   "pixel_gbs": 7.139877034537945,
    "powder_rel": 2.442965761930939e-13,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1667513446222158,
+   "compressed_gbs": 0.18178093436221032,
    "data": "silicon",
-   "fps": 731.9137114367577,
+   "fps": 797.8823717368778,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -2265,7 +2265,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.5447958289062536,
+   "pixel_gbs": 7.134689700307057,
    "powder_rel": 1.387327031866218e-06,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -2283,9 +2283,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.1385734218231222,
+   "compressed_gbs": 0.14583124983860293,
    "data": "silicon",
-   "fps": 608.2337009205763,
+   "fps": 640.090138731108,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2295,16 +2295,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.438845217110223,
+   "pixel_gbs": 5.723706503418008,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.030968512247497724,
+   "compressed_gbs": 0.03305720215022159,
    "data": "silicon",
-   "fps": 135.92861147892046,
+   "fps": 145.09639829471226,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2314,16 +2314,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 1.2154779935600741,
+   "pixel_gbs": 1.2974566366360625,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.1389073837043045,
+   "compressed_gbs": 0.14475313460260128,
    "data": "silicon",
-   "fps": 609.6995438526876,
+   "fps": 635.3580190260095,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2333,16 +2333,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.451952831516135,
+   "pixel_gbs": 5.681391737587186,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.1338532435735004,
+   "compressed_gbs": 0.1445054577473795,
    "data": "silicon",
-   "fps": 587.515648006816,
+   "fps": 634.2709028366133,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2352,16 +2352,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.253583724977685,
+   "pixel_gbs": 5.671670709833888,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.09926454162023676,
+   "compressed_gbs": 0.10331413162633798,
    "data": "silicon",
-   "fps": 435.69711078453656,
+   "fps": 453.4717827542154,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2371,16 +2371,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.8960175069428704,
+   "pixel_gbs": 4.054959192485242,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.10327455858367286,
+   "compressed_gbs": 0.1121218013521736,
    "data": "silicon",
-   "fps": 453.2980866884025,
+   "fps": 492.1308667499115,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2390,16 +2390,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.05340599670647,
+   "pixel_gbs": 4.400649958665444,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.10731387437322795,
+   "compressed_gbs": 0.11051877835929078,
    "data": "silicon",
-   "fps": 471.02766253018245,
+   "fps": 485.0947945017539,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2409,16 +2409,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.211944431230092,
+   "pixel_gbs": 4.337733175468108,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.10018429976190114,
+   "compressed_gbs": 0.10898166322895012,
    "data": "silicon",
-   "fps": 439.73416125999074,
+   "fps": 478.34800848631244,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2428,16 +2428,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.9321169414799977,
+   "pixel_gbs": 4.277403199020878,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.11144787279937922,
+   "compressed_gbs": 0.11475836562538949,
    "data": "silicon",
-   "fps": 489.172824345897,
+   "fps": 503.7034123687964,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2447,16 +2447,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.37419904883139,
+   "pixel_gbs": 4.504132031910974,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.09784852244885951,
+   "compressed_gbs": 0.10531726822518757,
    "data": "silicon",
-   "fps": 429.4818454771631,
+   "fps": 462.2640545400914,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2466,16 +2466,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.840440405675848,
+   "pixel_gbs": 4.1335799681472425,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.10593367031532136,
+   "compressed_gbs": 0.11783724959520596,
    "data": "silicon",
-   "fps": 464.96959878952043,
+   "fps": 517.2174107028841,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2485,16 +2485,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.157773031403053,
+   "pixel_gbs": 4.624974637462333,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.134738908595663,
+   "compressed_gbs": 0.14581206940794975,
    "data": "silicon",
-   "fps": 591.4030551814288,
+   "fps": 640.0059509830686,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2504,16 +2504,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.288345044330103,
+   "pixel_gbs": 5.72295369388103,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.09711582564066332,
+   "compressed_gbs": 0.10196696577425468,
    "data": "silicon",
-   "fps": 426.26585437700317,
+   "fps": 447.5587320321776,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2523,16 +2523,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.8116829103465024,
+   "pixel_gbs": 4.002084503711157,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.10906552953233203,
+   "compressed_gbs": 0.10870486357629042,
    "data": "silicon",
-   "fps": 478.71611884555307,
+   "fps": 477.13306499328365,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2542,16 +2542,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.280694853632738,
+   "pixel_gbs": 4.266539135428022,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.10808460562636463,
+   "compressed_gbs": 0.10981529839568867,
    "data": "silicon",
-   "fps": 474.41059640265945,
+   "fps": 482.00704350191694,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2561,16 +2561,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.242194734171665,
+   "pixel_gbs": 4.3101224072195325,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.07259502560690934,
+   "compressed_gbs": 0.07258935250914897,
    "data": "silicon",
-   "fps": 318.63787811831935,
+   "fps": 318.612977461317,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -2580,16 +2580,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 2.849270102546112,
+   "pixel_gbs": 2.8490474400743753,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.11159327893653566,
+   "compressed_gbs": 0.11572183912203554,
    "data": "silicon",
-   "fps": 718.657120765983,
+   "fps": 745.2449153365485,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2597,15 +2597,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.426254970917285,
+   "pixel_gbs": 6.664003880776708,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.11143879905191711,
+   "compressed_gbs": 0.11579138995674353,
    "data": "silicon",
-   "fps": 717.6622752864505,
+   "fps": 745.6928204711089,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2613,15 +2613,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.41735903080425,
+   "pixel_gbs": 6.668009062822911,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.11154167216110801,
+   "compressed_gbs": 0.11609133073136749,
    "data": "silicon",
-   "fps": 718.3247747950223,
+   "fps": 747.6244293954614,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2629,7 +2629,7 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.423283122609884,
+   "pixel_gbs": 6.685281571635957,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
@@ -2648,9 +2648,9 @@
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.11152986322569208,
+   "compressed_gbs": 0.11569278886386605,
    "data": "silicon",
-   "fps": 718.2487256314329,
+   "fps": 745.0578326099493,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2658,15 +2658,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.422603088555493,
+   "pixel_gbs": 6.66233098104881,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.1114019042412744,
+   "compressed_gbs": 0.11562666799079652,
    "data": "silicon",
-   "fps": 717.4246738946787,
+   "fps": 744.6320163178256,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2674,7 +2674,7 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.4152343915557815,
+   "pixel_gbs": 6.658523318138518,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
@@ -2693,9 +2693,9 @@
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.11151738027320711,
+   "compressed_gbs": 0.11567891046715377,
    "data": "silicon",
-   "fps": 718.168335819636,
+   "fps": 744.9684561822903,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2703,15 +2703,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 6.421884240285932,
+   "pixel_gbs": 6.661531774172638,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.11189341286051716,
+   "compressed_gbs": 0.1155584809619493,
    "data": "silicon",
-   "fps": 720.5899735659748,
+   "fps": 744.192894049066,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2719,15 +2719,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-avx2"
    },
-   "pixel_gbs": 6.4435386025061,
+   "pixel_gbs": 6.654596672759358,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.11153037576230748,
+   "compressed_gbs": 0.11565999497630028,
    "data": "silicon",
-   "fps": 718.252026350722,
+   "fps": 744.8466410306595,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2735,15 +2735,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-c"
    },
-   "pixel_gbs": 6.422632603692999,
+   "pixel_gbs": 6.660442499188671,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.11173732868603273,
+   "compressed_gbs": 0.11588219320531354,
    "data": "silicon",
-   "fps": 719.5847965113968,
+   "fps": 746.2775904661786,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2751,15 +2751,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.434550277118399,
+   "pixel_gbs": 6.673238094831464,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.016013939208472865,
+   "compressed_gbs": 0.016113279742256875,
    "data": "silicon",
-   "fps": 103.12925252628901,
+   "fps": 103.76900236306166,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2767,15 +2767,15 @@
     "mask": "pixel",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.9221850762261572,
+   "pixel_gbs": 0.9279057397385729,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.1116543202342607,
+   "compressed_gbs": 0.11572864569465238,
    "data": "silicon",
-   "fps": 719.0502247565544,
+   "fps": 745.2887494448902,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2783,15 +2783,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 6.429770119380302,
+   "pixel_gbs": 6.6643958467761895,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.1117509252600076,
+   "compressed_gbs": 0.11588347221115587,
    "data": "silicon",
-   "fps": 719.6723580097074,
+   "fps": 746.2858272225931,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -2799,15 +2799,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.43533325483826,
+   "pixel_gbs": 6.673311748170899,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.09978288655336892,
+   "compressed_gbs": 0.1014427231399694,
    "data": "silicon",
-   "fps": 642.5985743545086,
+   "fps": 653.2878684915393,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx2cs",
@@ -2815,15 +2815,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.746137015032395,
+   "pixel_gbs": 5.841721025263136,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.08782405618594433,
+   "compressed_gbs": 0.08874760391506632,
    "data": "silicon",
-   "fps": 565.5840921071518,
+   "fps": 571.531709725577,
    "kind": "sparsify",
    "pipeline": {
     "collect": "sse2",
@@ -2831,15 +2831,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.0574710503131,
+   "pixel_gbs": 5.11065483738082,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.04429283407297828,
+   "compressed_gbs": 0.04448261893416279,
    "data": "silicon",
-   "fps": 285.2444242950765,
+   "fps": 286.4666326861517,
    "kind": "sparsify",
    "pipeline": {
     "collect": "scalar",
@@ -2847,15 +2847,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.5506647698681517,
+   "pixel_gbs": 2.5615937964118145,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.10736799741155945,
+   "compressed_gbs": 0.10964623066367706,
    "data": "silicon",
-   "fps": 691.4464438855948,
+   "fps": 706.1181926235389,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512f",
@@ -2863,15 +2863,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.182936227511193,
+   "pixel_gbs": 6.314131474221848,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.24167387673232488,
+   "compressed_gbs": 0.2429958660743785,
    "data": "silicon",
-   "fps": 1984.8732264988018,
+   "fps": 1995.7307560184913,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -2879,15 +2879,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 17.748799907295535,
+   "pixel_gbs": 17.84588828370154,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.24053360156151268,
+   "compressed_gbs": 0.243376641804065,
    "data": "silicon",
-   "fps": 1975.5081197359666,
+   "fps": 1998.8580760307923,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -2895,15 +2895,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 17.665056822938848,
+   "pixel_gbs": 17.873852879325774,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.14836723023810908,
+   "compressed_gbs": 0.1529396771960719,
    "data": "silicon",
-   "fps": 1218.543547077618,
+   "fps": 1256.0971613497077,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -2911,7 +2911,7 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 10.896255391361569,
+   "pixel_gbs": 11.232061011898251,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
@@ -2930,9 +2930,9 @@
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.23304536087315278,
+   "compressed_gbs": 0.236988726595828,
    "data": "silicon",
-   "fps": 1914.0070230644103,
+   "fps": 1946.3939783740252,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -2940,15 +2940,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 17.115112048466695,
+   "pixel_gbs": 17.40471723922784,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.2330870138568556,
+   "compressed_gbs": 0.23641746625544552,
    "data": "silicon",
-   "fps": 1914.349119997986,
+   "fps": 1941.702203779613,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -2956,15 +2956,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 17.11817109019383,
+   "pixel_gbs": 17.36276324066782,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.2403960496389451,
+   "compressed_gbs": 0.24328935833693419,
    "data": "silicon",
-   "fps": 1974.3784025648376,
+   "fps": 1998.1412148649663,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -2972,15 +2972,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 17.654954855843663,
+   "pixel_gbs": 17.867442683841404,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.24045463371037665,
+   "compressed_gbs": 0.2435410252438161,
    "data": "silicon",
-   "fps": 1974.8595549196393,
+   "fps": 2000.208161082819,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -2988,15 +2988,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 17.65925733559717,
+   "pixel_gbs": 17.885925383063725,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.2125224735600405,
+   "compressed_gbs": 0.213798874459303,
    "data": "silicon",
-   "fps": 1745.452067481162,
+   "fps": 1755.9351780493398,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3004,15 +3004,15 @@
     "mask": "none",
     "untranspose": "lowplanes-avx2"
    },
-   "pixel_gbs": 15.60788824188271,
+   "pixel_gbs": 15.701628552042894,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.11164676133568553,
+   "compressed_gbs": 0.1135318701470856,
    "data": "silicon",
-   "fps": 916.9574734217159,
+   "fps": 932.4399163707701,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3020,15 +3020,15 @@
     "mask": "none",
     "untranspose": "lowplanes-c"
    },
-   "pixel_gbs": 8.199463069976133,
+   "pixel_gbs": 8.33790757026475,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.10838716099739773,
+   "compressed_gbs": 0.11102247708344125,
    "data": "silicon",
-   "fps": 890.1862992756585,
+   "fps": 911.8302121936563,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3036,15 +3036,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.960074374084515,
+   "pixel_gbs": 8.153614936002464,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.012989367245227965,
+   "compressed_gbs": 0.012993697365354778,
    "data": "silicon",
-   "fps": 106.68197830404978,
+   "fps": 106.71754168236541,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3052,15 +3052,15 @@
     "mask": "none",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.953953663818119,
+   "pixel_gbs": 0.9542716726850452,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.22891724364514787,
+   "compressed_gbs": 0.2298658787929332,
    "data": "silicon",
-   "fps": 1880.1026993017276,
+   "fps": 1887.8938620538374,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3068,15 +3068,15 @@
     "mask": "none",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 16.811938500442427,
+   "pixel_gbs": 16.881607327089,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.1085184277386171,
+   "compressed_gbs": 0.11105708151735895,
    "data": "silicon",
-   "fps": 891.2643961047361,
+   "fps": 912.1144192222771,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3084,15 +3084,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.969714750429226,
+   "pixel_gbs": 8.156156324347018,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.09463155617135371,
+   "compressed_gbs": 0.09612822200176674,
    "data": "silicon",
-   "fps": 777.211193721519,
+   "fps": 789.5033453432382,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx2cs",
@@ -3100,15 +3100,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.949847365016022,
+   "pixel_gbs": 7.0597641781662865,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.07929451651479778,
+   "compressed_gbs": 0.08027127114657494,
    "data": "silicon",
-   "fps": 651.2477267566325,
+   "fps": 659.2698354912911,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "sse2",
@@ -3116,15 +3116,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.823478012585063,
+   "pixel_gbs": 5.895211965597861,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.03709189332605023,
+   "compressed_gbs": 0.03736445730390667,
    "data": "silicon",
-   "fps": 304.63659117187217,
+   "fps": 306.8751655245089,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "scalar",
@@ -3132,15 +3132,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.7240701466297987,
+   "pixel_gbs": 2.744087550125455,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.10727613612240527,
+   "compressed_gbs": 0.10994842814841899,
    "data": "silicon",
-   "fps": 881.0614258794775,
+   "fps": 903.0090230610119,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512f",
@@ -3148,15 +3148,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.878479464179915,
+   "pixel_gbs": 8.074735580500306,
    "sparse_ok": true,
    "variant": "lz4 256k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.0672247826309037,
+   "compressed_gbs": 0.06884781666891263,
    "data": "silicon",
-   "fps": 326.4819225362553,
+   "fps": 334.3643024017327,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3164,15 +3164,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 2.919411798740716,
+   "pixel_gbs": 2.9898962917339706,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.06021870536570845,
+   "compressed_gbs": 0.06124812873760165,
    "data": "silicon",
-   "fps": 292.4564116240492,
+   "fps": 297.4558792073768,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3180,15 +3180,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 2.61515459134742,
+   "pixel_gbs": 2.659859990460498,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.0671380189077198,
+   "compressed_gbs": 0.06884151066778951,
    "data": "silicon",
-   "fps": 326.06054836377166,
+   "fps": 334.3336768602343,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3196,7 +3196,7 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 2.915643857406394,
+   "pixel_gbs": 2.9896224371618745,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
@@ -3215,9 +3215,9 @@
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.06716927118323032,
+   "compressed_gbs": 0.06889440056344585,
    "data": "silicon",
-   "fps": 326.21232725532025,
+   "fps": 334.5905403879519,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3225,15 +3225,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 2.9170010691115458,
+   "pixel_gbs": 2.991919319046358,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.06480326454367169,
+   "compressed_gbs": 0.06574879642806261,
    "data": "silicon",
-   "fps": 314.7216482797137,
+   "fps": 319.3136909067636,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3241,15 +3241,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-avx2"
    },
-   "pixel_gbs": 2.814251050009945,
+   "pixel_gbs": 2.8553132421263894,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.05612450666390637,
+   "compressed_gbs": 0.05670268570546544,
    "data": "silicon",
-   "fps": 272.5726453834232,
+   "fps": 275.3806128869373,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3257,15 +3257,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-c"
    },
-   "pixel_gbs": 2.4373533173432227,
+   "pixel_gbs": 2.4624622526146056,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.059770369719185534,
+   "compressed_gbs": 0.0610057643777303,
    "data": "silicon",
-   "fps": 290.2790377733668,
+   "fps": 296.2788195120035,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3273,15 +3273,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.5956844446986547,
+   "pixel_gbs": 2.6493346849985597,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.01737479075899968,
+   "compressed_gbs": 0.01742154883946139,
    "data": "silicon",
-   "fps": 84.38190305215899,
+   "fps": 84.60898698468816,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3289,15 +3289,15 @@
     "mask": "planes",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.7545456773133034,
+   "pixel_gbs": 0.756576269104665,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.06565236833549459,
+   "compressed_gbs": 0.0670487609782003,
    "data": "silicon",
-   "fps": 318.84538103924103,
+   "fps": 325.62706090140045,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3305,15 +3305,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 2.8511256003050867,
+   "pixel_gbs": 2.911767598646272,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.059688821273659105,
+   "compressed_gbs": 0.060809523090617684,
    "data": "silicon",
-   "fps": 289.8829919665475,
+   "fps": 295.325759789233,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3321,15 +3321,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.5921429904206104,
+   "pixel_gbs": 2.6408123944596347,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.05694408825516689,
+   "compressed_gbs": 0.057980815961042355,
    "data": "silicon",
-   "fps": 276.5530014830359,
+   "fps": 281.5879430821662,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx2cs",
@@ -3337,15 +3337,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.472945788957355,
+   "pixel_gbs": 2.5179683978549083,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.05140950503638792,
+   "compressed_gbs": 0.05217093412537279,
    "data": "silicon",
-   "fps": 249.6739057241872,
+   "fps": 253.3718400739597,
    "kind": "sparsify",
    "pipeline": {
     "collect": "sse2",
@@ -3353,15 +3353,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.232592054550665,
+   "pixel_gbs": 2.26565910184023,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.03676055213835606,
+   "compressed_gbs": 0.03719795255744497,
    "data": "silicon",
-   "fps": 178.5302274835098,
+   "fps": 180.65449362694045,
    "kind": "sparsify",
    "pipeline": {
     "collect": "scalar",
@@ -3369,15 +3369,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.596423007124824,
+   "pixel_gbs": 1.6154182629558975,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.05925739753968783,
+   "compressed_gbs": 0.06046905248594504,
    "data": "silicon",
-   "fps": 287.78775201808895,
+   "fps": 293.672240161049,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512f",
@@ -3385,15 +3385,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.5734072877538163,
+   "pixel_gbs": 2.626026569031785,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.046797532737127626,
+   "compressed_gbs": 0.04727842882457191,
    "data": "silicon",
-   "fps": 473.27793333637703,
+   "fps": 478.141384315591,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3401,15 +3401,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.23206642478775,
+   "pixel_gbs": 4.275555559074313,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.04634210458402002,
+   "compressed_gbs": 0.04667382335572052,
    "data": "silicon",
-   "fps": 468.6720474599414,
+   "fps": 472.02682207169653,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3417,15 +3417,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.190880445892315,
+   "pixel_gbs": 4.220878947823416,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.04664009585007647,
+   "compressed_gbs": 0.047022796040777234,
    "data": "silicon",
-   "fps": 471.6857253677853,
+   "fps": 475.5560908496518,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3433,15 +3433,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.217828850181948,
+   "pixel_gbs": 4.252437782172494,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.046845137846647754,
+   "compressed_gbs": 0.04725663316628831,
    "data": "silicon",
-   "fps": 473.75937854368095,
+   "fps": 477.9209580771798,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3449,15 +3449,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.236371523237708,
+   "pixel_gbs": 4.273584500596801,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.04689605658719634,
+   "compressed_gbs": 0.04715643630314499,
    "data": "silicon",
-   "fps": 474.2743355272102,
+   "fps": 476.9076361872923,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3465,15 +3465,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.24097628506305,
+   "pixel_gbs": 4.264523343831126,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.043797494901626585,
+   "compressed_gbs": 0.04418796562414109,
    "data": "silicon",
-   "fps": 442.93762213466266,
+   "fps": 446.88657340989533,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3481,15 +3481,15 @@
     "mask": "none",
     "untranspose": "lowplanes-avx2"
    },
-   "pixel_gbs": 3.9607623911320617,
+   "pixel_gbs": 3.9960740398016332,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.034256911453187024,
+   "compressed_gbs": 0.03594299387121632,
    "data": "silicon",
-   "fps": 346.45074872053516,
+   "fps": 363.50262209006024,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3497,15 +3497,15 @@
     "mask": "none",
     "untranspose": "lowplanes-c"
    },
-   "pixel_gbs": 3.097973681482984,
+   "pixel_gbs": 3.2504520788132254,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.037193350126122994,
+   "compressed_gbs": 0.03922995426717186,
    "data": "silicon",
-   "fps": 376.14786190602507,
+   "fps": 396.74466995388184,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3513,15 +3513,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.363526217895257,
+   "pixel_gbs": 3.54770353455705,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.008992167474248993,
+   "compressed_gbs": 0.009074532195027175,
    "data": "silicon",
-   "fps": 90.94057292150244,
+   "fps": 91.77355283624908,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3529,15 +3529,15 @@
     "mask": "none",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.8131935131624084,
+   "pixel_gbs": 0.82064204621543,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.046437478528757986,
+   "compressed_gbs": 0.04665400130532679,
    "data": "silicon",
-   "fps": 469.6365936832065,
+   "fps": 471.8263555407464,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3545,15 +3545,15 @@
     "mask": "none",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 4.199505449086231,
+   "pixel_gbs": 4.219086369688732,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.03951619385838883,
+   "compressed_gbs": 0.03931963781813677,
    "data": "silicon",
-   "fps": 399.63949953669754,
+   "fps": 397.65166746363025,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3561,15 +3561,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.573589193321135,
+   "pixel_gbs": 3.5558139353131404,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.0370571408401729,
+   "compressed_gbs": 0.0367384244849415,
    "data": "silicon",
-   "fps": 374.7703352377326,
+   "fps": 371.54705808823564,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx2cs",
@@ -3577,15 +3577,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.3512083303465325,
+   "pixel_gbs": 3.3223856829308622,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.03387971254132925,
+   "compressed_gbs": 0.033734322246339515,
    "data": "silicon",
-   "fps": 342.63601937436283,
+   "fps": 341.16564231994784,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "sse2",
@@ -3593,15 +3593,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.063862249598172,
+   "pixel_gbs": 3.050714090925528,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.02123082350613264,
+   "compressed_gbs": 0.02116950875600746,
    "data": "silicon",
-   "fps": 214.7138894790497,
+   "fps": 214.09379443290084,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "scalar",
@@ -3609,15 +3609,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.9199784705661256,
+   "pixel_gbs": 1.9144335608204213,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.038600932270986515,
+   "compressed_gbs": 0.03894623237471739,
    "data": "silicon",
-   "fps": 390.383175811659,
+   "fps": 393.8753026379293,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512f",
@@ -3625,15 +3625,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.4908188503694806,
+   "pixel_gbs": 3.5220455601980483,
    "sparse_ok": true,
    "variant": "zstd-2 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.04353733884764766,
+   "compressed_gbs": 0.04430446810437236,
    "data": "silicon",
-   "fps": 637.7407837989242,
+   "fps": 648.9777961292065,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3641,15 +3641,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.702698496435062,
+   "pixel_gbs": 5.8031802202768406,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.0438593093966271,
+   "compressed_gbs": 0.044267835641685585,
    "data": "silicon",
-   "fps": 642.457051621008,
+   "fps": 648.4411988983077,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3657,15 +3657,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.744871514220705,
+   "pixel_gbs": 5.798381950667032,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.043782538122872486,
+   "compressed_gbs": 0.044319111918350806,
    "data": "silicon",
-   "fps": 641.33249569744,
+   "fps": 649.1923006821169,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3673,7 +3673,7 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.73481569916637,
+   "pixel_gbs": 5.805098326853111,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
@@ -3692,9 +3692,9 @@
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.043750626353098995,
+   "compressed_gbs": 0.04425961441830123,
    "data": "silicon",
-   "fps": 640.8650478100307,
+   "fps": 648.3207733145745,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3702,15 +3702,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.730635765198824,
+   "pixel_gbs": 5.79730510124367,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.043620529957257875,
+   "compressed_gbs": 0.04423478860884573,
    "data": "silicon",
-   "fps": 638.9593783398899,
+   "fps": 647.957121525107,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3718,15 +3718,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-avx2"
    },
-   "pixel_gbs": 5.713595207815402,
+   "pixel_gbs": 5.794053315305395,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.04342268684936896,
+   "compressed_gbs": 0.04427184873335554,
    "data": "silicon",
-   "fps": 636.0613459375005,
+   "fps": 648.499983203798,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3734,15 +3734,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-c"
    },
-   "pixel_gbs": 5.6876809093361995,
+   "pixel_gbs": 5.798907601807824,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.0436139107388839,
+   "compressed_gbs": 0.0443198263022952,
    "data": "silicon",
-   "fps": 638.8624191405983,
+   "fps": 649.2027650740316,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3750,15 +3750,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.712728195552643,
+   "pixel_gbs": 5.805191899780473,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.006891617599140875,
+   "compressed_gbs": 0.006886115959811179,
    "data": "silicon",
-   "fps": 100.94933970811653,
+   "fps": 100.86875095668691,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3766,15 +3766,15 @@
     "mask": "pixel",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.9026922260488485,
+   "pixel_gbs": 0.901971598854725,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.0435472413502366,
+   "compressed_gbs": 0.04427995948466814,
    "data": "silicon",
-   "fps": 637.8858369861375,
+   "fps": 648.6187905777948,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3782,15 +3782,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 5.703995566676825,
+   "pixel_gbs": 5.79996998114794,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.04390132982262521,
+   "compressed_gbs": 0.04433069817660534,
    "data": "silicon",
-   "fps": 643.0725724617596,
+   "fps": 649.3620177483436,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -3798,15 +3798,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.750375521275373,
+   "pixel_gbs": 5.806615942290256,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.039120651584814974,
+   "compressed_gbs": 0.03930325157274732,
    "data": "silicon",
-   "fps": 573.044555886367,
+   "fps": 575.719305021429,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx2cs",
@@ -3814,15 +3814,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.124182756161682,
+   "pixel_gbs": 5.148100448519379,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.0346881027547478,
+   "compressed_gbs": 0.03506379940507152,
    "data": "silicon",
-   "fps": 508.1159856077364,
+   "fps": 513.6192405743874,
    "kind": "sparsify",
    "pipeline": {
     "collect": "sse2",
@@ -3830,15 +3830,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.543589403015918,
+   "pixel_gbs": 4.59279968503187,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.01840990971785838,
+   "compressed_gbs": 0.018486630372647722,
    "data": "silicon",
-   "fps": 269.67082885381245,
+   "fps": 270.7946433039822,
    "kind": "sparsify",
    "pipeline": {
     "collect": "scalar",
@@ -3846,15 +3846,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.4114051810773143,
+   "pixel_gbs": 2.4214543658527945,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.04157926374138521,
+   "compressed_gbs": 0.04226022860706718,
    "data": "silicon",
-   "fps": 609.0586367946074,
+   "fps": 619.0335015583736,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512f",
@@ -3862,15 +3862,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.446221820093758,
+   "pixel_gbs": 5.5354173800070265,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.038726515986043465,
+   "compressed_gbs": 0.03931829430392771,
    "data": "silicon",
-   "fps": 820.2233204568813,
+   "fps": 832.7571197029671,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3878,15 +3878,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.3344631786716885,
+   "pixel_gbs": 7.4465408126117625,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.03748106197209229,
+   "compressed_gbs": 0.038225665162368194,
    "data": "silicon",
-   "fps": 793.8447423486018,
+   "fps": 809.6153554698799,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3894,15 +3894,15 @@
     "mask": "pixel",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.0985850891129525,
+   "pixel_gbs": 7.239606416303041,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.03740409866727222,
+   "compressed_gbs": 0.03809741987306995,
    "data": "silicon",
-   "fps": 792.2146680745409,
+   "fps": 806.8991344429467,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3910,15 +3910,15 @@
     "mask": "planes",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.084008912791924,
+   "pixel_gbs": 7.215317880961131,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.03872244432869411,
+   "compressed_gbs": 0.03922191422564884,
    "data": "silicon",
-   "fps": 820.1370832050702,
+   "fps": 830.7158003170384,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3926,15 +3926,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.333692042406399,
+   "pixel_gbs": 7.428287269340568,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.03877368145721147,
+   "compressed_gbs": 0.03911535813681847,
    "data": "silicon",
-   "fps": 821.2222799136595,
+   "fps": 828.4589541544028,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3942,15 +3942,15 @@
     "mask": "none",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 7.343395906100899,
+   "pixel_gbs": 7.408106478735203,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.03489048004260667,
+   "compressed_gbs": 0.0352042969574515,
    "data": "silicon",
-   "fps": 738.9765039332466,
+   "fps": 745.6231114411962,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3958,15 +3958,15 @@
     "mask": "none",
     "untranspose": "lowplanes-avx2"
    },
-   "pixel_gbs": 6.607951545419217,
+   "pixel_gbs": 6.667385722446742,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.025455346352747647,
+   "compressed_gbs": 0.02569517879356171,
    "data": "silicon",
-   "fps": 539.1414171198664,
+   "fps": 544.2210416600312,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3974,15 +3974,15 @@
     "mask": "none",
     "untranspose": "lowplanes-c"
    },
-   "pixel_gbs": 4.821019804411194,
+   "pixel_gbs": 4.866441969597332,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.028079762642639235,
+   "compressed_gbs": 0.02834653971868379,
    "data": "silicon",
-   "fps": 594.7262635421932,
+   "fps": 600.3765724730018,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -3990,15 +3990,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.318061279834725,
+   "pixel_gbs": 5.368586523103901,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.0047068495253570096,
+   "compressed_gbs": 0.00472092351434363,
    "data": "silicon",
-   "fps": 99.69055176485683,
+   "fps": 99.98863729320232,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -4006,15 +4006,15 @@
     "mask": "none",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.8914361039790063,
+   "pixel_gbs": 0.8941015943122085,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.0383875416236624,
+   "compressed_gbs": 0.0385257228501035,
    "data": "silicon",
-   "fps": 813.0438809957597,
+   "fps": 815.9705440711878,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -4022,15 +4022,15 @@
     "mask": "none",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 7.2702644012682756,
+   "pixel_gbs": 7.29643471614197,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.02814061936252704,
+   "compressed_gbs": 0.028367300722466956,
    "data": "silicon",
-   "fps": 596.015202130846,
+   "fps": 600.8162882342953,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -4038,15 +4038,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.329587009940493,
+   "pixel_gbs": 5.372518475512292,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.02549729305228922,
+   "compressed_gbs": 0.02575141012667197,
    "data": "silicon",
-   "fps": 540.0298435714634,
+   "fps": 545.4120150688976,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx2cs",
@@ -4054,15 +4054,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.828964142171021,
+   "pixel_gbs": 4.877091691930564,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.022448243348433324,
+   "compressed_gbs": 0.022619195316225076,
    "data": "silicon",
-   "fps": 475.45130846037716,
+   "fps": 479.07205220895816,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "sse2",
@@ -4070,15 +4070,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.251500814694563,
+   "pixel_gbs": 4.283877621158174,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.012294714530552314,
+   "compressed_gbs": 0.012329798025960069,
    "data": "silicon",
-   "fps": 260.40069238227824,
+   "fps": 261.143756930273,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "scalar",
@@ -4086,15 +4086,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.3285113241044884,
+   "pixel_gbs": 2.335155831070723,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.02793874141113224,
+   "compressed_gbs": 0.028199513508577745,
    "data": "silicon",
-   "fps": 591.739449473939,
+   "fps": 597.2625736229418,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512f",
@@ -4102,15 +4102,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.291353092858345,
+   "pixel_gbs": 5.340741045738701,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.03043007873790987,
+   "compressed_gbs": 0.03462724550671828,
    "data": "silicon",
-   "fps": 445.7438782211229,
+   "fps": 507.2245404692541,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4120,16 +4120,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.9858560228573836,
+   "pixel_gbs": 4.535618072061365,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.008452779653889603,
+   "compressed_gbs": 0.008387031778466924,
    "data": "silicon",
-   "fps": 123.81745105310712,
+   "fps": 122.85436734806258,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4139,16 +4139,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 1.1071796094753175,
+   "pixel_gbs": 1.0985676841661307,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.03615159317168066,
+   "compressed_gbs": 0.0347168830784633,
    "data": "silicon",
-   "fps": 529.5533896907699,
+   "fps": 508.53756365292975,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4158,16 +4158,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.735283356323334,
+   "pixel_gbs": 4.547359167386535,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.03625446882453469,
+   "compressed_gbs": 0.034689089822803415,
    "data": "silicon",
-   "fps": 531.0603260635819,
+   "fps": 508.1304443131169,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4177,16 +4177,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.748758429590983,
+   "pixel_gbs": 4.54371869322211,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03207172540476092,
+   "compressed_gbs": 0.03261257238259855,
    "data": "silicon",
-   "fps": 469.7909389682692,
+   "fps": 477.7133381017681,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4196,16 +4196,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.20088560956431,
+   "pixel_gbs": 4.27172795613283,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03503677794974903,
+   "compressed_gbs": 0.03545435449781392,
    "data": "silicon",
-   "fps": 513.2234266695216,
+   "fps": 519.3401440001525,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4215,16 +4215,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.589260304428516,
+   "pixel_gbs": 4.643956186533971,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03505202027652334,
+   "compressed_gbs": 0.035542660360935494,
    "data": "silicon",
-   "fps": 513.4466983182089,
+   "fps": 520.633660137146,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4234,16 +4234,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.591256806655769,
+   "pixel_gbs": 4.655522849223484,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03318225035824072,
+   "compressed_gbs": 0.03361032606231807,
    "data": "silicon",
-   "fps": 486.05805756131883,
+   "fps": 492.32856793860424,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4253,7 +4253,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.346346704571156,
+   "pixel_gbs": 4.402417809021173,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
@@ -4304,9 +4304,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03027880939538257,
+   "compressed_gbs": 0.03015445448779889,
    "data": "silicon",
-   "fps": 443.5280645857123,
+   "fps": 441.7064972062916,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4316,16 +4316,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.9660421464235056,
+   "pixel_gbs": 3.9497536326265696,
    "powder_rel": 3.2596686996314593e-13,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.032421283945289925,
+   "compressed_gbs": 0.03259174018468326,
    "data": "silicon",
-   "fps": 474.9113193939235,
+   "fps": 477.4081852702356,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4335,16 +4335,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.246672215182685,
+   "pixel_gbs": 4.268999269748376,
    "powder_rel": 3.2596686996314593e-13,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03297320881487726,
+   "compressed_gbs": 0.03375676970849824,
    "data": "silicon",
-   "fps": 482.9959889728443,
+   "fps": 494.4736941261309,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4354,7 +4354,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.318965589266821,
+   "pixel_gbs": 4.421599596034075,
    "powder_rel": 9.086238887101384e-06,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
@@ -4372,9 +4372,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.03940503099430106,
+   "compressed_gbs": 0.04055476336768942,
    "data": "silicon",
-   "fps": 577.2101836509985,
+   "fps": 594.0516177939884,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4384,16 +4384,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.161431932933105,
+   "pixel_gbs": 5.312028575965614,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.017764295394459152,
+   "compressed_gbs": 0.018481391646152354,
    "data": "silicon",
-   "fps": 260.21378357878456,
+   "fps": 270.71790573504273,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4403,16 +4403,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 2.3268399796025663,
+   "pixel_gbs": 2.4207681760557356,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.03939858163962153,
+   "compressed_gbs": 0.040563420989220424,
    "data": "silicon",
-   "fps": 577.1157126379054,
+   "fps": 594.1784357963551,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4422,16 +4422,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.160587170110954,
+   "pixel_gbs": 5.313162586600952,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.039412996110251404,
+   "compressed_gbs": 0.040569862854673656,
    "data": "silicon",
-   "fps": 577.3268577386591,
+   "fps": 594.272797106256,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4441,16 +4441,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.162475236358538,
+   "pixel_gbs": 5.314006368453649,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03568563198566528,
+   "compressed_gbs": 0.03708165399005033,
    "data": "silicon",
-   "fps": 522.7279276883909,
+   "fps": 543.1770454076096,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4460,16 +4460,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.674249856683277,
+   "pixel_gbs": 4.857106521700298,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03668023508031588,
+   "compressed_gbs": 0.038780340641453706,
    "data": "silicon",
-   "fps": 537.2970073322097,
+   "fps": 568.0596355054032,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4479,16 +4479,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.804527033068854,
+   "pixel_gbs": 5.079607438597652,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03702897166764463,
+   "compressed_gbs": 0.038798342474535674,
    "data": "silicon",
-   "fps": 542.4053476770495,
+   "fps": 568.3233287729151,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4498,16 +4498,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.850205975899303,
+   "pixel_gbs": 5.081965392233928,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.034684984494370054,
+   "compressed_gbs": 0.03621189893298378,
    "data": "silicon",
-   "fps": 508.07030891113465,
+   "fps": 530.4367565776536,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4517,16 +4517,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.543180960533251,
+   "pixel_gbs": 4.743182451293588,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03858489209544879,
+   "compressed_gbs": 0.04046977967636889,
    "data": "silicon",
-   "fps": 565.1966789669315,
+   "fps": 592.8067652754976,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4536,7 +4536,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 5.054006789616028,
+   "pixel_gbs": 5.300897064909988,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
@@ -4576,9 +4576,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03255672779755927,
+   "compressed_gbs": 0.03479658941247902,
    "data": "silicon",
-   "fps": 476.8953191236559,
+   "fps": 509.7051127331986,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4588,16 +4588,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.264413204253943,
+   "pixel_gbs": 4.557799428623869,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03348533268397479,
+   "compressed_gbs": 0.03574749788273555,
    "data": "silicon",
-   "fps": 490.49764815379,
+   "fps": 523.6341476534209,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4607,16 +4607,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.386045665715931,
+   "pixel_gbs": 4.682353304609614,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03439743841615324,
+   "compressed_gbs": 0.03667244279106659,
    "data": "silicon",
-   "fps": 503.8582953578486,
+   "fps": 537.182864833266,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4626,16 +4626,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.505517000555334,
+   "pixel_gbs": 4.803506367190739,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03816334586100712,
+   "compressed_gbs": 0.04045108755620534,
    "data": "silicon",
-   "fps": 559.0218131373714,
+   "fps": 592.532960590152,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -4645,16 +4645,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.998790941772395,
+   "pixel_gbs": 5.298448694651879,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.02913640869021893,
+   "compressed_gbs": 0.030967357083707504,
    "data": "silicon",
-   "fps": 426.7940257030655,
+   "fps": 453.6140035534543,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -4664,16 +4664,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.816405835245634,
+   "pixel_gbs": 4.056230935423103,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.0061330103673547035,
+   "compressed_gbs": 0.00633448211840167,
    "data": "silicon",
-   "fps": 89.83715914311202,
+   "fps": 92.78834439758187,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -4683,16 +4683,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 0.8033267518468002,
+   "pixel_gbs": 0.8297163448301977,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.028952447633346486,
+   "compressed_gbs": 0.03096490430934765,
    "data": "silicon",
-   "fps": 424.0993394474619,
+   "fps": 453.57807498537596,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -4702,16 +4702,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.792309864518067,
+   "pixel_gbs": 4.0559096610176315,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.028870187756642643,
+   "compressed_gbs": 0.03096966422353568,
    "data": "silicon",
-   "fps": 422.8943857311154,
+   "fps": 453.6477988473629,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -4721,16 +4721,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.781535129827977,
+   "pixel_gbs": 4.056533134022682,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.02915684766555321,
+   "compressed_gbs": 0.03102001667114119,
    "data": "silicon",
-   "fps": 427.093418557446,
+   "fps": 454.38536825909256,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -4740,16 +4740,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.819083015730076,
+   "pixel_gbs": 4.06312850330459,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.02897310722839179,
+   "compressed_gbs": 0.031015393232580908,
    "data": "silicon",
-   "fps": 424.40196396898506,
+   "fps": 454.3176435104211,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -4759,16 +4759,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.7950159426735115,
+   "pixel_gbs": 4.062522906434777,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.029004370932846524,
+   "compressed_gbs": 0.03093795437493305,
    "data": "silicon",
-   "fps": 424.8599189086103,
+   "fps": 453.1833087283698,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -4778,16 +4778,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.7991109903981988,
+   "pixel_gbs": 4.052379648514962,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.02730135891491879,
+   "compressed_gbs": 0.028716100201724066,
    "data": "silicon",
-   "fps": 399.9139702613402,
+   "fps": 420.6372905422866,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -4797,7 +4797,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.576043519323952,
+   "pixel_gbs": 3.7613521124224243,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
@@ -4848,9 +4848,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.023731052416554092,
+   "compressed_gbs": 0.023964287156312745,
    "data": "silicon",
-   "fps": 347.6156414030407,
+   "fps": 351.0320951799544,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -4860,16 +4860,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.108390189126515,
+   "pixel_gbs": 3.138940228126198,
    "powder_rel": 2.8503940301529694e-11,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.026549442461826184,
+   "compressed_gbs": 0.027236018812261634,
    "data": "silicon",
-   "fps": 388.8997971207947,
+   "fps": 398.9568596665035,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -4879,16 +4879,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.477554430647654,
+   "pixel_gbs": 3.5674850057573835,
    "powder_rel": 2.8503940301529694e-11,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.02756549509650486,
+   "compressed_gbs": 0.0278426551983399,
    "data": "silicon",
-   "fps": 403.7830725062849,
+   "fps": 407.84295088333965,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -4898,7 +4898,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.6106411554095197,
+   "pixel_gbs": 3.6469447177732515,
    "powder_rel": 9.362785421662182e-05,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
@@ -4916,9 +4916,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.030120752720520703,
+   "compressed_gbs": 0.030882740285094273,
    "data": "silicon",
-   "fps": 441.21282919514806,
+   "fps": 452.37452532859095,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4928,16 +4928,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.945339237473548,
+   "pixel_gbs": 4.04514748147307,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.005148995343484732,
+   "compressed_gbs": 0.005138268221247375,
    "data": "silicon",
-   "fps": 75.4231749814076,
+   "fps": 75.266042654889,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4947,16 +4947,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 0.6744364442253461,
+   "pixel_gbs": 0.6730313619333824,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.030170303583764314,
+   "compressed_gbs": 0.03089708518014339,
    "data": "silicon",
-   "fps": 441.9386568915416,
+   "fps": 452.5846512768982,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4966,16 +4966,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.9518296119611853,
+   "pixel_gbs": 4.047026434426865,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.030121769646109586,
+   "compressed_gbs": 0.03084193368894524,
    "data": "silicon",
-   "fps": 441.22772525768386,
+   "fps": 451.77678483041035,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -4985,16 +4985,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.9454724385414175,
+   "pixel_gbs": 4.039802466810644,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03017731315123674,
+   "compressed_gbs": 0.030922600696248,
    "data": "silicon",
-   "fps": 442.04133397682693,
+   "fps": 452.9584059819465,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -5004,7 +5004,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.9527477537434734,
+   "pixel_gbs": 4.050368560959557,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
@@ -5088,9 +5088,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.028744988711171694,
+   "compressed_gbs": 0.02917110666081047,
    "data": "silicon",
-   "fps": 421.06045330660675,
+   "fps": 427.3022862340712,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -5100,7 +5100,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.7651360474021836,
+   "pixel_gbs": 3.820950717178224,
    "powder_rel": 2.9706571273444235e-12,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
@@ -5140,9 +5140,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.03660928383706769,
+   "compressed_gbs": 0.03921130753487125,
    "data": "silicon",
-   "fps": 536.2577039967682,
+   "fps": 574.3724964122508,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -5152,16 +5152,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.79523354938563,
+   "pixel_gbs": 5.136057242838232,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.030750793959272212,
+   "compressed_gbs": 0.031549547065617585,
    "data": "silicon",
-   "fps": 450.44175783575884,
+   "fps": 462.14200056040227,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -5171,16 +5171,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.027864612703606,
+   "pixel_gbs": 4.132488557555135,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.036321299033082406,
+   "compressed_gbs": 0.03922061138225405,
    "data": "silicon",
-   "fps": 532.0392639295319,
+   "fps": 574.5087804176425,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -5190,16 +5190,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.757512123314321,
+   "pixel_gbs": 5.137275898775533,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.0367736329059128,
+   "compressed_gbs": 0.0392064540663143,
    "data": "silicon",
-   "fps": 538.6651112190763,
+   "fps": 574.3014021533095,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -5209,16 +5209,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.816760661804539,
+   "pixel_gbs": 5.135421515699761,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03641311203605367,
+   "compressed_gbs": 0.03897132277790656,
    "data": "silicon",
-   "fps": 533.3841531218349,
+   "fps": 570.8571674771952,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -5228,16 +5228,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.769538165508347,
+   "pixel_gbs": 5.104623059010439,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03721649961051735,
+   "compressed_gbs": 0.040755441440281114,
    "data": "silicon",
-   "fps": 545.1522821575963,
+   "fps": 596.9911771399037,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -5247,16 +5247,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.874769151926255,
+   "pixel_gbs": 5.338314209702688,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03619968132050663,
+   "compressed_gbs": 0.04081734956625373,
    "data": "silicon",
-   "fps": 530.2577913500223,
+   "fps": 597.898015679564,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -5266,16 +5266,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.741582138501223,
+   "pixel_gbs": 5.346423188943163,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03640961083733183,
+   "compressed_gbs": 0.038419892972013724,
    "data": "silicon",
-   "fps": 533.332867092964,
+   "fps": 562.7797496577277,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -5285,7 +5285,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.769079564197031,
+   "pixel_gbs": 5.03239453039139,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
@@ -5336,9 +5336,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.037868814698526765,
+   "compressed_gbs": 0.040866290504978114,
    "data": "silicon",
-   "fps": 554.7074811321304,
+   "fps": 598.614909119725,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -5348,16 +5348,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.960212046922906,
+   "pixel_gbs": 5.352833673025672,
    "powder_rel": 2.442965761930939e-13,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03546549703350456,
+   "compressed_gbs": 0.0398305957982687,
    "data": "silicon",
-   "fps": 519.5033613586988,
+   "fps": 583.4439140264191,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -5367,16 +5367,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.645415681377049,
+   "pixel_gbs": 5.217174149429488,
    "powder_rel": 2.442965761930939e-13,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03705725647320626,
+   "compressed_gbs": 0.038588869471497644,
    "data": "silicon",
-   "fps": 542.8196673058077,
+   "fps": 565.2549401052095,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -5386,7 +5386,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.853910835277887,
+   "pixel_gbs": 5.054527762578866,
    "powder_rel": 1.387327031866218e-06,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
@@ -5404,9 +5404,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.03333527293691569,
+   "compressed_gbs": 0.03340026698790518,
    "data": "silicon",
-   "fps": 488.2995528351711,
+   "fps": 489.2515944187266,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5416,16 +5416,16 @@
     "route": "ratio",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.36639022703779,
+   "pixel_gbs": 4.374903413343274,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.009613057886010606,
+   "compressed_gbs": 0.00965034991866575,
    "data": "silicon",
-   "fps": 140.81336235046606,
+   "fps": 141.35962105080077,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5435,16 +5435,16 @@
     "route": "dense",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 1.2591575921654627,
+   "pixel_gbs": 1.264042254944134,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.033365250577678904,
+   "compressed_gbs": 0.0333956718267689,
    "data": "silicon",
-   "fps": 488.7386693412046,
+   "fps": 489.18428388155786,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5454,16 +5454,16 @@
     "route": "sparse",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.370316820886471,
+   "pixel_gbs": 4.374301520365974,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.033274330397482815,
+   "compressed_gbs": 0.033176887284547714,
    "data": "silicon",
-   "fps": 487.4068583367632,
+   "fps": 485.97949853793625,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5473,16 +5473,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.358407724266804,
+   "pixel_gbs": 4.345644227270179,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.026040577062232468,
+   "compressed_gbs": 0.025555805607305943,
    "data": "silicon",
-   "fps": 381.4458684385509,
+   "fps": 374.34487109211136,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5492,16 +5492,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.4109011618453122,
+   "pixel_gbs": 3.3474038163415347,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.02712041701216168,
+   "compressed_gbs": 0.026457602538078162,
    "data": "silicon",
-   "fps": 397.26350898050276,
+   "fps": 387.5545135893402,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5511,16 +5511,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.5523430097359427,
+   "pixel_gbs": 3.465524862260315,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.026384649076454197,
+   "compressed_gbs": 0.02607325961977965,
    "data": "silicon",
-   "fps": 386.48588149035675,
+   "fps": 381.92460692873817,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5530,16 +5530,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.455969119834978,
+   "pixel_gbs": 3.4151820567441984,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.024982208994145487,
+   "compressed_gbs": 0.025727310876460623,
    "data": "silicon",
-   "fps": 365.94275090416323,
+   "fps": 376.85710329718694,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5549,16 +5549,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.2722717887530566,
+   "pixel_gbs": 3.369868277110751,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.027603070686510776,
+   "compressed_gbs": 0.028504281073074265,
    "data": "silicon",
-   "fps": 404.3334847927578,
+   "fps": 417.5345355116808,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5568,7 +5568,7 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.6155629596883534,
+   "pixel_gbs": 3.733607177650587,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
@@ -5597,9 +5597,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.03246951132512114,
+   "compressed_gbs": 0.03332953370657087,
    "data": "silicon",
-   "fps": 475.6177605276307,
+   "fps": 488.2154838186583,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5609,16 +5609,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 4.252989234406411,
+   "pixel_gbs": 4.365638479201924,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.02358461261623409,
+   "compressed_gbs": 0.024415330980054797,
    "data": "silicon",
-   "fps": 345.47057155018996,
+   "fps": 357.6390456572793,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5628,16 +5628,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.089208905860088,
+   "pixel_gbs": 3.198019790716853,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.02484787305899323,
+   "compressed_gbs": 0.025682164841721995,
    "data": "silicon",
-   "fps": 363.97498009308646,
+   "fps": 376.19579812002905,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5647,16 +5647,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.254675919191742,
+   "pixel_gbs": 3.3639548650548394,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.025160272181619165,
+   "compressed_gbs": 0.025992545634967893,
    "data": "silicon",
-   "fps": 368.55104437709633,
+   "fps": 380.7422976443441,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5666,16 +5666,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 3.2955952324534157,
+   "pixel_gbs": 3.4046098092892496,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.018559554321556284,
+   "compressed_gbs": 0.019107966151840978,
    "data": "silicon",
-   "fps": 271.86284309674863,
+   "fps": 279.89605320438153,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -5685,16 +5685,16 @@
     "route": "bpp",
     "untranspose": "lowplanes-vbmi"
    },
-   "pixel_gbs": 2.4310062425821055,
+   "pixel_gbs": 2.5028394644272822,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 1.5744792257941977,
+   "compressed_gbs": 1.707241740980493,
    "data": "ceo2",
-   "fps": 391.9950965320511,
+   "fps": 425.04872728417405,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -5702,15 +5702,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.01046539406538,
+   "pixel_gbs": 7.601598641868715,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 1.5529894824425816,
+   "compressed_gbs": 1.7044486617752324,
    "data": "ceo2",
-   "fps": 386.6448360258723,
+   "fps": 424.3533396698118,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -5718,15 +5718,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.914780992756205,
+   "pixel_gbs": 7.589162285268654,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 1.6698121125432086,
+   "compressed_gbs": 1.8069118570086689,
    "data": "ceo2",
-   "fps": 415.72994392262717,
+   "fps": 449.86340639441613,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -5734,7 +5734,7 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.434940923828675,
+   "pixel_gbs": 8.045385951215748,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
@@ -5753,9 +5753,9 @@
   },
   {
    "axis": "mask",
-   "compressed_gbs": 1.5524087955564003,
+   "compressed_gbs": 1.7057340793225557,
    "data": "ceo2",
-   "fps": 386.5002635168963,
+   "fps": 424.6733676303541,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -5763,15 +5763,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.91219544875304,
+   "pixel_gbs": 7.594885685796781,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 1.4067204983129773,
+   "compressed_gbs": 1.5215335148378524,
    "data": "ceo2",
-   "fps": 350.2285254044301,
+   "fps": 378.81330363362673,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -5779,7 +5779,7 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.263509362958454,
+   "pixel_gbs": 6.774721366235213,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
@@ -5837,9 +5837,9 @@
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 1.5711627428313695,
+   "compressed_gbs": 1.7090914467924911,
    "data": "ceo2",
-   "fps": 391.16939808023125,
+   "fps": 425.50924502010304,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -5847,15 +5847,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.995698550108332,
+   "pixel_gbs": 7.609834570531204,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.2077333799945158,
+   "compressed_gbs": 0.20969916147311415,
    "data": "ceo2",
-   "fps": 51.718984290062245,
+   "fps": 52.20840116380689,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -5863,7 +5863,7 @@
     "mask": "pixel",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.9249456250584679,
+   "pixel_gbs": 0.9336983877511968,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
@@ -5882,9 +5882,9 @@
   },
   {
    "axis": "collect",
-   "compressed_gbs": 1.5442909006138572,
+   "compressed_gbs": 1.7144681893446339,
    "data": "ceo2",
-   "fps": 384.47916666181777,
+   "fps": 426.84788238109587,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -5892,15 +5892,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.876050023246615,
+   "pixel_gbs": 7.633774846767991,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 1.375701253822306,
+   "compressed_gbs": 1.4737641100322685,
    "data": "ceo2",
-   "fps": 342.5057231347853,
+   "fps": 366.9202458267839,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx2cs",
@@ -5908,15 +5908,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.12539427290878,
+   "pixel_gbs": 6.562025159261937,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 1.1114042686369143,
+   "compressed_gbs": 1.1776716759866943,
    "data": "ceo2",
-   "fps": 276.70420570376405,
+   "fps": 293.2026760013971,
    "kind": "sparsify",
    "pipeline": {
     "collect": "sse2",
@@ -5924,15 +5924,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.948595723875282,
+   "pixel_gbs": 5.243655422580249,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.8365995408707885,
+   "compressed_gbs": 0.8726679400702556,
    "data": "ceo2",
-   "fps": 208.28659559918526,
+   "fps": 217.2664763078811,
    "kind": "sparsify",
    "pipeline": {
     "collect": "scalar",
@@ -5940,15 +5940,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.7250108060379477,
+   "pixel_gbs": 3.8856075673446293,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 1.5254583048422867,
+   "compressed_gbs": 1.6628275637902366,
    "data": "ceo2",
-   "fps": 379.79045113195605,
+   "fps": 413.9910141115507,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512f",
@@ -5956,15 +5956,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.792196734632775,
+   "pixel_gbs": 7.403841791795876,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 1.6792560788729047,
+   "compressed_gbs": 1.8242005803044017,
    "data": "ceo2",
-   "fps": 427.263704212128,
+   "fps": 464.1428469265422,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -5972,15 +5972,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.6412114310067665,
+   "pixel_gbs": 8.300760379576484,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 1.6787109963900664,
+   "compressed_gbs": 1.8296457338148326,
    "data": "ceo2",
-   "fps": 427.1250154417559,
+   "fps": 465.52829164110415,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -5988,15 +5988,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.638731112161351,
+   "pixel_gbs": 8.325537761520172,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 1.636531610569349,
+   "compressed_gbs": 1.6779577688652998,
    "data": "ceo2",
-   "fps": 416.3930485583917,
+   "fps": 426.9333670169592,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -6004,7 +6004,7 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.446799929573385,
+   "pixel_gbs": 7.635303659466787,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
@@ -6023,9 +6023,9 @@
   },
   {
    "axis": "mask",
-   "compressed_gbs": 1.6898797104353078,
+   "compressed_gbs": 1.8593075062186928,
    "data": "ceo2",
-   "fps": 429.9667417241814,
+   "fps": 473.0753232762533,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -6033,15 +6033,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.68955272686673,
+   "pixel_gbs": 8.460509358293203,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 1.715122625586548,
+   "compressed_gbs": 1.8185493820784502,
    "data": "ceo2",
-   "fps": 436.389455667769,
+   "fps": 462.70497695683656,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -6049,15 +6049,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.804416954087544,
+   "pixel_gbs": 8.27504542101459,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 1.731351578832815,
+   "compressed_gbs": 1.8204508421288623,
    "data": "ceo2",
-   "fps": 440.5186904918821,
+   "fps": 463.1887774175118,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -6065,7 +6065,7 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.878264453953012,
+   "pixel_gbs": 8.283697739416537,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
@@ -6110,9 +6110,9 @@
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 1.7481441042802115,
+   "compressed_gbs": 1.8170388263337993,
    "data": "ceo2",
-   "fps": 444.79131854188546,
+   "fps": 462.3206367415481,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -6120,15 +6120,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.954676407447466,
+   "pixel_gbs": 8.268171856006598,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.2061132947107953,
+   "compressed_gbs": 0.20746056777009994,
    "data": "ceo2",
-   "fps": 52.442704179226986,
+   "fps": 52.78549935212883,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -6136,7 +6136,7 @@
     "mask": "none",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.9378886778743629,
+   "pixel_gbs": 0.9440192486854305,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
@@ -6155,9 +6155,9 @@
   },
   {
    "axis": "collect",
-   "compressed_gbs": 1.6992936817083668,
+   "compressed_gbs": 1.8134042327618263,
    "data": "ceo2",
-   "fps": 432.3619977474161,
+   "fps": 461.3958641994656,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -6165,15 +6165,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 7.732389638882646,
+   "pixel_gbs": 8.251633164678552,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 1.443940458726757,
+   "compressed_gbs": 1.521884763823929,
    "data": "ceo2",
-   "fps": 367.39086838467074,
+   "fps": 387.22272901453385,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx2cs",
@@ -6181,15 +6181,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.570441803207029,
+   "pixel_gbs": 6.92511606795058,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 1.101996203529022,
+   "compressed_gbs": 1.138258072783894,
    "data": "ceo2",
-   "fps": 280.387837132938,
+   "fps": 289.61417299345277,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "sse2",
@@ -6197,15 +6197,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.01447402410704,
+   "pixel_gbs": 5.179478405121981,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.880839104354381,
+   "compressed_gbs": 0.9027224694886424,
    "data": "ceo2",
-   "fps": 224.1174430012769,
+   "fps": 229.6853654673767,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "scalar",
@@ -6213,15 +6213,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.0081306941511885,
+   "pixel_gbs": 4.107707775881956,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 1.779013100497821,
+   "compressed_gbs": 1.8861325179553252,
    "data": "ceo2",
-   "fps": 452.6455117380169,
+   "fps": 479.9005800219785,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512f",
@@ -6229,15 +6229,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 8.095141301235445,
+   "pixel_gbs": 8.582572686750185,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.4867152857605436,
+   "compressed_gbs": 0.4756119369963342,
    "data": "ceo2",
-   "fps": 121.17657845189477,
+   "fps": 118.41219884030615,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6247,16 +6247,16 @@
     "route": "ratio",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.1671296843347068,
+   "pixel_gbs": 2.1176913424407613,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.44295003750190404,
+   "compressed_gbs": 0.43401113650088513,
    "data": "ceo2",
-   "fps": 110.28042788043142,
+   "fps": 108.05492670939033,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6266,16 +6266,16 @@
     "route": "dense",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.9722622301610198,
+   "pixel_gbs": 1.932461224786046,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.27865119781281084,
+   "compressed_gbs": 0.277777525123576,
    "data": "ceo2",
-   "fps": 69.37525843207413,
+   "fps": 69.15774180527882,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6285,16 +6285,16 @@
     "route": "sparse",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.2407115618157534,
+   "pixel_gbs": 1.236821480541082,
    "powder_rel": 1.1857230939726466e-16,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.48511977198862083,
+   "compressed_gbs": 0.47460455906973137,
    "data": "ceo2",
-   "fps": 120.77934642444288,
+   "fps": 118.16139387501121,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6304,16 +6304,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.160025561332908,
+   "pixel_gbs": 2.1132059303899084,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.3759660663696029,
+   "compressed_gbs": 0.3718659666807952,
    "data": "ceo2",
-   "fps": 93.60355606152142,
+   "fps": 92.5827620446969,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6323,16 +6323,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.6740119872318369,
+   "pixel_gbs": 1.6557560417041304,
    "powder_rel": 1.1857230939726466e-16,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.3589156112118584,
+   "compressed_gbs": 0.35536437594711184,
    "data": "ceo2",
-   "fps": 89.35853668877988,
+   "fps": 88.474392403097,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6342,16 +6342,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.5980937890884876,
+   "pixel_gbs": 1.5822816960981003,
    "powder_rel": 1.1857230939726466e-16,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.4858450246067258,
+   "compressed_gbs": 0.47469571950543865,
    "data": "ceo2",
-   "fps": 120.95991118857992,
+   "fps": 118.1840899152063,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6361,16 +6361,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.1632547931308794,
+   "pixel_gbs": 2.113611827825304,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.4228958605324875,
+   "compressed_gbs": 0.417553932397861,
    "data": "ceo2",
-   "fps": 105.28757760447307,
+   "fps": 103.95760792275566,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6380,7 +6380,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.882969776283363,
+   "pixel_gbs": 1.8591845133774692,
    "powder_rel": 1.1857230939726466e-16,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -6398,9 +6398,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.39740689941721985,
+   "compressed_gbs": 0.3957081921204394,
    "data": "ceo2",
-   "fps": 98.9416394623924,
+   "fps": 98.51871553943923,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6410,7 +6410,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.7694786124103512,
+   "pixel_gbs": 1.7619150139051256,
    "powder_rel": 1.1857230939726466e-16,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -6439,9 +6439,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.3822960548626222,
+   "compressed_gbs": 0.3899610632928499,
    "data": "ceo2",
-   "fps": 95.17952125033884,
+   "fps": 97.0878638123123,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6451,16 +6451,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.70219664953042,
+   "pixel_gbs": 1.7363255700426774,
    "powder_rel": 1.6987728784267373e-07,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.39846806994046724,
+   "compressed_gbs": 0.4076512995421855,
    "data": "ceo2",
-   "fps": 99.2058370681039,
+   "fps": 101.49216826589138,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6470,16 +6470,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.7742035392995428,
+   "pixel_gbs": 1.8150924327659703,
    "powder_rel": 1.6987728784267373e-07,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.40042803259800447,
+   "compressed_gbs": 0.40900338106517536,
    "data": "ceo2",
-   "fps": 99.69380524104245,
+   "fps": 101.82879342959035,
    "kind": "1D",
    "pipeline": {
     "collect": "avx512cs",
@@ -6489,7 +6489,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.7829303933343386,
+   "pixel_gbs": 1.8211126587375732,
    "powder_rel": 5.796489681496928e-07,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -6507,9 +6507,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.7654653516328843,
+   "compressed_gbs": 0.8023589279509309,
    "data": "ceo2",
-   "fps": 190.5764518765991,
+   "fps": 199.76177536215368,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6519,16 +6519,16 @@
     "route": "ratio",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.4082814622540183,
+   "pixel_gbs": 3.57255237533038,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.7488702544663316,
+   "compressed_gbs": 0.7835181633375351,
    "data": "ceo2",
-   "fps": 186.4448021163552,
+   "fps": 195.0710260512885,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6538,16 +6538,16 @@
     "route": "dense",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.3343907735162315,
+   "pixel_gbs": 3.4886627144469107,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.5110813731264162,
+   "compressed_gbs": 0.5320554221570586,
    "data": "ceo2",
-   "fps": 127.24295685347433,
+   "fps": 132.46482592595285,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6557,16 +6557,16 @@
     "route": "sparse",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.2756211839167735,
+   "pixel_gbs": 2.3690094246085995,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.7431563750582327,
+   "compressed_gbs": 0.802915480981207,
    "data": "ceo2",
-   "fps": 185.02222843392354,
+   "fps": 199.90033931095286,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6576,16 +6576,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.3089493747349086,
+   "pixel_gbs": 3.5750304618587965,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.5168996603485185,
+   "compressed_gbs": 0.5073399085065786,
    "data": "ceo2",
-   "fps": 128.69152475066505,
+   "fps": 126.31145152727053,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6595,16 +6595,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.301527464898478,
+   "pixel_gbs": 2.258962083046604,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.5232916667756959,
+   "compressed_gbs": 0.5146847852488272,
    "data": "ceo2",
-   "fps": 130.28293042652655,
+   "fps": 128.1400915121147,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6614,16 +6614,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.329988265855548,
+   "pixel_gbs": 2.291665597568516,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.6486370439892637,
+   "compressed_gbs": 0.6347202538724989,
    "data": "ceo2",
-   "fps": 161.4899304527697,
+   "fps": 158.02509370175719,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6633,16 +6633,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.888096251572882,
+   "pixel_gbs": 2.826130889368222,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.568344153051124,
+   "compressed_gbs": 0.5568713053376086,
    "data": "ceo2",
-   "fps": 141.4995621973504,
+   "fps": 138.6431891355284,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6652,16 +6652,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.530587226309395,
+   "pixel_gbs": 2.479503667663894,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.734202739352118,
+   "compressed_gbs": 0.7110640131595474,
    "data": "ceo2",
-   "fps": 182.79305879139565,
+   "fps": 177.0322541654024,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6671,16 +6671,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.2690827621810823,
+   "pixel_gbs": 3.166056163558323,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.6251715674245599,
+   "compressed_gbs": 0.6121005446713994,
    "data": "ceo2",
-   "fps": 155.64777540844906,
+   "fps": 152.39350774841483,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6690,16 +6690,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.7836147768623296,
+   "pixel_gbs": 2.725415245757147,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.6983951665112551,
+   "compressed_gbs": 0.6837920634224015,
    "data": "ceo2",
-   "fps": 173.87811552483566,
+   "fps": 170.24240873925064,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6709,7 +6709,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.1096473462455547,
+   "pixel_gbs": 3.0446261334069176,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -6727,9 +6727,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.5196348030119409,
+   "compressed_gbs": 0.5125846618661556,
    "data": "ceo2",
-   "fps": 129.3724880144619,
+   "fps": 127.61722779017241,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6739,16 +6739,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.3137058554898697,
+   "pixel_gbs": 2.2823146693020218,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.5662062313982748,
+   "compressed_gbs": 0.5609750512251896,
    "data": "ceo2",
-   "fps": 140.96728791201403,
+   "fps": 139.66489093952256,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6758,16 +6758,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.5210679989248854,
+   "pixel_gbs": 2.4977758481154417,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.5707397617560653,
+   "compressed_gbs": 0.5622651330669347,
    "data": "ceo2",
-   "fps": 142.09599233765462,
+   "fps": 139.98608016057057,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6777,16 +6777,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.541253821110125,
+   "pixel_gbs": 2.503520016700774,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.8185970651752046,
+   "compressed_gbs": 0.7998825637562803,
    "data": "ceo2",
-   "fps": 203.8045534848813,
+   "fps": 199.14523968125837,
    "kind": "1D no-split",
    "pipeline": {
     "collect": "avx512cs",
@@ -6796,16 +6796,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.6448536780150405,
+   "pixel_gbs": 3.5615262117549644,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.3677151634955063,
+   "compressed_gbs": 0.37615259386105976,
    "data": "ceo2",
-   "fps": 91.54934447484479,
+   "fps": 93.64999545609815,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -6815,16 +6815,16 @@
     "route": "ratio",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.6372743357461705,
+   "pixel_gbs": 1.6748425123365684,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.3419330984293009,
+   "compressed_gbs": 0.348036353236118,
    "data": "ceo2",
-   "fps": 85.13043279989087,
+   "fps": 86.64994853434024,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -6834,16 +6834,16 @@
     "route": "dense",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.5224781085409473,
+   "pixel_gbs": 1.5496532251848472,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.19260455133655982,
+   "compressed_gbs": 0.19344544926037444,
    "data": "ceo2",
-   "fps": 47.952388610020236,
+   "fps": 48.1617453658409,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -6853,16 +6853,16 @@
     "route": "sparse",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.857583586854473,
+   "pixel_gbs": 0.8613277364744021,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.3752270324975682,
+   "compressed_gbs": 0.3715374550556922,
    "data": "ceo2",
-   "fps": 93.41956020481993,
+   "fps": 92.5009731305693,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -6872,16 +6872,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.670721393554853,
+   "pixel_gbs": 1.654293323529382,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.21886579488446664,
+   "compressed_gbs": 0.2180677482110747,
    "data": "ceo2",
-   "fps": 54.49060043966239,
+   "fps": 54.29191227811133,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -6891,16 +6891,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.9745133856613503,
+   "pixel_gbs": 0.970960033864129,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.2371979810578229,
+   "compressed_gbs": 0.2374500873495988,
    "data": "ceo2",
-   "fps": 59.05472994416155,
+   "fps": 59.11749636785393,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -6910,16 +6910,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.0561385698241017,
+   "pixel_gbs": 1.0572610885624671,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.3712870854699888,
+   "compressed_gbs": 0.3729645473415239,
    "data": "ceo2",
-   "fps": 92.43863909128277,
+   "fps": 92.85627358114374,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -6929,16 +6929,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.6531785375814028,
+   "pixel_gbs": 1.6606475395266838,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.25582112550028835,
+   "compressed_gbs": 0.25481957592408605,
    "data": "ceo2",
-   "fps": 63.69129877521249,
+   "fps": 63.44194488322511,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -6948,7 +6948,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.1390592635390218,
+   "pixel_gbs": 1.1345998025760704,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -6966,9 +6966,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.17018735300045462,
+   "compressed_gbs": 0.1693635299752372,
    "data": "ceo2",
-   "fps": 42.37122140134707,
+   "fps": 42.166115750535745,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -6978,7 +6978,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.7577696352998607,
+   "pixel_gbs": 0.7541015127139893,
    "powder_rel": 5.3227096501963107e-17,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -7007,9 +7007,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.21392405429862,
+   "compressed_gbs": 0.21290625853073708,
    "data": "ceo2",
-   "fps": 53.26026469038746,
+   "fps": 53.00686601497468,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -7019,16 +7019,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.9525099823798294,
+   "pixel_gbs": 0.9479781842512321,
    "powder_rel": 2.7547401499361996e-07,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.24496173162289975,
+   "compressed_gbs": 0.24128402082509448,
    "data": "ceo2",
-   "fps": 60.987656147537116,
+   "fps": 60.07202348907797,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -7038,16 +7038,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.0907071457525472,
+   "pixel_gbs": 1.0743319126881739,
    "powder_rel": 2.7547401499361996e-07,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.23627659584778296,
+   "compressed_gbs": 0.2347067172919874,
    "data": "ceo2",
-   "fps": 58.82533442186077,
+   "fps": 58.43448474538297,
    "kind": "1D fine",
    "pipeline": {
     "collect": "avx512cs",
@@ -7057,7 +7057,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.052036045621961,
+   "pixel_gbs": 1.0450460649934528,
    "powder_rel": 1.8867164297251598e-06,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -7075,9 +7075,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.3006791674688922,
+   "compressed_gbs": 0.2924852942811027,
    "data": "ceo2",
-   "fps": 74.8595201170037,
+   "fps": 72.81950710279658,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -7087,16 +7087,16 @@
     "route": "ratio",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.3387924487817817,
+   "pixel_gbs": 1.3023087254748686,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.29775637404935285,
+   "compressed_gbs": 0.29004421923577883,
    "data": "ceo2",
-   "fps": 74.1318378015653,
+   "fps": 72.21175729425207,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -7106,16 +7106,16 @@
     "route": "dense",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.325778531680813,
+   "pixel_gbs": 1.2914396890028708,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.1505654622044462,
+   "compressed_gbs": 0.14692270419770664,
    "data": "ceo2",
-   "fps": 37.48599659131957,
+   "fps": 36.579066062735116,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -7125,16 +7125,16 @@
     "route": "sparse",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.6704019621429411,
+   "pixel_gbs": 0.6541823585261829,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.27029560099538724,
+   "compressed_gbs": 0.2920853649785665,
    "data": "ceo2",
-   "fps": 67.29498139356528,
+   "fps": 72.71993746542991,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -7144,16 +7144,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.2035077541213306,
+   "pixel_gbs": 1.3005280157077463,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.30186112562596207,
+   "compressed_gbs": 0.29293754165463937,
    "data": "ceo2",
-   "fps": 75.15378999004298,
+   "fps": 72.93210227073627,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -7163,7 +7163,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.344055190024488,
+   "pixel_gbs": 1.3043223846643928,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -7214,9 +7214,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.2648634379596132,
+   "compressed_gbs": 0.28799192988857203,
    "data": "ceo2",
-   "fps": 65.94254610023076,
+   "fps": 71.70080272108885,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -7226,7 +7226,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.179320714779477,
+   "pixel_gbs": 1.2823017447153273,
    "powder_rel": 3.443533303972824e-17,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -7255,9 +7255,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.306371554919918,
+   "compressed_gbs": 0.3039763922285302,
    "data": "ceo2",
-   "fps": 76.27674298778318,
+   "fps": 75.68042389062458,
    "kind": "2D",
    "pipeline": {
     "collect": "avx512cs",
@@ -7267,7 +7267,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.3641381533050656,
+   "pixel_gbs": 1.3534735444070591,
    "powder_rel": 8.748179884672486e-08,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -7307,9 +7307,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 1.315848040615685,
+   "compressed_gbs": 1.2588919985405869,
    "data": "ceo2",
-   "fps": 327.60418254643736,
+   "fps": 313.42394514124095,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7319,16 +7319,16 @@
     "route": "ratio",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.8588941673281685,
+   "pixel_gbs": 5.605293894038442,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 1.3133219593850465,
+   "compressed_gbs": 1.2574806640247789,
    "data": "ceo2",
-   "fps": 326.9752689097062,
+   "fps": 313.0725678726814,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7338,16 +7338,16 @@
     "route": "dense",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.847646635598395,
+   "pixel_gbs": 5.599009840479379,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.47924325741486495,
+   "compressed_gbs": 0.4726529431210157,
    "data": "ceo2",
-   "fps": 119.31628177432057,
+   "fps": 117.67550376628373,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7357,16 +7357,16 @@
     "route": "sparse",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.1338600194939827,
+   "pixel_gbs": 2.104516240588459,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 1.3135883241701682,
+   "compressed_gbs": 1.2564297761341816,
    "data": "ceo2",
-   "fps": 327.0415852433522,
+   "fps": 312.81093031445243,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7376,16 +7376,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.8488326411535665,
+   "pixel_gbs": 5.5943306976432075,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.7363940896199191,
+   "compressed_gbs": 0.7227861730691588,
    "data": "ceo2",
-   "fps": 183.33863509731924,
+   "fps": 179.95069801023274,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7395,16 +7395,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.2788398837531036,
+   "pixel_gbs": 3.2182498000596746,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 1.1910907338230365,
+   "compressed_gbs": 1.1525173038123102,
    "data": "ceo2",
-   "fps": 296.54359329376257,
+   "fps": 286.94003983118847,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7414,16 +7414,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.303404601255621,
+   "pixel_gbs": 5.131654036503524,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 1.30037386708721,
+   "compressed_gbs": 1.254869377692728,
    "data": "ceo2",
-   "fps": 323.751607011191,
+   "fps": 312.4224408840013,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7433,16 +7433,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 5.789994459890989,
+   "pixel_gbs": 5.587382927805694,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.61403736742479,
+   "compressed_gbs": 0.6078034879467933,
    "data": "ceo2",
-   "fps": 152.87571482345444,
+   "fps": 151.32367771320685,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7452,7 +7452,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.7340390679484083,
+   "pixel_gbs": 2.706282336938365,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -7470,9 +7470,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 1.4602282061412268,
+   "compressed_gbs": 1.4176134571499681,
    "data": "ceo2",
-   "fps": 363.55023759454383,
+   "fps": 352.9405246362218,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7482,7 +7482,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 6.501755716356029,
+   "pixel_gbs": 6.312010930787768,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -7511,9 +7511,9 @@
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.666093303462872,
+   "compressed_gbs": 0.6565482581921653,
    "data": "ceo2",
-   "fps": 165.83598215376563,
+   "fps": 163.45957039742373,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7523,16 +7523,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.9658213183408026,
+   "pixel_gbs": 2.9233214184000316,
    "powder_rel": 2.090910348516611e-08,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.6675781383990279,
+   "compressed_gbs": 0.6582183888069202,
    "data": "ceo2",
-   "fps": 166.2056586821041,
+   "fps": 163.87537963823587,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7542,16 +7542,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.972432637032905,
+   "pixel_gbs": 2.930757777474507,
    "powder_rel": 2.090910348516611e-08,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.8011439643108873,
+   "compressed_gbs": 0.7846412809304062,
    "data": "ceo2",
-   "fps": 199.45928817682957,
+   "fps": 195.35064650103578,
    "kind": "2D+rings",
    "pipeline": {
     "collect": "avx512cs",
@@ -7561,7 +7561,7 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.5671426751488635,
+   "pixel_gbs": 3.4936634644659,
    "powder_rel": 3.420442132761032e-07,
    "sparse_ok": true,
    "variant": "lz4 8k"
@@ -7579,9 +7579,9 @@
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.380013758984902,
+   "compressed_gbs": 0.4250825482871745,
    "data": "ceo2",
-   "fps": 94.61130238898781,
+   "fps": 105.83199309337964,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7591,16 +7591,16 @@
     "route": "ratio",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.692034587048011,
+   "pixel_gbs": 1.892706137729559,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.3834396588611877,
+   "compressed_gbs": 0.41742977183902963,
    "data": "ceo2",
-   "fps": 95.4642421615252,
+   "fps": 103.92669590470724,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7610,16 +7610,16 @@
     "route": "dense",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.7072886165282148,
+   "pixel_gbs": 1.858631680868322,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.34606831208281136,
+   "compressed_gbs": 0.3507340066504943,
    "data": "ceo2",
-   "fps": 86.15996907368375,
+   "fps": 87.32157817114607,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7629,16 +7629,16 @@
     "route": "sparse",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.5408904011517808,
+   "pixel_gbs": 1.5616646925937794,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "route",
-   "compressed_gbs": 0.403723239397123,
+   "compressed_gbs": 0.4250479326968694,
    "data": "ceo2",
-   "fps": 100.51420660687312,
+   "fps": 105.82337491573661,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7648,16 +7648,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.7976025038665415,
+   "pixel_gbs": 1.892552009689028,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1416666700095534,
+   "compressed_gbs": 0.15790544798721254,
    "data": "ceo2",
-   "fps": 35.27048123341061,
+   "fps": 39.31341888328919,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7667,16 +7667,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.6307795436891143,
+   "pixel_gbs": 0.7030836993675524,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.14152592455000967,
+   "compressed_gbs": 0.14825716342040346,
    "data": "ceo2",
-   "fps": 35.23544010419376,
+   "fps": 36.91130383586627,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7686,16 +7686,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.6301528658915679,
+   "pixel_gbs": 0.660124120124078,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.1864238234586011,
+   "compressed_gbs": 0.1968458797836279,
    "data": "ceo2",
-   "fps": 46.413584552483904,
+   "fps": 49.008344082023335,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7705,16 +7705,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.8300635166060334,
+   "pixel_gbs": 0.8764683620969266,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.16443286140955982,
+   "compressed_gbs": 0.16606047708177446,
    "data": "ceo2",
-   "fps": 40.938536581051736,
+   "fps": 41.343760957527735,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7724,16 +7724,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.7321474082818705,
+   "pixel_gbs": 0.7393944669651272,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.22421129414902735,
+   "compressed_gbs": 0.2246755353110341,
    "data": "ceo2",
-   "fps": 55.821459218803476,
+   "fps": 55.93704045743379,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7743,16 +7743,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.9983145492424714,
+   "pixel_gbs": 1.000381611511335,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.12573829422385457,
+   "compressed_gbs": 0.12196018366730174,
    "data": "ceo2",
-   "fps": 31.30482382655325,
+   "fps": 30.364194831224562,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7762,16 +7762,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.5598574728228033,
+   "pixel_gbs": 0.5430352036700893,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.13653170389791397,
+   "compressed_gbs": 0.13650037582948918,
    "data": "ceo2",
-   "fps": 33.99203849269704,
+   "fps": 33.98423880312023,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7781,16 +7781,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.6079157918938575,
+   "pixel_gbs": 0.6077763017462856,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.43079845350895096,
+   "compressed_gbs": 0.4245630723131208,
    "data": "ceo2",
-   "fps": 107.25507113878739,
+   "fps": 105.70266014870865,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7800,16 +7800,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.9181565565706264,
+   "pixel_gbs": 1.8903931390697548,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.14518499243938074,
+   "compressed_gbs": 0.14526086347888972,
    "data": "ceo2",
-   "fps": 36.14643127321845,
+   "fps": 36.16532074153856,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7819,16 +7819,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.6464450902618403,
+   "pixel_gbs": 0.6467829107222032,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.11034399570072537,
+   "compressed_gbs": 0.15728066395058835,
    "data": "ceo2",
-   "fps": 27.4721346193817,
+   "fps": 39.15786759068662,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7838,16 +7838,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.4913134137496379,
+   "pixel_gbs": 0.7003018100953653,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.12174418731775609,
+   "compressed_gbs": 0.15728159877790018,
    "data": "ceo2",
-   "fps": 30.3104186311302,
+   "fps": 39.15810033286342,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7857,16 +7857,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.5420734666659249,
+   "pixel_gbs": 0.7003059724713506,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "dot",
-   "compressed_gbs": 0.23122032943993678,
+   "compressed_gbs": 0.2294300434776317,
    "data": "ceo2",
-   "fps": 57.56648539663107,
+   "fps": 57.12076130760109,
    "kind": "FAZIT",
    "pipeline": {
     "collect": "avx512cs",
@@ -7876,16 +7876,16 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.0295227090884156,
+   "pixel_gbs": 1.0215513509538616,
    "powder_rel": 0.0,
    "sparse_ok": true,
    "variant": "lz4 8k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.8487948075492382,
+   "compressed_gbs": 0.8548893162621678,
    "data": "ceo2",
-   "fps": 230.2452709668242,
+   "fps": 231.89847595528278,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -7893,15 +7893,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.117721161668026,
+   "pixel_gbs": 4.147287185486738,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.8493339464333465,
+   "compressed_gbs": 0.8554838506583761,
    "data": "ceo2",
-   "fps": 230.39151853732793,
+   "fps": 232.0597501901586,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -7909,15 +7909,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.120336662578759,
+   "pixel_gbs": 4.1501714242248084,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.8486203401879384,
+   "compressed_gbs": 0.8555882888804534,
    "data": "ceo2",
-   "fps": 230.19794470549454,
+   "fps": 232.08808024888143,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -7925,7 +7925,7 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.116874775781525,
+   "pixel_gbs": 4.150678080808131,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
@@ -7983,9 +7983,9 @@
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.8488789078148746,
+   "compressed_gbs": 0.854986443938217,
    "data": "ceo2",
-   "fps": 230.26808412293406,
+   "fps": 231.92482294502804,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -7993,15 +7993,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.118129153611936,
+   "pixel_gbs": 4.14775837673755,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.1759646579460692,
+   "compressed_gbs": 0.1763182221603842,
    "data": "ceo2",
-   "fps": 47.73242011972013,
+   "fps": 47.828328444800704,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -8009,7 +8009,7 @@
     "mask": "pixel",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.8536496562959626,
+   "pixel_gbs": 0.8553648869198363,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
@@ -8028,9 +8028,9 @@
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.8493464155171977,
+   "compressed_gbs": 0.8550115493073019,
    "data": "ceo2",
-   "fps": 230.39490091851653,
+   "fps": 231.93163306268698,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512cs",
@@ -8038,15 +8038,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.1203971533004085,
+   "pixel_gbs": 4.1478801693176095,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.7940481741131492,
+   "compressed_gbs": 0.7992625277561992,
    "data": "ceo2",
-   "fps": 215.3946223319567,
+   "fps": 216.8090752206677,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx2cs",
@@ -8054,15 +8054,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.8521312110405432,
+   "pixel_gbs": 3.877427377027235,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.6876539883668462,
+   "compressed_gbs": 0.6916691778739547,
    "data": "ceo2",
-   "fps": 186.53398615867152,
+   "fps": 187.62315210057525,
    "kind": "sparsify",
    "pipeline": {
     "collect": "sse2",
@@ -8070,15 +8070,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.335985746636796,
+   "pixel_gbs": 3.3554644600484225,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.5619778092249254,
+   "compressed_gbs": 0.5658438702395786,
    "data": "ceo2",
-   "fps": 152.44288939035383,
+   "fps": 153.49160252805933,
    "kind": "sparsify",
    "pipeline": {
     "collect": "scalar",
@@ -8086,15 +8086,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.726298390202009,
+   "pixel_gbs": 2.7450536430743746,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.8372268300051917,
+   "compressed_gbs": 0.8468504817397406,
    "data": "ceo2",
-   "fps": 227.10732514001418,
+   "fps": 229.7178504184491,
    "kind": "sparsify",
    "pipeline": {
     "collect": "avx512f",
@@ -8102,15 +8102,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.0616019376728225,
+   "pixel_gbs": 4.10828873882597,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "decode",
-   "compressed_gbs": 0.8447588167196659,
+   "compressed_gbs": 0.8526858849050237,
    "data": "ceo2",
-   "fps": 231.02176278583087,
+   "fps": 233.189630382663,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -8118,15 +8118,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.131607991054618,
+   "pixel_gbs": 4.17037827389989,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.8490535657185255,
+   "compressed_gbs": 0.8597811522909299,
    "data": "ceo2",
-   "fps": 232.19627610821564,
+   "fps": 235.130019931119,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -8134,15 +8134,15 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.152613062481,
+   "pixel_gbs": 4.2050803247694075,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.8521200818778171,
+   "compressed_gbs": 0.8595333275999,
    "data": "ceo2",
-   "fps": 233.03489649868604,
+   "fps": 235.06224567904798,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -8150,15 +8150,15 @@
     "mask": "planes",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.167611003215877,
+   "pixel_gbs": 4.203868245707818,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "mask",
-   "compressed_gbs": 0.846394927618545,
+   "compressed_gbs": 0.852349712424446,
    "data": "ceo2",
-   "fps": 231.46920081961179,
+   "fps": 233.09769507814056,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -8166,7 +8166,7 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.13961000148679,
+   "pixel_gbs": 4.168734097029951,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
@@ -8211,9 +8211,9 @@
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.8460884082365283,
+   "compressed_gbs": 0.8521473571391899,
    "data": "ceo2",
-   "fps": 231.38537494344456,
+   "fps": 233.04235564422922,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -8221,15 +8221,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.138110854152559,
+   "pixel_gbs": 4.167744403052157,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "untranspose",
-   "compressed_gbs": 0.17414030930762306,
+   "compressed_gbs": 0.17521996595262265,
    "data": "ceo2",
-   "fps": 47.62329842799065,
+   "fps": 47.91855924846932,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -8237,7 +8237,7 @@
     "mask": "none",
     "untranspose": "scalar"
    },
-   "pixel_gbs": 0.8516981169772841,
+   "pixel_gbs": 0.8569785803874174,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
@@ -8256,9 +8256,9 @@
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.8457458281375546,
+   "compressed_gbs": 0.8527534297824867,
    "data": "ceo2",
-   "fps": 231.29168730527635,
+   "fps": 233.20810232560083,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512cs",
@@ -8266,15 +8266,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.13643533843555,
+   "pixel_gbs": 4.170708627309594,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.7721271236928471,
+   "compressed_gbs": 0.7782022471734314,
    "data": "ceo2",
-   "fps": 211.15869486032224,
+   "fps": 212.82009892956432,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx2cs",
@@ -8282,15 +8282,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.776375613038474,
+   "pixel_gbs": 3.80608826974266,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.6499260639780347,
+   "compressed_gbs": 0.6541360494263022,
    "data": "ceo2",
-   "fps": 177.73956543443657,
+   "fps": 178.89089790982666,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "sse2",
@@ -8298,15 +8298,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.178705763561651,
+   "pixel_gbs": 3.1992962672368064,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.5600603718418665,
+   "compressed_gbs": 0.5655989814177659,
    "data": "ceo2",
-   "fps": 153.16340215521285,
+   "fps": 154.67808222990612,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "scalar",
@@ -8314,15 +8314,15 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.7391840866015644,
+   "pixel_gbs": 2.7662727219969034,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   },
   {
    "axis": "collect",
-   "compressed_gbs": 0.8560949025064492,
+   "compressed_gbs": 0.8671215136935265,
    "data": "ceo2",
-   "fps": 234.1219169004971,
+   "fps": 237.13743695613206,
    "kind": "sparsify, no mask",
    "pipeline": {
     "collect": "avx512f",
@@ -8330,7 +8330,7 @@
     "mask": "none",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 4.187051345651172,
+   "pixel_gbs": 4.240981099319431,
    "sparse_ok": true,
    "variant": "zstd-2 256k"
   }
