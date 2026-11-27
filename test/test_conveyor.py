@@ -425,12 +425,31 @@ def test_iterate_gives_every_frame_and_stops_cleanly(tmpdir):
 
 
 def test_cpulist_and_nodes_without_cpus():
-    from bslz4_to_sparse.conveyor._engine import _cpulist
+    from bslz4_to_sparse.conveyor._engine import _allowed_cpus, _cpulist
 
     assert _cpulist("0-3,8,10-11\n") == [0, 1, 2, 3, 8, 10, 11]
     assert _cpulist("\n") == [] and _cpulist("") == []  # a memory-only node (GPU memory on POWER9)
-    allowed = os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else range(os.sysconf("SC_NPROCESSORS_ONLN"))
-    assert sum(len(n) for n in cv.numa_nodes()) == len(allowed)
+    assert sum(len(n) for n in cv.numa_nodes()) == len(set(_allowed_cpus()))
+
+
+def test_numa_nodes_keeps_to_the_cpus_allowed():
+    """Under Slurm a job may use some CPUs of the node: numa_nodes lists only those, on Python 2
+    too (no sched_getaffinity there: /proc/self/status).  taskset stands in for Slurm."""
+    import subprocess
+
+    path = os.environ.get("PATH", "").split(os.pathsep)
+    if not any(os.path.exists(os.path.join(d, "taskset")) for d in path):
+        pytest.skip("needs taskset")
+    if not os.path.exists("/proc/self/status"):
+        pytest.skip("needs /proc")
+    cpu = sorted(set(sum(cv.numa_nodes(), [])))[-1]
+    pkg = os.path.dirname(os.path.dirname(os.path.abspath(b.__file__)))
+    out = subprocess.check_output(
+        ["taskset", "-c", str(cpu), sys.executable, "-c",
+         "from bslz4_to_sparse import conveyor; print(conveyor.numa_nodes())"],
+        env=dict(os.environ, PYTHONPATH=pkg),
+    )
+    assert out.decode().strip() == "[[%d]]" % cpu
 
 
 def fazit_matrix(mask, extra=5, seed=11):

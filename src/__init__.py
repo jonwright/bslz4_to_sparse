@@ -237,8 +237,8 @@ def read_direct_chunk(ds, offset):
     the last) returns the repr of an array instead of the bytes, so this calls
     H5Dread_chunk in h5py's libhdf5 directly.
     """
-    if sys.version_info[0] >= 3:
-        return ds.id.read_direct_chunk(offset)
+    if sys.version_info[0] >= 3:  # the one version test: the h5py bug below is Python 2's alone,
+        return ds.id.read_direct_chunk(offset)  # and there a str is bytes, so no capability shows it
     from h5py._objects import phil  # h5py's lock around every HDF5 call: ctypes drops the GIL
 
     ctypes, lib = _hdf5_lib()

@@ -74,10 +74,26 @@ def _cpulist(text):
     return cpus
 
 
+def _allowed_cpus():
+    """The CPUs this process may use (under Slurm, those of the job): sched_getaffinity where the
+    Python has it; else (Python 2) Cpus_allowed_list of /proc/self/status on Linux; else (no
+    /proc: macOS, not under Slurm) every online CPU."""
+    if hasattr(os, "sched_getaffinity"):
+        return os.sched_getaffinity(0)
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("Cpus_allowed_list:"):
+                    return _cpulist(line.split(":", 1)[1])
+    except EnvironmentError:
+        pass
+    return range(os.sysconf("SC_NPROCESSORS_ONLN"))
+
+
 def numa_nodes(allowed=None):
     """[[cpu, ...], ...]: the CPUs this process may use, grouped by NUMA node."""
     if allowed is None:
-        allowed = os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else range(os.sysconf("SC_NPROCESSORS_ONLN"))
+        allowed = _allowed_cpus()
     allowed = set(allowed)
     out = []
     d = "/sys/devices/system/node"
