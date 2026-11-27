@@ -35,19 +35,19 @@
    ]
   }
  ],
- "date_utc": "2026-11-17 20:54",
+ "date_utc": "2026-11-27 20:05",
  "machine": {
-  "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "compiler": "gcc (conda-forge gcc 13.3.0-2) 13.3.0",
   "cores_usable": 1,
   "cpu": "Intel(R) Xeon(R) Gold 6248 CPU @ 2.50GHz",
-  "git": "v0.0.22.a3-54-gc703c77",
+  "git": "v0.0.22-19-g0a5b878",
   "numpy": "1.26.4",
   "platform": "linux_x86_64",
   "pyFAI": "2025.3.0",
-  "py_sha256": "38f39098a0f7b54f0379f3af70628b6feca5596c0b74cf1393d360f070652fef",
+  "py_sha256": "066f71c49a4594223fa24f94429f81072328b848885915fb03c993db2267fe1f",
   "python": "3.12.9",
-  "src_sha256": "23701b7ac063c0c54d961d1dedc1e160235045427c54ab3c80dbbab2e3f5c46d",
-  "version": "0.0.22a3"
+  "src_sha256": "9d7c5680cc022612c01d061f0f0dd19b00031c369add934d68c6614875d57dfb",
+  "version": "0.0.23a1"
  },
  "method": {
   "batch": 25,
@@ -83,8 +83,8 @@
  "results": [
   {
    "case": "silicon",
-   "compressed_gbs": 0.13036060605968106,
-   "fps": 871.9526850792643,
+   "compressed_gbs": 0.13255830337663185,
+   "fps": 886.6525866402424,
    "matrix": null,
    "op": "sparsify",
    "pipeline": {
@@ -93,13 +93,13 @@
     "mask": "pixel",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 7.797028812464704,
-   "seconds": 0.11468512192368507
+   "pixel_gbs": 7.928475802619819,
+   "seconds": 0.11278374586254358
   },
   {
    "case": "silicon",
-   "compressed_gbs": 0.09206656587022552,
-   "fps": 615.8124892409427,
+   "compressed_gbs": 0.09270277618361757,
+   "fps": 620.0679565006095,
    "matrix": {
     "bins": 1542,
     "bins_per_pixel_max": 3,
@@ -119,13 +119,13 @@
     "route": "bpp",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 5.506614984792165,
-   "seconds": 0.1623870930634439
+   "pixel_gbs": 5.544667509203058,
+   "seconds": 0.16127264592796564
   },
   {
    "case": "silicon",
-   "compressed_gbs": 0.11663833259865744,
-   "fps": 780.1674935908661,
+   "compressed_gbs": 0.1165194662318329,
+   "fps": 779.3724232789743,
    "matrix": {
     "bins": 1542,
     "bins_per_pixel_max": 1,
@@ -145,13 +145,13 @@
     "route": "bpp",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 6.9762826930493205,
-   "seconds": 0.12817760393954813
+   "pixel_gbs": 6.969173148878133,
+   "seconds": 0.12830836325883865
   },
   {
    "case": "silicon",
-   "compressed_gbs": 0.07119139347789386,
-   "fps": 476.1831704676555,
+   "compressed_gbs": 0.07197883593773632,
+   "fps": 481.4501954375356,
    "matrix": {
     "bins": 6000,
     "bins_per_pixel_max": 7,
@@ -171,13 +171,13 @@
     "route": "bpp",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 4.25804514818323,
-   "seconds": 0.21000322187319398
+   "pixel_gbs": 4.305143054008697,
+   "seconds": 0.20770580414682627
   },
   {
    "case": "silicon",
-   "compressed_gbs": 0.07151430691946646,
-   "fps": 478.34306563029764,
+   "compressed_gbs": 0.07044673193594708,
+   "fps": 471.2022974063681,
    "matrix": {
     "bins": 111024,
     "bins_per_pixel_max": 88,
@@ -198,13 +198,13 @@
     "route": "bpp",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 4.277358999844221,
-   "seconds": 0.20905497996136546
+   "pixel_gbs": 4.21350602188126,
+   "seconds": 0.21222307393327355
   },
   {
    "case": "silicon",
-   "compressed_gbs": 0.11300393787408501,
-   "fps": 755.8578471837451,
+   "compressed_gbs": 0.11361554938488377,
+   "fps": 759.9487786022613,
    "matrix": {
     "bins": 576,
     "bins_per_pixel_max": 2,
@@ -225,13 +225,13 @@
     "route": "bpp",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 6.758905056968159,
-   "seconds": 0.13230000901967287
+   "pixel_gbs": 6.795486296622337,
+   "seconds": 0.1315878159366548
   },
   {
    "case": "silicon",
-   "compressed_gbs": 0.052180432382616895,
-   "fps": 349.02314050143127,
+   "compressed_gbs": 0.0524817899079245,
+   "fps": 351.03885300310924,
    "matrix": {
     "bins": 4202182,
     "bins_per_pixel_max": 1,
@@ -251,13 +251,13 @@
     "route": "bpp",
     "untranspose": "lowplanes-avx512bw"
    },
-   "pixel_gbs": 3.120976091104295,
-   "seconds": 0.28651395393535495
+   "pixel_gbs": 3.139000656797099,
+   "seconds": 0.28486875211820006
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 0.8780902640358412,
-   "fps": 223.4261450410519,
+   "compressed_gbs": 0.8766074496485947,
+   "fps": 223.0488495443097,
    "matrix": null,
    "op": "sparsify",
    "pipeline": {
@@ -266,13 +266,13 @@
     "mask": "pixel",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.9957674771874547,
-   "seconds": 0.32225413899868727
+   "pixel_gbs": 3.9890199003768054,
+   "seconds": 0.32279924396425486
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 0.26890643900824907,
-   "fps": 68.42204213515514,
+   "compressed_gbs": 0.27009245623662104,
+   "fps": 68.72381892068685,
    "matrix": {
     "bins": 1542,
     "bins_per_pixel_max": 3,
@@ -292,13 +292,13 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 1.2236641805558113,
-   "seconds": 1.0522924740798771
+   "pixel_gbs": 1.2290611759019745,
+   "seconds": 1.047671697102487
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 0.4485189611547973,
-   "fps": 114.12364602250426,
+   "compressed_gbs": 0.4625125704071078,
+   "fps": 117.6842573838972,
    "matrix": {
     "bins": 1542,
     "bins_per_pixel_max": 1,
@@ -318,13 +318,13 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 2.0409945893798116,
-   "seconds": 0.6308946700301021
+   "pixel_gbs": 2.1046727908460903,
+   "seconds": 0.6118065542541444
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 0.18605111023020796,
-   "fps": 47.33987386249673,
+   "compressed_gbs": 0.19571481837977756,
+   "fps": 49.79876123101902,
    "matrix": {
     "bins": 6000,
     "bins_per_pixel_max": 7,
@@ -344,13 +344,13 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.8466293339088187,
-   "seconds": 1.5209166000131518
+   "pixel_gbs": 0.8906042329762629,
+   "seconds": 1.4458190971054137
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 0.13340073841074365,
-   "fps": 33.94322195505593,
+   "compressed_gbs": 0.13427688233393772,
+   "fps": 34.16615286236458,
    "matrix": {
     "bins": 111024,
     "bins_per_pixel_max": 88,
@@ -371,13 +371,13 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.6070427538104254,
-   "seconds": 2.121189323021099
+   "pixel_gbs": 0.6110296644243113,
+   "seconds": 2.1073487638495862
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 0.7213712310798017,
-   "fps": 183.54968720744097,
+   "compressed_gbs": 0.7118096799944154,
+   "fps": 181.1167932475397,
    "matrix": {
     "bins": 576,
     "bins_per_pixel_max": 2,
@@ -398,13 +398,13 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 3.2826143531978556,
-   "seconds": 0.3922643568366766
+   "pixel_gbs": 3.239104321913768,
+   "seconds": 0.397533540148288
   },
   {
    "case": "ceo2",
-   "compressed_gbs": 0.15156495098108377,
-   "fps": 38.56502469962169,
+   "compressed_gbs": 0.15172597217372533,
+   "fps": 38.605995822768485,
    "matrix": {
     "bins": 4202182,
     "bins_per_pixel_max": 1,
@@ -424,8 +424,8 @@
     "route": "bpp",
     "untranspose": "kcb"
    },
-   "pixel_gbs": 0.6896993698896151,
-   "seconds": 1.8669766339007765
+   "pixel_gbs": 0.6904321000781243,
+   "seconds": 1.8649952802807093
   }
  ],
  "schema": 1,
