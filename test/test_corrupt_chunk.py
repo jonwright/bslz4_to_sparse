@@ -13,7 +13,7 @@ the chunk copied to the very end of a mapped page followed by a PROT_NONE
 page, so ANY read past the end of the buffer is a deterministic SIGSEGV.
 Linux only (mprotect).
 """
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import mmap
 import os
@@ -113,10 +113,11 @@ def _child(name, kind):
 
 
 def _run(name, kind):
-    p = subprocess.run([sys.executable, __file__, name, kind],
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                       universal_newlines=True)
-    return p.returncode, p.stdout.strip()
+    p = subprocess.Popen([sys.executable, __file__, name, kind],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         universal_newlines=True)
+    out, _ = p.communicate()
+    return p.returncode, out.strip()
 
 
 _DAMAGED = [k for k in _variants() if k != "good"]

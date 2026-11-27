@@ -2,6 +2,8 @@
 large file): the same result as the chunks in a small buffer.  Wrappers before c2py23 0.5.10
 refused any buffer above INT_MAX bytes."""
 
+from __future__ import absolute_import, division, print_function
+
 import os
 import sys
 
@@ -24,9 +26,9 @@ if sys.maxsize < 2**32:
     pytest.skip("needs a 64-bit Python", allow_module_level=True)
 
 
-def test_chunks_beyond_2gib(tmp_path):
+def test_chunks_beyond_2gib(tmpdir):
     frames = frames_of(np.uint16, (96, 130), n=4)
-    chunks = chunks_of(write(tmp_path / "f.h5", frames, "lz4"), 4)
+    chunks = chunks_of(write(os.path.join(str(tmpdir), "f.h5"), frames, "lz4"), 4)
     lens = np.array([len(c) for c in chunks], np.int64)
     offs = np.concatenate(([0], np.cumsum(lens)[:-1]))
     small = np.frombuffer(b"".join(chunks), np.uint8)

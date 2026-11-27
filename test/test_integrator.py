@@ -1,6 +1,10 @@
 """Integrator: a pyFAI matrix and normalisation kept in a file, intensities recovered from the
 exact int64 sums of the decoder."""
 
+from __future__ import absolute_import, division, print_function
+
+import os
+
 import numpy as np
 import pytest
 
@@ -28,8 +32,8 @@ def make_ai():
 
 
 def frame():
-    rng = np.random.default_rng(4)
-    return rng.integers(0, 300, SHAPE).astype(np.uint16)
+    rng = np.random.RandomState(4)
+    return rng.randint(0, 300, SHAPE).astype(np.uint16)
 
 
 CORRECTIONS = {
@@ -43,10 +47,10 @@ CORRECTIONS = {
 def masked_ai(flat=False):
     """a detector with masked pixels (pyFAI: 1 = masked) and optionally a flat field"""
     ai = make_ai()
-    rng = np.random.default_rng(6)
-    ai.detector.mask = (rng.random(SHAPE) < 0.03).astype(np.int8)
+    rng = np.random.RandomState(6)
+    ai.detector.mask = (rng.random_sample(SHAPE) < 0.03).astype(np.int8)
     if flat:
-        ai.detector.flatfield = 0.8 + 0.4 * rng.random(SHAPE)
+        ai.detector.flatfield = 0.8 + 0.4 * rng.random_sample(SHAPE)
     return ai
 
 
@@ -60,13 +64,13 @@ def test_dummy_and_delta_dummy_are_refused(name):
 @pytest.mark.parametrize("flat", [False, True])
 @pytest.mark.parametrize("corrections", sorted(CORRECTIONS))
 @pytest.mark.parametrize("split", ["no", "bbox", "full"])
-def test_the_intensity_equals_pyfais(tmp_path, split, corrections, flat):
+def test_the_intensity_equals_pyfais(tmpdir, split, corrections, flat):
     """pyFAI's intensity, from the decoder's exact sums and the Integrator's normalisation: with
     pixel splitting, solid angle, polarization, a normalisation factor, a flat field and a mask."""
     kw = CORRECTIONS[corrections]
     ai = masked_ai(flat)
     integ = cv.Integrator.from_pyfai(ai, 60, unit="q_nm^-1", split=split, **kw)
-    path = str(tmp_path / "integrator.h5")
+    path = os.path.join(str(tmpdir), "integrator.h5")
     integ.save(path)
     back = cv.Integrator.load(path)
     assert back.unit == "q_nm^-1" and back.kind == "powder1d" and back.shape == SHAPE
@@ -95,7 +99,7 @@ def test_the_intensity_equals_pyfais(tmp_path, split, corrections, flat):
     assert np.allclose(back.intensity(pf)[0], got, rtol=1e-9, atol=0)
 
 
-def test_2d_rows_are_radial_then_azimuth(tmp_path):
+def test_2d_rows_are_radial_then_azimuth(tmpdir):
     ai = make_ai()
     integ = cv.Integrator.from_pyfai(ai, 20, unit="q_nm^-1", npt_azim=8)
     assert integ.kind == "powder2d" and integ.nbins == 20 * 8 and len(integ.azimuthal) == 8
@@ -121,7 +125,7 @@ def textom_process_one_frame(ai, image, nrad, naz, ranges, bg, **kw):
 
 
 @pytest.mark.parametrize("background", [False, True])
-def test_rings_equal_the_summed_normalised_cake(tmp_path, background):
+def test_rings_equal_the_summed_normalised_cake(tmpdir, background):
     """What a texture pipeline computes frame by frame with pyFAI (peak windows of the cake, per
     azimuth), from the decoder's matrix product and an Integrator.rings, saved and loaded."""
     nrad, naz = 70, 12
@@ -131,8 +135,8 @@ def test_rings_equal_the_summed_normalised_cake(tmp_path, background):
     ranges = [(0.8, 1.0), (1.3, 1.45), (2.1, 2.5)]
     bg = np.linspace(0.5, 1.5, nrad) if background else np.zeros(nrad)
     rings = integ.rings(ranges, bg if background else None)
-    rings.save(str(tmp_path / "rings.h5"))
-    rings = cv.Integrator.load(str(tmp_path / "rings.h5"))
+    rings.save(os.path.join(str(tmpdir), "rings.h5"))
+    rings = cv.Integrator.load(os.path.join(str(tmpdir), "rings.h5"))
     assert rings.kind == "rings" and rings.bins_shape == (naz, 3) and rings.nbins == naz * 3
 
     fr = frame()
@@ -168,7 +172,7 @@ def test_first_moment_is_the_mean_q_of_the_signal():
     assert np.allclose(mom.intensity(p)[0], ref.intensity, rtol=1.2e-7, atol=0)
 
 
-def test_one_pass_for_everything(tmp_path):
+def test_one_pass_for_everything(tmpdir):
     """A 1D powder, ring windows and the first moment, as one stacked matrix and one product: each
     block equals what it gives alone, through a save and a load of the stack."""
     ai = masked_ai()
@@ -178,7 +182,7 @@ def test_one_pass_for_everything(tmp_path):
     rng = cake.radial[[5, 20]]
     rings = cake.rings([(rng[0] - 0.4, rng[0] + 0.4), (rng[1] - 0.4, rng[1] + 0.4)])
     stack = cv.IntegratorStack({"powder1d": one, "rings": rings, "moment": one.first_moment()})
-    path = str(tmp_path / "stack.h5")
+    path = os.path.join(str(tmpdir), "stack.h5")
     stack.save(path)
     stack = cv.IntegratorStack.load(path)
     assert stack.nbins == 50 + 16 + 100 and list(stack.slices) == ["powder1d", "rings", "moment"]

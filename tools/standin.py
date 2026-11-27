@@ -15,9 +15,21 @@ one frame per chunk, bitshuffle-lz4, as the detector writes it.  Only its conten
     make_standin(folder, nfiles=3, nframes=12, dtype=np.uint16, detector="Eiger1M")
 """
 
+from __future__ import absolute_import, division, print_function
+
 import os
 
 import numpy as np
+
+
+def bitshuffle(nelems=0, cname="lz4", clevel=3):
+    """The kwargs h5py.create_dataset takes for a bitshuffle chunk, from the raw HDF5 filter
+    parameters (hdf5plugin 2.3.2's Bitshuffle has no cname/clevel)."""
+    codec = {"none": 0, "lz4": 2, "zstd": 3}[cname]
+    if codec == 3:
+        return dict(compression=32008, compression_opts=(nelems, codec, clevel))
+    return dict(compression=32008, compression_opts=(nelems, codec))
+
 
 H5DATASET = "/entry_0000/ESRF-ID11/eiger/data"
 H5NAME = "eiger_%04d.h5"
@@ -60,7 +72,7 @@ def make_standin(folder, nfiles=3, nframes=12, dtype=np.uint16, detector="Eiger1
         f.create_dataset(
             "mask", data=gaps.astype(np.uint8), compression="gzip", compression_opts=9, shuffle=True
         )
-    rng = np.random.default_rng(seed)
+    rng = np.random.RandomState(seed)
     names = []
     for k in range(nfiles):
         frames = rng.poisson(mean, (nframes,) + mean.shape).astype(dtype)
@@ -71,7 +83,7 @@ def make_standin(folder, nfiles=3, nframes=12, dtype=np.uint16, detector="Eiger1
                 H5DATASET,
                 data=frames,
                 chunks=(1,) + mean.shape,
-                **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+                **bitshuffle(nelems=0, cname="lz4")
             )
         names.append(name)
     return names

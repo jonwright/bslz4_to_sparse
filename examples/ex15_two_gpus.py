@@ -11,6 +11,8 @@ over several times so that each run takes long enough to time.  With one GPU, on
 time is shown.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import os
 import platform
 import threading
@@ -26,6 +28,7 @@ import pyFAI
 from pyFAI.method_registry import IntegrationMethod
 
 from bslz4_to_sparse import cuda
+import bslz4_to_sparse
 
 h5filename = "eiger_0000.h5"  # your file: bitshuffle-lz4 (8 kB blocks), one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside it
@@ -39,7 +42,7 @@ per_call = 128  # frames per integrate() call
 with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
     dtype = ds.dtype
-    file_chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(ds.shape[0])]
+    file_chunks = [bslz4_to_sparse.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(ds.shape[0])]
     frame0 = ds[0]
 with h5py.File(mask_filename, "r") as h5:
     bad = h5["mask"][()] != 0  # the masked pixels

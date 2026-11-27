@@ -1,6 +1,11 @@
 """RingSink: per input file, intensity[frame, window, azimuth] with a background window either side
 of each ring, equal to pyFAI's cake summed over the windows."""
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
+import os
+
 import numpy as np
 import pytest
 
@@ -14,23 +19,23 @@ from test_conveyor import DSET  # noqa: E402
 from bslz4_to_sparse import conveyor as cv  # noqa: E402
 
 
-def make_files(tmp_path, nfiles, nframes):
+def make_files(tmpdir, nfiles, nframes):
     import hdf5plugin
 
-    rng = np.random.default_rng(12)
+    rng = np.random.RandomState(12)
     paths = []
     for k in range(nfiles):
-        frames = (rng.random((nframes,) + ti.SHAPE) < 0.2) * rng.integers(
+        frames = (rng.random_sample((nframes,) + ti.SHAPE) < 0.2) * rng.randint(
             0, 300, (nframes,) + ti.SHAPE
         )
         frames = frames.astype(np.uint16)
-        p = str(tmp_path / ("r%d.h5" % k))
+        p = os.path.join(str(tmpdir), "r%d.h5" % k)
         with h5py.File(p, "w") as h:
             h.create_dataset(
                 DSET,
                 data=frames,
                 chunks=(1,) + ti.SHAPE,
-                **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+                **bitshuffle(nelems=0, cname="lz4")
             )
         cv.write_index(cv.harvest(p, DSET), p)
         paths.append(p)
@@ -43,17 +48,17 @@ def test_peak_windows_order_and_edges():
     assert np.allclose(r[:3], [(0.75, 0.85), (0.9, 1.1), (1.15, 1.25)])
 
 
-def test_ring_files_follow_the_input_files(tmp_path):
+def test_ring_files_follow_the_input_files(tmpdir):
     ai = ti.masked_ai()
     nrad, naz = 70, 12
     kw = dict(polarization_factor=0.95, radial_range=(0.3, 3.0))
     ranges, ring, role = cv.peak_windows([0.9, 1.4], 0.12, 0.1)
     integ = cv.Integrator.from_pyfai(ai, nrad, unit="2th_deg", npt_azim=naz, **kw).rings(ranges)
-    paths = make_files(tmp_path, nfiles=2, nframes=9)
+    paths = make_files(tmpdir, nfiles=2, nframes=9)
     # the frames are the files' own; the ring files must follow their order
     units, shape, dtype = cv.make_work_units(paths, DSET)
     mask = (1 - ai.detector.mask).astype(np.uint8)
-    out = str(tmp_path / "rings")
+    out = os.path.join(str(tmpdir), "rings")
     cv.run(
         units,
         cv.CpuBackend(mask, dtype, csc=integ.csc, cut=200, howmany=500, exact=False),
@@ -86,7 +91,7 @@ def test_ring_files_follow_the_input_files(tmp_path):
             )  # float32 storage + pyFAI float32 cake
 
 
-def test_everything_in_one_pass_through_the_conveyor(tmp_path):
+def test_everything_in_one_pass_through_the_conveyor(tmpdir):
     """Sparse pixels, a 1D powder, ring windows and the first moment from one pass over the pixels
     (one stacked matrix): each file and dataset equals what that output gives on its own."""
     ai = ti.masked_ai()
@@ -96,10 +101,10 @@ def test_everything_in_one_pass_through_the_conveyor(tmp_path):
     ranges, ring, role = cv.peak_windows([0.9, 1.4], 0.12, 0.1)
     rings = cake.rings(ranges)
     stack = cv.IntegratorStack({"powder1d": one, "rings": rings, "moment": one.first_moment()})
-    paths = make_files(tmp_path, nfiles=2, nframes=7)
+    paths = make_files(tmpdir, nfiles=2, nframes=7)
     units, shape, dtype = cv.make_work_units(paths, DSET)
     mask = (1 - ai.detector.mask).astype(np.uint8)
-    out = str(tmp_path / "all")
+    out = os.path.join(str(tmpdir), "all")
     r = cv.run(
         units,
         cv.CpuBackend(mask, dtype, csc=stack.csc, cut=200, howmany=2000, exact=False),

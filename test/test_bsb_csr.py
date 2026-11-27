@@ -7,12 +7,16 @@ general: it also handles a matrix whose pixels reach non-consecutive bins
 (i.e. one padded must refuse), which is what makes the fallback layout work.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import os
 import sys
 
 _path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
 if _path:
     sys.path.insert(0, _path)
+
+from conftest import bitshuffle
 
 import numpy as np
 import pytest
@@ -27,17 +31,17 @@ import bslz4_to_sparse as b
 def make_any(npix, nbins, seed):
     """A random CSC (nbins, npix); pixels may reach any bins (no consecutive
     constraint), so padded cannot represent it."""
-    rng = np.random.default_rng(seed)
-    n = rng.integers(0, 4, npix)
-    n[rng.random(npix) < 0.2] = 0
+    rng = np.random.RandomState(seed)
+    n = rng.randint(0, 4, npix)
+    n[rng.random_sample(npix) < 0.2] = 0
     indptr = np.concatenate(([0], np.cumsum(n)))
-    indices = np.concatenate([rng.integers(0, nbins, n[i]) for i in range(npix)]) if n.sum() else np.zeros(0, int)
-    data = rng.random(int(n.sum())).astype(np.float32) + 0.25
+    indices = np.concatenate([rng.randint(0, nbins, n[i]) for i in range(npix)]) if n.sum() else np.zeros(0, int)
+    data = rng.random_sample(int(n.sum())).astype(np.float32) + 0.25
     return sp.csc_matrix((data, indices.astype(np.int32), indptr.astype(np.int32)), shape=(nbins, npix))
 
 
 def make_frames(dt, seed, shape=(60, 80), nf=3):
-    rng = np.random.default_rng(seed)
+    rng = np.random.RandomState(seed)
     frames = rng.poisson(0.6, (nf,) + shape).astype(dt)
     if np.dtype(dt).kind == "f":
         frames = frames * np.float32(1.5)
@@ -49,19 +53,19 @@ def make_frames(dt, seed, shape=(60, 80), nf=3):
 def write_chunks(path, frames):
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4", clevel=0))
+                              **bitshuffle(nelems=0, cname="lz4", clevel=0))
         codec = b.detect_codec(ds)
-        chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+        chunks = [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
     return chunks, codec
 
 
 @pytest.fixture(scope="module")
-def data(tmp_path_factory):
+def data(tmpdir_factory):
     out = {}
-    d = tmp_path_factory.mktemp("bsb")
+    d = tmpdir_factory.mktemp("bsb")
     for dt in (np.uint8, np.uint16, np.uint32, np.int16, np.float32):
         frames = make_frames(dt, 7)
-        chunks, codec = write_chunks(d / ("%s.h5" % np.dtype(dt).name), frames)
+        chunks, codec = write_chunks(os.path.join(str(d), "%s.h5" % np.dtype(dt).name), frames)
         out[(np.dtype(dt),)] = (frames, chunks, codec)
     return out
 
@@ -73,7 +77,7 @@ def integ(mask, csc, dt, dot, route=None):
 def test_bsbcsr_matches_csc_every_dtype(data):
     for (dt,), (frames, chunks, codec) in data.items():
         csc = make_any(60 * 80, 300, seed=10)
-        mask = (np.random.default_rng(9).random(60 * 80) > 0.1).astype(np.uint8).reshape(60, 80)
+        mask = (np.random.RandomState(9).random_sample(60 * 80) > 0.1).astype(np.uint8).reshape(60, 80)
         for route in ("dense", "sparse"):
             rc = integ(mask, csc, dt, "csc", route).multi(chunks, 1)
             rr = integ(mask, csc, dt, "bsb-csr", route).multi(chunks, 1)
@@ -96,8 +100,8 @@ def test_bsbcsr_handles_2d_padded_cannot():
     frames = np.ones((1,) + shape, np.uint16)
     with h5py.File("_b.h5", "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + shape,
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4", clevel=0))
-        chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(1)]
+                              **bitshuffle(nelems=0, cname="lz4", clevel=0))
+        chunks = [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(1)]
     try:
         # padded must refuse (non-consecutive)
         with pytest.raises(ValueError, match="consecutive"):

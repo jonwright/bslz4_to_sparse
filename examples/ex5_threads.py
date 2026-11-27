@@ -7,6 +7,8 @@ before its next call.  Here every thread reads its own frames from the file by o
 are found once, see example 3) and decodes them, with no HDF5 call in the loop.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import os
 from concurrent.futures import ThreadPoolExecutor
 

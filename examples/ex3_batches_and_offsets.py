@@ -8,6 +8,8 @@ from_buffer decodes a batch of frames straight from the bytes read,
 with one release of the GIL for the whole batch.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import h5py
 import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
 import numpy as np

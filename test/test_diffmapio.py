@@ -5,8 +5,12 @@ map cube, and write it; then read it back the way xrdmap / diffmap-refine /
 pyFAI-diffmap-view do, checking the axis/interpretation conventions.
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import json
 import os
+import sys
 
 import numpy as np
 import pytest
@@ -54,25 +58,25 @@ def geometry():
     )
 
 
-def test_write_diffmap_layout(tmp_path):
+def test_write_diffmap_layout(tmpdir):
     ai = AzimuthalIntegrator(
         dist=0.1, poni1=0.004, poni2=0.0045, wavelength=3e-11,
         detector=Detector(75e-6, 75e-6, max_shape=SHAPE),
     )
     integ = bslz4_cv.Integrator.from_pyfai(ai, N_BINS, unit="2th_deg", split="no")
     n = ROWS * COLS
-    rng = np.random.default_rng(0)
+    rng = np.random.RandomState(0)
     int_cube = rng.uniform(0, 100, (ROWS, COLS, N_BINS)).astype(np.float64)
-    sum_cube = rng.integers(0, 10000, (ROWS, COLS, N_BINS)).astype(np.int64)
+    sum_cube = rng.randint(0, 10000, (ROWS, COLS, N_BINS)).astype(np.int64)
     geom = geometry()
     wc = _diffmapio.worker_config_dict(ai, N_BINS, SHAPE, unit="2th_deg")
-    poni = tmp_path / "geom.poni"
-    poni.write_text(integ.poni)
+    poni = os.path.join(str(tmpdir), "geom.poni")
+    open(poni, "w").write(integ.poni)
 
-    out = tmp_path / "map.h5"
+    out = os.path.join(str(tmpdir), "map.h5")
     _diffmapio.write_diffmap(
-        str(out), geometry=geom, worker_config=wc, radial=integ.radial,
-        intensity_cube=int_cube, sum_cube=sum_cube, poni_path=str(poni),
+        out, geometry=geom, worker_config=wc, radial=integ.radial,
+        intensity_cube=int_cube, sum_cube=sum_cube, poni_path=poni,
         frame_shape=SHAPE, unit="2th_deg",
     )
 
@@ -140,23 +144,23 @@ EXPO = 1e-5  # wtmax = EXPO * 1e7 = 100 counts
 FSHAPE = (16, 20)
 
 
-def bliss_scan(tmp_path):
+def bliss_scan(tmpdir):
     """A Bliss-like master: 'amesh py 0 3 3 pz 0 2 2', serpentine, measured positions with jitter,
     its frames in two files behind a VDS, one pixel above wtmax."""
     hdf5plugin = pytest.importorskip("hdf5plugin")
-    rng = np.random.default_rng(5)
+    rng = np.random.RandomState(5)
     row = np.repeat(np.arange(ROWS), COLS)
     col = np.array([c if r % 2 == 0 else COLS - 1 - c for r in range(ROWS) for c in range(COLS)])
     n = len(row)
     frames = rng.poisson(3, (n,) + FSHAPE).astype(np.uint32)
     frames[5, 7, 9] = 1000
-    os.makedirs(tmp_path / "scan0001")
+    os.makedirs(os.path.join(str(tmpdir), "scan0001"))
     parts = [(0, 7), (7, n)]
     for k, (a, z) in enumerate(parts):
-        with h5py.File(tmp_path / "scan0001" / ("eiger_%04d.h5" % k), "w") as h:
+        with h5py.File(os.path.join(str(tmpdir), "scan0001", "eiger_%04d.h5" % k), "w") as h:
             h.create_dataset("/entry_0000/data", data=frames[a:z], chunks=(1,) + FSHAPE,
-                             **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
-    master = tmp_path / "master.h5"
+                             **bitshuffle(nelems=0, cname="lz4"))
+    master = os.path.join(str(tmpdir), "master.h5")
     with h5py.File(master, "w") as h:
         e = h.create_group("1.1")
         e["title"] = "amesh py 0 3 3 pz 0 2 2 0.1"
@@ -170,8 +174,8 @@ def bliss_scan(tmp_path):
         e.create_virtual_dataset("instrument/eiger/image", layout)
     ai = AzimuthalIntegrator(dist=0.05, poni1=0.0006, poni2=0.0007, wavelength=3e-11,
                              detector=Detector(75e-6, 75e-6, max_shape=FSHAPE))
-    poni = tmp_path / "geom.poni"
-    ai.write(str(poni))
+    poni = os.path.join(str(tmpdir), "geom.poni")
+    ai.write(poni)
     return master, poni, frames, row, col
 
 
@@ -182,15 +186,15 @@ def run_cli(monkeypatch, *argv):
     diffmap_integrate.main()
 
 
-def test_integrate_a_bliss_scan(tmp_path, monkeypatch):
+def test_integrate_a_bliss_scan(tmpdir, monkeypatch):
     """Placement, exact clipped sums and the clipped-pixel list of a scan in two files; the
     recipe gives the same file again, and refuses other settings."""
-    master, poni, frames, row, col = bliss_scan(tmp_path)
-    out = tmp_path / "out.h5"
+    master, poni, frames, row, col = bliss_scan(tmpdir)
+    out = os.path.join(str(tmpdir), "out.h5")
     run_cli(monkeypatch, master, out, "--entry", "1.1", "--poni", poni, "--n-bins", N_BINS,
             "--split", "bbox", "--mask", "auto", "--threads", 2, "--no-pin")
-    plan = tmp_path / "out_plan.h5"
-    integ = bslz4_cv.Integrator.load(str(plan))
+    plan = os.path.join(str(tmpdir), "out_plan.h5")
+    integ = bslz4_cv.Integrator.load(plan)
     with h5py.File(plan, "r") as h:
         mask = h["mask"][()]
     W = b.fixed_point_matrix(integ.csc, mask, np.uint32).to_scipy()
@@ -206,7 +210,7 @@ def test_integrate_a_bliss_scan(tmp_path, monkeypatch):
         assert list(cl["pixel"][()]) == [7 * FSHAPE[1] + 9]
         first = {k: res[k][()] for k in ("intensity", "sum_intensity")}
 
-    again = tmp_path / "again.h5"
+    again = os.path.join(str(tmpdir), "again.h5")
     run_cli(monkeypatch, again, "--plan", plan, "--entry", "1.1", "--threads", 3)
     with h5py.File(again, "r") as f:
         for k, v in first.items():
@@ -218,7 +222,7 @@ def test_integrate_a_bliss_scan(tmp_path, monkeypatch):
 
 def fscan_master(path, row, col, params=True, offset=0.0, mode=None, spread=0.003):
     """An fscan2d entry: positions under measurement/, the reverse lines offset by offset."""
-    rng = np.random.default_rng(6)
+    rng = np.random.RandomState(6)
     n = len(row)
     back = np.array([r % 2 == 1 for r in row])
     with h5py.File(path, "w") as h:
@@ -236,38 +240,38 @@ def fscan_master(path, row, col, params=True, offset=0.0, mode=None, spread=0.00
                 p["fast_motor_mode"] = mode
 
 
-def test_fscan2d_grid_from_fscan_parameters(tmp_path):
+def test_fscan2d_grid_from_fscan_parameters(tmpdir):
     """fscan2d: motors and numbers of points from instrument/fscan_parameters, zigzag offset
     lines on their grid line; a guessed grid with holes is refused unless map_shape is given."""
     row = np.repeat(np.arange(ROWS), COLS)
     col = np.array([c if r % 2 == 0 else COLS - 1 - c for r in range(ROWS) for c in range(COLS)])
-    master = tmp_path / "fscan.h5"
+    master = os.path.join(str(tmpdir), "fscan.h5")
     fscan_master(master, row, col, offset=0.3)
-    g = _diffmapio.bliss_geometry(str(master), "1.1")
+    g = _diffmapio.bliss_geometry(master, "1.1")
     assert g["map_shape"] == (ROWS, COLS) and (g["fast_axis"], g["slow_axis"]) == ("py", "pz")
     assert np.array_equal(g["row"], row) and np.array_equal(g["col"], col)
 
     # no parameters: the offset lines look like a grid twice as wide, half empty
     fscan_master(master, row, col, params=False, offset=0.5)
     with pytest.raises(ValueError, match="map_shape"):
-        _diffmapio.bliss_geometry(str(master), "1.1", fast="py", slow="pz")
+        _diffmapio.bliss_geometry(master, "1.1", fast="py", slow="pz")
     with pytest.raises(ValueError, match="grid lines"):
-        _diffmapio.bliss_geometry(str(master), "1.1", fast="py", slow="pz", map_shape=(ROWS, COLS))
+        _diffmapio.bliss_geometry(master, "1.1", fast="py", slow="pz", map_shape=(ROWS, COLS))
 
 
-def test_fscan2d_zigzag_by_frame_order(tmp_path):
+def test_fscan2d_zigzag_by_frame_order(tmpdir):
     """A ZIGZAG fscan2d whose measured positions spread by close to a step (as id11's WAu_g1 1.1,
     step 0.5, spread 0.46) is placed by frame order; a frame order that is no zigzag is refused."""
     row = np.repeat(np.arange(ROWS), COLS)
     col = np.array([c if r % 2 == 0 else COLS - 1 - c for r in range(ROWS) for c in range(COLS)])
-    master = tmp_path / "fscan.h5"
+    master = os.path.join(str(tmpdir), "fscan.h5")
     fscan_master(master, row, col, offset=-0.3, mode="ZIGZAG", spread=0.2)
     with pytest.raises(ValueError, match="grid lines"):  # the measured positions are no grid
         _diffmapio._axis(h5py.File(master, "r")["1.1/measurement/py"][()], COLS)
-    g = _diffmapio.bliss_geometry(str(master), "1.1")
+    g = _diffmapio.bliss_geometry(master, "1.1")
     assert np.array_equal(g["row"], row) and np.array_equal(g["col"], col)
     assert np.allclose(g["fast_values"], np.arange(COLS) - 0.3 * (ROWS // 2) / ROWS, atol=0.2)
 
     fscan_master(master, row, np.tile(np.arange(COLS), ROWS), mode="ZIGZAG")
     with pytest.raises(ValueError, match="zigzag"):
-        _diffmapio.bliss_geometry(str(master), "1.1")
+        _diffmapio.bliss_geometry(master, "1.1")

@@ -1,4 +1,6 @@
+from __future__ import absolute_import, division, print_function
 
+from conftest import bitshuffle
 import os
 import sys
 
@@ -34,7 +36,7 @@ if not os.path.exists( 'sparsetest.h5' ):
     with h5py.File( 'sparsetest.h5', 'a' ) as h5f:
         for dt in dtypes:
             data = testdata.astype( dt )
-            name = f'frm{data.itemsize}'
+            name = "frm%s" % data.itemsize
             dset = h5f.create_dataset( name, data = data,
                                        chunks = (1, s[1], s[2]),
                                        compression = 32008,
@@ -46,7 +48,7 @@ with h5py.File('sparsetest.h5','r') as h5f:
     for name in list(h5f):
         dset = h5f[name]
         chunks[name] = ( dset.dtype, dset.shape,
-                         [ dset.id.read_direct_chunk( (i,0,0) )
+                         [ bslz4_to_sparse.read_direct_chunk( dset, (i,0,0) )
                            for i in range(dset.shape[0]) ] )
     testdata = h5f['frm2'][:]
 
@@ -98,7 +100,8 @@ def testfun( ):
             assert e[0] < 1e-4, e
         tavg = np.average(tims)
         j = np.argmax(e)
-        print(f'{name} {dt} {tavg*1e3:.3f} ms {1/tavg:.1f} fps/core, max error abs, rel',e)
+        print("%s %s %.3f ms %.1f fps/core, max error abs, rel"
+              % (name, dt, tavg*1e3, 1/tavg), e)
 
 testfun()
 
@@ -240,10 +243,10 @@ def _make_tiny_csc(npix, nbins, seed=1):
     exactly, including negative pixel values, independent of pyFAI."""
     class CSC:
         pass
-    rng = np.random.default_rng(seed)
+    rng = np.random.RandomState(seed)
     csc = CSC()
     csc.indptr = np.arange(npix + 1, dtype=np.uint32)
-    csc.indices = rng.integers(0, nbins, size=npix).astype(np.uint32)
+    csc.indices = rng.randint(0, nbins, size=npix).astype(np.uint32)
     csc.data = np.ones(npix, dtype=np.float32)
     csc.shape = (nbins,)
     return csc
@@ -260,7 +263,7 @@ def test_u64_i64_and_signed_negative_values():
     npix = NI * NJ
     mask2d = np.ones((NI, NJ), np.uint8)
     csc = _make_tiny_csc(npix, nbins=8)
-    rng = np.random.default_rng(2)
+    rng = np.random.RandomState(2)
 
     fname = "u64i64_test.h5"
     try:
@@ -268,15 +271,15 @@ def test_u64_i64_and_signed_negative_values():
             u64 = rng.poisson(1.0, (3, NI, NJ)).astype(np.uint64)
             i64 = (rng.poisson(1.0, (3, NI, NJ)).astype(np.int64) - 1)  # forces negatives
             f.create_dataset("u64", data=u64, chunks=(1, NI, NJ),
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4", clevel=0))
+                              **bitshuffle(nelems=0, cname="lz4", clevel=0))
             f.create_dataset("i64", data=i64, chunks=(1, NI, NJ),
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4", clevel=0))
+                              **bitshuffle(nelems=0, cname="lz4", clevel=0))
 
         for dsname, npdt in (("u64", np.uint64), ("i64", np.int64)):
             with h5py.File(fname, "r") as f:
                 ds = f[dsname]
                 dense = [ds[i].copy() for i in range(3)]
-                bufs = [np.frombuffer(ds.id.read_direct_chunk((i, 0, 0))[1], np.uint8)
+                bufs = [np.frombuffer(bslz4_to_sparse.read_direct_chunk(ds, (i, 0, 0))[1], np.uint8)
                         for i in range(3)]
             assert dsname != "i64" or (dense[0] < 0).any(), "test setup should include negatives"
 

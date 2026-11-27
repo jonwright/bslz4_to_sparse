@@ -10,7 +10,11 @@ without cupy and a CUDA GPU.
 Matrix makers as in test_layouts.py.
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
+import struct
 import sys
 
 _path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
@@ -43,20 +47,20 @@ def write_chunks(path, frames):
             "d",
             data=frames,
             chunks=(1,) + frames.shape[1:],
-            **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+            **bitshuffle(nelems=0, cname="lz4")
         )
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], LZ4
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))], LZ4
 
 
 def make_split_1d(npix, nbins, seed):
     """A 1D-like matrix: each pixel splits its intensity over 1-3 consecutive
     bins with weights summing to 1 (padded can represent it)."""
-    rng = np.random.default_rng(seed)
-    n = rng.integers(1, 4, npix)
-    start = rng.integers(0, nbins - 3, npix)
+    rng = np.random.RandomState(seed)
+    n = rng.randint(1, 4, npix)
+    start = rng.randint(0, nbins - 3, npix)
     indptr = np.concatenate(([0], np.cumsum(n)))
     indices = np.concatenate([np.arange(start[i], start[i] + n[i]) for i in range(npix)])
-    w = rng.random(int(n.sum())) + 0.1
+    w = rng.random_sample(int(n.sum())) + 0.1
     w /= np.add.reduceat(w, indptr[:-1]).repeat(n)
     return sp.csc_matrix(
         (w.astype(np.float32), indices.astype(np.int32), indptr.astype(np.int32)),
@@ -67,10 +71,10 @@ def make_split_1d(npix, nbins, seed):
 def make_nosplit(npix, nbins, seed):
     """A histogram (pyFAI split='no'): each pixel reaches at most one bin,
     weight exactly 1 (csc-nosplit can represent it)."""
-    rng = np.random.default_rng(seed)
-    n = (rng.random(npix) > 0.1).astype(np.int64)
+    rng = np.random.RandomState(seed)
+    n = (rng.random_sample(npix) > 0.1).astype(np.int64)
     indptr = np.concatenate(([0], np.cumsum(n)))
-    indices = rng.integers(0, nbins, int(n.sum()))
+    indices = rng.randint(0, nbins, int(n.sum()))
     return sp.csc_matrix(
         (np.ones(int(n.sum()), np.float32), indices.astype(np.int32), indptr.astype(np.int32)),
         shape=(nbins, npix),
@@ -80,10 +84,10 @@ def make_nosplit(npix, nbins, seed):
 def make_nosplit_moment(npix, nbins, seed):
     """A histogram with a first moment: each pixel reaches no bin or the pair
     (2k, 2k+1) with weights 1 (sum I) and its q (sum qI)."""
-    rng = np.random.default_rng(seed)
-    has = rng.random(npix) > 0.1
+    rng = np.random.RandomState(seed)
+    has = rng.random_sample(npix) > 0.1
     n = np.where(has, 2, 0)
-    k = rng.integers(0, nbins // 2, npix)
+    k = rng.randint(0, nbins // 2, npix)
     q = rng.uniform(1.0, 30.0, npix).astype(np.float32)
     indptr = np.concatenate(([0], np.cumsum(n)))
     indices = np.stack([2 * k, 2 * k + 1], axis=1)[has].ravel()
@@ -95,11 +99,11 @@ def make_nosplit_moment(npix, nbins, seed):
 
 def make_general(npix, nbins, seed):
     """Pixels reach arbitrary bins (padded must refuse it)."""
-    rng = np.random.default_rng(seed)
-    n = rng.integers(0, 4, npix)
+    rng = np.random.RandomState(seed)
+    n = rng.randint(0, 4, npix)
     indptr = np.concatenate(([0], np.cumsum(n)))
-    indices = rng.integers(0, nbins, int(n.sum()))
-    data = rng.random(int(n.sum())).astype(np.float32) + 0.25
+    indices = rng.randint(0, nbins, int(n.sum()))
+    data = rng.random_sample(int(n.sum())).astype(np.float32) + 0.25
     return sp.csc_matrix(
         (data, indices.astype(np.int32), indptr.astype(np.int32)), shape=(nbins, npix)
     )
@@ -112,7 +116,7 @@ def big_value(dt):
 
 def reference(M, frames, mask):
     keep = (mask.ravel() > 0).astype(np.float64)
-    return np.array([M @ (f.ravel().astype(np.float64) * keep) for f in frames])
+    return np.array([M.dot(f.ravel().astype(np.float64) * keep) for f in frames])
 
 
 TOL = {"f64": 1e-9, "i64": 1e-9, "f32": 5e-5}
@@ -122,17 +126,17 @@ TOL = {"f64": 1e-9, "i64": 1e-9, "f32": 5e-5}
     "dt", [np.uint8, np.uint16, np.uint32, np.int32, np.float32, np.int16, np.int8]
 )
 @pytest.mark.parametrize("shape", [(61, 83), (93, 217), (64, 128), (16, 8)])
-def test_collect(tmp_path, dt, shape):
-    rng = np.random.default_rng(1)
+def test_collect(tmpdir, dt, shape):
+    rng = np.random.RandomState(1)
     n = (3,) + shape
-    mask = (rng.random(shape) > 0.2).astype(np.uint8)
+    mask = (rng.random_sample(shape) > 0.2).astype(np.uint8)
     for dens in (0.01, 0.5, 30):
         a = rng.poisson(dens, n)
         if np.dtype(dt).kind == "i":
             a = a - rng.poisson(dens, n)
         frames = a.astype(dt)
         frames[:, mask == 0] = big_value(dt)
-        chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+        chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
         c = g.chunk2sparse(mask, dt, codec)
         for cut in (-1, 0, 1, 5, 40000.5):
             npx, (v, idx) = c.multi(chunks, cut)
@@ -149,16 +153,16 @@ def test_collect(tmp_path, dt, shape):
 @pytest.mark.parametrize("acc", ["f64", "i64", "f32"])
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32, np.int32, np.float32])
 @pytest.mark.parametrize("kind", ["split1d", "general", "nosplit", "moment", "many_bins"])
-def test_matrices(tmp_path, dt, kind, acc):
+def test_matrices(tmpdir, dt, kind, acc):
     if acc == "i64" and np.dtype(dt).kind == "f":
         pytest.skip("integer accumulators need integer pixels")
     shape = (61, 83)
     npix = shape[0] * shape[1]
-    rng = np.random.default_rng(3)
-    mask = (rng.random(npix) > 0.2).astype(np.uint8).reshape(shape)
+    rng = np.random.RandomState(3)
+    mask = (rng.random_sample(npix) > 0.2).astype(np.uint8).reshape(shape)
     frames = rng.poisson(0.8, (3,) + shape).astype(dt)
     frames[:, mask == 0] = big_value(dt)
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     M = {
         "split1d": lambda: make_split_1d(npix, 200, 4),
         "general": lambda: make_general(npix, 300, 5),
@@ -181,21 +185,21 @@ def test_matrices(tmp_path, dt, kind, acc):
 
 
 @pytest.mark.parametrize("dt", [np.uint8, np.int8, np.uint16, np.int16, np.uint32, np.int32, np.float32])
-def test_permutation_keeps_the_pixel_dtype(tmp_path, dt):
+def test_permutation_keeps_the_pixel_dtype(tmpdir, dt):
     """A permutation (FAZIT: weight 1, one bin per pixel, each bin reached once) with no acc
     given: the powder is the pixels in bin order, in the pixel dtype, as the CPU class's automatic
     csc-permute; with an acc it is the accumulator's sums, as before.  Some bins are reached by no
     pixel (0)."""
     shape = (61, 83)
     npix = shape[0] * shape[1]
-    rng = np.random.default_rng(11)
-    mask = (rng.random(npix) > 0.2).astype(np.uint8).reshape(shape)
+    rng = np.random.RandomState(11)
+    mask = (rng.random_sample(npix) > 0.2).astype(np.uint8).reshape(shape)
     a = rng.poisson(3.0, (3,) + shape)
     if np.dtype(dt).kind == "i":
         a = a - rng.poisson(3.0, a.shape)
     frames = a.astype(dt)
     frames[:, mask == 0] = big_value(dt)
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     pix = np.flatnonzero(mask.ravel())
     nbins = pix.size + 5
     bins = rng.permutation(nbins)[: pix.size]
@@ -222,11 +226,11 @@ def test_permutation_keeps_the_pixel_dtype(tmp_path, dt):
 
 def mixed_frames(dt, shape, seed=7):
     """nearly empty to dense, with a few bright spots, and masked pixels at the maximum"""
-    rng = np.random.default_rng(seed)
-    mask = (rng.random(shape) > 0.1).astype(np.uint8)
+    rng = np.random.RandomState(seed)
+    mask = (rng.random_sample(shape) > 0.1).astype(np.uint8)
     frames = np.stack(
         [
-            rng.poisson(lam, shape) + (rng.random(shape) > 0.999) * 200
+            rng.poisson(lam, shape) + (rng.random_sample(shape) > 0.999) * 200
             for lam in (0.01, 0.3, 2.0, 8.0, 30.0)
         ]
     )
@@ -240,9 +244,9 @@ def mixed_frames(dt, shape, seed=7):
 
 
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32, np.int32, np.float32])
-def test_howmany_matches_the_cpu_classes(tmp_path, dt):
+def test_howmany_matches_the_cpu_classes(tmpdir, dt):
     mask, frames = mixed_frames(dt, (93, 217))
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     M = make_split_1d(mask.size, 60, 3)
     cap = mask.size * np.dtype(dt).itemsize // (4 + np.dtype(dt).itemsize)
     ref = reference(M, frames, mask)
@@ -280,14 +284,14 @@ def test_howmany_matches_the_cpu_classes(tmp_path, dt):
         g.chunk2sparse(mask, dt, codec, howmany=-1)
 
 
-def test_dense_frames_are_listed_on_the_host_and_counted(tmp_path):
-    rng = np.random.default_rng(0)
+def test_dense_frames_are_listed_on_the_host_and_counted(tmpdir):
+    rng = np.random.RandomState(0)
     shape = (93, 217)
     mask = np.ones(shape, np.uint8)
     frames = np.stack([rng.poisson(0.02, shape), rng.poisson(6, shape)]).astype(
         np.uint16
     )  # sparse, then dense
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     c = g.chunk2sparse(mask, np.uint16, codec)
     npx, (v, i) = c.multi(chunks, 0)
     assert c.last_host == 1 and c.last_nabove[1] > c.cap >= c.last_nabove[0]
@@ -301,12 +305,12 @@ def test_dense_frames_are_listed_on_the_host_and_counted(tmp_path):
     assert c2.last_host == 0 and n2[1] <= 1000
 
 
-def test_single_offsets_coo(tmp_path):
-    rng = np.random.default_rng(2)
+def test_single_offsets_coo(tmpdir):
+    rng = np.random.RandomState(2)
     shape = (93, 217)
     mask = np.ones(shape, np.uint8)
     frames = rng.poisson(0.3, (5,) + shape).astype(np.uint16)
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     c = g.chunk2sparseCSC(mask, make_split_1d(mask.size, 50, 1), np.uint16, codec)
     n1, (v1, i1), p1 = c(chunks[1], 1)
     npx, (v, i), p = c.multi(chunks, 1)
@@ -325,12 +329,12 @@ def test_single_offsets_coo(tmp_path):
     assert nn == npx[0] and (row.astype(np.int64) * shape[1] + col == i[0, :nn]).all()
 
 
-def test_corrupt_is_reported(tmp_path):
-    frames = np.random.default_rng(0).poisson(1.0, (1, 93, 217)).astype(np.uint16)
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+def test_corrupt_is_reported(tmpdir):
+    frames = np.random.RandomState(0).poisson(1.0, (1, 93, 217)).astype(np.uint16)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     c = g.chunk2sparse(np.ones((93, 217), np.uint8), np.uint16, codec)
     bad = bytearray(chunks[0])
-    bad[12:16] = (len(bad)).to_bytes(4, "big")
+    bad[12:16] = struct.pack(">I", len(bad))
     with pytest.raises(Exception, match="corrupt|Error decoding"):
         c.multi([bytes(bad)], 0)
 
@@ -338,28 +342,28 @@ def test_corrupt_is_reported(tmp_path):
 def _lz4_sequence(lits, offset=None, match=None):
     """One lz4 sequence, written by hand: literals, then a match (offset, length) unless last"""
     def lsic(n):
-        return b"\xff" * (n // 255) + bytes([n % 255])
+        return b"\xff" * (n // 255) + struct.pack("B", n % 255)
 
     tok = min(len(lits), 15) << 4
     ext = lsic(len(lits) - 15) if len(lits) >= 15 else b""
     if offset is None:
-        return bytes([tok]) + ext + lits
+        return struct.pack("B", tok) + ext + lits
     m = match - 4
-    return (bytes([tok | min(m, 15)]) + ext + lits + offset.to_bytes(2, "little")
+    return (struct.pack("B", tok | min(m, 15)) + ext + lits + struct.pack("<H", offset)
             + (lsic(m - 15) if m >= 15 else b""))
 
 
 def test_corrupt_lz4_content_is_reported():
     """Blocks whose lz4 streams are corrupt inside correct framing: err 6, the context survives and
     the other frames decode.  65 x 64 uint16: a full 8 kB block and a 128-byte one."""
-    rng = np.random.default_rng(3)
+    rng = np.random.RandomState(3)
 
     def r(n):
-        return rng.integers(0, 256, n, np.uint8).tobytes()
+        return rng.randint(0, 256, n, np.uint8).tobytes()
 
     def chunk(b0, b1):
-        return (b"".join(x.to_bytes(n, "big") for x, n in ((65 * 64 * 2, 8), (8192, 4)))
-                + b"".join(len(x).to_bytes(4, "big") + x for x in (b0, b1)))
+        return (struct.pack(">Q", 65 * 64 * 2) + struct.pack(">I", 8192)
+                + b"".join(struct.pack(">I", len(x)) + x for x in (b0, b1)))
 
     s = _lz4_sequence
     full = s(r(16), 16, 100) + s(r(8192 - 116))
@@ -383,10 +387,10 @@ def test_corrupt_lz4_content_is_reported():
 
 
 @pytest.mark.parametrize("dt", [np.uint16, np.int32, np.float32])
-def test_batch_and_group_give_the_same_result(tmp_path, dt):
+def test_batch_and_group_give_the_same_result(tmpdir, dt):
     mask, frames = mixed_frames(dt, (93, 217))
     frames = np.concatenate([frames, frames[::-1], frames[1:3]])  # 12 frames, dense ones among
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     M = make_split_1d(mask.size, 60, 3)
     for howmany in (None, 50):
         ref = g.chunk2sparseCSC(mask, M, dt, codec, batch=len(frames), howmany=howmany)
@@ -401,13 +405,13 @@ def test_batch_and_group_give_the_same_result(tmp_path, dt):
             assert (c.last_nabove == ref.last_nabove).all() and (c.last_cut == ref.last_cut).all()
             assert c.last_host == ref.last_host
     bad = bytearray(chunks[9])
-    bad[12:16] = (len(bad)).to_bytes(4, "big")
+    bad[12:16] = struct.pack(">I", len(bad))
     c = g.chunk2sparse(mask, dt, codec, batch=2, group=4)
     with pytest.raises(Exception, match=r"chunks \[9\]"):
         c.multi(chunks[:9] + [bytes(bad)] + chunks[10:], 1)
 
 
-def test_default_group_fits_the_memory(tmp_path, monkeypatch):
+def test_default_group_fits_the_memory(tmpdir, monkeypatch):
     """group None on a card too small for every frame's chunks at once: smaller groups, the same
     results as group=batch."""
     from bslz4_to_sparse.cuda import _gpu
@@ -415,7 +419,7 @@ def test_default_group_fits_the_memory(tmp_path, monkeypatch):
     dt = np.uint16
     mask, frames = mixed_frames(dt, (93, 217))
     frames = np.concatenate([frames, frames[::-1], frames[1:3]])  # 12 frames, dense ones among
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     M = make_split_1d(mask.size, 60, 3)
     biggest3 = max(sum(len(c) for c in chunks[i : i + 3]) for i in range(0, len(chunks), 3))
     ref = g.chunk2sparseCSC(mask, M, dt, codec, batch=2, group=2)
@@ -436,7 +440,7 @@ def test_default_group_fits_the_memory(tmp_path, monkeypatch):
     assert g.chunk2sparse(mask, dt, codec, batch=2)._group(len(chunks), lambda G: 10**6 * G) == 1
 
 
-def test_a_failed_allocation_leaves_the_object_usable(tmp_path, monkeypatch):
+def test_a_failed_allocation_leaves_the_object_usable(tmpdir, monkeypatch):
     """Out of memory while the buffers grow: the object keeps its old buffers and their sizes, and
     the next, smaller call is right."""
     from bslz4_to_sparse.cuda import _gpu
@@ -444,7 +448,7 @@ def test_a_failed_allocation_leaves_the_object_usable(tmp_path, monkeypatch):
     dt = np.uint16
     mask, frames = mixed_frames(dt, (93, 217))
     frames = np.concatenate([frames, frames[::-1], frames[1:3]])
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     M = make_split_1d(mask.size, 60, 3)
     ref = g.chunk2sparseCSC(mask, M, dt, codec, batch=4)
     n0, (v0, i0), p0 = ref.multi(chunks, 1)
@@ -475,10 +479,10 @@ def test_a_failed_allocation_leaves_the_object_usable(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32, np.float32])
-def test_unblock_on_the_cpu_gives_the_same_result(tmp_path, dt):
+def test_unblock_on_the_cpu_gives_the_same_result(tmpdir, dt):
     mask, frames = mixed_frames(dt, (93, 217))
     frames = np.concatenate([frames, frames[::-1]])
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     M = make_split_1d(mask.size, 60, 3)
     ref = g.chunk2sparseCSC(mask, M, dt, codec, batch=3, group=7)
     n0, (v0, i0), p0 = ref.multi(chunks, 1)
@@ -489,7 +493,7 @@ def test_unblock_on_the_cpu_gives_the_same_result(tmp_path, dt):
         assert (i1[f, : n1[f]] == i0[f, : n0[f]]).all()
         assert (v1[f, : n1[f]] == v0[f, : n0[f]]).all()
     bad = bytearray(chunks[8])
-    bad[12:16] = (len(bad)).to_bytes(4, "big")
+    bad[12:16] = struct.pack(">I", len(bad))
     with pytest.raises(Exception, match=r"chunks \[8\]"):
         c.multi(chunks[:8] + [bytes(bad)] + chunks[9:], 1)
     with pytest.raises(ValueError):
@@ -499,12 +503,12 @@ def test_unblock_on_the_cpu_gives_the_same_result(tmp_path, dt):
 @pytest.mark.parametrize("unblock", ["gpu", "cpu"])
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.float32])
 @pytest.mark.parametrize("shape", [(61, 83), (64, 128), (7, 9), (1, 1)])  # 61x83, 7x9, 1x1: raw
-def test_extra_bytes_after_a_chunk_are_ignored(tmp_path, dt, shape, unblock):
+def test_extra_bytes_after_a_chunk_are_ignored(tmpdir, dt, shape, unblock):
     """as by the HDF5 filter: the raw pixels are read after the last block (test_trailing_bytes)"""
     if unblock == "cpu" and shape == (1, 1):
         pytest.skip("unblock='cpu' fails on frames with no stored block, trailing bytes or not")
-    frames = np.random.default_rng(3).poisson(1.0, (3,) + shape).astype(dt)
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    frames = np.random.RandomState(3).poisson(1.0, (3,) + shape).astype(dt)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     padded = [x + bytes(bytearray(range(101, 165))) for x in chunks]
     c = g.chunk2sparse(np.ones(shape, np.uint8), dt, codec, unblock=unblock)
     n, (v, i) = c.multi(padded, 0)
@@ -525,11 +529,11 @@ def test_extra_bytes_after_a_chunk_are_ignored(tmp_path, dt, shape, unblock):
 
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32, np.float32])
 @pytest.mark.parametrize("shape", [(61, 83), (64, 128), (16, 8)])  # 61 x 83: rows padded to 16 B
-def test_decompress_and_integrate_stay_on_the_device(tmp_path, dt, shape):
-    rng = np.random.default_rng(4)
-    mask = (rng.random(shape) > 0.2).astype(np.uint8)
+def test_decompress_and_integrate_stay_on_the_device(tmpdir, dt, shape):
+    rng = np.random.RandomState(4)
+    mask = (rng.random_sample(shape) > 0.2).astype(np.uint8)
     frames = rng.poisson(2.0, (7,) + shape).astype(dt)
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     M = make_split_1d(mask.size, 40, 2)
     c = g.chunk2sparseCSC(mask, M, dt, codec, batch=2, group=3, device=0)
     d = c.decompress(chunks)
@@ -541,18 +545,18 @@ def test_decompress_and_integrate_stay_on_the_device(tmp_path, dt, shape):
     _, _, p0 = c.multi(chunks, 0)
     assert p.shape == (len(frames), M.shape[0]) and (cp.asarray(p).get() == p0).all()
     bad = bytearray(chunks[4])
-    bad[12:16] = (len(bad)).to_bytes(4, "big")
+    bad[12:16] = struct.pack(">I", len(bad))
     with pytest.raises(Exception, match=r"chunks \[4\]"):
         c.decompress(chunks[:4] + [bytes(bad)] + chunks[5:])
 
 
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.int32])
 @pytest.mark.parametrize("shape", [(61, 83), (64, 128)])
-def test_decompress_and_integrate_into_the_callers_array(tmp_path, dt, shape, monkeypatch):
-    rng = np.random.default_rng(5)
-    mask = (rng.random(shape) > 0.2).astype(np.uint8)
+def test_decompress_and_integrate_into_the_callers_array(tmpdir, dt, shape, monkeypatch):
+    rng = np.random.RandomState(5)
+    mask = (rng.random_sample(shape) > 0.2).astype(np.uint8)
     frames = rng.poisson(2.0, (7,) + shape).astype(dt)
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     M = make_split_1d(mask.size, 40, 2)
     c = g.chunk2sparseCSC(mask, M, dt, codec, batch=2, group=3, device=0)
     want_p = cp.asarray(c.integrate(chunks)).get()
@@ -604,16 +608,16 @@ def write_chunks_codec(path, frames, cname):
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset(
             "d", data=frames, chunks=(1,) + frames.shape[1:],
-            **hdf5plugin.Bitshuffle(nelems=0, cname=cname)
+            **bitshuffle(nelems=0, cname=cname)
         )
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
 
 
 @pytest.mark.parametrize("dt", [np.uint16, np.int32])
-def test_chunks_already_on_the_device(tmp_path, dt):
+def test_chunks_already_on_the_device(tmpdir, dt):
     mask, frames = mixed_frames(dt, (61, 83))
     frames = np.concatenate([frames, frames[::-1]])
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     lens = np.array([len(c) for c in chunks], np.int64)
     offs = 100 + np.concatenate(([0], np.cumsum(lens)[:-1]))  # the chunks start 100 bytes in
     d_buf = cp.asarray(np.frombuffer(b"x" * 100 + b"".join(chunks), np.uint8))
@@ -628,8 +632,8 @@ def test_chunks_already_on_the_device(tmp_path, dt):
     want = cp.asarray(c.integrate(chunks)).get()
     assert (cp.asarray(c.integrate_from_device(d_buf, offs, lens)).get() == want).all()
     # the header checks are on the GPU: a frame of another size, a zstd chunk, offsets outside
-    other = write_chunks_codec(tmp_path / "o.h5", frames[:2, :60], "lz4")[1]
-    zst = write_chunks_codec(tmp_path / "z.h5", frames[:2], "zstd")[1]
+    other = write_chunks_codec(os.path.join(str(tmpdir), "o.h5"), frames[:2, :60], "lz4")[1]
+    zst = write_chunks_codec(os.path.join(str(tmpdir), "z.h5"), frames[:2], "zstd")[1]
     for bad, match in ((other, "-106"), (zst, "zstd")):
         blob = b"".join(chunks[:5]) + bad + b"".join(chunks[6:])
         ln = np.array([len(x) for x in chunks[:5]] + [len(bad)] + [len(x) for x in chunks[6:]])
@@ -639,7 +643,7 @@ def test_chunks_already_on_the_device(tmp_path, dt):
     with pytest.raises(Exception, match="-108"):
         c.from_device(d_buf, offs + 10**6, lens, 1)
     bad = bytearray(chunks[4])
-    bad[12:16] = (len(bad)).to_bytes(4, "big")
+    bad[12:16] = struct.pack(">I", len(bad))
     blob = b"".join(chunks[:4]) + bytes(bad) + b"".join(chunks[5:])
     with pytest.raises(Exception, match=r"corrupt.*chunks \[4\]"):
         c.integrate_from_device(cp.asarray(np.frombuffer(blob, np.uint8)), offs - 100, lens)
@@ -720,7 +724,7 @@ extern "C" __global__ void spin_copy(const unsigned int* a, unsigned int* b, lon
 """
 
 
-def test_driver_backend_waits_for_the_default_stream_before_reusing_a_block(tmp_path):
+def test_driver_backend_waits_for_the_default_stream_before_reusing_a_block(tmpdir):
     """A reader on the legacy default stream (torch's, cupy's) that is still queued when our
     array is dropped: the next result, in this thread or another, must not take its block."""
     if g.backend != "driver":
@@ -731,8 +735,8 @@ def test_driver_backend_waits_for_the_default_stream_before_reusing_a_block(tmp_
     shape = (256, 512)
     mask = np.ones(shape, np.uint8)
     one, two = (np.full((2,) + shape, v, np.uint32) for v in (1, 2))
-    a_chunks, _ = write_chunks(tmp_path / "a.h5", one)
-    b_chunks, _ = write_chunks(tmp_path / "b.h5", two)
+    a_chunks, _ = write_chunks(os.path.join(str(tmpdir), "a.h5"), one)
+    b_chunks, _ = write_chunks(os.path.join(str(tmpdir), "b.h5"), two)
     spin = cp.RawKernel(_SPIN_COPY, "spin_copy")
     c = g.chunk2sparse(mask, np.uint32, device=0)
     c.decompress(b_chunks)  # the object's buffers made, its stream current in this thread
@@ -755,7 +759,7 @@ def test_driver_backend_waits_for_the_default_stream_before_reusing_a_block(tmp_
         assert (got.get() == 1).all(), where
 
 
-def test_driver_backend_record_stream(tmp_path):
+def test_driver_backend_record_stream(tmpdir):
     """A reader on a stream of its own, named with record_stream: the array may be dropped while
     that reader is still queued, and the next result does not take its block."""
     if g.backend != "driver":
@@ -767,8 +771,8 @@ def test_driver_backend_record_stream(tmp_path):
     shape = (256, 512)
     mask = np.ones(shape, np.uint8)
     one, two = (np.full((2,) + shape, v, np.uint32) for v in (1, 2))
-    a_chunks, _ = write_chunks(tmp_path / "a.h5", one)
-    b_chunks, _ = write_chunks(tmp_path / "b.h5", two)
+    a_chunks, _ = write_chunks(os.path.join(str(tmpdir), "a.h5"), one)
+    b_chunks, _ = write_chunks(os.path.join(str(tmpdir), "b.h5"), two)
     spin = cp.RawKernel(_SPIN_COPY, "spin_copy")
     c = g.chunk2sparse(mask, np.uint32, device=0)
     c.decompress(b_chunks)
@@ -801,13 +805,13 @@ class _NoStream(object):
         self.__cuda_array_interface__.pop("stream", None)
 
 
-def test_out_and_device_chunks_wait_for_the_default_stream(tmp_path):
+def test_out_and_device_chunks_wait_for_the_default_stream(tmpdir):
     """out, and the chunks in GPU memory, still being written on the legacy default stream
     (torch's) when the call starts: the call waits for that work."""
     shape = (256, 512)
     mask = np.ones(shape, np.uint8)
     one = np.full((2,) + shape, 1, np.uint32)
-    chunks, _ = write_chunks(tmp_path / "a.h5", one)
+    chunks, _ = write_chunks(os.path.join(str(tmpdir), "a.h5"), one)
     spin = cp.RawKernel(_SPIN_COPY, "spin_copy")
     c = g.chunk2sparse(mask, np.uint32, device=0)
     c.decompress(chunks)
@@ -835,11 +839,11 @@ def _device_of(a):
     return None if not ptr else cp.cuda.runtime.pointerGetAttributes(ptr).device
 
 
-def test_each_object_keeps_its_buffers_on_its_own_gpu(tmp_path):
+def test_each_object_keeps_its_buffers_on_its_own_gpu(tmpdir):
     if g.device_count() < 2:
         pytest.skip("needs two GPUs")
     mask, frames = mixed_frames(np.uint16, (93, 217))
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     M = make_split_1d(mask.size, 60, 3)
     objs = [g.chunk2sparseCSC(mask, M, np.uint16, codec, device=d) for d in (0, 1)]
     results = []
@@ -858,15 +862,15 @@ def test_each_object_keeps_its_buffers_on_its_own_gpu(tmp_path):
     assert all((a == b).all() for a, b in zip(o0, o1))
 
 
-def test_i64_sums_wrap_as_on_the_cpu(tmp_path):
+def test_i64_sums_wrap_as_on_the_cpu(tmpdir):
     """Saturated u32 pixels above the matrix's maxval wrap the integer sums (modulo 2**64, see
     test_wrap.py): the device's are the CPU's, bit for bit."""
     mask, frames = mixed_frames(np.uint32, (93, 217))
     frames[:, 5, :40] = 2**32 - 1
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     M = b.fixed_point_matrix(make_split_1d(mask.size, 60, 3), mask, np.uint32, maxval=1000)
     W = M.to_scipy().astype(np.float64)
-    assert max((W @ f.ravel().astype(np.float64)).max() for f in frames) > 2.0**63  # they wrap
+    assert max((W.dot(f.ravel().astype(np.float64))).max() for f in frames) > 2.0**63  # they wrap
     pg = g.chunk2sparseCSC(mask, M, np.uint32, codec).multi(chunks, 0)[2]
     pc = b.chunk2sparseCSC(mask, M, np.uint32, codec).multi(chunks, 0)[2]
     assert pg.dtype == np.int64 and np.array_equal(pg, pc)

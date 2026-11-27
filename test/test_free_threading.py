@@ -3,6 +3,8 @@ re-enable the GIL, and one processor object per thread decodes concurrently
 with the same answers as a serial run.  Uses only the decode matrix fixture
 (no h5py), so it runs wherever test_decode_matrix.py does."""
 
+from __future__ import absolute_import, division, print_function
+
 import os
 import subprocess
 import sys
@@ -15,6 +17,8 @@ if _path:
 
 import numpy as np
 import pytest
+
+from conftest import Barrier
 
 from bslz4_to_sparse import chunk2sparse
 
@@ -33,9 +37,10 @@ def test_import_keeps_gil_disabled():
     env["PYTHONPATH"] = os.pathsep.join([pkg_parent] + [p for p in [env.get("PYTHONPATH")] if p])
     code = ("import sys; import bslz4_to_sparse; "
             "sys.exit(1 if sys._is_gil_enabled() else 0)")
-    r = subprocess.run([sys.executable, "-c", code], env=env,
-                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    assert r.returncode == 0, "the GIL is enabled after import:\n" + r.stdout.decode()
+    try:
+        subprocess.check_output([sys.executable, "-c", code], env=env, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        raise AssertionError("the GIL is enabled after import:\n" + e.output.decode())
 
 
 @pytest.mark.skipif(_INDEX is None, reason="decode matrix fixture absent")
@@ -48,7 +53,7 @@ def test_concurrent_decode_matrix():
             chunks.append(fh.read(e["length"]))
     expected = [dict((int(i), v) for i, v in e["nonzero"]) for e in entries]
     nthreads = 8
-    start = threading.Barrier(nthreads)
+    start = Barrier(nthreads)
     errors = []
 
     def work(k):

@@ -11,6 +11,9 @@ on every block (the low-planes untranspose fuses its own collect for u8
 blocks and u16 blocks below 256: test_lowplanes_fused.py covers that).
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -40,7 +43,7 @@ def make(kind, dt, rng, specials=True):
     top = np.iinfo(dt).max
     if kind == "sparse":
         a = np.zeros(n, np.int64)
-        a[rng.random(n) < 1e-3] = rng.integers(1, 1000, int((rng.random(n) < 1e-3).sum()) or 1)[0]
+        a[rng.random_sample(n) < 1e-3] = rng.randint(1, 1000, int((rng.random_sample(n) < 1e-3).sum()) or 1)[0]
         a[:, 10:14, 50:54] = 900
     elif kind == "medium":
         a = rng.poisson(0.1, n)
@@ -50,8 +53,8 @@ def make(kind, dt, rng, specials=True):
         a = np.full(n, top, np.int64)
     a = np.minimum(a, top)
     if np.iinfo(dt).min < 0:          # signed: some pixels -1 (gaps), some at the minimum
-        a[rng.random(n) < 0.02] = -1
-        a[rng.random(n) < 0.002] = np.iinfo(dt).min
+        a[rng.random_sample(n) < 0.02] = -1
+        a[rng.random_sample(n) < 0.002] = np.iinfo(dt).min
     return a.astype(dt)
 
 
@@ -61,7 +64,7 @@ def make_float(kind, dt, rng, specials):
     n = (3,) + SHAPE
     if kind == "sparse":
         a = np.zeros(n)
-        a[rng.random(n) < 1e-3] = 900.5
+        a[rng.random_sample(n) < 1e-3] = 900.5
         a[:, 10:14, 50:54] = 900.25
     elif kind == "medium":
         a = rng.poisson(0.1, n) + rng.normal(0, 0.3, n)
@@ -71,10 +74,10 @@ def make_float(kind, dt, rng, specials):
         a = np.full(n, 3.0e38)
     a = a.astype(dt)
     if specials:
-        a[rng.random(n) < 0.005] = -0.0
-        a[rng.random(n) < 0.002] = np.nan
-        a[rng.random(n) < 0.001] = np.inf
-        a[rng.random(n) < 0.001] = -np.inf
+        a[rng.random_sample(n) < 0.005] = -0.0
+        a[rng.random_sample(n) < 0.002] = np.nan
+        a[rng.random_sample(n) < 0.001] = np.inf
+        a[rng.random_sample(n) < 0.001] = -np.inf
     return a
 
 
@@ -84,18 +87,18 @@ DTYPES = [np.uint8, np.uint16, np.uint32, np.int8, np.int16, np.int32, np.float3
 def chunks_of(frames, path):
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(ds)
+                              **bitshuffle(nelems=0, cname="lz4"))
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(ds)
 
 
 @pytest.mark.parametrize("dt", DTYPES)
 @pytest.mark.parametrize("kind", ["sparse", "medium", "dense", "max"])
 @pytest.mark.parametrize("masked", [True, False])
-def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
-    rng = np.random.default_rng(21)
+def test_every_tier_matches_numpy(tmpdir, dt, kind, masked):
+    rng = np.random.RandomState(21)
     frames = make(kind, dt, rng)
-    chunks, codec = chunks_of(frames, tmp_path / "c.h5")
-    mask = ((rng.random(SHAPE) > 0.15) if masked else np.ones(SHAPE, bool)).astype(np.uint8)
+    chunks, codec = chunks_of(frames, os.path.join(str(tmpdir), "c.h5"))
+    mask = ((rng.random_sample(SHAPE) > 0.15) if masked else np.ones(SHAPE, bool)).astype(np.uint8)
     # the threshold is a C int: the largest cut tried is min(max - 1, 2**31 - 1)
     if np.dtype(dt).kind == "f":
         cuts = (0, 0.25, 3, 600.5, 1e30)
@@ -119,12 +122,12 @@ def test_every_tier_matches_numpy(tmp_path, dt, kind, masked):
 
 @pytest.mark.parametrize("dt", DTYPES)
 @pytest.mark.parametrize("route", ["dense", "sparse"])
-def test_powder_same_for_every_tier(tmp_path, dt, route):
-    rng = np.random.default_rng(22)
+def test_powder_same_for_every_tier(tmpdir, dt, route):
+    rng = np.random.RandomState(22)
     frames = make("medium", dt, rng, specials=False)
-    chunks, codec = chunks_of(frames, tmp_path / "p.h5")
+    chunks, codec = chunks_of(frames, os.path.join(str(tmpdir), "p.h5"))
     npix = SHAPE[0] * SHAPE[1]
-    mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)
+    mask = (rng.random_sample(SHAPE) > 0.1).astype(np.uint8)
     M = sp.random(200, npix, density=0.02, format="csc", random_state=5, dtype=np.float32)
     res = {}
     for tier in TIERS:
@@ -133,7 +136,7 @@ def test_powder_same_for_every_tier(tmp_path, dt, route):
                                             "route": route})
         npx, (vals, adr), p = integ.multi(chunks, 0)
         res[tier] = (p.copy(), npx.copy())
-    ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
+    ref = np.array([M.dot(f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
     for tier, (p, npx) in res.items():
         assert np.allclose(p, ref, rtol=1e-9, atol=1e-9), tier
         assert (npx == res[TIERS[0]][1]).all(), tier

@@ -3,6 +3,9 @@
 the same answer as a serial run, and a pure-Python thread keeps running while
 a decode is in flight."""
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 import threading
@@ -24,14 +27,14 @@ SHAPE = (1024, 1024)
 
 
 def _chunks(nframes, seed):
-    rng = np.random.default_rng(seed)
+    rng = np.random.RandomState(seed)
     frames = rng.poisson(0.05, (nframes,) + SHAPE).astype(np.uint16)
     out = []
     with h5py.File("t.h5", "w", driver="core", backing_store=False) as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + SHAPE,
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
+                              **bitshuffle(nelems=0, cname="lz4"))
         for i in range(nframes):
-            out.append(ds.id.read_direct_chunk((i, 0, 0))[1])
+            out.append(b.read_direct_chunk(ds, (i, 0, 0))[1])
     return frames, out
 
 
@@ -81,8 +84,8 @@ def test_python_thread_runs_during_decode():
 
     t = threading.Thread(target=spin)
     t.start()
-    t0 = time.perf_counter()
-    while time.perf_counter() - t0 < 0.5:
+    t0 = time.time()
+    while time.time() - t0 < 0.5:
         c.multi(chunks, 0)
     stop.set()
     t.join()

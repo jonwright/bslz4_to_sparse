@@ -4,6 +4,9 @@ divmod exactly -- at every row boundary of the Eiger 4M/16M shapes, past the
 2**26 limit (fallback), and through both coo() methods.
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -36,21 +39,21 @@ def test_unravel_row_boundaries(shape):
 
 def test_unravel_fallback_past_limit():
     nfast = 9000
-    idx = np.array([0, 8999, 9000, (1 << 26) + 12345, 3_000_000_000], np.uint64)
+    idx = np.array([0, 8999, 9000, (1 << 26) + 12345, 3000000000], np.uint64)
     row = np.empty(idx.size, np.uint64)
     col = np.empty(idx.size, np.uint64)
     b._unravel(idx, nfast, row, col)
     assert (row == idx // nfast).all() and (col == idx % nfast).all()
 
 
-def test_coo_methods(tmp_path):
+def test_coo_methods(tmpdir):
     shape = (97, 211)
-    rng = np.random.default_rng(51)
+    rng = np.random.RandomState(51)
     frame = rng.poisson(0.05, shape).astype(np.uint16)
-    with h5py.File(str(tmp_path / "c.h5"), "w") as f:
+    with h5py.File(os.path.join(str(tmpdir), "c.h5"), "w") as f:
         ds = f.create_dataset("d", data=frame[None], chunks=(1,) + shape,
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
-        chunk = ds.id.read_direct_chunk((0, 0, 0))[1]
+                              **bitshuffle(nelems=0, cname="lz4"))
+        chunk = b.read_direct_chunk(ds, (0, 0, 0))[1]
         codec = b.detect_codec(ds)
     mask = np.ones(shape, np.uint8)
     want_r, want_c = np.nonzero(frame)
@@ -60,4 +63,4 @@ def test_coo_methods(tmp_path):
     M = sp.random(20, frame.size, density=0.05, format="csc", random_state=1, dtype=np.float32)
     n, r, c, v, p = b.chunk2sparseCSC(mask, M, codec=codec).coo(chunk, 0)
     assert n == want_r.size and (r == want_r).all() and (c == want_c).all()
-    assert np.allclose(p, M @ frame.ravel().astype(np.float64))
+    assert np.allclose(p, M.dot(frame.ravel().astype(np.float64)))

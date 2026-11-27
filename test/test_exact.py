@@ -1,6 +1,8 @@
 """fixed_point_matrix: chunk2sparseCSC given it returns int64 sums and a power-of-two scale that equal
 the float powder; a raw matrix gives float64 as released; how coarse the weights are."""
 
+from __future__ import absolute_import, division, print_function
+
 import numpy as np
 import pytest
 import scipy.sparse as sp
@@ -13,15 +15,15 @@ NBINS = 17
 
 def matrix(weights):
     npix = SHAPE[0] * SHAPE[1]
-    rng = np.random.default_rng(2)
-    rows = rng.integers(0, NBINS, npix)
-    data = np.ones(npix, np.float32) if not weights else rng.random(npix).astype(np.float32)
+    rng = np.random.RandomState(2)
+    rows = rng.randint(0, NBINS, npix)
+    data = np.ones(npix, np.float32) if not weights else rng.random_sample(npix).astype(np.float32)
     return sp.csc_matrix((data, (rows, np.arange(npix))), (NBINS, npix)), rows
 
 
 def frames(n=6, dtype=np.uint16):
-    rng = np.random.default_rng(3)
-    return rng.integers(0, 60000, (n,) + SHAPE).astype(dtype)
+    rng = np.random.RandomState(3)
+    return rng.randint(0, 60000, (n,) + SHAPE).astype(dtype)
 
 
 def fp(m, mask, dtype, **kw):
@@ -56,7 +58,7 @@ def test_weights_match_the_float_powder():
 def test_to_scipy_gives_the_powder_exactly():
     """M @ frame in int64 is the decoder's powder, so the sparse pixels' part subtracts exactly."""
     m, _ = matrix(True)
-    mask = (np.random.default_rng(4).random(SHAPE) > 0.1).astype(np.uint8)
+    mask = (np.random.RandomState(4).random_sample(SHAPE) > 0.1).astype(np.uint8)
     fixed = fp(m, mask, np.uint16)
     M = fixed.to_scipy()
     assert M.dtype == np.int64 and M.shape == (NBINS, SHAPE[0] * SHAPE[1])
@@ -64,10 +66,10 @@ def test_to_scipy_gives_the_powder_exactly():
     c = b.chunk2sparseCSC(mask, fixed, np.uint16)
     npx, (values, indices), powder = c.from_frames(fr, 50000)
     for i, f in enumerate(fr):
-        assert np.array_equal(M @ f.ravel(), powder[i])
-        peaks = M[:, indices[i, : npx[i]]] @ values[i, : npx[i]]
+        assert np.array_equal(M.dot(f.ravel()), powder[i])
+        peaks = M[:, indices[i, : npx[i]]].dot(values[i, : npx[i]])
         below = np.where(f > 50000, 0, f).ravel()
-        assert np.array_equal(powder[i] - peaks, M @ below)
+        assert np.array_equal(powder[i] - peaks, M.dot(below))
     M.data[:] = 0
     assert fixed.to_scipy().data.any()
 

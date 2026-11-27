@@ -8,6 +8,8 @@ every step, alone with the rest chosen automatically, and checks that each gives
 the default gives.  (The combinations are tested by the test-suite, test_every_pipeline.py.)
 """
 
+from __future__ import absolute_import, division, print_function
+
 import h5py
 import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
 import numpy as np
@@ -23,7 +25,7 @@ mask_filename = (
 with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
     dtype, codec = ds.dtype, bslz4_to_sparse.detect_codec(ds)
-    chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(4)]
+    chunks = [bslz4_to_sparse.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(4)]
 with h5py.File(mask_filename, "r") as h5:
     bad = h5["mask"][()] != 0  # the masked pixels
 mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel

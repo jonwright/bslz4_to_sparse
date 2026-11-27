@@ -17,9 +17,12 @@ notebook_to_markdown for the documentation pages, so output and pictures are sho
 Needs nbformat, and with --run nbclient and ipykernel; matplotlib for the figures.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import argparse
 import ast
 import base64
+import errno
 import inspect
 import os
 import re
@@ -27,6 +30,16 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
+
+
+def _mkdir_p(path):
+    """os.makedirs that ignores a directory that already exists (no exist_ok on py2)."""
+    try:
+        os.makedirs(path)
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
+    return path
 
 
 def split_example(source):
@@ -131,7 +144,7 @@ def notebook_to_markdown(nb, figdir, figrel, skip_first=False):
                 data = o.get("data", {})
                 if "image/png" in data:
                     nfig += 1
-                    os.makedirs(figdir, exist_ok=True)
+                    _mkdir_p(figdir)
                     name = "fig%d.png" % nfig
                     with open(os.path.join(figdir, name), "wb") as fh:
                         fh.write(base64.b64decode(data["image/png"]))
@@ -156,7 +169,7 @@ def main():
     import nbformat
 
     paths = a.examples or sorted(glob.glob(os.path.join(REPO, "examples", "ex*.py")))
-    os.makedirs(a.out, exist_ok=True)
+    _mkdir_p(a.out)
     folder = None
     for p in paths:
         nb = build_notebook(p)

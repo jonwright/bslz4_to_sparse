@@ -8,6 +8,8 @@ does the same for one frame of a dataset.  Here h5py finds the data and hands ov
 compressed.  (lz4 or zstd is found from the chunk: detect_codec and codec= are not needed.)
 """
 
+from __future__ import absolute_import, division, print_function
+
 import h5py
 import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
 import numpy as np
@@ -24,7 +26,7 @@ with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
     print("dataset: shape %s, dtype %s, chunks %s" % (ds.shape, ds.dtype, ds.chunks))
     frame0 = ds[0]  # decompressed by HDF5, only here to build the mask and to check
-    chunk0 = ds.id.read_direct_chunk((0, 0, 0))[1]  # frame 0, still compressed
+    chunk0 = bslz4_to_sparse.read_direct_chunk(ds, (0, 0, 0))[1]  # frame 0, still compressed
 
 # The mask: where the detector has gaps or dead pixels.
 with h5py.File(mask_filename, "r") as h5:

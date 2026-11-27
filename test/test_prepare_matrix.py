@@ -10,6 +10,9 @@ ask at once).  chunk2sparseCSC(mask, csc) alone still owns a private copy.
   * an object at another block size adds its own layout to the plan and leaves the first alone;
   * the conveyor backend builds once for all its workers; objects and backends still pickle.
 """
+from __future__ import absolute_import, division, print_function
+
+from conftest import Barrier, bitshuffle
 import collections
 import os
 import pickle
@@ -39,14 +42,14 @@ NPIX = SHAPE[0] * SHAPE[1]
 def encode(frames, nelems=0):
     with h5py.File("p.h5", "w", driver="core", backing_store=False) as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=nelems, cname="lz4"))
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+                              **bitshuffle(nelems=nelems, cname="lz4"))
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
 
 
 def make_rings(npix, nbins, seed):
     """Only about 10 % of the pixels reach a run of 1-3 bins (occupancy < 0.5)."""
     M = make_split_1d(npix, nbins, seed).tolil()
-    keep = np.random.default_rng(seed).random(npix) < 0.1
+    keep = np.random.RandomState(seed).random_sample(npix) < 0.1
     M[:, np.flatnonzero(~keep)] = 0
     return sp.csc_matrix(M)
 
@@ -60,9 +63,9 @@ MATRICES = {
 
 @pytest.fixture(scope="module")
 def data():
-    rng = np.random.default_rng(5)
+    rng = np.random.RandomState(5)
     frames = rng.poisson(0.4, (3,) + SHAPE).astype(np.uint16)
-    mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)
+    mask = (rng.random_sample(SHAPE) > 0.1).astype(np.uint8)
     return frames, mask, encode(frames)
 
 
@@ -225,7 +228,7 @@ def test_eight_threads_build_each_layout_once(data, count_builds):
     frames, mask, chunks = data
     M = make_split_1d(NPIX, 50, 2)
     pl = b.plan(mask, M, np.uint16, b.CODEC_LZ4, {"dot": "csc"})
-    barrier = threading.Barrier(8)
+    barrier = Barrier(8)
     out, errs = [], []
 
     def go(k):
@@ -249,9 +252,9 @@ def test_eight_threads_build_each_layout_once(data, count_builds):
 
 def test_an_object_at_another_block_size_adds_its_own_layout(count_builds):
     big = (1100, 1200)                                      # 1 MB blocks: 524288 pixels
-    rng = np.random.default_rng(7)
+    rng = np.random.RandomState(7)
     fr = rng.poisson(0.3, (2,) + big).astype(np.uint16)
-    mk = (rng.random(big) > 0.1).astype(np.uint8)
+    mk = (rng.random_sample(big) > 0.1).astype(np.uint8)
     Mb = make_split_1d(big[0] * big[1], 50, 4)
     ch = encode(fr, nelems=(1 << 20) // 2)
     r = reference(Mb, fr, mk)
@@ -288,15 +291,15 @@ def test_objects_and_backends_still_pickle(data):
 
 
 @pytest.mark.parametrize("exact", [None, False])
-def test_the_conveyor_backend_builds_once_for_all_workers(tmp_path, count_builds, exact):
+def test_the_conveyor_backend_builds_once_for_all_workers(tmpdir, count_builds, exact):
     from bslz4_to_sparse import conveyor as cv
 
-    rng = np.random.default_rng(3)
-    p = str(tmp_path / "f.h5")
-    fr = np.where(rng.random((24,) + SHAPE) < 0.05, rng.integers(1, 60, (24,) + SHAPE), 0)
+    rng = np.random.RandomState(3)
+    p = os.path.join(str(tmpdir), "f.h5")
+    fr = np.where(rng.random_sample((24,) + SHAPE) < 0.05, rng.randint(1, 60, (24,) + SHAPE), 0)
     with h5py.File(p, "w") as h:
         h.create_dataset("/entry/data", data=fr.astype(np.uint16), chunks=(1,) + SHAPE,
-                         **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
+                         **bitshuffle(nelems=0, cname="lz4"))
     cv.write_index(cv.harvest(p, "/entry/data"), p)
     units, shape, dtype = cv.make_work_units([p], "/entry/data")
     M = make_nosplit(NPIX, 7, 1)

@@ -8,7 +8,7 @@ running the kernel, so that the table cannot drift from what the kernels do.
   - contract and routes: each dot gives the powder its contract says, on both routes, equal to a
     numpy product (exact for the integer contracts)
 """
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import os
 import sys

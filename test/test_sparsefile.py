@@ -1,6 +1,11 @@
 """ImageD11SparseSink: one sparse file per input file in ImageD11's layout, read back by h5py and by
 ImageD11 itself, with the exact powder beside it."""
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
+import os
+
 import numpy as np
 import pytest
 import scipy.sparse as sp
@@ -20,11 +25,11 @@ def matrix(nbins=12):
 
 
 @pytest.mark.parametrize("compression", ["bslz4", "bszstd", "lzf", None])
-def test_files_match_a_direct_decode(tmp_path, compression):
-    paths = make_files(tmp_path)
+def test_files_match_a_direct_decode(tmpdir, compression):
+    paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET)  # a unit is a file
     mask = np.ones(SHAPE, np.uint8)
-    out = str(tmp_path / "sparse")
+    out = os.path.join(str(tmpdir), "sparse")
     m, rows = matrix()
     r = cv.run(
         units,
@@ -58,17 +63,17 @@ def test_files_match_a_direct_decode(tmp_path, compression):
             assert np.array_equal(pw[:].astype(np.float64) * (1.0 / pw.attrs["scale"]), ref)
 
 
-def test_float_powder_and_whole_files_only(tmp_path):
-    paths = make_files(tmp_path, nfiles=1)
+def test_float_powder_and_whole_files_only(tmpdir):
+    paths = make_files(tmpdir, nfiles=1)
     mask = np.ones(SHAPE, np.uint8)
     units, shape, dtype = cv.make_work_units(paths, DSET)
     cv.run(
         units,
         cv.CpuBackend(mask, dtype, csc=matrix()[0], exact=True),
         workers=1,
-        sink=lambda k: cv.ImageD11SparseSink(str(tmp_path / "o"), DSET, powder_dtype=np.float32),
+        sink=lambda k: cv.ImageD11SparseSink(os.path.join(str(tmpdir), "o"), DSET, powder_dtype=np.float32),
     )
-    with h5py.File(str(tmp_path / "o" / cv.imaged11_name(paths[0])), "r") as h:
+    with h5py.File(os.path.join(str(tmpdir), "o", cv.imaged11_name(paths[0])), "r") as h:
         g = h[DSET.strip("/")]
         assert g["intensity"].dtype == np.uint16  # always the input dtype
         assert g["powder"].dtype == np.float32 and "scale" not in g["powder"].attrs
@@ -82,16 +87,16 @@ def test_float_powder_and_whole_files_only(tmp_path):
             small,
             cv.CpuBackend(mask, dtype),
             workers=1,
-            sink=lambda k: cv.ImageD11SparseSink(str(tmp_path / "o2"), DSET),
+            sink=lambda k: cv.ImageD11SparseSink(os.path.join(str(tmpdir), "o2"), DSET),
         )
 
 
-def test_imageD11_reads_it(tmp_path):
+def test_imageD11_reads_it(tmpdir):
     sparseframe = pytest.importorskip("ImageD11.sparseframe")
-    paths = make_files(tmp_path, nfiles=1)
+    paths = make_files(tmpdir, nfiles=1)
     mask = np.ones(SHAPE, np.uint8)
     units, shape, dtype = cv.make_work_units(paths, DSET)
-    out = str(tmp_path / "o")
+    out = os.path.join(str(tmpdir), "o")
     cv.run(
         units,
         cv.CpuBackend(mask, dtype),
@@ -105,7 +110,7 @@ def test_imageD11_reads_it(tmp_path):
         assert np.array_equal(s.getframe(i).to_dense("intensity"), frames[i])
 
 
-def test_small_objects_are_dropped_with_min_pixels(tmp_path):
+def test_small_objects_are_dropped_with_min_pixels(tmpdir):
     pytest.importorskip("ImageD11.sparseframe")
     import hdf5plugin
 
@@ -117,17 +122,17 @@ def test_small_objects_are_dropped_with_min_pixels(tmp_path):
         f[30, 40] = 5  # single pixels: noise
         f[10, 30] = 6
         f[35, 3] = 4
-    p = str(tmp_path / "o.h5")
+    p = os.path.join(str(tmpdir), "o.h5")
     with h5py.File(p, "w") as h:
         h.create_dataset(
-            DSET, data=frames, chunks=(1,) + shape, **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+            DSET, data=frames, chunks=(1,) + shape, **bitshuffle(nelems=0, cname="lz4")
         )
     cv.write_index(cv.harvest(p, DSET), p)
     units, _, dtype = cv.make_work_units([p], DSET)
     mask = np.ones(shape, np.uint8)
     got = {}
     for n in (None, 2, 4):
-        out = str(tmp_path / ("o%s" % n))
+        out = os.path.join(str(tmpdir), "o%s" % n)
         cv.run(
             units,
             cv.CpuBackend(mask, dtype),

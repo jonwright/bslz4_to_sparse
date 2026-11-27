@@ -7,6 +7,8 @@ arguments of Sink.write: copies you may keep.  Batches arrive in the order the w
 not in file order: `file` (the index into the list of files) and `frame0` say where each belongs.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import glob
 
 import h5py
@@ -26,7 +28,7 @@ for name in h5filenames:  # once per file, the only use of HDF5 here (see exampl
 
 # Cut the work into units of at most 50 MB of compressed input each, so that a small data set still
 # gives the workers several units to share (the default, 256 MB, is a whole file in most cases).
-units, shape, dtype = conveyor.make_work_units(h5filenames, h5dataset, max_unit_bytes=50_000_000)
+units, shape, dtype = conveyor.make_work_units(h5filenames, h5dataset, max_unit_bytes=50000000)
 with h5py.File(mask_filename, "r") as h5:
     mask = (h5["mask"][()] == 0).astype(np.uint8)  # 1 = use this pixel
 backend = conveyor.CpuBackend(mask, dtype, cut=3, howmany=5000)

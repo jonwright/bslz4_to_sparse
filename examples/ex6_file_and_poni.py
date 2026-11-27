@@ -5,6 +5,8 @@ the pixels above the cut and the powder pattern straight from the compressed chu
 Nothing is written here: what to do with the results is up to you (examples 8, 10 and 11 write results, example 9 iterates over them).
 """
 
+from __future__ import absolute_import, division, print_function
+
 import os
 import time
 

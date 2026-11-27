@@ -23,6 +23,8 @@ array you own and reuse.  The last part of this example shows both, and how to u
 safely on a stream of your library's.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import os
 
 os.environ["BSLZ4_CUDA_BACKEND"] = "driver"  # set before bslz4_to_sparse.cuda is imported
@@ -37,6 +39,7 @@ import pyFAI
 from pyFAI.method_registry import IntegrationMethod
 
 from bslz4_to_sparse import cuda
+import bslz4_to_sparse
 
 h5filename = "eiger_0000.h5"  # your file: bitshuffle-lz4 (8 kB blocks), one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside it
@@ -50,7 +53,7 @@ with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
     dtype = ds.dtype
     n = min(nframes, ds.shape[0])
-    chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(n)]
+    chunks = [bslz4_to_sparse.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(n)]
     frames = ds[:n]  # h5py's own decompression, on the CPU: the reference
 with h5py.File(mask_filename, "r") as h5:
     bad = h5["mask"][()] != 0  # the masked pixels

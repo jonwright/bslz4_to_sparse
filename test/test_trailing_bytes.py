@@ -2,6 +2,8 @@
 offsets) are ignored, as by the HDF5 filter: the raw pixels that do not fill a group of 8 are read
 right after the last block, not from the end of the chunk."""
 
+from __future__ import absolute_import, division, print_function
+
 import os
 import sys
 
@@ -17,6 +19,7 @@ h5py = pytest.importorskip("h5py")
 hdf5plugin = pytest.importorskip("hdf5plugin")
 
 import bslz4_to_sparse as b
+from conftest import needs_zstd_writer
 from test_decompress import frames_of, write
 
 EXTRA = bytes(bytearray(range(101, 165)))  # 64 bytes, none of them zero
@@ -27,21 +30,21 @@ def chunks_and_padded(path, frames, cname):
     back through the HDF5 filter, which must give the frames)."""
     with h5py.File(write(path, frames, cname), "a") as h:
         ds = h["d"]
-        chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+        chunks = [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
         for i, c in enumerate(chunks):
             ds.id.write_direct_chunk((i, 0, 0), c + EXTRA)
-        padded = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+        padded = [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
         assert (ds[()] == frames).all()  # the filter ignores the extra bytes
     assert all(p == c + EXTRA for c, p in zip(chunks, padded))
     return chunks, padded
 
 
-@pytest.mark.parametrize("cname", ["lz4", "zstd"])
+@pytest.mark.parametrize("cname", ["lz4", pytest.param("zstd", marks=needs_zstd_writer)])
 @pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.uint32, np.float32])
 @pytest.mark.parametrize("shape", [(96, 130), (7, 9), (1, 1), (50, 163)])  # 7x9, 1x1, 50x163: raw
-def test_extra_bytes_are_ignored(tmp_path, cname, dtype, shape):
+def test_extra_bytes_are_ignored(tmpdir, cname, dtype, shape):
     frames = frames_of(dtype, shape, n=3)
-    chunks, padded = chunks_and_padded(tmp_path / "f.h5", frames, cname)
+    chunks, padded = chunks_and_padded(os.path.join(str(tmpdir), "f.h5"), frames, cname)
     assert (b.decompress(padded, dtype).reshape(frames.shape) == frames).all()
     assert (b.block_starts(padded, dtype) == b.block_starts(chunks, dtype)).all()
     mask = np.ones(shape, np.uint8)
@@ -55,9 +58,9 @@ def test_extra_bytes_are_ignored(tmp_path, cname, dtype, shape):
         assert (v1[f, : n1[f]] == frames[f].ravel()[want]).all()
 
 
-def test_a_truncated_raw_tail_still_raises(tmp_path):
+def test_a_truncated_raw_tail_still_raises(tmpdir):
     frames = frames_of(np.uint16, (50, 163), n=2)  # 8150 pixels: 6 stored raw
-    chunks, _ = chunks_and_padded(tmp_path / "f.h5", frames, "lz4")
+    chunks, _ = chunks_and_padded(os.path.join(str(tmpdir), "f.h5"), frames, "lz4")
     short = [chunks[0], chunks[1][:-1]]
     with pytest.raises(Exception, match=r"chunks \[1\]"):
         b.block_starts(short, np.uint16)

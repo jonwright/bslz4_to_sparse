@@ -9,9 +9,21 @@ and scalar.
 
 Run directly: python3 bench_backends.py
 """
+
+from __future__ import absolute_import, division, print_function
+
 import os
 import sys
-import time
+import timeit
+
+
+def bitshuffle(nelems=0, cname="lz4", clevel=3):
+    """The kwargs h5py.create_dataset takes for a bitshuffle chunk, from the raw HDF5 filter
+    parameters (hdf5plugin 2.3.2's Bitshuffle has no cname/clevel)."""
+    codec = {"none": 0, "lz4": 2, "zstd": 3}[cname]
+    if codec == 3:
+        return dict(compression=32008, compression_opts=(nelems, codec, clevel))
+    return dict(compression=32008, compression_opts=(nelems, codec))
 
 import h5py
 import hdf5plugin
@@ -31,23 +43,23 @@ FNAME = "bench_backends.h5"
 REPEATS = 3
 
 if not os.path.exists(FNAME):
-    rng = np.random.default_rng(12345)
+    rng = np.random.RandomState(12345)
     ary = rng.poisson(lam=MU, size=SHAPE).astype(DTYPE)
     with h5py.File(FNAME, "w") as f:
         f.create_dataset("data", data=ary, chunks=(1, SHAPE[1], SHAPE[2]),
-                         **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
+                         **bitshuffle(nelems=0, cname="lz4"))
 
 with h5py.File(FNAME, "r") as f:
     ds = f["data"]
-    chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(SHAPE[0])]
+    chunks = [bslz4.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(SHAPE[0])]
 
 mask = np.ones(SHAPE[1:], np.uint8)
 
 
 def _timed(c2sm):
-    t0 = time.perf_counter()
+    t0 = timeit.default_timer()
     c2sm(chunks, 0)
-    return time.perf_counter() - t0
+    return timeit.default_timer() - t0
 
 
 def time_backend(name):

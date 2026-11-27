@@ -5,6 +5,9 @@ sparse output with every untranspose value usable for its dtype, and a CSC
 powder must be identical for each.  Shapes leave a partial tail block.
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -31,7 +34,7 @@ def frames_for(kind, rng):
         return rng.poisson(30, n).astype(np.uint16)
     if kind == "u16 mixed":
         a = rng.poisson(30, n)
-        a[:, ::9, ::17] = rng.integers(256, 65535, a[:, ::9, ::17].shape)
+        a[:, ::9, ::17] = rng.randint(256, 65535, a[:, ::9, ::17].shape)
         return a.astype(np.uint16)
     if kind == "u32 <256":
         return rng.poisson(30, n).astype(np.uint32)
@@ -39,7 +42,7 @@ def frames_for(kind, rng):
         return rng.poisson(3000, n).astype(np.uint32)
     if kind == "u32 mixed":
         a = rng.poisson(30, n)
-        a[:, ::7, ::13] = rng.integers(70000, 10 ** 9, a[:, ::7, ::13].shape)
+        a[:, ::7, ::13] = rng.randint(70000, 10 ** 9, a[:, ::7, ::13].shape)
         return a.astype(np.uint32)
     if kind == "i16 negatives":
         return (rng.poisson(30, n) - 15).astype(np.int16)
@@ -52,13 +55,13 @@ def frames_for(kind, rng):
     if kind == "u64 <256":
         return rng.poisson(30, n).astype(np.uint64)
     if kind == "u64 <2^32":
-        return rng.integers(0, 2 ** 32, n).astype(np.uint64)
+        return rng.randint(0, 2 ** 32, n).astype(np.uint64)
     if kind == "u64 5-8 bytes":
         a = rng.poisson(30, n).astype(np.uint64)
-        a[:, ::5, ::7] = rng.integers(2 ** 33, 2 ** 62, a[:, ::5, ::7].shape)
+        a[:, ::5, ::7] = rng.randint(2 ** 33, 2 ** 62, a[:, ::5, ::7].shape)
         return a
     if kind == "i64 big":
-        return rng.integers(0, 10 ** 12, n).astype(np.int64)
+        return rng.randint(0, 10 ** 12, n).astype(np.int64)
     if kind == "f64":
         return rng.poisson(5, n).astype(np.float64)
     raise ValueError(kind)
@@ -72,9 +75,9 @@ KINDS = ("u16 <256", "u16 mixed", "u32 <256", "u32 <65536", "u32 mixed",
 def chunks_of(frames, path):
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
+                              **bitshuffle(nelems=0, cname="lz4"))
         codec = b.detect_codec(ds)
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], codec
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))], codec
 
 
 def untransposes(dt):
@@ -91,10 +94,10 @@ def untransposes(dt):
 
 
 @pytest.mark.parametrize("kind", KINDS)
-def test_frames_identical_for_every_untranspose(tmp_path, kind):
-    rng = np.random.default_rng(12)
+def test_frames_identical_for_every_untranspose(tmpdir, kind):
+    rng = np.random.RandomState(12)
     frames = frames_for(kind, rng)
-    chunks, codec = chunks_of(frames, tmp_path / "f.h5")
+    chunks, codec = chunks_of(frames, os.path.join(str(tmpdir), "f.h5"))
     mask = np.ones(SHAPE, np.uint8)
     dt = frames.dtype
     cut = 0 if dt.kind in "uf" else np.iinfo(dt).min   # every pixel above the cut
@@ -119,12 +122,12 @@ def test_frames_identical_for_every_untranspose(tmp_path, kind):
 
 @pytest.mark.parametrize("kind", ("u16 <256", "u16 mixed", "u32 <256", "u32 <65536"))
 @pytest.mark.parametrize("route", ("dense", "sparse"))
-def test_powder_identical_for_every_untranspose(tmp_path, kind, route):
-    rng = np.random.default_rng(13)
+def test_powder_identical_for_every_untranspose(tmpdir, kind, route):
+    rng = np.random.RandomState(13)
     frames = frames_for(kind, rng)
-    chunks, codec = chunks_of(frames, tmp_path / "p.h5")
+    chunks, codec = chunks_of(frames, os.path.join(str(tmpdir), "p.h5"))
     npix = SHAPE[0] * SHAPE[1]
-    mask = (rng.random(npix) > 0.1).astype(np.uint8).reshape(SHAPE)
+    mask = (rng.random_sample(npix) > 0.1).astype(np.uint8).reshape(SHAPE)
     M = sp.random(300, npix, density=0.01, format="csc", random_state=4, dtype=np.float32)
     out = {}
     names = untransposes(frames.dtype)
@@ -132,7 +135,7 @@ def test_powder_identical_for_every_untranspose(tmp_path, kind, route):
         integ = b.chunk2sparseCSC(mask, M, dtype=frames.dtype, codec=codec,
                                   pipeline={"untranspose": skip, "route": route})
         out[skip] = integ.multi(chunks, 0)[2].copy()
-    ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
+    ref = np.array([M.dot(f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
     for skip in names:
         assert (out[skip] == out["kcb"]).all(), skip
         assert np.allclose(out[skip], ref, rtol=1e-9, atol=1e-9), skip

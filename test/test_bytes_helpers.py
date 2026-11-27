@@ -1,6 +1,8 @@
 """The helpers that read a few bytes of a chunk or of build_info give real bytes on every Python:
 on Python 2.7 bytes(memoryview) and bytes(ndarray) are not the data (this file runs there too)."""
 
+from __future__ import absolute_import, division, print_function
+
 import os
 import sys
 

@@ -1,4 +1,4 @@
-
+from __future__ import absolute_import, division, print_function
 
 import hdf5plugin, h5py, numpy as np, os, sys, json
 
@@ -89,14 +89,14 @@ def _matrix_frame(dtype, density, rng):
     """A (1, rows, cols) frame with ~density of elements > CUT (0)."""
     elem = np.zeros((MATRIX_ROWS, MATRIX_COLS), dtype)
     flat = elem.reshape(-1)
-    hot = rng.random(flat.shape) < density
+    hot = rng.random_sample(flat.shape) < density
     n = int(hot.sum())
     if n:
         if np.issubdtype(dtype, np.integer):
             info = np.iinfo(dtype)
-            vals = (rng.random(n) * int(info.max) + 1).astype(dtype)
+            vals = (rng.random_sample(n) * int(info.max) + 1).astype(dtype)
         else:
-            vals = (rng.random(n).astype(dtype) * 1000 + 1).astype(dtype)
+            vals = (rng.random_sample(n).astype(dtype) * 1000 + 1).astype(dtype)
         flat[hot] = vals
     if np.issubdtype(dtype, np.floating):
         nonzero = [[int(i), float(v)] for i, v in enumerate(flat) if v > MATRIX_CUT]
@@ -106,7 +106,7 @@ def _matrix_frame(dtype, density, rng):
 
 
 def make_decode_matrix(h5name, indexname):
-    rng = np.random.default_rng(20240617)
+    rng = np.random.RandomState(20240617)
     index = {"rows": MATRIX_ROWS, "cols": MATRIX_COLS, "cut": MATRIX_CUT,
              "chunks": []}
     if os.path.exists(h5name):

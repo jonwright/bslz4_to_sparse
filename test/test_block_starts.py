@@ -1,6 +1,8 @@
 """block_starts / block_starts_from_buffer: the block index found on the CPU without decoding, lz4 and
 zstd, default and large blocks, partial tail blocks and raw tails, against a walk in Python."""
 
+from __future__ import absolute_import, division, print_function
+
 import os
 import struct
 import sys
@@ -13,6 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import numpy as np
 import pytest
 
+from conftest import needs_zstd_writer
+
 h5py = pytest.importorskip("h5py")
 hdf5plugin = pytest.importorskip("hdf5plugin")
 
@@ -22,7 +26,7 @@ from test_decompress import frames_of, write
 
 def chunks_of(path, n):
     with h5py.File(path, "r") as h:
-        return [h["d"].id.read_direct_chunk((i, 0, 0))[1] for i in range(n)]
+        return [b.read_direct_chunk(h["d"], (i, 0, 0))[1] for i in range(n)]
 
 
 def walk(chunk, itemsize):
@@ -39,13 +43,13 @@ def walk(chunk, itemsize):
     return out
 
 
-@pytest.mark.parametrize("cname", ["lz4", "zstd"])
+@pytest.mark.parametrize("cname", ["lz4", pytest.param("zstd", marks=needs_zstd_writer)])
 @pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.uint32, np.float32, np.uint64])
 @pytest.mark.parametrize("shape", [(96, 130), (7, 9), (1, 1), (64, 128), (50, 163)])
 @pytest.mark.parametrize("nelems", [0, 2048, 32768])
-def test_starts_match_the_headers(tmp_path, cname, dtype, shape, nelems):
+def test_starts_match_the_headers(tmpdir, cname, dtype, shape, nelems):
     frames = frames_of(dtype, shape, n=3)
-    chunks = chunks_of(write(tmp_path / "f.h5", frames, cname, nelems), 3)
+    chunks = chunks_of(write(os.path.join(str(tmpdir), "f.h5"), frames, cname, nelems), 3)
     want = np.array([walk(c, np.dtype(dtype).itemsize) for c in chunks], np.uint32)
     got = b.block_starts(chunks, dtype)
     assert got.dtype == np.uint32 and got.shape == want.shape and (got == want).all()
@@ -58,9 +62,9 @@ def test_starts_match_the_headers(tmp_path, cname, dtype, shape, nelems):
     assert b.block_starts(chunks, dtype, out=out).base is not None and (out == want.ravel()).all()
 
 
-def test_errors(tmp_path):
+def test_errors(tmpdir):
     frames = frames_of(np.uint16, (96, 130), n=3)
-    chunks = chunks_of(write(tmp_path / "f.h5", frames, "lz4"), 3)
+    chunks = chunks_of(write(os.path.join(str(tmpdir), "f.h5"), frames, "lz4"), 3)
     with pytest.raises(Exception):
         b.block_starts([], np.uint16)
     with pytest.raises(Exception, match="-103"):
@@ -74,6 +78,6 @@ def test_errors(tmp_path):
     # a byte too many is ignored, as by the HDF5 filter (test_trailing_bytes.py)
     one = b.block_starts([chunks[0] + b"\0"], np.uint16)
     assert (one == b.block_starts(chunks[:1], np.uint16)).all()
-    other = chunks_of(write(tmp_path / "g.h5", frames_of(np.uint16, (50, 163), n=1), "lz4"), 1)
+    other = chunks_of(write(os.path.join(str(tmpdir), "g.h5"), frames_of(np.uint16, (50, 163), n=1), "lz4"), 1)
     with pytest.raises(Exception, match="-106"):  # not the same total size
         b.block_starts([chunks[0], other[0]], np.uint16)

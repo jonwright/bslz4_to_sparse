@@ -3,6 +3,9 @@ the automatic dot is csc-permute and the powder is the pixels in bin order, in t
 for every pixel dtype, on sparse and dense frames (both routes), with negative pixels for the
 signed types.  Some bins are reached by no pixel (0).  An explicit dot keeps its accumulator."""
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -25,8 +28,8 @@ DTYPES = [np.uint8, np.int8, np.uint16, np.int16, np.uint32, np.int32, np.float3
 def chunks_of(path, frames):
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+                              **bitshuffle(nelems=0, cname="lz4"))
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
 
 
 def permutation(mask, extra, rng):
@@ -43,10 +46,10 @@ def permutation(mask, extra, rng):
 
 @pytest.mark.parametrize("dt", DTYPES)
 @pytest.mark.parametrize("lam", [0.02, 30.0])   # sparse route / dense route
-def test_permutation_keeps_the_pixel_dtype(tmp_path, dt, lam):
+def test_permutation_keeps_the_pixel_dtype(tmpdir, dt, lam):
     shape = (61, 83)
-    rng = np.random.default_rng(5)
-    mask = (rng.random(shape) > 0.2).astype(np.uint8)
+    rng = np.random.RandomState(5)
+    mask = (rng.random_sample(shape) > 0.2).astype(np.uint8)
     a = rng.poisson(lam, (4,) + shape)
     if np.dtype(dt).kind == "i":
         a = a - rng.poisson(lam, a.shape)
@@ -54,7 +57,7 @@ def test_permutation_keeps_the_pixel_dtype(tmp_path, dt, lam):
         a = np.clip(a, -100, 100)
     frames = a.astype(dt)
     M, pix, bins = permutation(mask, 7, rng)
-    chunks = chunks_of(tmp_path / "f.h5", frames)
+    chunks = chunks_of(os.path.join(str(tmpdir), "f.h5"), frames)
     want = np.zeros((len(frames), M.shape[0]), dt)
     want[:, bins] = frames.reshape(len(frames), -1)[:, pix]
     c = b.chunk2sparseCSC(mask, M, dtype=dt)

@@ -12,6 +12,9 @@ The oracle is written here from the rules (a plain loop), and checked against
 ImageD11's own numba top_pixels when ImageD11 is installed.
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -39,6 +42,8 @@ def oracle(values, indices, nnz, howmany, thresholds):
     values, indices = values[:nnz], indices[:nnz]
     if howmany is None or nnz <= howmany:
         return values.copy(), indices.copy()
+    if not thresholds:  # no thresholds: the first howmany, in pixel order
+        return values[:howmany].copy(), indices[:howmany].copy()
     tcut = thresholds[-1]
     for t in thresholds:
         if sum(1 for v in values if v > t) < howmany:
@@ -50,13 +55,13 @@ def oracle(values, indices, nnz, howmany, thresholds):
 
 def frames_of(kind, dtype, n=3, seed=0):
     """sparse: ~1 % of pixels hit, small counts; dense: Poisson(6) nearly everywhere."""
-    rng = np.random.default_rng(seed)
+    rng = np.random.RandomState(seed)
     top = 100 if np.dtype(dtype).itemsize == 1 else 5000
     out = np.zeros((n,) + SHAPE, dtype)
     for i in range(n):
         if kind == "sparse":
-            hit = rng.random(SHAPE) < 0.01
-            out[i][hit] = rng.integers(1, top, hit.sum())
+            hit = rng.random_sample(SHAPE) < 0.01
+            out[i][hit] = rng.randint(1, top, hit.sum())
         else:
             out[i] = np.minimum(rng.poisson(6, SHAPE), top)
     return out
@@ -68,9 +73,9 @@ def chunks_of(frames):
             "d",
             data=frames,
             chunks=(1,) + frames.shape[1:],
-            **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+            **bitshuffle(nelems=0, cname="lz4")
         )
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(
             ds
         )
 
@@ -231,13 +236,13 @@ def test_dense_image_low_threshold_is_capped_and_reported():
 
 def test_matches_imaged11():
     lima = pytest.importorskip("ImageD11.sinograms.lima_segmenter")
-    rng = np.random.default_rng(5)
+    rng = np.random.RandomState(5)
     for trial in range(200):
-        nnz = int(rng.integers(0, 400))
-        val = rng.integers(1, 40, nnz).astype(np.uint16)
+        nnz = int(rng.randint(0, 400))
+        val = rng.randint(1, 40, nnz).astype(np.uint16)
         idx = np.sort(rng.choice(5000, nnz, replace=False)).astype(np.uint32)
-        howmany = int(rng.integers(0, 300))
-        thr = sorted(rng.integers(0, 30, int(rng.integers(1, 8))).tolist())
+        howmany = int(rng.randint(0, 300))
+        thr = sorted(rng.randint(0, 30, int(rng.randint(1, 8))).tolist())
         row, col, v = idx.copy(), idx.copy(), val.copy()
         n = lima.top_pixels(nnz, row, col, v, howmany, np.array(thr, np.float64))
         wv, wi = val.copy(), idx.copy()
@@ -254,13 +259,13 @@ def test_streaming_random_matches_oracle(with_matrix):
     mask = np.ones(shape, np.uint8)
     mask[::7, 11:19] = 0
     M = histogram_matrix(40, npix) if with_matrix else None
-    rng = np.random.default_rng(11 + with_matrix)
+    rng = np.random.RandomState(11 + with_matrix)
     for trial in range(36):
         dtype = [np.uint8, np.uint16, np.uint32, np.int16, np.float32][trial % 5]
         top = 120 if np.dtype(dtype).itemsize == 1 else 3000
         frames = np.stack(
             [
-                np.minimum(rng.poisson(lam, shape), top) + (rng.random(shape) > 0.995) * 40
+                np.minimum(rng.poisson(lam, shape), top) + (rng.random_sample(shape) > 0.995) * 40
                 for lam in rng.choice([0.01, 0.3, 3.0, 20.0], 3)
             ]
         ).astype(dtype)
@@ -271,7 +276,7 @@ def test_streaming_random_matches_oracle(with_matrix):
         thr = (
             None
             if kind == 0
-            else sorted(int(x) for x in rng.integers(0, 60, int(rng.integers(0, 17))))
+            else sorted(int(x) for x in rng.randint(0, 60, int(rng.randint(0, 17))))
         )
         if kind == 2 and dtype == np.float32:
             thr = [t + 0.5 for t in thr]  # a float pixel with a non-integer threshold: numpy path

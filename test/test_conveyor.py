@@ -1,6 +1,9 @@
 """The conveyor: every frame of every unit reaches a sink exactly once and equals a direct decode,
 with threads and with forked processes; a failing sink raises instead of hanging."""
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 import threading
@@ -22,20 +25,20 @@ DSET = "/entry/data"
 SHAPE = (64, 80)
 
 
-def make_files(tmp_path, nfiles=3, nframes=37):
-    rng = np.random.default_rng(3)
+def make_files(tmpdir, nfiles=3, nframes=37):
+    rng = np.random.RandomState(3)
     paths = []
     for k in range(nfiles):
         frames = np.where(
-            rng.random((nframes,) + SHAPE) < 0.05, rng.integers(1, 60, (nframes,) + SHAPE), 0
+            rng.random_sample((nframes,) + SHAPE) < 0.05, rng.randint(1, 60, (nframes,) + SHAPE), 0
         )
-        p = str(tmp_path / ("f%d.h5" % k))
+        p = os.path.join(str(tmpdir), "f%d.h5" % k)
         with h5py.File(p, "w") as h:
             h.create_dataset(
                 DSET,
                 data=frames.astype(np.uint16),
                 chunks=(1,) + SHAPE,
-                **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+                **bitshuffle(nelems=0, cname="lz4")
             )
         paths.append(p)
         cv.write_index(cv.harvest(p, DSET), p)  # the sidecar: reading never needs HDF5 after this
@@ -49,7 +52,7 @@ def direct(paths, mask):
         with h5py.File(p, "r") as h:
             ds = h[DSET]
             for i in range(ds.shape[0]):
-                n, (v, ix) = c(ds.id.read_direct_chunk((i, 0, 0))[1], 0)
+                n, (v, ix) = c(b.read_direct_chunk(ds, (i, 0, 0))[1], 0)
                 ref[(fi, i)] = (
                     int(n),
                     int(v[:n].sum(dtype=np.int64)),
@@ -75,8 +78,8 @@ class Collect(cv.Sink):
 
 
 @pytest.mark.parametrize("unit_bytes", [1 << 30, 3000])
-def test_every_frame_once_and_equal_to_a_direct_decode(tmp_path, unit_bytes):
-    paths = make_files(tmp_path)
+def test_every_frame_once_and_equal_to_a_direct_decode(tmpdir, unit_bytes):
+    paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=unit_bytes)
     assert shape == SHAPE and dtype == np.uint16
     assert sum(u.n for u in units) == 3 * 37
@@ -96,8 +99,8 @@ def test_every_frame_once_and_equal_to_a_direct_decode(tmp_path, unit_bytes):
     assert Collect.out == direct(paths, mask)
 
 
-def test_processes_count_the_same_frames(tmp_path):
-    paths = make_files(tmp_path)
+def test_processes_count_the_same_frames(tmpdir):
+    paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=4000)
 
     class Count(cv.Sink):
@@ -120,10 +123,10 @@ def test_processes_count_the_same_frames(tmp_path):
     assert r["frames"] == 3 * 37 and r["mode"] == "processes"
 
 
-def test_with_a_matrix_and_howmany(tmp_path):
+def test_with_a_matrix_and_howmany(tmpdir):
     import scipy.sparse as sp
 
-    paths = make_files(tmp_path, nfiles=1, nframes=20)
+    paths = make_files(tmpdir, nfiles=1, nframes=20)
     units, shape, dtype = cv.make_work_units(paths, DSET)
     npix = SHAPE[0] * SHAPE[1]
     csc = sp.csc_matrix(
@@ -145,8 +148,8 @@ def test_with_a_matrix_and_howmany(tmp_path):
 
 
 @pytest.mark.parametrize("mode", ["threads", "processes"])
-def test_a_failing_sink_raises_and_does_not_hang(tmp_path, mode):
-    paths = make_files(tmp_path)
+def test_a_failing_sink_raises_and_does_not_hang(tmpdir, mode):
+    paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=4000)
 
     class Bad(cv.Sink):
@@ -163,17 +166,17 @@ def test_a_failing_sink_raises_and_does_not_hang(tmp_path, mode):
         )
 
 
-def test_bad_arguments(tmp_path):
+def test_bad_arguments(tmpdir):
     with pytest.raises(ValueError):
         cv.run([], cv.CpuBackend(np.ones(SHAPE, np.uint8), np.uint16), workers=1)
-    paths = make_files(tmp_path, nfiles=1)
+    paths = make_files(tmpdir, nfiles=1)
     units, shape, dtype = cv.make_work_units(paths, DSET)
     with pytest.raises(ValueError, match="mode"):
         cv.run(units, cv.CpuBackend(np.ones(SHAPE, np.uint8), dtype), workers=1, mode="gpus")
 
 
-def test_sidecar_equals_what_hdf5_reports(tmp_path):
-    paths = make_files(tmp_path, nfiles=2, nframes=25)
+def test_sidecar_equals_what_hdf5_reports(tmpdir):
+    paths = make_files(tmpdir, nfiles=2, nframes=25)
     for p in paths:
         ix = cv.read_index(p)
         with h5py.File(p, "r") as h:
@@ -187,17 +190,17 @@ def test_sidecar_equals_what_hdf5_reports(tmp_path):
         )  # 12 bytes a frame and a small header
 
 
-def test_sidecar_in_another_directory(tmp_path):
-    paths = make_files(tmp_path, nfiles=1, nframes=5)
+def test_sidecar_in_another_directory(tmpdir):
+    paths = make_files(tmpdir, nfiles=1, nframes=5)
     ix = cv.harvest(paths[0], DSET)
-    where = str(tmp_path / "idx")
+    where = os.path.join(str(tmpdir), "idx")
     out = cv.write_index(ix, paths[0], where)
     assert out == cv.sidecar_path(paths[0], where) and os.path.dirname(out) == where
     assert np.array_equal(cv.read_index(paths[0], where).offsets, ix.offsets)
 
 
-def test_a_changed_file_makes_the_sidecar_stale(tmp_path):
-    paths = make_files(tmp_path, nfiles=1, nframes=5)
+def test_a_changed_file_makes_the_sidecar_stale(tmpdir):
+    paths = make_files(tmpdir, nfiles=1, nframes=5)
     with open(paths[0], "ab") as f:
         f.write(b"x")
     with pytest.raises(cv.StaleIndex):
@@ -207,8 +210,8 @@ def test_a_changed_file_makes_the_sidecar_stale(tmp_path):
         cv.make_work_units(paths, DSET)
 
 
-def test_corrupt_and_missing_sidecars(tmp_path):
-    paths = make_files(tmp_path, nfiles=1, nframes=5)
+def test_corrupt_and_missing_sidecars(tmpdir):
+    paths = make_files(tmpdir, nfiles=1, nframes=5)
     sc = cv.sidecar_path(paths[0])
     raw = open(sc, "rb").read()
     open(sc, "wb").write(raw[:-5])
@@ -218,14 +221,14 @@ def test_corrupt_and_missing_sidecars(tmp_path):
     with pytest.raises(ValueError, match="not a bslz4"):
         cv.read_index(paths[0])
     os.remove(sc)
-    with pytest.raises(FileNotFoundError, match="index_chunks"):
+    with pytest.raises(OSError, match="index_chunks"):
         cv.make_work_units(paths, DSET)
     units, shape, dtype = cv.make_work_units(paths, DSET, harvest=True)  # the explicit HDF5 path
     assert sum(u.n for u in units) == 5
 
 
-def test_reading_and_decoding_need_no_hdf5(tmp_path, monkeypatch):
-    paths = make_files(tmp_path)
+def test_reading_and_decoding_need_no_hdf5(tmpdir, monkeypatch):
+    paths = make_files(tmpdir)
     mask = np.ones(SHAPE, np.uint8)
     ref = direct(paths, mask)  # h5py only to make the reference
     monkeypatch.setitem(sys.modules, "h5py", None)  # from here "import h5py" raises ImportError
@@ -237,18 +240,18 @@ def test_reading_and_decoding_need_no_hdf5(tmp_path, monkeypatch):
     assert Collect.out == ref
 
 
-def test_an_acquisition_that_stopped_early(tmp_path):
-    rng = np.random.default_rng(0)
-    p = str(tmp_path / "partial.h5")
+def test_an_acquisition_that_stopped_early(tmpdir):
+    rng = np.random.RandomState(0)
+    p = os.path.join(str(tmpdir), "partial.h5")
     with h5py.File(p, "w") as h:
         ds = h.create_dataset(
             DSET,
             shape=(10,) + SHAPE,
             dtype=np.uint16,
             chunks=(1,) + SHAPE,
-            **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+            **bitshuffle(nelems=0, cname="lz4")
         )
-        ds[:4] = rng.integers(0, 50, (4,) + SHAPE).astype(
+        ds[:4] = rng.randint(0, 50, (4,) + SHAPE).astype(
             np.uint16
         )  # frames 4..9 are never written
     ix = cv.harvest(p, DSET)
@@ -256,14 +259,14 @@ def test_an_acquisition_that_stopped_early(tmp_path):
     cv.write_index(ix, p)
     units, shape, dtype = cv.make_work_units([p], DSET)
     assert sum(u.n for u in units) == 4
-    q = str(tmp_path / "holes.h5")
+    q = os.path.join(str(tmpdir), "holes.h5")
     with h5py.File(q, "w") as h:
         ds = h.create_dataset(
             DSET,
             shape=(10,) + SHAPE,
             dtype=np.uint16,
             chunks=(1,) + SHAPE,
-            **hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+            **bitshuffle(nelems=0, cname="lz4")
         )
         ds[0] = 1
         ds[5] = 1  # a hole in the middle
@@ -271,11 +274,11 @@ def test_an_acquisition_that_stopped_early(tmp_path):
         cv.harvest(q, DSET)
 
 
-def test_a_faster_worker_takes_more_units(tmp_path):
+def test_a_faster_worker_takes_more_units(tmpdir):
     """Pulling from the shared queue is the load balance: with one slow worker the others decode more."""
     import time
 
-    paths = make_files(tmp_path, nfiles=4, nframes=60)
+    paths = make_files(tmpdir, nfiles=4, nframes=60)
     units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=5000)
     assert len(units) > 40
     done = {}
@@ -295,21 +298,21 @@ def test_a_faster_worker_takes_more_units(tmp_path):
     assert done[0] < min(done[1], done[2]) / 2, done
 
 
-def test_report(tmp_path):
-    paths = make_files(tmp_path)
+def test_report(tmpdir):
+    paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=4000)
     r = cv.run(units, cv.CpuBackend(np.ones(SHAPE, np.uint8), dtype), workers=2, batch=8)
     assert r["in_bytes"] == sum(int(u.lengths.sum()) for u in units) and r["out_bytes"] > 0
     assert "input" in cv.report(r) and "output" in cv.report(r)
 
 
-def test_a_writer_refuses_a_powder_over_a_tenth_of_the_frame_before_the_run(tmp_path):
+def test_a_writer_refuses_a_powder_over_a_tenth_of_the_frame_before_the_run(tmpdir):
     """8 x nbins bytes against the uncompressed frame: refused in begin(), before any frame, and no
     file is written; a powder within the limit is written."""
     import scipy.sparse as sp
     from bslz4_to_sparse.conveyor._sinks import POWDER_MAX_FRACTION
 
-    paths = make_files(tmp_path)
+    paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET)
     mask = np.ones(SHAPE, np.uint8)
     npix = int(np.prod(SHAPE))
@@ -318,7 +321,7 @@ def test_a_writer_refuses_a_powder_over_a_tenth_of_the_frame_before_the_run(tmp_
     for nbins, ok in ((limit, True), (limit + 1, False)):
         rows = np.arange(npix) % nbins
         m = sp.csc_matrix((np.ones(npix, np.float32), (rows, np.arange(npix))), (nbins, npix))
-        out = str(tmp_path / ("o%d" % nbins))
+        out = os.path.join(str(tmpdir), "o%d" % nbins)
         go = lambda: cv.run(  # noqa: E731
             units,
             cv.CpuBackend(mask, dtype, csc=m, howmany=10),
@@ -334,8 +337,8 @@ def test_a_writer_refuses_a_powder_over_a_tenth_of_the_frame_before_the_run(tmp_
     cv.check_powder_size(dict(shape=SHAPE, dtype=str(dtype)))  # no matrix: nothing to check
 
 
-def test_iterate_gives_every_frame_and_stops_cleanly(tmp_path):
-    paths = make_files(tmp_path)
+def test_iterate_gives_every_frame_and_stops_cleanly(tmpdir):
+    paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=3000)
     mask = np.ones(SHAPE, np.uint8)
     want = direct(paths, mask)
@@ -369,7 +372,7 @@ def fazit_matrix(mask, extra=5, seed=11):
     """A permutation (FAZIT): every unmasked pixel to its own bin, weight 1; some bins empty."""
     import scipy.sparse as sp
 
-    rng = np.random.default_rng(seed)
+    rng = np.random.RandomState(seed)
     pix = np.flatnonzero(mask.ravel())
     bins = rng.permutation(pix.size + extra)[: pix.size]
     return sp.csc_matrix(
@@ -378,13 +381,13 @@ def fazit_matrix(mask, extra=5, seed=11):
 
 
 
-def check_fazit_keeps_the_pixel_dtype(tmp_path, backend, **kw):
+def check_fazit_keeps_the_pixel_dtype(tmpdir, backend, **kw):
     """With the default exact=None, a permutation matrix gives the pixels in bin order in the
     pixel dtype, with no powder_scale, whatever exact is; a float dot asked for gives float64 sums of
     the same values."""
-    paths = make_files(tmp_path, nfiles=2, nframes=11)
+    paths = make_files(tmpdir, nfiles=2, nframes=11)
     units, shape, dtype = cv.make_work_units(paths, DSET)
-    mask = (np.random.default_rng(4).random(SHAPE) > 0.1).astype(np.uint8)
+    mask = (np.random.RandomState(4).random_sample(SHAPE) > 0.1).astype(np.uint8)
     m, pix, bins = fazit_matrix(mask)
     frames = {}
     for fi, p in enumerate(paths):
@@ -413,5 +416,5 @@ def check_fazit_keeps_the_pixel_dtype(tmp_path, backend, **kw):
 
 
 @pytest.mark.parametrize("kw", [{}, {"exact": False}, {"exact": True}, {"pipeline": {"dot": "csc-nosplit"}}])
-def test_fazit_keeps_the_pixel_dtype(tmp_path, kw):
-    check_fazit_keeps_the_pixel_dtype(tmp_path, cv.CpuBackend, **kw)
+def test_fazit_keeps_the_pixel_dtype(tmpdir, kw):
+    check_fazit_keeps_the_pixel_dtype(tmpdir, cv.CpuBackend, **kw)

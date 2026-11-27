@@ -7,6 +7,9 @@ uncompressed frames, both dot routes and several dots; the correction the docs d
 the option is refused where it does not apply.
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -36,8 +39,8 @@ def frames_with_markers(dt, rng, n=3):
     """Poisson counts with -1/-2 markers at positions that change per frame."""
     f = np.minimum(rng.poisson(0.3, (n,) + SHAPE), 100).astype(np.int64)
     for i in range(n):
-        d = rng.random(SHAPE) < 0.01
-        f[i][d] = np.where(rng.random(int(d.sum())) < 0.5, -1, -2)
+        d = rng.random_sample(SHAPE) < 0.01
+        f[i][d] = np.where(rng.random_sample(int(d.sum())) < 0.5, -1, -2)
     f[:, 5, 10:80] = 50                  # a run above any small cut
     return f.astype(dt)
 
@@ -45,12 +48,12 @@ def frames_with_markers(dt, rng, n=3):
 def chunks_of(frames, path):
     with h5py.File(str(path), "w") as h:
         ds = h.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+                              **bitshuffle(nelems=0, cname="lz4"))
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
 
 
 def mask_of(rng):
-    m = (rng.random(SHAPE) > 0.05).astype(np.uint8)
+    m = (rng.random_sample(SHAPE) > 0.05).astype(np.uint8)
     m[:, 100:103] = 0
     return m
 
@@ -66,10 +69,10 @@ def check_list(frames, mask, cut, npx, vals, adr, tag):
 
 
 @pytest.mark.parametrize("dt", DTYPES)
-def test_list_holds_negatives(tmp_path, dt):
-    rng = np.random.default_rng(31)
+def test_list_holds_negatives(tmpdir, dt):
+    rng = np.random.RandomState(31)
     frames = frames_with_markers(dt, rng)
-    chunks = chunks_of(frames, tmp_path / "n.h5")
+    chunks = chunks_of(frames, os.path.join(str(tmpdir), "n.h5"))
     mask = mask_of(rng)
     big = int(np.iinfo(dt).max) + 10
     unt = ["kcb"] + (LOWPLANES if dt == np.int16 else [])
@@ -93,20 +96,20 @@ def test_list_holds_negatives(tmp_path, dt):
 
 @pytest.mark.parametrize("dt", [np.int16, np.int32])
 @pytest.mark.parametrize("route", ["dense", "sparse"])
-def test_powder_and_correction(tmp_path, dt, route):
-    rng = np.random.default_rng(32)
+def test_powder_and_correction(tmpdir, dt, route):
+    rng = np.random.RandomState(32)
     frames = frames_with_markers(dt, rng)
-    chunks = chunks_of(frames, tmp_path / "p.h5")
+    chunks = chunks_of(frames, os.path.join(str(tmpdir), "p.h5"))
     mask = mask_of(rng)
     npix = mask.size
     M = sp.random(150, npix, density=0.02, format="csc", random_state=4, dtype=np.float32)
-    b0 = rng.integers(0, 149, npix)                         # each pixel in two consecutive bins
+    b0 = rng.randint(0, 149, npix)                         # each pixel in two consecutive bins
     runs = sp.csc_matrix((np.tile([0.6, 0.4], npix).astype(np.float32),
                           np.stack([b0, b0 + 1], 1).ravel(), np.arange(0, 2 * npix + 1, 2)),
                          shape=(150, npix))
-    nosplit = sp.csc_matrix((np.ones(npix, np.float32), rng.integers(0, 40, npix),
+    nosplit = sp.csc_matrix((np.ones(npix, np.float32), rng.randint(0, 40, npix),
                              np.arange(npix + 1)), shape=(40, npix))
-    norm = (0.5 + rng.random(npix)).astype(np.float32)      # solid angle, polarisation, ...
+    norm = (0.5 + rng.random_sample(npix)).astype(np.float32)      # solid angle, polarisation, ...
     cases = [(M, "csc")] + [(runs, d) for d in ("csc-run", "padded", "bsb-csr")] + \
             [(nosplit, d) for d in ("csc-nosplit", "bsb-csr-nosplit", "csc-nosplit-int")]
     for mat, dot in cases:
@@ -119,17 +122,17 @@ def test_powder_and_correction(tmp_path, dt, route):
             for f in range(len(frames)):
                 flat = frames[f].ravel().astype(np.float64)
                 m = mask.ravel() > 0
-                assert np.allclose(p[f], Md @ (flat * m), rtol=1e-9, atol=1e-9), (dot, route, f)
+                assert np.allclose(p[f], Md.dot(flat * m), rtol=1e-9, atol=1e-9), (dot, route, f)
                 # the caller's correction from the list: the marked pixels out of the powder and
                 # out of the normalisation
                 n = int(npx[f])
                 vals, idx = v[f, :n], a[f, :n].astype(np.int64)
                 marked = vals < 0
-                fixed = p[f] - Md[:, idx[marked]] @ vals[marked].astype(np.float64)
+                fixed = p[f] - Md[:, idx[marked]].dot(vals[marked].astype(np.float64))
                 keep = m & (flat >= 0)
-                assert np.allclose(fixed, Md @ (flat * keep), rtol=1e-9, atol=1e-9), (dot, route, f)
-                nfix = Md @ (norm * m) - Md[:, idx[marked]] @ norm[idx[marked]]
-                assert np.allclose(nfix, Md @ (norm * keep), rtol=1e-6, atol=1e-6), (dot, route, f)
+                assert np.allclose(fixed, Md.dot(flat * keep), rtol=1e-9, atol=1e-9), (dot, route, f)
+                nfix = Md.dot(norm * m) - Md[:, idx[marked]].dot(norm[idx[marked]])
+                assert np.allclose(nfix, Md.dot(norm * keep), rtol=1e-6, atol=1e-6), (dot, route, f)
 
 
 def test_refused():
