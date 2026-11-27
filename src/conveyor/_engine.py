@@ -10,9 +10,11 @@
 Pulling is the load balance: a worker that decodes faster frees its buffers sooner and so takes more
 units, and reading is demand driven, each worker reading only as fast as it consumes.  Readers touch
 the shared queue once per unit (a unit is seconds of work), and each worker and its reader meet once
-per unit through two blocking queues; nobody polls or spins.  The buffers are one anonymous mmap,
-cut per worker and first touched by that worker after it is pinned (near its CPU); not a file, not
-SharedMemory.  Workers are threads or forked processes around the same code.
+per unit through two blocking queues; nobody polls or spins.  The buffers are one allocation (a
+numpy array for threads, an anonymous shared mmap for forked processes), cut per worker and first
+touched by that worker after it is pinned (near its CPU); not a file, not SharedMemory.  Workers are
+threads or forked processes around the same code.  Threads run wherever Python and numpy do
+(Linux, macOS, Windows); forked processes need fork.
 
 Memory: workers x slots x the largest unit.
 """
@@ -20,10 +22,9 @@ Memory: workers x slots x the largest unit.
 from __future__ import absolute_import, division, print_function
 
 import io
-import mmap
 import os
-import resource
 import threading
+import time
 
 try:
     import queue
@@ -43,6 +44,10 @@ class _ThreadContext(object):
     Event = staticmethod(threading.Event)
 
     @staticmethod
+    def buffer(nbytes):
+        return np.empty(nbytes, np.uint8)  # pages are placed when first touched, as with mmap
+
+    @staticmethod
     def Worker(target, args):
         w = threading.Thread(target=target, args=args)
         w.daemon = True
@@ -51,6 +56,8 @@ class _ThreadContext(object):
 
 class _ForkContext(object):
     def __init__(self):
+        if not hasattr(os, "fork"):
+            raise ValueError('mode="processes" forks, and this OS has no fork: use mode="threads"')
         import multiprocessing as mp  # only for mode="processes": threads never import it
 
         # Python 2 multiprocessing always forks on Linux; Python 3.14 defaults to forkserver
@@ -61,6 +68,13 @@ class _ForkContext(object):
         w = self.ctx.Process(target=target, args=args)
         w.daemon = True
         return w
+
+    @staticmethod
+    def buffer(nbytes):
+        import mmap
+
+        mm = mmap.mmap(-1, nbytes, flags=mmap.MAP_SHARED | mmap.MAP_ANONYMOUS)  # seen after fork
+        return np.frombuffer(mm, np.uint8)
 
 
 def _cpulist(text):
@@ -77,7 +91,7 @@ def _cpulist(text):
 def _allowed_cpus():
     """The CPUs this process may use (under Slurm, those of the job): sched_getaffinity where the
     Python has it; else (Python 2) Cpus_allowed_list of /proc/self/status on Linux; else (no
-    /proc: macOS, not under Slurm) every online CPU."""
+    /proc: macOS, Windows, not under Slurm) every CPU."""
     if hasattr(os, "sched_getaffinity"):
         return os.sched_getaffinity(0)
     try:
@@ -87,6 +101,8 @@ def _allowed_cpus():
                     return _cpulist(line.split(":", 1)[1])
     except EnvironmentError:
         pass
+    if hasattr(os, "cpu_count"):
+        return range(os.cpu_count() or 1)
     return range(os.sysconf("SC_NPROCESSORS_ONLN"))
 
 
@@ -106,11 +122,41 @@ def numa_nodes(allowed=None):
     return out or [sorted(allowed)]
 
 
+def _rusage_thread():
+    """The resource module where getrusage counts per thread (RUSAGE_THREAD, 1: Linux; Python 2's
+    resource lacks the name, not the call), else None (Windows has no resource, macOS no
+    RUSAGE_THREAD)."""
+    try:
+        import resource
+
+        resource.getrusage(1)
+        return resource
+    except (ImportError, ValueError, EnvironmentError):
+        return None
+
+
+_RESOURCE = _rusage_thread()
+
+
 def _thread_usage():
-    """(cpu seconds, minor page faults) of the calling thread so far (RUSAGE_THREAD is 1 on
-    Linux; Python 2's resource module lacks the name, not the call)"""
-    ru = resource.getrusage(1)
-    return ru.ru_utime + ru.ru_stime, ru.ru_minflt
+    """(cpu seconds, minor page faults) of the calling thread so far; None for what is not counted
+    per thread here: page faults off Linux, and also the cpu time on Python 2 off Linux (Python 3
+    has time.thread_time everywhere)."""
+    if _RESOURCE is not None:
+        ru = _RESOURCE.getrusage(1)
+        return ru.ru_utime + ru.ru_stime, ru.ru_minflt
+    return (time.thread_time() if hasattr(time, "thread_time") else None), None
+
+
+def _less(a, b):
+    """a - b, or None when either was not counted."""
+    return None if a is None or b is None else a - b
+
+
+def _total(xs):
+    """sum(xs), or None when any was not counted."""
+    xs = list(xs)
+    return None if None in xs else sum(xs)
 
 
 def _pin(cpus):
@@ -158,7 +204,7 @@ def _reader(k, todo, ready_q, free_q, buf, slot_bytes, cpus, io_bytes, go, stop,
             st["read_s"] += _clock() - t
             st["bytes"] += u.span
             ready_q.put((slot, u))
-        st["minflt"] = _thread_usage()[1] - flt0
+        st["minflt"] = _less(_thread_usage()[1], flt0)
         ready_q.put(_DONE)
     except BaseException as e:  # noqa: BLE001 (report it, and unblock the worker)
         st["error"] = repr(e)
@@ -247,9 +293,9 @@ def _worker(
         for _ in range(S + 1):
             free_q.put(0)
         c1, flt1 = _thread_usage()
-        st["minflt"] = flt1 - flt0
+        st["minflt"] = _less(flt1, flt0)
         st["sink"] = sink.end()
-        st["wall_s"], st["cpu_s"] = _clock() - t0, c1 - c0
+        st["wall_s"], st["cpu_s"] = _clock() - t0, _less(c1, c0)
         st["active_s"] = (t_last - t_first) if t_first is not None and t_last is not None else 0.0
     except BaseException as e:  # noqa: BLE001 (report it, and unblock the reader)
         st["error"] = repr(e)
@@ -310,8 +356,7 @@ def run(
         backend.prepare()  # what the workers share, built once before they start (and fork)
     S = slots_per_worker
     slot_bytes = (max(u.span for u in units) + 4095) // 4096 * 4096
-    mm = mmap.mmap(-1, workers * S * slot_bytes, flags=mmap.MAP_SHARED | mmap.MAP_ANONYMOUS)
-    buf = np.frombuffer(mm, np.uint8)
+    buf = ctx.buffer(workers * S * slot_bytes)
     res_q, todo = ctx.Queue(), ctx.Queue()
     ready_qs = [ctx.Queue() for _ in range(workers)]
     free_qs = [ctx.Queue() for _ in range(workers)]
@@ -415,7 +460,7 @@ def run(
         out_over_in=round(out_bytes / in_bytes, 4),
         slot_mb=round(slot_bytes / 1e6),
         memory_gb=round(workers * S * slot_bytes / 1e9, 2),
-        worker_cpu_cores=round(sum(s["cpu_s"] for s in wk) / wall, 2),
+        worker_cpu_cores=_cores(_total(s["cpu_s"] for s in wk), wall),
         fps_per_worker_mean=round(float(np.mean([s["frames"] / s["wall_s"] for s in wk])), 1),
         busy_frac=dict(
             decode=round(sum(s["decode_s"] for s in wk) / wall / workers, 3),
@@ -425,14 +470,19 @@ def run(
             read_wait_for_buffer=round(sum(s["wait_s"] for s in rd) / wall / workers, 3),
         ),
         # minor page faults taken by the workers and readers after the buffers were touched: with
-        # no allocation per file this stays small and does not grow with the number of files
+        # no allocation per file this stays small and does not grow with the number of files (None
+        # where they are not counted per thread: off Linux)
         page_faults=dict(
-            workers=sum(s["minflt"] for s in wk), readers=sum(s["minflt"] for s in rd)
+            workers=_total(s["minflt"] for s in wk), readers=_total(s["minflt"] for s in rd)
         ),
         files=len(units),
         sink=[s.get("sink") for s in wk][:1],
     )
     return result
+
+
+def _cores(cpu_s, wall):
+    return None if cpu_s is None else round(cpu_s / wall, 2)
 
 
 def _nbins(csc):

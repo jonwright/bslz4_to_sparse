@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 
 _path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
 if _path:
@@ -139,6 +140,10 @@ def test_every_frame_once_and_equal_to_a_direct_decode(tmpdir, unit_bytes):
     assert Collect.out == direct(paths, mask)
 
 
+needs_fork = pytest.mark.skipif(not hasattr(os, "fork"), reason='mode="processes" forks: no fork here')
+
+
+@needs_fork
 def test_processes_count_the_same_frames(tmpdir):
     paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=4000)
@@ -187,7 +192,7 @@ def test_with_a_matrix_and_howmany(tmpdir):
     assert seen and all(s[0][1] == 7 and s[1] <= 30 for s in seen)
 
 
-@pytest.mark.parametrize("mode", ["threads", "processes"])
+@pytest.mark.parametrize("mode", ["threads", pytest.param("processes", marks=needs_fork)])
 def test_a_failing_sink_raises_and_does_not_hang(tmpdir, mode):
     paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=4000)
@@ -204,6 +209,28 @@ def test_a_failing_sink_raises_and_does_not_hang(tmpdir, mode):
             sink=lambda k: Bad(),
             mode=mode,
         )
+
+
+def test_threads_need_nothing_linux_only(tmpdir, monkeypatch):
+    """Off Linux (macOS, Windows) there is no per-thread getrusage: the run is the same, the page
+    faults are None, and the cpu time comes from time.thread_time (Python 3).  On Linux both are
+    counted.  Without fork, mode="processes" says so."""
+    from bslz4_to_sparse.conveyor import _engine
+
+    if sys.platform.startswith("linux"):
+        assert _engine._RESOURCE is not None
+    paths = make_files(tmpdir, nfiles=2)
+    units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=4000)
+    mask = np.ones(SHAPE, np.uint8)
+    monkeypatch.setattr(_engine, "_RESOURCE", None)
+    Collect.out = {}
+    r = cv.run(units, cv.CpuBackend(mask, dtype), workers=2, sink=lambda k: Collect())
+    assert r["frames"] == 2 * 37 and Collect.out == direct(paths, mask)
+    assert r["page_faults"] == dict(workers=None, readers=None)
+    assert (r["worker_cpu_cores"] is None) == (not hasattr(time, "thread_time"))
+    monkeypatch.delattr(os, "fork", raising=False)
+    with pytest.raises(ValueError, match="no fork"):
+        cv.run(units, cv.CpuBackend(mask, dtype), workers=1, mode="processes")
 
 
 def test_bad_arguments(tmpdir):

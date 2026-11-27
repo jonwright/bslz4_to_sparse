@@ -67,7 +67,9 @@ def sidecar_path(path, index_dir=None):
     path = os.path.abspath(path)
     if index_dir is None:
         return path + SUFFIX
-    return os.path.join(index_dir, path.strip("/").replace("/", "__") + SUFFIX)
+    drive, rest = os.path.splitdrive(path)  # drive: "" on POSIX, "C:" or a UNC share on Windows
+    parts = [p for p in (drive.replace(":", "") + "/" + rest).replace(os.sep, "/").split("/") if p]
+    return os.path.join(index_dir, "__".join(parts) + SUFFIX)
 
 
 def harvest(path, dset):
