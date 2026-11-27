@@ -16,7 +16,7 @@ from __future__ import absolute_import, division, print_function
 import os
 import platform
 import threading
-import time
+from timeit import default_timer
 
 os.environ["BSLZ4_CUDA_BACKEND"] = "driver"  # set before bslz4_to_sparse.cuda is imported
 
@@ -79,12 +79,12 @@ def integrate_on(devices):
         ])
 
     threads = [threading.Thread(target=work, args=(k,)) for k in range(len(devices))]
-    t0 = time.perf_counter()
+    t0 = default_timer()
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    return np.concatenate(out), time.perf_counter() - t0
+    return np.concatenate(out), default_timer() - t0
 
 
 powder1, t1 = integrate_on([0])

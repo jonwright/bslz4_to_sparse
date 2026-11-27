@@ -11,7 +11,7 @@ of steps one decoder runs on every block.  The conveyor moves work to the decode
     workers   each owns two buffers it first touches itself and a reader; decodes all the frames of
               a unit straight from a buffer, gives the sink the result
     readers   one per worker: when a buffer is free, take the next unit from the shared queue and
-              read it with large preadv calls, in file order, while the worker decodes the previous
+              read it with large reads, in file order, while the worker decodes the previous
               one (a worker that decodes faster takes more units: the load balances itself)
     sinks     where results go (a file format is the sink's business: see Sink)
 

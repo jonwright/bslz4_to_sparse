@@ -8,7 +8,7 @@ Nothing is written here: what to do with the results is up to you (examples 8, 1
 from __future__ import absolute_import, division, print_function
 
 import os
-import time
+from timeit import default_timer
 
 import h5py
 import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
@@ -49,7 +49,7 @@ integ = bslz4_to_sparse.chunk2sparseCSC(mask, ai.engines[method].engine, dtype=d
 npixels = np.empty(nframes, np.int64)
 powder_sums = np.empty((nframes, npt))
 fd = os.open(h5filename, os.O_RDONLY)
-t0 = time.perf_counter()
+t0 = default_timer()
 for i in range(nframes):
     offset, size = where[i]
     npx, (values, indices), powder_sum = integ(os.pread(fd, size, offset), cut)
@@ -57,7 +57,7 @@ for i in range(nframes):
     powder_sums[i] = powder_sum
     # values[:npx], indices[:npx] are this frame's sparse pixels: use or copy them here, the next
     # call overwrites them
-elapsed = time.perf_counter() - t0
+elapsed = default_timer() - t0
 os.close(fd)
 
 intensity = np.divide(

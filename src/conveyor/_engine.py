@@ -25,15 +25,14 @@ import multiprocessing as mp
 import os
 import resource
 import threading
-import time
 from multiprocessing.dummy import Queue  # queue.Queue (Queue.Queue on Python 2)
+from timeit import default_timer as _clock  # perf_counter (time.time on Python 2)
 
 import numpy as np
 
 from ._sinks import NullSink
 
 _DONE = None
-_clock = getattr(time, "perf_counter", time.time)  # monotonic; Python 2 has only time.time
 
 
 class _ThreadContext(object):
