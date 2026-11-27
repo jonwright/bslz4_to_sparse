@@ -4,7 +4,6 @@ with threads and with forked processes; a failing sink raises instead of hanging
 from __future__ import absolute_import, division, print_function
 
 from conftest import bitshuffle, chunk_info_available, needs_chunk_info
-import multiprocessing
 import os
 import shutil
 import sys
@@ -415,7 +414,7 @@ def test_cpulist_and_nodes_without_cpus():
 
     assert _cpulist("0-3,8,10-11\n") == [0, 1, 2, 3, 8, 10, 11]
     assert _cpulist("\n") == [] and _cpulist("") == []  # a memory-only node (GPU memory on POWER9)
-    allowed = os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else range(multiprocessing.cpu_count())
+    allowed = os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else range(os.sysconf("SC_NPROCESSORS_ONLN"))
     assert sum(len(n) for n in cv.numa_nodes()) == len(allowed)
 
 

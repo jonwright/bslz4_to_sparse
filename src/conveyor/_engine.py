@@ -21,11 +21,14 @@ from __future__ import absolute_import, division, print_function
 
 import io
 import mmap
-import multiprocessing as mp
 import os
 import resource
 import threading
-from multiprocessing.dummy import Queue  # queue.Queue (Queue.Queue on Python 2)
+
+try:
+    import queue
+except ImportError:  # Python 2 spells it Queue
+    import Queue as queue
 from timeit import default_timer as _clock  # perf_counter (time.time on Python 2)
 
 import numpy as np
@@ -36,7 +39,7 @@ _DONE = None
 
 
 class _ThreadContext(object):
-    Queue = staticmethod(Queue)
+    Queue = staticmethod(queue.Queue)
     Event = staticmethod(threading.Event)
 
     @staticmethod
@@ -48,6 +51,8 @@ class _ThreadContext(object):
 
 class _ForkContext(object):
     def __init__(self):
+        import multiprocessing as mp  # only for mode="processes": threads never import it
+
         # Python 2 multiprocessing always forks on Linux; Python 3.14 defaults to forkserver
         self.ctx = mp.get_context("fork") if hasattr(mp, "get_context") else mp
         self.Queue, self.Event = self.ctx.Queue, self.ctx.Event
@@ -72,7 +77,7 @@ def _cpulist(text):
 def numa_nodes(allowed=None):
     """[[cpu, ...], ...]: the CPUs this process may use, grouped by NUMA node."""
     if allowed is None:
-        allowed = os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else range(mp.cpu_count())
+        allowed = os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else range(os.sysconf("SC_NPROCESSORS_ONLN"))
     allowed = set(allowed)
     out = []
     d = "/sys/devices/system/node"

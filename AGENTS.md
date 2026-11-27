@@ -93,8 +93,8 @@ The library (`src/`, `src/conveyor/` and `src/cuda/` included; not yet
 one source that runs on Python 2.7 (numpy 1.16, h5py 2.10, hdf5plugin 2.3.2; CI job `test-py27`)
 and on Python 3 with numpy below and above 2. Write the clean subset both share; never two
 parallel paths (`if PY2: ... else: ...`, `sys.version_info`). Where a name is missing on one
-side, look first for a name both have (`timeit.default_timer`, `multiprocessing.dummy.Queue`),
-else test for the capability (`getattr(os, "replace", os.rename)`), once, in one place.
+side, look first for a name both have (`timeit.default_timer`),
+else test for the capability (`getattr(os, "replace", os.rename)`, `import queue` falling back to `Queue`), once, in one place. No `multiprocessing` on the default (threads) path.
 `from __future__ import absolute_import, division, print_function` in every module; no infix
 `@` (`np.dot`, `.dot`), f-strings, `yield from`, keyword-only arguments, `nonlocal`, bare
 `super()`, `np.random.default_rng` (`RandomState`, with `dtype=np.int64` past 2**31), pathlib,

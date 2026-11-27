@@ -3,10 +3,8 @@
 from __future__ import absolute_import, division, print_function
 
 import threading
-from multiprocessing.dummy import Queue  # queue.Queue (Queue.Queue on Python 2)
-from multiprocessing.queues import Full  # queue.Full, under its one name on both
 
-from ._engine import run
+from ._engine import queue, run
 from ._sinks import Sink
 
 _END = object()
@@ -37,7 +35,7 @@ class _QueueSink(Sink):
             try:
                 self.q.put(item, timeout=0.5)
                 return
-            except Full:
+            except queue.Full:
                 pass
         raise _Closed()
 
@@ -55,7 +53,7 @@ def iterate(units, backend, workers, depth=4, **kw):
     (break, or an exception) stops the run.  Other keywords go to run (batch, ...)."""
     if kw.get("mode", "threads") != "threads":
         raise ValueError("iterate works with threads")
-    q = Queue(maxsize=depth * workers)
+    q = queue.Queue(maxsize=depth * workers)
     closed = threading.Event()
     box = {}
 
@@ -68,7 +66,7 @@ def iterate(units, backend, workers, depth=4, **kw):
             try:
                 q.put(_END, timeout=0.5)
                 return
-            except Full:
+            except queue.Full:
                 if closed.is_set():
                     return
 
