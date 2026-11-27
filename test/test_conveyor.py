@@ -6,6 +6,7 @@ from __future__ import absolute_import, division, print_function
 from conftest import bitshuffle, chunk_info_available, needs_chunk_info
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -342,6 +343,26 @@ def test_corrupt_and_missing_sidecars(tmpdir):
     os.remove(sc)
     with pytest.raises(EnvironmentError, match="index_chunks"):
         cv.make_work_units(paths, DSET)
+
+
+def test_index_chunks_keeps_fresh_sidecars_and_makes_missing_ones(tmpdir):
+    """tools/index_chunks.py under this Python: a fresh sidecar is kept, a missing one is made
+    (or, with an h5py that has no chunk index, the file is reported as failed)."""
+    paths = make_files(tmpdir, nfiles=2, nframes=5)
+    os.remove(cv.sidecar_path(paths[1]))
+    script = os.path.join(os.path.dirname(CACHE), "..", "tools", "index_chunks.py")
+    env = dict(os.environ, BSLZ4_TO_SPARSE_PATH=os.path.dirname(os.path.dirname(b.__file__)))
+    p = subprocess.Popen(
+        [sys.executable, script, "--files", os.path.join(str(tmpdir), "*.h5"), "--dset", DSET,
+         "--procs", "2"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, universal_newlines=True)
+    out, err = p.communicate()
+    assert "'kept': 1" in out, out + err
+    if chunk_info_available():
+        assert p.returncode == 0 and "'written': 1" in out, out + err
+        assert cv.read_index(paths[1]).shape[0] == 5
+    else:
+        assert p.returncode == 1 and "'failed': 1" in out and "get_chunk_info" in err, out + err
 
 
 @needs_chunk_info

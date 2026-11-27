@@ -22,10 +22,15 @@ Usage:
   # extra flags for every compile / the link (gcc-style drivers), e.g. PGO
   BSLZ4_EXTRA_CFLAGS="-fprofile-generate" BSLZ4_EXTRA_LDFLAGS="-fprofile-generate" \
     python3 tools/build_extension.py --out ...
+
+pip runs this with the Python it installs for, so it is in the Python 2.7/3 subset (AGENTS.md 6).
 """
+from __future__ import absolute_import, division, print_function
+
 import argparse
 import glob
 import hashlib
+import io
 import json
 import os
 import re
@@ -39,6 +44,11 @@ C2PY_RUNTIME = os.path.join(REPO, "c2py_runtime")
 
 sys.path.insert(0, os.path.join(REPO, "src"))
 from c2py_loader import _platform_key  # noqa: E402
+
+
+def _makedirs(d):
+    if not os.path.isdir(d):
+        os.makedirs(d)
 
 
 def _sources():
@@ -93,11 +103,12 @@ def _apply_patches(src, patches, out):
     takes the patch must be noticed."""
     # Universal newlines: a CRLF checkout (core.autocrlf on Windows) of the
     # patch or the source must still match.
-    with open(src, "r") as f:
+    # latin-1: any byte reads and writes back unchanged, whatever the locale.
+    with io.open(src, "r", encoding="latin-1") as f:
         lines = f.read().split("\n")
     name = os.path.basename(src)
     for pf in patches:
-        with open(pf, "r") as f:
+        with io.open(pf, "r", encoding="latin-1") as f:
             plines = f.read().split("\n")
         i, active = 0, False
         while i < len(plines):
@@ -130,7 +141,7 @@ def _apply_patches(src, patches, out):
                 lines[k:k + len(old)] = new
                 continue
             i += 1
-    with open(out, "w", newline="") as f:
+    with io.open(out, "w", encoding="latin-1", newline="") as f:
         f.write("\n".join(lines))
     return out
 
@@ -183,12 +194,13 @@ def _git(*args):
     # Only ask git about REPO itself: in an unpacked sdist inside some other
     # checkout, git would silently walk up and describe THAT repository.
     try:
-        top = subprocess.check_output(["git", "-C", REPO, "rev-parse", "--show-toplevel"],
-                                      stderr=subprocess.DEVNULL).decode().strip()
-        if os.path.realpath(top) != os.path.realpath(REPO):
-            return None
-        return subprocess.check_output(["git", "-C", REPO] + list(args),
-                                       stderr=subprocess.DEVNULL).decode().strip()
+        with open(os.devnull, "w") as null:
+            top = subprocess.check_output(["git", "-C", REPO, "rev-parse", "--show-toplevel"],
+                                          stderr=null).decode().strip()
+            if os.path.realpath(top) != os.path.realpath(REPO):
+                return None
+            return subprocess.check_output(["git", "-C", REPO] + list(args),
+                                           stderr=null).decode().strip()
     except Exception:  # no git, not a checkout, or "dubious ownership" in a container
         return None
 
@@ -374,13 +386,13 @@ def main():
     is_windows = plat.startswith("win") or os.name == "nt"
     suffix = ".pyd" if is_windows else ".so"
     outdir = os.path.abspath(args.out or os.path.join(REPO, "src"))
-    os.makedirs(outdir, exist_ok=True)
+    _makedirs(outdir)
     outname = "_bslz4_to_sparse.c2py23-%s%s" % (plat, suffix)
     outpath = os.path.join(outdir, outname)
 
     srcs = _sources()
     builddir_ = os.path.abspath(args.build_dir or os.path.join(REPO, "build", "build_extension"))
-    os.makedirs(builddir_, exist_ok=True)
+    _makedirs(builddir_)
     for lib, rel in _PATCHED:
         if _patch_files(lib):
             # the submodule stays at the upstream commit; our patches
@@ -391,7 +403,7 @@ def main():
             srcs = [patched if s == orig else s for s in srcs]
     incs = _include_dirs()
     builddir = os.path.abspath(args.build_dir or os.path.join(REPO, "build", "build_extension"))
-    os.makedirs(builddir, exist_ok=True)
+    _makedirs(builddir)
 
     if is_windows and os.environ.get("MSVC_ENV", "").lower() not in ("1", "true", "yes"):
         # Default to the mixer/gcc cross toolchain if one is provided.

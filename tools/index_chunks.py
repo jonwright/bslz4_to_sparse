@@ -13,20 +13,19 @@ every sidecar is on disk.  Each file
 costs a few hundred ms cold (dozens of small reads of the B-tree nodes spread through it, not the
 data).  --index-dir keeps the sidecars away from read-only data directories.  --check verifies
 existing sidecars against a fresh harvest."""
+from __future__ import absolute_import, division, print_function
 
 import argparse
 import glob
 import os
 import subprocess
 import sys
-import time
+from timeit import default_timer as timer
 
 import numpy as np
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-import bench_suite  # noqa: E402,F401  (puts lib/ or $BSLZ4_TO_SPARSE_PATH on sys.path)
-
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.environ.get("BSLZ4_TO_SPARSE_PATH", os.path.join(REPO, "lib")))
 from bslz4_to_sparse import conveyor  # noqa: E402
 
 
@@ -84,7 +83,7 @@ def main():
     paths = sorted(glob.glob(a.files))
     if a.limit:
         paths = paths[: a.limit]
-    t0 = time.perf_counter()
+    t0 = timer()
     todo = paths if (a.check or a.force) else [p for p in paths if not fresh(p, a.index_dir)]
     n = max(1, min(a.procs, len(todo)))
     head = [sys.executable, os.path.abspath(__file__), "--worker", a.dset, a.index_dir or "", "1" if a.check else "0"]
@@ -106,7 +105,7 @@ def main():
     done = "checked" if a.check else "written"
     print(
         {"kept": len(paths) - len(todo), done: len(todo) - len(bad), "failed": len(bad)},
-        "%.1f s for %d files in %d processes" % (time.perf_counter() - t0, len(paths), len(procs)),
+        "%.1f s for %d files in %d processes" % (timer() - t0, len(paths), len(procs)),
         "; %d processes crashed (errors above)" % crashed if crashed else "",
     )
     for p in bad[:10]:

@@ -89,8 +89,9 @@ happens to each. A changed default is a results change: measure before and after
 report both.
 
 The library (`src/`, `src/conveyor/` and `src/cuda/` included; not yet
-`src/conveyor/diffmap_integrate.py`, a pyFAI command-line tool), the tests and the examples are
-one source that runs on Python 2.7 (numpy 1.16, h5py 2.10, hdf5plugin 2.3.2; CI job `test-py27`)
+`src/conveyor/diffmap_integrate.py`, a pyFAI command-line tool), the tests, the examples, and the
+tools a Python 2 user runs (`tools/build_extension.py`, which pip runs with the Python it installs
+for; `tools/index_chunks.py`) or the tests import, are one source that runs on Python 2.7 (numpy 1.16, h5py 2.10, hdf5plugin 2.3.2; CI job `test-py27`)
 and on Python 3 with numpy below and above 2. Write the clean subset both share; never two
 parallel paths (`if PY2: ... else: ...`, `sys.version_info`). Where a name is missing on one
 side, look first for a name both have (`timeit.default_timer`),
@@ -107,7 +108,8 @@ Python 3 and read by both, as `test/matrix.h5` and `test/conveyor_files`. One bi
 every Python version (c2py23 resolves the CPython API at runtime), free-threaded builds
 included. `src/cuda/` and `src/conveyor/` are optional; so is cupy (the driver backend needs
 only the fatbin and ctypes). Test on 2.7 with `../snakepit/snakepit-legacy.sif` (`--nv` for the
-GPU).
+GPU), building there with `python2.7` too.  The other tools (benchmarks, docs, release checks) are
+Python 3.
 
 ## 7. Build and test
 
