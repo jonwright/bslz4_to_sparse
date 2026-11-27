@@ -21,7 +21,7 @@ refused, in particular a check failing in C, fails.
 
 from __future__ import absolute_import, division, print_function
 
-from conftest import bitshuffle, needs_zstd_writer
+from conftest import bitshuffle, needs_zstd_writer, zstd_writer_available
 import itertools
 import os
 import sys
@@ -131,6 +131,8 @@ def data():
         mask = make_mask(fill)
         frames = make_frames(mask, fill)
         for v in VARIANTS:
+            if v[0] == "zstd" and not zstd_writer_available():
+                continue  # its tests are skipped (needs_zstd_writer)
             out[(fill, v)] = (mask, frames, encode(frames, *v))
     return out
 

@@ -25,54 +25,37 @@ def _counters_off_after_each_test():
 
 
 def _zstd_writer_available():
-    """hdf5plugin can write bitshuffle-zstd: a (1,64,64) uint16 chunk written with codec 32008
-    (options (0,3)) carries the zstd magic b\"\\x28\\xb5\\x2f\\xfd\" at bytes 16:20.  hdf5plugin
-    2.3.2 accepts codec 3 but silently writes lz4, so the capability is measured, not assumed."""
-    import h5py
-    import hdf5plugin  # registers filter 32008 (bshuf) with HDF5
-    import tempfile
-    import numpy as np
-    import bslz4_to_sparse as b
-
-    d = tempfile.mkdtemp()
+    """hdf5plugin writes bitshuffle-zstd: its Bitshuffle takes cname="zstd".  hdf5plugin 2.3.2
+    (Python 2.7) has no cname, and given the raw options (nelems, 3) it writes lz4 under a zstd
+    label, so bitshuffle() below asks Bitshuffle for zstd and this asks the same."""
     try:
-        fn = os.path.join(d, "zstd.h5")
-        with h5py.File(fn, "w") as h:
-            h.create_dataset("d", data=np.zeros((1, 64, 64), np.uint16), chunks=(1, 64, 64),
-                             compression=32008, compression_opts=(0, 3))
-        with h5py.File(fn, "r") as h:
-            chunk = b.read_direct_chunk(h["d"], (0, 0, 0))[1]
-        return len(chunk) > 20 and chunk[16:20] == b"\x28\xb5\x2f\xfd"
-    except Exception:
+        import hdf5plugin
+    except ImportError:
         return False
-    finally:
-        os.remove(fn)
-        os.rmdir(d)
+    try:
+        hdf5plugin.Bitshuffle(nelems=0, cname="zstd")
+    except TypeError:
+        return False
+    return True
 
 
 def _chunk_info_available():
     """h5py's DatasetID.get_chunk_info (locate_chunks and the conveyor sidecar index need it)."""
-    import h5py
-    import tempfile
-    import numpy as np
-
-    d = tempfile.mkdtemp()
     try:
-        fn = os.path.join(d, "ci.h5")
-        with h5py.File(fn, "w") as h:
-            h.create_dataset("d", data=np.zeros((2, 8, 8), np.uint8), chunks=(1, 8, 8))
-        with h5py.File(fn, "r") as h:
-            return hasattr(h["d"].id, "get_chunk_info")
-    except Exception:
+        import h5py
+    except ImportError:
         return False
-    finally:
-        os.remove(fn)
-        os.rmdir(d)
+    return hasattr(h5py.h5d.DatasetID, "get_chunk_info")
 
 
-needs_zstd_writer = pytest.mark.skipif(
-    not _zstd_writer_available(), reason="hdf5plugin cannot write bitshuffle-zstd here"
-)
+_ZSTD_WRITER = _zstd_writer_available()
+
+
+def zstd_writer_available():
+    return _ZSTD_WRITER
+
+
+needs_zstd_writer = pytest.mark.skipif(not _ZSTD_WRITER, reason="hdf5plugin cannot write bitshuffle-zstd here")
 _CHUNK_INFO = _chunk_info_available()
 
 
@@ -119,9 +102,10 @@ def bitshuffle(nelems=0, cname="lz4", clevel=3):
     parameters rather than hdf5plugin.Bitshuffle, whose constructor differs between hdf5plugin 2.3.2
     (Python 2.7: Bitshuffle(nelems, lz4), no cname/clevel) and modern hdf5plugin.  The LZ4 chunk is
     byte-identical to Bitshuffle(nelems, cname=\"lz4\"); the zstd chunk to
-    Bitshuffle(nelems, cname=\"zstd\", clevel=clevel).  Only the LZ4 path is usable in both
-    environments: zstd writing needs the real zstd filter (needs_zstd_writer)."""
-    codec = {"none": 0, "lz4": 2, "zstd": 3}[cname]
-    if codec == 3:
-        return dict(compression=32008, compression_opts=(nelems, codec, clevel))
-    return dict(compression=32008, compression_opts=(nelems, codec))
+    Bitshuffle(nelems, cname=\"zstd\", clevel=clevel), which zstd still goes through: an hdf5plugin
+    without zstd raises rather than write lz4 under a zstd label (needs_zstd_writer)."""
+    if cname == "zstd":  # raises TypeError where hdf5plugin cannot write zstd (needs_zstd_writer)
+        import hdf5plugin
+
+        return hdf5plugin.Bitshuffle(nelems=nelems, cname="zstd", clevel=clevel)
+    return dict(compression=32008, compression_opts=(nelems, {"none": 0, "lz4": 2}[cname]))

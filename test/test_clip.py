@@ -33,7 +33,7 @@ def test_clip_afterwards_equals_clipping_first(dtype, wtmax):
     top = np.iinfo(dtype).max
     fr = rng.poisson(20, (8,) + SHAPE).astype(dtype)
     hot = rng.random_sample(fr.shape) < 0.01
-    fr[hot] = rng.randint(wtmax + 1, top + 1, hot.sum()).astype(dtype)
+    fr[hot] = rng.randint(wtmax + 1, top + 1, hot.sum(), dtype=np.int64).astype(dtype)
     fr[:, 0, :3] = top  # saturated pixels
     mask = np.ones(SHAPE, np.uint8)
     mask[3, :] = 0

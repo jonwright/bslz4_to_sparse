@@ -8,6 +8,7 @@ import multiprocessing
 import os
 import shutil
 import sys
+import tempfile
 import threading
 
 _path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
@@ -32,20 +33,25 @@ CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conveyor_files
 SETS = [(3, 37), (1, 20), (1, 37), (2, 25), (1, 5), (4, 60), (2, 11)]  # (nfiles, nframes) used
 
 
+GENERATOR = 1  # bump when cached_files makes different files: the cache is keyed on it and SHAPE
+
+
 def cached_files(nfiles=3, nframes=37):
     """The test files and their sidecars, made once in test/conveyor_files.  Making a sidecar needs
     h5py's chunk index (h5py >= 3), so Python 2.7 reads the ones made under Python 3
     (python3 test/make_testcases.py conveyor makes every set in SETS)."""
-    d = os.path.join(CACHE, "%dx%d" % (nfiles, nframes))
+    d = os.path.join(CACHE, "g%d_%dx%d_%dx%d" % ((GENERATOR,) + SHAPE + (nfiles, nframes)))
     paths = [os.path.join(d, "f%d.h5" % k) for k in range(nfiles)]
-    if all(os.path.exists(cv.sidecar_path(p)) for p in paths):
+    if os.path.isdir(d):
         return paths
     if not chunk_info_available():
         pytest.skip("no %s: make it under Python 3 with test/make_testcases.py conveyor" % d)
-    if not os.path.isdir(d):
-        os.makedirs(d)
+    if not os.path.isdir(CACHE):
+        os.makedirs(CACHE)
+    tmp = tempfile.mkdtemp(dir=CACHE)  # built aside and renamed: a set is there whole or not at all
     rng = np.random.RandomState(3)
-    for p in paths:
+    for k in range(nfiles):
+        p = os.path.join(tmp, "f%d.h5" % k)
         frames = np.where(
             rng.random_sample((nframes,) + SHAPE) < 0.05, rng.randint(1, 60, (nframes,) + SHAPE), 0
         )
@@ -56,8 +62,13 @@ def cached_files(nfiles=3, nframes=37):
                 chunks=(1,) + SHAPE,
                 **bitshuffle(nelems=0, cname="lz4")
             )
-    for p in paths:  # the sidecars last: their presence says the set is complete
-        cv.write_index(cv.harvest(p, DSET), p)  # the sidecar: reading never needs HDF5 after this
+        # the sidecar: reading never needs HDF5 after this; its path is beside the file, so it
+        # moves with the directory, and make_files writes fresh ones for the copies anyway
+        cv.write_index(cv.harvest(p, DSET), p)
+    try:
+        os.rename(tmp, d)
+    except OSError:  # another run made it meanwhile
+        shutil.rmtree(tmp)
     return paths
 
 

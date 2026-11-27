@@ -62,7 +62,7 @@ def test_equals_the_float_histogram(dtype, route):
     info = np.iinfo(dtype)
     rng = np.random.RandomState(2)
     frames = rng.randint(0, min(info.max, 3000), (3,) + shape).astype(dtype)
-    frames[:, 50:60] = rng.randint(0, info.max, (3, 10, shape[1])).astype(dtype)   # dense, large
+    frames[:, 50:60] = rng.randint(0, info.max, (3, 10, shape[1]), dtype=np.int64).astype(dtype)   # dense, large
     frames[:, mask == 0] = info.max                      # what a detector writes at masked pixels
     M = histogram(shape, 40)
     chunks = encode(frames)

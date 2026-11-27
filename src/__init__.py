@@ -239,15 +239,18 @@ def read_direct_chunk(ds, offset):
     """
     if sys.version_info[0] >= 3:
         return ds.id.read_direct_chunk(offset)
+    from h5py._objects import phil  # h5py's lock around every HDF5 call: ctypes drops the GIL
+
     ctypes, lib = _hdf5_lib()
     off = (ctypes.c_uint64 * len(offset))(*offset)
     nbytes = ctypes.c_uint64()
-    if lib.H5Dget_chunk_storage_size(ds.id.id, off, ctypes.byref(nbytes)) < 0:
-        raise ValueError("read_direct_chunk: no chunk at %r" % (tuple(offset),))
-    buf = ctypes.create_string_buffer(nbytes.value)
     filter_mask = ctypes.c_uint32()
-    if lib.H5Dread_chunk(ds.id.id, 0, off, ctypes.byref(filter_mask), buf) < 0:  # 0: H5P_DEFAULT
-        raise IOError("read_direct_chunk: H5Dread_chunk failed at %r" % (tuple(offset),))
+    with phil:
+        if lib.H5Dget_chunk_storage_size(ds.id.id, off, ctypes.byref(nbytes)) < 0:
+            raise ValueError("read_direct_chunk: no chunk at %r" % (tuple(offset),))
+        buf = ctypes.create_string_buffer(nbytes.value)
+        if lib.H5Dread_chunk(ds.id.id, 0, off, ctypes.byref(filter_mask), buf) < 0:  # H5P_DEFAULT
+            raise IOError("read_direct_chunk: H5Dread_chunk failed at %r" % (tuple(offset),))
     return filter_mask.value, buf.raw
 
 

@@ -33,6 +33,7 @@ import numpy as np
 from ._sinks import NullSink
 
 _DONE = None
+_clock = getattr(time, "perf_counter", time.time)  # monotonic; Python 2 has only time.time
 
 
 class _ThreadContext(object):
@@ -115,16 +116,16 @@ def _reader(k, todo, ready_q, free_q, buf, slot_bytes, cpus, io_bytes, go, stop,
         flt0 = _thread_usage()[1]
         view = memoryview(buf)
         while True:
-            t = time.time()
+            t = _clock()
             slot = free_q.get()  # blocks until the worker is done with a buffer
-            st["wait_s"] += time.time() - t
+            st["wait_s"] += _clock() - t
             if stop.is_set():
                 break
             u = todo.get()  # the next unit, whoever asks first; _DONE when there are no more
             if u is _DONE:
                 break
             base = slot * slot_bytes
-            t = time.time()
+            t = _clock()
             with io.open(u.path, "rb", buffering=0) as f:
                 f.seek(u.start)
                 got = 0
@@ -134,7 +135,7 @@ def _reader(k, todo, ready_q, free_q, buf, slot_bytes, cpus, io_bytes, go, stop,
                     if not r:
                         raise IOError("short read of %s" % u.path)
                     got += r
-            st["read_s"] += time.time() - t
+            st["read_s"] += _clock() - t
             st["bytes"] += u.span
             ready_q.put((slot, u))
         st["minflt"] = _thread_usage()[1] - flt0
@@ -189,35 +190,37 @@ def _worker(
         start_q.put(None)  # pinned, buffers touched, decoder built
         started = True
         go.wait()
-        (c0, flt0), t0 = _thread_usage(), time.time()
+        if stop.is_set():  # another worker failed to start: no run, and no sink.end()
+            raise RuntimeError("stopped: another worker failed to start")
+        (c0, flt0), t0 = _thread_usage(), _clock()
         while True:
-            t = time.time()
+            t = _clock()
             item = ready_q.get()  # blocks until the reader has a whole unit in
-            st["idle_s"] += time.time() - t
+            st["idle_s"] += _clock() - t
             if item is _DONE or stop.is_set():
                 break
             slot, u = item
             if t_first is None:
-                t_first = time.time()
+                t_first = _clock()
             base = slot * slot_bytes
             data = buf[base : base + u.span]
             sink.begin_unit(u)
             for f0 in range(0, u.n, batch):
                 n = min(batch, u.n - f0)
-                t = time.time()
+                t = _clock()
                 npx, values, indices, powder = fn(
                     data, u.offsets[f0 : f0 + n], u.lengths[f0 : f0 + n]
                 )
-                t1 = time.time()
+                t1 = _clock()
                 st["out_bytes"] += _out_bytes(npx, values, indices, powder)
                 sink.write(u.file, u.frame0 + f0, npx, values, indices, powder)
                 st["decode_s"] += t1 - t
-                st["write_s"] += time.time() - t1
+                st["write_s"] += _clock() - t1
                 st["frames"] += n
-            t1 = time.time()
+            t1 = _clock()
             sink.end_unit(u)
-            st["write_s"] += time.time() - t1
-            t_last = time.time()
+            st["write_s"] += _clock() - t1
+            t_last = _clock()
             free_q.put(slot)
         # Whatever made us stop (the units are done, or another worker failed), our reader may be
         # blocked waiting for a free buffer: give it some, or it waits for ever.
@@ -226,7 +229,7 @@ def _worker(
         c1, flt1 = _thread_usage()
         st["minflt"] = flt1 - flt0
         st["sink"] = sink.end()
-        st["wall_s"], st["cpu_s"] = time.time() - t0, c1 - c0
+        st["wall_s"], st["cpu_s"] = _clock() - t0, c1 - c0
         st["active_s"] = (t_last - t_first) if t_first is not None and t_last is not None else 0.0
     except BaseException as e:  # noqa: BLE001 (report it, and unblock the reader)
         st["error"] = repr(e)
@@ -338,11 +341,11 @@ def run(
     for p in ws + rs:
         p.start()
     # every worker pinned, its buffers touched, decoder built: each says so once, or sends its error
-    deadline = time.time() + start_timeout
+    deadline = _clock() + start_timeout
     errs = []
     try:
         for _ in range(workers):
-            e = start_q.get(timeout=max(0.0, deadline - time.time()))
+            e = start_q.get(timeout=max(0.0, deadline - _clock()))
             if e is not None:
                 errs.append(e)
                 break
@@ -350,16 +353,18 @@ def run(
         errs.append("timed out after %s s" % start_timeout)
     if errs:
         stop.set()
-        go.set()
+        go.set()  # the workers that started see stop and leave; their readers too
+        got = [res_q.get() for _ in range(workers)]
+        errs += [s["error"] for s in got if s.get("error") and "another worker failed" not in s["error"]]
         raise RuntimeError("a worker failed to start: %r" % (errs,))
     for u in units:
         todo.put(u)
     for _ in range(workers):
         todo.put(_DONE)
-    t0 = time.time()
+    t0 = _clock()
     go.set()
     got = [res_q.get() for _ in range(2 * workers)]
-    wall = time.time() - t0
+    wall = _clock() - t0
     for p in ws + rs:
         p.join()
     errors = [s["error"] for s in got if s.get("error")]

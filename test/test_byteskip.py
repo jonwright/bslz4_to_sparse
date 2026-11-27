@@ -55,13 +55,13 @@ def frames_for(kind, rng):
     if kind == "u64 <256":
         return rng.poisson(30, n).astype(np.uint64)
     if kind == "u64 <2^32":
-        return rng.randint(0, 2 ** 32, n).astype(np.uint64)
+        return rng.randint(0, 2 ** 32, n, dtype=np.int64).astype(np.uint64)
     if kind == "u64 5-8 bytes":
         a = rng.poisson(30, n).astype(np.uint64)
-        a[:, ::5, ::7] = rng.randint(2 ** 33, 2 ** 62, a[:, ::5, ::7].shape)
+        a[:, ::5, ::7] = rng.randint(2 ** 33, 2 ** 62, a[:, ::5, ::7].shape, dtype=np.int64)
         return a
     if kind == "i64 big":
-        return rng.randint(0, 10 ** 12, n).astype(np.int64)
+        return rng.randint(0, 10 ** 12, n, dtype=np.int64)
     if kind == "f64":
         return rng.poisson(5, n).astype(np.float64)
     raise ValueError(kind)

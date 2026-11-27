@@ -25,10 +25,11 @@ import numpy as np
 def bitshuffle(nelems=0, cname="lz4", clevel=3):
     """The kwargs h5py.create_dataset takes for a bitshuffle chunk, from the raw HDF5 filter
     parameters (hdf5plugin 2.3.2's Bitshuffle has no cname/clevel)."""
-    codec = {"none": 0, "lz4": 2, "zstd": 3}[cname]
-    if codec == 3:
-        return dict(compression=32008, compression_opts=(nelems, codec, clevel))
-    return dict(compression=32008, compression_opts=(nelems, codec))
+    if cname == "zstd":  # TypeError from an hdf5plugin without zstd (2.3.2 would write lz4)
+        import hdf5plugin
+
+        return hdf5plugin.Bitshuffle(nelems=nelems, cname="zstd", clevel=clevel)
+    return dict(compression=32008, compression_opts=(nelems, {"none": 0, "lz4": 2}[cname]))
 
 
 H5DATASET = "/entry_0000/ESRF-ID11/eiger/data"

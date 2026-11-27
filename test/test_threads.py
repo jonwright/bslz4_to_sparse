@@ -84,8 +84,9 @@ def test_python_thread_runs_during_decode():
 
     t = threading.Thread(target=spin)
     t.start()
-    t0 = time.time()
-    while time.time() - t0 < 0.5:
+    clock = getattr(time, "perf_counter", time.time)  # monotonic where the Python has it
+    t0 = clock()
+    while clock() - t0 < 0.5:
         c.multi(chunks, 0)
     stop.set()
     t.join()
