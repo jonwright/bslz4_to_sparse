@@ -1,5 +1,7 @@
 """tools/make_notebooks.py: an example script becomes a notebook of the right cells."""
 
+from __future__ import absolute_import, division, print_function
+
 import os
 import sys
 
@@ -65,7 +67,7 @@ def test_every_example_makes_a_valid_notebook():
         compile(code, path, "exec")
 
 
-def test_markdown_of_a_run_notebook_has_output_and_figures(tmp_path):
+def test_markdown_of_a_run_notebook_has_output_and_figures(tmpdir):
     import base64
 
     from nbformat import v4
@@ -81,11 +83,11 @@ def test_markdown_of_a_run_notebook_has_output_and_figures(tmp_path):
         v4.new_output("stream", name="stdout", text="1\n"),
         v4.new_output("display_data", data={"image/png": png}),
     ]
-    md = mn.notebook_to_markdown(nb, str(tmp_path / "f"), "f", skip_first=True)
+    md = mn.notebook_to_markdown(nb, os.path.join(str(tmpdir), "f"), "f", skip_first=True)
     assert (
         "```python\nprint(1)\n```" in md
         and "```text\n1\n```" in md
         and "![figure 1](f/fig1.png)" in md
     )
-    assert (tmp_path / "f" / "fig1.png").read_bytes().startswith(b"\x89PNG")
+    assert open(os.path.join(str(tmpdir), "f", "fig1.png"), "rb").read().startswith(b"\x89PNG")
     assert "# T" not in md

@@ -18,6 +18,10 @@ and a dot that cannot represent the matrix (including bsb-csr's uint16
 in-block index: blocks of at most 65536 pixels).  Anything else that is
 refused, in particular a check failing in C, fails.
 """
+
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle, needs_zstd_writer, zstd_writer_available
 import itertools
 import os
 import sys
@@ -40,6 +44,8 @@ SHAPE = (384, 512)        # 196608 px: 48 blocks of 8 kB, 1.5 of 256 kB (a tail)
 NPIX = SHAPE[0] * SHAPE[1]
 VARIANTS = [("lz4", None, 8192), ("lz4", None, 262144), ("zstd", 2, 8192), ("zstd", 2, 262144)]
 VARIANT_IDS = ["%s%s-%dk" % (c, l or "", k // 1024) for c, l, k in VARIANTS]
+VARIANTS_MARKED = [pytest.param(v, marks=needs_zstd_writer) if v[0] == "zstd" else pytest.param(v)
+                   for v in VARIANTS]
 FILLS = ("zero", "max", "valid")
 
 
@@ -52,7 +58,7 @@ def make_mask(fill):
     if fill != "valid":
         m[180:192, :] = 0                    # a module gap
         m[:, 300:303] = 0
-        m[np.random.default_rng(5).random(SHAPE) < 0.01] = 0     # bad pixels
+        m[np.random.RandomState(5).random_sample(SHAPE) < 0.01] = 0     # bad pixels
     return m
 
 
@@ -60,22 +66,22 @@ def make_frames(mask, fill):
     """Two frames: sparse counts everywhere, a dense band of values < 256 and
     a few spots above 255 (so the u16 low-planes paths take some blocks and
     fall back on others)."""
-    rng = np.random.default_rng(11)
+    rng = np.random.RandomState(11)
     f = rng.poisson(0.05, (2,) + SHAPE)
     f[:, 40:80] += rng.poisson(20, (2, 40, SHAPE[1]))
     for k in range(2):
-        f[k, rng.integers(0, SHAPE[0], 30), rng.integers(0, SHAPE[1], 30)] = rng.integers(256, 5000, 30)
+        f[k, rng.randint(0, SHAPE[0], 30), rng.randint(0, SHAPE[1], 30)] = rng.randint(256, 5000, 30)
     f = np.minimum(f, 65534).astype(np.uint16)
     f[:, mask == 0] = 65535 if fill == "max" else 0
     return f
 
 
 def encode(frames, cname, clevel, block):
-    kw = hdf5plugin.Bitshuffle(nelems=block // 2, cname=cname,
+    kw = bitshuffle(nelems=block // 2, cname=cname,
                                **({"clevel": clevel} if clevel else {}))
     with h5py.File("t.h5", "w", driver="core", backing_store=False) as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + SHAPE, **kw)
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
 
 
 def matrices():
@@ -125,12 +131,14 @@ def data():
         mask = make_mask(fill)
         frames = make_frames(mask, fill)
         for v in VARIANTS:
+            if v[0] == "zstd" and not zstd_writer_available():
+                continue  # its tests are skipped (needs_zstd_writer)
             out[(fill, v)] = (mask, frames, encode(frames, *v))
     return out
 
 
 @pytest.mark.parametrize("fill", FILLS)
-@pytest.mark.parametrize("variant", VARIANTS, ids=VARIANT_IDS)
+@pytest.mark.parametrize("variant", VARIANTS_MARKED, ids=VARIANT_IDS)
 def test_every_sparsify_pipeline(data, variant, fill):
     mask, frames, chunks = data[(fill, variant)]
     codec = b.CODEC_ZSTD if variant[0] == "zstd" else b.CODEC_LZ4
@@ -165,7 +173,7 @@ def test_every_sparsify_pipeline(data, variant, fill):
 
 
 @pytest.mark.parametrize("fill", ("max", "valid"))
-@pytest.mark.parametrize("variant", VARIANTS, ids=VARIANT_IDS)
+@pytest.mark.parametrize("variant", VARIANTS_MARKED, ids=VARIANT_IDS)
 def test_every_dot_and_route(data, variant, fill):
     mask, frames, chunks = data[(fill, variant)]
     codec = b.CODEC_ZSTD if variant[0] == "zstd" else b.CODEC_LZ4
@@ -173,7 +181,7 @@ def test_every_dot_and_route(data, variant, fill):
     ran_dots, refused, wrong = set(), [], []
     for mname, M in matrices().items():
         Mf = M.astype(np.float64)
-        ref = np.stack([Mf @ fr for fr in masked_frames])
+        ref = np.stack([Mf.dot(fr) for fr in masked_frames])
         for dot, route in itertools.product(usable("dot"), usable("route")):
             p = {"dot": dot, "route": route}
             try:
@@ -198,7 +206,7 @@ def test_every_dot_and_route(data, variant, fill):
 
 
 @pytest.mark.parametrize("fill", FILLS)
-@pytest.mark.parametrize("variant", VARIANTS, ids=VARIANT_IDS)
+@pytest.mark.parametrize("variant", VARIANTS_MARKED, ids=VARIANT_IDS)
 def test_automatic_mask_from_first_frame(data, variant, fill):
     mask, frames, chunks = data[(fill, variant)]
     codec = b.CODEC_ZSTD if variant[0] == "zstd" else b.CODEC_LZ4
@@ -218,7 +226,7 @@ def test_automatic_mask_from_first_frame(data, variant, fill):
     assert b.describe(c.pipeline)["mask"] == ("pixel" if fill != "valid" else "none")
 
 
-@pytest.mark.parametrize("variant", VARIANTS, ids=VARIANT_IDS)
+@pytest.mark.parametrize("variant", VARIANTS_MARKED, ids=VARIANT_IDS)
 def test_automatic_dot_any_block_size(data, variant):
     """The automatic dot works for every block size: bsb-csr's 65536-pixel
     limit makes it fall back (the block size is only known at the first chunk)."""
@@ -230,7 +238,7 @@ def test_automatic_dot_any_block_size(data, variant):
         npx, (v, i), powder = c.multi(chunks, 0)
         if mname == "permute":            # a permutation keeps the pixel dtype
             assert c.dot == "csc-permute" and powder.dtype == np.uint16, (c.dot, powder.dtype)
-        ref = np.stack([M.astype(np.float64) @ fr for fr in masked_frames])
+        ref = np.stack([M.astype(np.float64).dot(fr) for fr in masked_frames])
         got = np.asarray(powder, np.float64).reshape(ref.shape) * (1.0 / (c.powder_scale or 1))
         assert np.abs(got - ref).max() <= 1e-6 * max(1.0, np.abs(ref).max()), (mname, c.dot)
         if variant[2] // 2 > 65536:
@@ -269,7 +277,7 @@ def test_every_dot_and_route_on_uncompressed_frames(data, fill):
     masked_frames = frames.reshape(len(frames), -1).astype(np.float64) * (mask.ravel() > 0)
     ran, wrong = set(), []
     for mname, M in matrices().items():
-        ref = np.stack([M.astype(np.float64) @ fr for fr in masked_frames])
+        ref = np.stack([M.astype(np.float64).dot(fr) for fr in masked_frames])
         for dot, route in itertools.product(usable("dot"), usable("route")):
             try:
                 c = b.chunk2sparseCSC(

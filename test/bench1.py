@@ -1,3 +1,4 @@
+from __future__ import absolute_import, division, print_function
 
 import h5py, hdf5plugin
 import numpy as np
@@ -60,7 +61,7 @@ def bench2(hname, dsname, mask, cut):
         buf = None
         fun = bslz4_to_sparse.chunk2sparse( mask, dataset.dtype )
         for i in range(nframes):
-            filters, buffer = dataset.id.read_direct_chunk( (i,0,0,) )
+            filters, buffer = bslz4_to_sparse.read_direct_chunk( dataset, (i,0,0) )
             npx, buf = fun( buffer, cut )
             npixels += npx
     end = timeit.default_timer()

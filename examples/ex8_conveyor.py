@@ -17,6 +17,8 @@ the files in large pieces, keep every core busy, and write the results.  The ste
    the files.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import glob
 import os
 

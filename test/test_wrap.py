@@ -4,6 +4,8 @@ are still exact once the sparse pixels above maxval are subtracted again, by cli
 maxval or by dropping them.  Checked bit for bit against the same dot on frames clipped (or
 zeroed) first, on both routes, for each integer dot and unsigned pixel type."""
 
+from __future__ import absolute_import, division, print_function
+
 import os
 import sys
 

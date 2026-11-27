@@ -8,6 +8,9 @@ for sparse and dense-ish blocks, with masked pixels holding values, at the
 default 8 kB blocks and at 32 kB (planes larger than the VSX zero buffer).
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -35,17 +38,17 @@ def make(kind, rng):
         flat = a.reshape(4, -1)
         for f in range(4):
             idx = rng.choice(flat.shape[1], 25, replace=False)
-            flat[f, idx] = rng.integers(1, 256, idx.size)
+            flat[f, idx] = rng.randint(1, 256, idx.size)
     elif kind == "clustered":            # whole 64-pixel groups full, others empty
         a = np.zeros(n, np.int64)
         flat = a.reshape(4, -1)
         for f in range(4):
             for s in rng.choice(flat.shape[1] // 64, 20, replace=False):
-                flat[f, s * 64:(s + 1) * 64] = rng.integers(0, 256, 64)
+                flat[f, s * 64:(s + 1) * 64] = rng.randint(0, 256, 64)
     elif kind == "dense <256":
-        a = rng.integers(0, 256, n)
+        a = rng.randint(0, 256, n)
     elif kind == "max 255":
-        a = np.where(rng.random(n) < 0.02, 255, 0)
+        a = np.where(rng.random_sample(n) < 0.02, 255, 0)
     return a.astype(np.uint16)
 
 
@@ -63,13 +66,13 @@ DTYPES = [np.uint16, np.uint8, np.int16]
 def chunks_of(frames, path, nelems=0):
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=nelems, cname="lz4"))
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(ds)
+                              **bitshuffle(nelems=nelems, cname="lz4"))
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(ds)
 
 
 def masks():
-    rng = np.random.default_rng(3)
-    m = (rng.random(SHAPE) > 0.1).astype(np.uint8)
+    rng = np.random.RandomState(3)
+    m = (rng.random_sample(SHAPE) > 0.1).astype(np.uint8)
     m[:, 60:64] = 0
     return {"ones": np.ones(SHAPE, np.uint8), "holes": m}
 
@@ -82,9 +85,9 @@ LOWPLANES = [n for i, n in enumerate(_pipeline.NAMES["untranspose"])
 @pytest.mark.parametrize("nelems", [0, 16384])       # default blocks; 32 kB of u16, 16 kB of u8
 @pytest.mark.parametrize("kind", ["very sparse", "clustered", "dense <256", "max 255"])
 @pytest.mark.parametrize("mname", ["ones", "holes"])
-def test_sparse(tmp_path, kind, mname, nelems, dtype):
-    frames = as_dtype(make(kind, np.random.default_rng(17)), dtype)
-    chunks, codec = chunks_of(frames, tmp_path / "s.h5", nelems)
+def test_sparse(tmpdir, kind, mname, nelems, dtype):
+    frames = as_dtype(make(kind, np.random.RandomState(17)), dtype)
+    chunks, codec = chunks_of(frames, os.path.join(str(tmpdir), "s.h5"), nelems)
     mask = masks()[mname]
     mps = ("pixel", "planes") + (("none",) if mname == "ones" else ())
     for lp, mp in [(lp, mp) for lp in LOWPLANES for mp in mps]:
@@ -105,13 +108,13 @@ def test_sparse(tmp_path, kind, mname, nelems, dtype):
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("kind", ["very sparse", "clustered", "max 255"])
 @pytest.mark.parametrize("mname", ["ones", "holes"])
-def test_csc_sparse_route(tmp_path, kind, mname, dtype):
-    frames = as_dtype(make(kind, np.random.default_rng(18)), dtype)
-    chunks, codec = chunks_of(frames, tmp_path / "c.h5")
+def test_csc_sparse_route(tmpdir, kind, mname, dtype):
+    frames = as_dtype(make(kind, np.random.RandomState(18)), dtype)
+    chunks, codec = chunks_of(frames, os.path.join(str(tmpdir), "c.h5"))
     mask = masks()[mname]
     npix = SHAPE[0] * SHAPE[1]
     M = sp.random(120, npix, density=0.02, format="csc", random_state=9, dtype=np.float32)
-    ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
+    ref = np.array([M.dot(f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
     for skip in LOWPLANES + ["kcb"]:
         # every block takes the sparse route
         integ = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec,
@@ -137,15 +140,15 @@ def test_u8_auto_takes_lowplanes():
 
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("kind", ["clustered", "dense <256", "max 255"])
-def test_csc_dense_route(tmp_path, kind, dtype):
+def test_csc_dense_route(tmpdir, kind, dtype):
     """The dense route builds the pixel block from the low planes (u16; u8 blocks take kcb): the
     powder and the sparse output of every low-planes value equal numpy's."""
-    frames = as_dtype(make(kind, np.random.default_rng(19)), dtype)
-    chunks, codec = chunks_of(frames, tmp_path / "d.h5")
+    frames = as_dtype(make(kind, np.random.RandomState(19)), dtype)
+    chunks, codec = chunks_of(frames, os.path.join(str(tmpdir), "d.h5"))
     mask = masks()["holes"]
     npix = SHAPE[0] * SHAPE[1]
     M = sp.random(120, npix, density=0.02, format="csc", random_state=11, dtype=np.float32)
-    ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
+    ref = np.array([M.dot(f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
     for lp in LOWPLANES + ["kcb"]:
         integ = b.chunk2sparseCSC(mask, M, dtype=dtype, codec=codec,
                                   pipeline={"untranspose": lp, "route": "dense"})

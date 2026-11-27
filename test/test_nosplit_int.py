@@ -7,6 +7,10 @@ partial tile and a partial block, and with garbage at the masked pixels.  A sum 
 rounded once, in the cast at the end; wider pixels, float pixels and a matrix that splits pixels are
 refused.
 """
+
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -28,16 +32,16 @@ DOT = "csc-nosplit-int"
 
 def encode(frames, block=8192):
     shape = frames.shape[1:]
-    kw = hdf5plugin.Bitshuffle(nelems=block // frames.dtype.itemsize, cname="lz4")
+    kw = bitshuffle(nelems=block // frames.dtype.itemsize, cname="lz4")
     with h5py.File("t.h5", "w", driver="core", backing_store=False) as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + shape, **kw)
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
 
 
 def histogram(shape, nbins, seed=3):
     npix = shape[0] * shape[1]
     # sorted: neighbouring pixels share a bin, in runs, as radial bins give
-    bins = np.sort(np.random.default_rng(seed).integers(0, nbins, npix))
+    bins = np.sort(np.random.RandomState(seed).randint(0, nbins, npix))
     return sp.csc_matrix((np.ones(npix, np.float32), (bins, np.arange(npix))), shape=(nbins, npix))
 
 
@@ -54,11 +58,11 @@ def test_equals_the_float_histogram(dtype, route):
     shape = (97, 211)                                    # 20467 pixels: a partial block and tile
     mask = np.ones(shape, np.uint8)
     mask[10:13, :] = 0
-    mask[np.random.default_rng(1).random(shape) < 0.02] = 0
+    mask[np.random.RandomState(1).random_sample(shape) < 0.02] = 0
     info = np.iinfo(dtype)
-    rng = np.random.default_rng(2)
-    frames = rng.integers(0, min(info.max, 3000), (3,) + shape).astype(dtype)
-    frames[:, 50:60] = rng.integers(0, info.max, (3, 10, shape[1])).astype(dtype)   # dense, large
+    rng = np.random.RandomState(2)
+    frames = rng.randint(0, min(info.max, 3000), (3,) + shape).astype(dtype)
+    frames[:, 50:60] = rng.randint(0, info.max, (3, 10, shape[1]), dtype=np.int64).astype(dtype)   # dense, large
     frames[:, mask == 0] = info.max                      # what a detector writes at masked pixels
     M = histogram(shape, 40)
     chunks = encode(frames)
@@ -129,8 +133,8 @@ def test_repeated_calls_and_batch_sizes():
     shape = (64, 100)
     mask = np.ones(shape, np.uint8)
     M = histogram(shape, 9)
-    rng = np.random.default_rng(4)
-    frames = rng.integers(0, 500, (5,) + shape).astype(np.uint16)
+    rng = np.random.RandomState(4)
+    frames = rng.randint(0, 500, (5,) + shape).astype(np.uint16)
     chunks = encode(frames)
     ci = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=b.CODEC_LZ4, pipeline={"dot": DOT})
     cf = b.chunk2sparseCSC(mask, M, dtype=np.uint16, codec=b.CODEC_LZ4, pipeline={"dot": "csc-nosplit"})

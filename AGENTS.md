@@ -88,11 +88,26 @@ that old files lack. Before changing a contract, list the callers and say what
 happens to each. A changed default is a results change: measure before and after,
 report both.
 
-`src/*.py` must stay importable on Python 2.7 (CI job `test-py27`) and with numpy
-below 2: no infix `@`, f-strings, `yield from`, keyword-only arguments or
-`nonlocal`; no `np.random.default_rng`. One binary serves every Python version
-(c2py23 resolves the CPython API at runtime), free-threaded builds included. The
-subpackages `src/cuda/` and `src/conveyor/` are optional and Python 3 only.
+The library (`src/`, `src/conveyor/` and `src/cuda/` included; not yet
+`src/conveyor/diffmap_integrate.py`, a pyFAI command-line tool), the tests and the examples are
+one source that runs on Python 2.7 (numpy 1.16, h5py 2.10, hdf5plugin 2.3.2; CI job `test-py27`)
+and on Python 3 with numpy below and above 2. Write the clean subset both share; never two
+parallel paths (`if PY2: ... else: ...`, `sys.version_info`). Where a name is missing on one
+side, look first for a name both have (`timeit.default_timer`),
+else test for the capability (`getattr(os, "replace", os.rename)`, `import queue` falling back to `Queue`), once, in one place. No `multiprocessing` on the default (threads) path.
+The one agreed version test is `read_direct_chunk` in `src/__init__.py`: it works around h5py's
+Python 2 bug (the chunk comes back as a repr), which no capability test can see, a str being bytes
+there.
+`from __future__ import absolute_import, division, print_function` in every module; no infix
+`@` (`np.dot`, `.dot`), f-strings, `yield from`, keyword-only arguments, `nonlocal`, bare
+`super()`, `np.random.default_rng` (`RandomState`, with `dtype=np.int64` past 2**31), pathlib,
+`os.pread`/`preadv`, `threading.Barrier`. Test data Python 2 cannot write (zstd: hdf5plugin
+2.3.2 writes lz4 under a zstd label; sidecars: h5py 2.10 has no chunk index) is made under
+Python 3 and read by both, as `test/matrix.h5` and `test/conveyor_files`. One binary serves
+every Python version (c2py23 resolves the CPython API at runtime), free-threaded builds
+included. `src/cuda/` and `src/conveyor/` are optional; so is cupy (the driver backend needs
+only the fatbin and ctypes). Test on 2.7 with `../snakepit/snakepit-legacy.sif` (`--nv` for the
+GPU).
 
 ## 7. Build and test
 
@@ -104,7 +119,9 @@ subpackages `src/cuda/` and `src/conveyor/` are optional and Python 3 only.
   `src/bslz4_to_sparse_wrapper.c` by hand.
 - Tests: `BSLZ4_TO_SPARSE_PATH=<dir containing a bslz4_to_sparse package> python3
   -m pytest test`. Needs h5py, hdf5plugin, scipy; some tests and examples also use
-  pyFAI.
+  pyFAI (none on Python 2.7: those skip). The GPU tests need a CUDA GPU, not cupy;
+  only the tests of exchange with other libraries need cupy. Run them by hand: CI
+  has no GPU.
 - `docs/real/` holds example pages run on real data, committed: CI cannot run them.  A change to
   such an example (`PAGES` in `tools/real_data_pages.py`) or to the code it calls is not finished
   until `tools/real_data_pages.py` has been run again and its output committed with it.

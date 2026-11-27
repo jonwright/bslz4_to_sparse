@@ -15,7 +15,11 @@ give wrong numbers.
 Self-contained (no pyFAI).
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle, needs_zstd_writer
 import os
+import struct
 import sys
 
 _path = os.environ.get("BSLZ4_TO_SPARSE_PATH")
@@ -37,7 +41,7 @@ from test_layouts import (available_dots, expected, make_nosplit, reference)
 SHAPE = (1100, 1200)      # 1.32 Mpx: 2 blocks + a tail at 1 MB (u16), more for smaller
 NPIX = SHAPE[0] * SHAPE[1]
 BLOCK_BYTES = {"256kB": 256 * 1024, "1MB": 1024 * 1024}
-CODECS = ("lz4", "zstd")
+CODECS = ("lz4", pytest.param("zstd", marks=needs_zstd_writer))
 
 
 def available(step):
@@ -49,21 +53,21 @@ def write_chunks(frames, cname, block_bytes):
     nelems = block_bytes // frames.dtype.itemsize
     with h5py.File("blocks.h5", "w", driver="core", backing_store=False) as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=nelems, cname=cname))
+                              **bitshuffle(nelems=nelems, cname=cname))
         codec = b.detect_codec(ds)
-        chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+        chunks = [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
     return chunks, codec
 
 
 def make_split_1d(npix, nbins, seed):
     """Each pixel splits over 1-3 consecutive bins, weights summing to 1."""
-    rng = np.random.default_rng(seed)
-    n = rng.integers(1, 4, npix)
-    start = rng.integers(0, nbins - 3, npix)
+    rng = np.random.RandomState(seed)
+    n = rng.randint(1, 4, npix)
+    start = rng.randint(0, nbins - 3, npix)
     indptr = np.concatenate(([0], np.cumsum(n)))
     within = np.arange(int(n.sum())) - indptr[:-1].repeat(n)
     indices = start.repeat(n) + within
-    w = rng.random(int(n.sum())) + 0.1
+    w = rng.random_sample(int(n.sum())) + 0.1
     w /= np.add.reduceat(w, indptr[:-1]).repeat(n)
     return sp.csc_matrix((w.astype(np.float32), indices.astype(np.int32),
                           indptr.astype(np.int32)), shape=(nbins, npix))
@@ -73,12 +77,12 @@ def make_split_1d(npix, nbins, seed):
 @pytest.mark.parametrize("cname", CODECS)
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32])
 def test_sparsify_every_step_matches_numpy(cname, block, dt):
-    rng = np.random.default_rng(11)
+    rng = np.random.RandomState(11)
     frames = np.minimum(rng.poisson(0.3, (2,) + SHAPE), np.iinfo(dt).max).astype(dt)
     frames[:, 10:14, 50:54] = min(900, np.iinfo(dt).max)
     chunks, codec = write_chunks(frames, cname, BLOCK_BYTES[block])
-    assert int.from_bytes(bytes(chunks[0][8:12]), "big") == BLOCK_BYTES[block]
-    mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)
+    assert struct.unpack(">I", chunks[0][8:12])[0] == BLOCK_BYTES[block]
+    mask = (rng.random_sample(SHAPE) > 0.1).astype(np.uint8)
     ran = 0
     for un in available("untranspose"):
         for co in available("collect"):
@@ -105,10 +109,10 @@ def test_sparsify_every_step_matches_numpy(cname, block, dt):
 @pytest.mark.parametrize("cname", CODECS)
 @pytest.mark.parametrize("kind", ["split1d", "nosplit"])
 def test_every_dot_matches_numpy_or_is_refused(cname, block, kind):
-    rng = np.random.default_rng(12)
+    rng = np.random.RandomState(12)
     frames = rng.poisson(0.3, (2,) + SHAPE).astype(np.uint16)
     chunks, codec = write_chunks(frames, cname, BLOCK_BYTES[block])
-    mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)
+    mask = (rng.random_sample(SHAPE) > 0.1).astype(np.uint8)
     M = {"split1d": lambda: make_split_1d(NPIX, 200, 4),
          "nosplit": lambda: make_nosplit(NPIX, 250, 8)}[kind]()
     ref = reference(M, frames, mask)
@@ -147,12 +151,12 @@ def test_lowplanes_tiles(nelems, masked):
     above and a ragged multiple of the tile (8256 = 64 over, 8448 = 256 over)
     must give numpy's answer.  Frame 0 has every value < 256 (the fused path),
     frame 1 a few larger ones (the block falls back), frame 2 is sparse."""
-    rng = np.random.default_rng(13)
+    rng = np.random.RandomState(13)
     frames = np.minimum(rng.poisson(0.5, (3,) + SHAPE), 255).astype(np.uint16)
     frames[1, 500:510, 600:610] = 900
-    frames[2] = np.where(rng.random(SHAPE) < 1e-3, 7, 0)
+    frames[2] = np.where(rng.random_sample(SHAPE) < 1e-3, 7, 0)
     chunks, codec = write_chunks(frames, "lz4", nelems * 2)
-    mask = ((rng.random(SHAPE) > 0.1) if masked else np.ones(SHAPE, bool)).astype(np.uint8)
+    mask = ((rng.random_sample(SHAPE) > 0.1) if masked else np.ones(SHAPE, bool)).astype(np.uint8)
     ran = 0
     for un in [n for n in available("untranspose") if n.startswith("lowplanes")]:
         for co in available("collect"):
@@ -174,11 +178,11 @@ def test_lowplanes_tiles(nelems, masked):
 
 def make_rings(npix, nbins, seed):
     """Few occupied pixels (< 0.5), each reaching 1-3 arbitrary bins: auto takes bsb-csr."""
-    rng = np.random.default_rng(seed)
-    n = rng.integers(1, 4, npix) * (rng.random(npix) < 0.3)
+    rng = np.random.RandomState(seed)
+    n = rng.randint(1, 4, npix) * (rng.random_sample(npix) < 0.3)
     indptr = np.concatenate(([0], np.cumsum(n)))
-    indices = rng.integers(0, nbins, int(n.sum()))
-    data = rng.random(int(n.sum())).astype(np.float32) + 0.25
+    indices = rng.randint(0, nbins, int(n.sum()))
+    data = rng.random_sample(int(n.sum())).astype(np.float32) + 0.25
     return sp.csc_matrix((data, indices.astype(np.int32), indptr.astype(np.int32)),
                          shape=(nbins, npix))
 
@@ -189,9 +193,9 @@ def test_auto_dot_falls_back_on_large_blocks(dtype, kind):
     """An auto dot that is bsb-csr on the default block becomes csc on a 1 MB block, and is
     right.  A histogram takes csc-nosplit (float) or csc-nosplit-int, which have no block
     limit: they stay."""
-    rng = np.random.default_rng(14)
+    rng = np.random.RandomState(14)
     frames = rng.poisson(0.3, (2,) + SHAPE).astype(dtype)
-    mask = (rng.random(SHAPE) > 0.1).astype(np.uint8)
+    mask = (rng.random_sample(SHAPE) > 0.1).astype(np.uint8)
     if kind == "rings":
         M, first, later = make_rings(NPIX, 250, 8), "bsb-csr", "csc"
     else:

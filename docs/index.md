@@ -31,7 +31,8 @@ or sparse product with the matrix.  Each step has several implementations
 one is chosen automatically and can be overridden.
 
 One compiled module serves every Python version from 2.7 to 3.15, including
-the free-threaded builds (the GPU decoder and the conveyor need Python 3).
+the free-threaded builds, and the Python around it (the GPU decoder and the conveyor
+included) is one source for all of them.
 Decoding releases the GIL, and objects are not
 shared between threads: use one per thread.
 
@@ -75,7 +76,7 @@ chunks, with or without undoing the bit shuffle, without any sparse step and
 without HDF5, releasing the GIL.  The back half takes frames that were never
 compressed, so every collecting and integrating step can be tested, and used, on
 plain images.  The same processing exists on a CUDA GPU behind the same calls
-(Python 3 with cupy).
+(with cupy, or without it through the CUDA driver and a precompiled kernel file).
 
 ## Moving many files
 
@@ -86,7 +87,8 @@ fits), in large reads,
 while the worker decodes the other.  Where every chunk lies in a file is kept
 once in a small index file beside it, so reading never calls HDF5, which takes a
 global lock.  A faster worker simply takes more files, and the only
-synchronisation is about once per file.  The conveyor is pure Python 3.
+synchronisation is about once per file.  The conveyor is pure Python.  Building the index
+needs h5py 3; Python 2.7 reads the indexes built under Python 3.
 
 Every run reports the compressed bytes read, the bytes of results and the rates.
 A guard sink measures the sparse pixels compressed as they would be stored and, for a

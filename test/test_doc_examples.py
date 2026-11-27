@@ -1,6 +1,8 @@
 """Every examples/ex*.py runs and passes its own checks, as the documentation
 site shows it (tools/generate_docs.py runs the same scripts the same way)."""
 
+from __future__ import absolute_import, division, print_function
+
 import glob
 import os
 import subprocess
@@ -42,19 +44,23 @@ def _has_gpu():
                 "from bslz4_to_sparse import cuda; assert cuda.device_count() > 0")
         pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(bslz4_to_sparse.__file__)))
         env = dict(os.environ, PYTHONPATH=pkg_parent)
-        _gpu.append(subprocess.run([sys.executable, "-c", code], env=env).returncode == 0)
+        try:
+            subprocess.check_call([sys.executable, "-c", code], env=env)
+            _gpu.append(True)
+        except subprocess.CalledProcessError:
+            _gpu.append(False)
     return _gpu[0]
 
 
 @pytest.fixture(scope="session")
-def standin_folder(tmp_path_factory):
+def standin_folder(tmpdir_factory):
     """The files the examples are written for (see tools/standin.py), in a working directory."""
     pytest.importorskip("h5py")
     pytest.importorskip("hdf5plugin")
     pytest.importorskip("pyFAI")
     import standin
 
-    d = str(tmp_path_factory.mktemp("examples"))
+    d = str(tmpdir_factory.mktemp("examples"))
     standin.make_standin(d)
     return d
 
@@ -72,11 +78,12 @@ def test_example_runs(path, standin_folder):
     env["PYTHONPATH"] = os.pathsep.join(
         [pkg_parent, tools_dir] + [p for p in [env.get("PYTHONPATH")] if p]
     )
-    r = subprocess.run(
-        [sys.executable, path],
-        env=env,
-        cwd=standin_folder,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    assert r.returncode == 0, r.stdout.decode()
+    try:
+        subprocess.check_output(
+            [sys.executable, path],
+            env=env,
+            cwd=standin_folder,
+            stderr=subprocess.STDOUT,
+        )
+    except subprocess.CalledProcessError as e:  # show what the example printed, traceback included
+        raise AssertionError(e.output.decode("utf-8", "replace"))

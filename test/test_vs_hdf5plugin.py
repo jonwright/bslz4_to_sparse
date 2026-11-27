@@ -1,5 +1,4 @@
-
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 try:
     import hdf5plugin
     import h5py
@@ -116,7 +115,7 @@ def test_caller():
                     if cut > np.iinfo( dataset.dtype ).max:
                         continue
                     pv, pi = pysparse( dataset, frame, cut, mask )
-                    filters, buffer = dataset.id.read_direct_chunk( (frame, 0, 0 ) )
+                    filters, buffer = bslz4_to_sparse.read_direct_chunk( dataset, (frame, 0, 0 ) )
                     npx, (cv, ci) = funcobj( buffer, cut )
                     if len(pv) != npx:
                         print('cut',cut)

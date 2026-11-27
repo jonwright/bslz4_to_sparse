@@ -6,6 +6,9 @@ and every result is checked against the conventional CSC decoder
 both routes (dense/sparse) and every padded tier the machine can run.
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -27,22 +30,23 @@ from bslz4_to_sparse import _pipeline
 def make_runs(npix, nbins, width_max, seed, empty=0.15):
     """A random CSC (nbins, npix) where every pixel reaches one run of
     consecutive bins (0..width_max of them), so it can be padded."""
-    rng = np.random.default_rng(seed)
-    n = rng.integers(0, width_max + 1, npix)
-    n[rng.random(npix) < empty] = 0
-    start = rng.integers(0, nbins - n + 1)
+    rng = np.random.RandomState(seed)
+    n = rng.randint(0, width_max + 1, npix)
+    n[rng.random_sample(npix) < empty] = 0
+    # RandomState.randint (numpy 1.16) needs scalar bounds: build the per-pixel start another way
+    start = (rng.random_sample(npix) * (nbins - n + 1)).astype(np.int64)
     indptr = np.concatenate(([0], np.cumsum(n)))
     indices = np.concatenate([start[i] + np.arange(n[i]) for i in range(npix)]) if n.sum() else np.zeros(0, int)
-    data = rng.random(int(n.sum())).astype(np.float32) + 0.25
+    data = rng.random_sample(int(n.sum())).astype(np.float32) + 0.25
     return sp.csc_matrix((data, indices.astype(np.int32), indptr.astype(np.int32)), shape=(nbins, npix))
 
 
 def write_chunks(tmp_path, frames, cname="lz4"):
     with h5py.File(str(tmp_path), "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=0, cname=cname, clevel=0))
+                              **bitshuffle(nelems=0, cname=cname, clevel=0))
         codec = b.detect_codec(ds)
-        chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+        chunks = [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
     return chunks, codec
 
 
@@ -52,13 +56,13 @@ def sparse_set(npx, vals, adr, f):
 
 
 @pytest.fixture(scope="module")
-def data(tmp_path_factory):
+def data(tmpdir_factory):
     """{(dtype, cname): (frames, chunks, codec)}"""
     out = {}
-    d = tmp_path_factory.mktemp("padded")
+    d = tmpdir_factory.mktemp("padded")
     SHAPE = (60, 80)
     for dt in (np.uint8, np.uint16, np.uint32, np.int16, np.float32):
-        frames = np.random.default_rng(7).poisson(0.6, (3,) + SHAPE).astype(dt)
+        frames = np.random.RandomState(7).poisson(0.6, (3,) + SHAPE).astype(dt)
         if np.dtype(dt).kind == "f":
             frames = frames * np.float32(1.5)
         if np.dtype(dt).kind == "i":
@@ -83,7 +87,7 @@ def integ(mask, csc, dt, dot, route=None):
 
 def _compare(csc, dt, chunks, cut=1, listed=None):
     """Run every available padded tier and bsb-csr against csc; return True if all match."""
-    mask = np.ascontiguousarray(np.random.default_rng(9).random(60 * 80) > 0.1, np.uint8).reshape(60, 80)
+    mask = np.ascontiguousarray(np.random.RandomState(9).random_sample(60 * 80) > 0.1, np.uint8).reshape(60, 80)
     ok = True
     for route in ("dense", "sparse"):
         rc = integ(mask, csc, dt, "csc", route).multi(chunks, cut)
@@ -146,11 +150,11 @@ def test_padded_block_elems_mismatch():
     bytes, so 4096 u16 elems) still decodes correctly: the integrator rebuilds
     the layout from the first chunk header (C also rejects a mismatch)."""
     SHAPE = (60, 80)
-    frames = np.random.default_rng(1).poisson(0.6, (3,) + SHAPE).astype(np.uint16)
+    frames = np.random.RandomState(1).poisson(0.6, (3,) + SHAPE).astype(np.uint16)
     with h5py.File("_bshuf_block.h5", "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + SHAPE,
-                              **hdf5plugin.Bitshuffle(nelems=512, cname="lz4", clevel=0))
-        chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(3)]
+                              **bitshuffle(nelems=512, cname="lz4", clevel=0))
+        chunks = [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(3)]
     try:
         csc = make_runs(60 * 80, 100, 3, seed=40)
         mask = np.ones((60, 80), np.uint8)

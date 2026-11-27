@@ -9,6 +9,8 @@ job, the pixels above a cut: bslz4_to_sparse straight from the compressed chunks
 the frame with numpy to find the pixels.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import os
 
 import h5py

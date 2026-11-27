@@ -1,6 +1,9 @@
 """route "bpp": a block takes the sparse route when it is compressed below 2 bits per pixel, for
 every pixel width (the "ratio" rule's 8x is 2 bits per pixel for u16 only).  The powder does not
 depend on the route."""
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -27,10 +30,10 @@ def routes(ran):
 
 
 def encode(frame):
-    kw = hdf5plugin.Bitshuffle(nelems=8192 // frame.dtype.itemsize, cname="lz4")
+    kw = bitshuffle(nelems=8192 // frame.dtype.itemsize, cname="lz4")
     with h5py.File("t.h5", "w", driver="core", backing_store=False) as f:
         ds = f.create_dataset("d", data=frame[None], chunks=(1,) + frame.shape, **kw)
-        return [ds.id.read_direct_chunk((0, 0, 0))[1]]
+        return [b.read_direct_chunk(ds, (0, 0, 0))[1]]
 
 
 def blocks_per_route(dtype, frame, route):
@@ -47,11 +50,11 @@ def blocks_per_route(dtype, frame, route):
 
 @pytest.mark.parametrize("dtype", (np.uint8, np.uint16, np.uint32))
 def test_threshold_is_bits_per_pixel(dtype):
-    rng = np.random.default_rng(5)
+    rng = np.random.RandomState(5)
     for frac, expect in ((0.002, "sparse"), (0.9, "dense")):    # compressed far below / far above 2 bpp
         frame = np.zeros(SHAPE, dtype)
-        hit = rng.random(SHAPE) < frac
-        frame[hit] = rng.integers(1, 3, hit.sum())
+        hit = rng.random_sample(SHAPE) < frac
+        frame[hit] = rng.randint(1, 3, hit.sum())
         ran, _ = blocks_per_route(dtype, frame, "bpp")
         assert (routes(ran)[0] == 0) == (expect == "sparse"), (dtype, frac, ran)
         assert (routes(ran)[1] == 0) == (expect == "dense"), (dtype, frac, ran)
@@ -59,8 +62,8 @@ def test_threshold_is_bits_per_pixel(dtype):
 
 def test_u32_between_the_two_rules():
     """About 3 bits per pixel: dense by the bpp rule; the ratio rule's 8x sends u32 to sparse."""
-    rng = np.random.default_rng(6)
-    frame = (rng.random(SHAPE) < 0.2).astype(np.uint32) * rng.integers(1, 8, SHAPE).astype(np.uint32)
+    rng = np.random.RandomState(6)
+    frame = (rng.random_sample(SHAPE) < 0.2).astype(np.uint32) * rng.randint(1, 8, SHAPE).astype(np.uint32)
     chunks = encode(frame)
     bpp = 8.0 * (len(chunks[0]) - 12) / frame.size
     assert 2.6 < bpp < 3.8, bpp
@@ -72,8 +75,8 @@ def test_u32_between_the_two_rules():
 
 @pytest.mark.parametrize("dtype", (np.uint16, np.uint32))
 def test_same_powder_on_every_route(dtype):
-    rng = np.random.default_rng(7)
-    frame = ((rng.random(SHAPE) < 0.15) * rng.integers(1, 40, SHAPE)).astype(dtype)
+    rng = np.random.RandomState(7)
+    frame = ((rng.random_sample(SHAPE) < 0.15) * rng.randint(1, 40, SHAPE)).astype(dtype)
     ref = blocks_per_route(dtype, frame, "dense")[1]
     for route in ("sparse", "ratio", "bpp"):
         assert np.array_equal(blocks_per_route(dtype, frame, route)[1], ref)

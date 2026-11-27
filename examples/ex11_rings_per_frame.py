@@ -6,8 +6,10 @@ normalised 2D cake, summed, with a background window either side of it and no ba
 so the reader decides what to do with the three.  The sparse pixels of the same frames come from the
 same pass.  The files follow the input files and their frame order: sorting frames into scan order is
 left to the reader.  Where the rings are is user input: usually decided the unit cell and a user
-selection of which hkl to use and the width ranges to harvest. 
+selection of which hkl to use and the width ranges to harvest.
 """
+
+from __future__ import absolute_import, division, print_function
 
 import glob
 import os

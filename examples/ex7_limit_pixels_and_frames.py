@@ -9,6 +9,8 @@ little.  from_frames() runs the same processing on frames that are not
 compressed, and decompress() gives the frames back without any sparse step.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import h5py
 import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
 import numpy as np
@@ -25,7 +27,7 @@ with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
     dtype, codec = ds.dtype, b.detect_codec(ds)
     frames = ds[:3]  # decompressed by HDF5: for the checks, and for from_frames below
-    chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(3)]
+    chunks = [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(3)]
 with h5py.File(mask_filename, "r") as h5:
     mask = (h5["mask"][()] == 0).astype(np.uint8)  # 1 = use this pixel
 cut = 0  # every non-zero pixel: the frames are not sparse at this cut, which is what howmany is for

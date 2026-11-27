@@ -7,6 +7,9 @@ hold the dtype maximum (they must never appear) and unmasked saturated pixels
 at the maximum (they must always be collected).
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import itertools
 import os
 import sys
@@ -30,7 +33,7 @@ SHAPE = (99, 209)     # 20691 px: full blocks plus a tail
 _m = np.ones(SHAPE, bool)
 _m[:, 100:104] = False
 _m[50, :] = False
-_m.ravel()[np.random.default_rng(7).choice(_m.size, 300, replace=False)] = False
+_m.ravel()[np.random.RandomState(7).choice(_m.size, 300, replace=False)] = False
 MASK = _m.astype(np.uint8)
 MASKED = ~_m
 
@@ -44,11 +47,11 @@ def make(kind, dt, rng):
     if kind == "very sparse":
         for f in range(3):
             idx = rng.choice(flat.shape[1], 12, replace=False)
-            flat[f, idx] = rng.integers(1, 30, idx.size)
+            flat[f, idx] = rng.randint(1, 30, idx.size)
     elif kind == "sparse spots":
         for f in range(3):
             idx = rng.choice(flat.shape[1], 80, replace=False)
-            flat[f, idx] = rng.integers(1, min(top, 5000) + 1, idx.size)
+            flat[f, idx] = rng.randint(1, min(top, 5000) + 1, idx.size)
     elif kind == "high bits":
         for f in range(3):
             idx = rng.choice(flat.shape[1], 30, replace=False)
@@ -62,7 +65,7 @@ def make(kind, dt, rng):
         # them), and a few unmasked saturated pixels at the maximum too
         for f in range(3):
             idx = rng.choice(flat.shape[1], 40, replace=False)
-            flat[f, idx] = rng.integers(1, 20, idx.size)
+            flat[f, idx] = rng.randint(1, 20, idx.size)
             flat[f, rng.choice(flat.shape[1], 5, replace=False)] = top
         a[:, MASKED] = top
     if info is not None:
@@ -73,8 +76,8 @@ def make(kind, dt, rng):
 def chunks_of(frames, path):
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
-        return [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(ds)
+                              **bitshuffle(nelems=0, cname="lz4"))
+        return [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))], b.detect_codec(ds)
 
 
 DECODES = ("lz4-band", "lz4-zero", "lz4-stock")
@@ -95,10 +98,10 @@ def untransposes(dt):
 
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32, np.int32, np.float32])
 @pytest.mark.parametrize("kind", ["very sparse", "sparse spots", "high bits", "medium", "dense", "saturated"])
-def test_sparse_output_unchanged(tmp_path, dt, kind):
-    rng = np.random.default_rng(41)
+def test_sparse_output_unchanged(tmpdir, dt, kind):
+    rng = np.random.RandomState(41)
     frames = make(kind, dt, rng)
-    chunks, codec = chunks_of(frames, tmp_path / "z.h5")
+    chunks, codec = chunks_of(frames, os.path.join(str(tmpdir), "z.h5"))
     mask = MASK
     for cut in (0, 5):
         for dec, unt, msk in itertools.product(DECODES, untransposes(dt), MASKS):
@@ -118,14 +121,14 @@ def test_sparse_output_unchanged(tmp_path, dt, kind):
 @pytest.mark.parametrize("dt", [np.uint16, np.uint32])
 @pytest.mark.parametrize("kind", ["very sparse", "medium", "dense", "saturated"])
 @pytest.mark.parametrize("route", ["dense", "sparse"])
-def test_powder_unchanged(tmp_path, dt, kind, route):
-    rng = np.random.default_rng(42)
+def test_powder_unchanged(tmpdir, dt, kind, route):
+    rng = np.random.RandomState(42)
     frames = make(kind, dt, rng)
-    chunks, codec = chunks_of(frames, tmp_path / "p.h5")
+    chunks, codec = chunks_of(frames, os.path.join(str(tmpdir), "p.h5"))
     npix = SHAPE[0] * SHAPE[1]
     mask = MASK
     M = sp.random(150, npix, density=0.02, format="csc", random_state=6, dtype=np.float32)
-    ref = np.array([M @ (f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
+    ref = np.array([M.dot(f.ravel().astype(np.float64) * mask.ravel()) for f in frames])
     for dec, unt, msk in itertools.product(DECODES, untransposes(dt), MASKS):
         integ = b.chunk2sparseCSC(mask, M, dtype=dt, codec=codec,
                                   pipeline={"decode": dec, "untranspose": unt, "mask": msk,

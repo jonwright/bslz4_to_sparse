@@ -38,12 +38,13 @@ The example data came from ID11 files in which the detector's 16-bit counts had 
 32-bit by the acquisition software: --dtype uint16 puts them back.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import argparse
 import hashlib
 import os
 import shutil
 import sys
-import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -51,6 +52,9 @@ sys.path.insert(0, HERE)
 import h5py  # noqa: E402
 import hdf5plugin  # noqa: E402
 import numpy as np  # noqa: E402
+
+from standin import bitshuffle  # noqa: E402  (the one copy, in tools/standin.py)
+
 
 DSET = "/entry_0000/ESRF-ID11/eiger/data"
 DEFAULT_DIR = "/data/id11/jon/hdftest/bslz4_to_sparse_examples"
@@ -64,6 +68,16 @@ MD5 = {
     "silicon_u16_zstd2_256k.h5": "cb3fe7636eabf8d2dffd9af692b1917e",
     "mask.h5": "52665c08ca33aef9d5897b1d5f04a298",
 }
+
+
+def _chunk_bytes(ds, i):
+    """The stored size of chunk i of ds: from the chunk index where h5py has it, else (h5py 2.10)
+    by reading the chunk."""
+    if hasattr(ds.id, "get_chunk_info"):
+        return ds.id.get_chunk_info(i).size
+    import bslz4_to_sparse as b  # its read_direct_chunk works on h5py 2.10
+
+    return len(b.read_direct_chunk(ds, (i, 0, 0))[1])
 
 
 def repack(
@@ -98,7 +112,7 @@ def repack(
             shape=(stop - start,) + shape,
             dtype=dtype,
             chunks=(1,) + shape,
-            **hdf5plugin.Bitshuffle(**kw)
+            **bitshuffle(**kw)
         )
         out.attrs.update(ds.attrs)
         if times in hs:
@@ -117,7 +131,7 @@ def repack(
             if not np.array_equal(out[i - start], f):
                 raise ValueError("frame %d was not written exactly" % i)
         hd.attrs["repacked_from"] = "%s frames %d:%d" % (os.path.basename(src), start, stop)
-        nbytes = sum(out.id.get_chunk_info(i).size for i in range(stop - start))
+        nbytes = sum(_chunk_bytes(out, i) for i in range(stop - start))
     return stop - start, top, nbytes
 
 
@@ -137,8 +151,14 @@ def download(dst=None, base=ZENODO):
     ~/.cache/bslz4_to_sparse/examples), a file whose md5 matches is never fetched again, and an interrupted
     download is resumed from its .part file, not started over.  Anything else in this module reads
     the files from that place and never downloads."""
+    try:  # this is the one place the module must import a py3 (or py2.7) urllib name
+        from urllib.request import Request, urlopen
+    except ImportError:
+        from urllib2 import Request, urlopen
+
     dst = dst or example_dir()
-    os.makedirs(dst, exist_ok=True)
+    if not os.path.isdir(dst):
+        os.makedirs(dst)
     for name, want in MD5.items():
         out = os.path.join(dst, name)
         if os.path.exists(out) and md5(out) == want:
@@ -146,14 +166,17 @@ def download(dst=None, base=ZENODO):
             continue
         tmp = out + ".part"
         have = os.path.getsize(tmp) if os.path.exists(tmp) else 0
-        req = urllib.request.Request(base % name)
+        req = Request(base % name)
         if have:
             req.add_header("Range", "bytes=%d-" % have)
         print("%s: downloading%s" % (name, " (resuming at %d bytes)" % have if have else ""))
-        with urllib.request.urlopen(req) as r:
-            resumed = have and getattr(r, "status", None) == 206  # a server that ignores Range sends it all
+        r = urlopen(req)
+        try:
+            resumed = have and r.getcode() == 206  # a server that ignores Range sends it all
             with open(tmp, "ab" if resumed else "wb") as fh:
                 shutil.copyfileobj(r, fh, 1 << 20)
+        finally:
+            r.close()
         if md5(tmp) != want:
             os.remove(tmp)
             sys.exit("%s: the md5 is not %s, not kept" % (name, want))
@@ -198,7 +221,8 @@ def path(key, variant="lz4", src=None, cache=None):
         return full
     out = os.path.join(cache, "%s_%s.h5" % (key, variant))
     if not os.path.exists(out):
-        os.makedirs(cache, exist_ok=True)
+        if not os.path.isdir(cache):
+            os.makedirs(cache)
         tmp = out + ".tmp"
         repack(full, tmp, codec="lz4", block_kb=8,
                   mask=mask(src) if variant == "lz4mask" else None)
@@ -237,10 +261,12 @@ def frames(key, nframes, variant="lz4", src=None):
 def chunks(key, nframes, variant="lz4", src=None):
     """The compressed chunks of nframes frames spread evenly over the file (no file I/O after
     this), the first frame, and {frames_in_file, shape, dtype}."""
+    import bslz4_to_sparse as b
+
     with h5py.File(path(key, variant, src), "r") as f:
         ds = f[DSET]
         idx = np.unique(np.linspace(0, ds.shape[0] - 1, nframes).round().astype(int))
-        cs = [ds.id.read_direct_chunk((int(i), 0, 0))[1] for i in idx]
+        cs = [b.read_direct_chunk(ds, (int(i), 0, 0))[1] for i in idx]
         info = {"frames_in_file": int(ds.shape[0]), "shape": list(ds.shape[1:]),
                 "dtype": str(ds.dtype)}
         return cs, ds[int(idx[0])], info
@@ -248,7 +274,7 @@ def chunks(key, nframes, variant="lz4", src=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd")
     p = sub.add_parser("download", help="fetch the example files from Zenodo")
     p.add_argument("--dir", default=None, help="where to (default $BSLZ4_EXAMPLES)")
     p = sub.add_parser("prepare", help="make the lz4 and lz4mask variants of the download")
@@ -265,6 +291,8 @@ def main():
     p.add_argument("--dset", default=DSET)
     p.add_argument("--mask", default=None, help="mask.h5: masked pixels are set to the maximum")
     a = ap.parse_args()
+    if a.cmd is None:
+        ap.error("a subcommand (download, prepare or repack) is required")
     if a.cmd == "download":
         print(download(a.dir))
         return

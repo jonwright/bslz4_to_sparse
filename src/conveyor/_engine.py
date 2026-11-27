@@ -2,7 +2,7 @@
 
     todo       the units (whole files when they fit in max_unit_bytes), in file order, all queued before the run
     reader k   whenever worker k has a free buffer, takes the next unit from todo and reads it into
-               that buffer with large preadv calls in file order, while the worker decodes the
+               that buffer with large read calls in file order, while the worker decodes the
                previous one
     worker k   decodes the unit its reader delivered straight from the buffer and gives the sink
                the result
@@ -10,20 +10,27 @@
 Pulling is the load balance: a worker that decodes faster frees its buffers sooner and so takes more
 units, and reading is demand driven, each worker reading only as fast as it consumes.  Readers touch
 the shared queue once per unit (a unit is seconds of work), and each worker and its reader meet once
-per unit through two blocking queues; nobody polls or spins.  The buffers are one anonymous mmap,
-cut per worker and first touched by that worker after it is pinned (near its CPU); not a file, not
-SharedMemory.  Workers are threads or forked processes around the same code.
+per unit through two blocking queues; nobody polls or spins.  The buffers are one allocation (a
+numpy array for threads, an anonymous shared mmap for forked processes), cut per worker and first
+touched by that worker after it is pinned (near its CPU); not a file, not SharedMemory.  Workers are
+threads or forked processes around the same code.  Threads run wherever Python and numpy do
+(Linux, macOS, Windows); forked processes need fork.
 
 Memory: workers x slots x the largest unit.
 """
 
-import mmap
-import multiprocessing as mp
+from __future__ import absolute_import, division, print_function
+
+import io
 import os
-import queue
-import resource
 import threading
 import time
+
+try:
+    import queue
+except ImportError:  # Python 2 spells it Queue
+    import Queue as queue
+from timeit import default_timer as _clock  # perf_counter (time.time on Python 2)
 
 import numpy as np
 
@@ -35,20 +42,39 @@ _DONE = None
 class _ThreadContext(object):
     Queue = staticmethod(queue.Queue)
     Event = staticmethod(threading.Event)
-    Barrier = staticmethod(threading.Barrier)
+
+    @staticmethod
+    def buffer(nbytes):
+        return np.empty(nbytes, np.uint8)  # pages are placed when first touched, as with mmap
 
     @staticmethod
     def Worker(target, args):
-        return threading.Thread(target=target, args=args, daemon=True)
+        w = threading.Thread(target=target, args=args)
+        w.daemon = True
+        return w
 
 
 class _ForkContext(object):
     def __init__(self):
-        self.ctx = mp.get_context("fork")
-        self.Queue, self.Event, self.Barrier = self.ctx.Queue, self.ctx.Event, self.ctx.Barrier
+        if not hasattr(os, "fork"):
+            raise ValueError('mode="processes" forks, and this OS has no fork: use mode="threads"')
+        import multiprocessing as mp  # only for mode="processes": threads never import it
+
+        # Python 2 multiprocessing always forks on Linux; Python 3.14 defaults to forkserver
+        self.ctx = mp.get_context("fork") if hasattr(mp, "get_context") else mp
+        self.Queue, self.Event = self.ctx.Queue, self.ctx.Event
 
     def Worker(self, target, args):
-        return self.ctx.Process(target=target, args=args, daemon=True)
+        w = self.ctx.Process(target=target, args=args)
+        w.daemon = True
+        return w
+
+    @staticmethod
+    def buffer(nbytes):
+        import mmap
+
+        mm = mmap.mmap(-1, nbytes, flags=mmap.MAP_SHARED | mmap.MAP_ANONYMOUS)  # seen after fork
+        return np.frombuffer(mm, np.uint8)
 
 
 def _cpulist(text):
@@ -62,9 +88,29 @@ def _cpulist(text):
     return cpus
 
 
+def _allowed_cpus():
+    """The CPUs this process may use (under Slurm, those of the job): sched_getaffinity where the
+    Python has it; else (Python 2) Cpus_allowed_list of /proc/self/status on Linux; else (no
+    /proc: macOS, Windows, not under Slurm) every CPU."""
+    if hasattr(os, "sched_getaffinity"):
+        return os.sched_getaffinity(0)
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("Cpus_allowed_list:"):
+                    return _cpulist(line.split(":", 1)[1])
+    except EnvironmentError:
+        pass
+    if hasattr(os, "cpu_count"):
+        return range(os.cpu_count() or 1)
+    return range(os.sysconf("SC_NPROCESSORS_ONLN"))
+
+
 def numa_nodes(allowed=None):
     """[[cpu, ...], ...]: the CPUs this process may use, grouped by NUMA node."""
-    allowed = set(os.sched_getaffinity(0)) if allowed is None else set(allowed)
+    if allowed is None:
+        allowed = _allowed_cpus()
+    allowed = set(allowed)
     out = []
     d = "/sys/devices/system/node"
     if os.path.isdir(d):
@@ -76,9 +122,47 @@ def numa_nodes(allowed=None):
     return out or [sorted(allowed)]
 
 
-def _faults():
-    """minor page faults of the calling thread so far"""
-    return resource.getrusage(resource.RUSAGE_THREAD).ru_minflt
+def _rusage_thread():
+    """The resource module where getrusage counts per thread (RUSAGE_THREAD, 1: Linux; Python 2's
+    resource lacks the name, not the call), else None (Windows has no resource, macOS no
+    RUSAGE_THREAD)."""
+    try:
+        import resource
+
+        resource.getrusage(1)
+        return resource
+    except (ImportError, ValueError, EnvironmentError):
+        return None
+
+
+_RESOURCE = _rusage_thread()
+
+
+def _thread_usage():
+    """(cpu seconds, minor page faults) of the calling thread so far; None for what is not counted
+    per thread here: page faults off Linux, and also the cpu time on Python 2 off Linux (Python 3
+    has time.thread_time everywhere)."""
+    if _RESOURCE is not None:
+        ru = _RESOURCE.getrusage(1)
+        return ru.ru_utime + ru.ru_stime, ru.ru_minflt
+    return (time.thread_time() if hasattr(time, "thread_time") else None), None
+
+
+def _less(a, b):
+    """a - b, or None when either was not counted."""
+    return None if a is None or b is None else a - b
+
+
+def _total(xs):
+    """sum(xs), or None when any was not counted."""
+    xs = list(xs)
+    return None if None in xs else sum(xs)
+
+
+def _pin(cpus):
+    """Pin the calling thread (or process) to cpus, where the OS lets Python do it."""
+    if cpus and hasattr(os, "sched_setaffinity"):
+        os.sched_setaffinity(0, cpus)
 
 
 def _out_bytes(npx, values, indices, powder):
@@ -93,37 +177,34 @@ def _out_bytes(npx, values, indices, powder):
 def _reader(k, todo, ready_q, free_q, buf, slot_bytes, cpus, io_bytes, go, stop, res_q):
     st = dict(role="reader", k=k, bytes=0, read_s=0.0, wait_s=0.0, error=None, minflt=0)
     try:
-        if cpus:
-            os.sched_setaffinity(0, cpus)
+        _pin(cpus)
         go.wait()
-        flt0 = _faults()
+        flt0 = _thread_usage()[1]
         view = memoryview(buf)
         while True:
-            t = time.perf_counter()
+            t = _clock()
             slot = free_q.get()  # blocks until the worker is done with a buffer
-            st["wait_s"] += time.perf_counter() - t
+            st["wait_s"] += _clock() - t
             if stop.is_set():
                 break
             u = todo.get()  # the next unit, whoever asks first; _DONE when there are no more
             if u is _DONE:
                 break
             base = slot * slot_bytes
-            t = time.perf_counter()
-            fd = os.open(u.path, os.O_RDONLY)
-            try:
+            t = _clock()
+            with io.open(u.path, "rb", buffering=0) as f:
+                f.seek(u.start)
                 got = 0
                 while got < u.span:
                     want = min(io_bytes or u.span, u.span - got)
-                    r = os.preadv(fd, [view[base + got : base + got + want]], u.start + got)
-                    if r <= 0:
+                    r = f.readinto(view[base + got : base + got + want])
+                    if not r:
                         raise IOError("short read of %s" % u.path)
                     got += r
-            finally:
-                os.close(fd)
-            st["read_s"] += time.perf_counter() - t
+            st["read_s"] += _clock() - t
             st["bytes"] += u.span
             ready_q.put((slot, u))
-        st["minflt"] = _faults() - flt0
+        st["minflt"] = _less(_thread_usage()[1], flt0)
         ready_q.put(_DONE)
     except BaseException as e:  # noqa: BLE001 (report it, and unblock the worker)
         st["error"] = repr(e)
@@ -144,9 +225,10 @@ def _worker(
     S,
     batch,
     cpu,
-    barrier,
+    start_q,
     go,
     stop,
+    abort,
     res_q,
 ):
     st = dict(
@@ -161,9 +243,10 @@ def _worker(
         minflt=0,
     )
     t_first = t_last = None
+    started = False
     try:
         if cpu is not None:
-            os.sched_setaffinity(0, [cpu])
+            _pin([cpu])
         for s in range(k * S, (k + 1) * S):  # first touch: the pages go near this CPU
             buf[s * slot_bytes : (s + 1) * slot_bytes : 4096] = 0
         fn = backend.make_worker()
@@ -171,53 +254,56 @@ def _worker(
         sink.begin(dict(meta, powder_scale=getattr(fn, "powder_scale", None)))
         for s in range(k * S, (k + 1) * S):
             free_q.put(s)
-        barrier.wait()
+        start_q.put(None)  # pinned, buffers touched, decoder built
+        started = True
         go.wait()
-        c0, t0, flt0 = time.thread_time(), time.perf_counter(), _faults()
+        if abort.is_set():  # another worker failed to start: no run, and no sink.end()
+            raise RuntimeError("stopped: another worker failed to start")
+        # (stop alone, set by a worker that failed after the start, ends the loop below as usual)
+        (c0, flt0), t0 = _thread_usage(), _clock()
         while True:
-            t = time.perf_counter()
+            t = _clock()
             item = ready_q.get()  # blocks until the reader has a whole unit in
-            st["idle_s"] += time.perf_counter() - t
+            st["idle_s"] += _clock() - t
             if item is _DONE or stop.is_set():
                 break
             slot, u = item
             if t_first is None:
-                t_first = time.perf_counter()
+                t_first = _clock()
             base = slot * slot_bytes
             data = buf[base : base + u.span]
             sink.begin_unit(u)
             for f0 in range(0, u.n, batch):
                 n = min(batch, u.n - f0)
-                t = time.perf_counter()
+                t = _clock()
                 npx, values, indices, powder = fn(
                     data, u.offsets[f0 : f0 + n], u.lengths[f0 : f0 + n]
                 )
-                t1 = time.perf_counter()
+                t1 = _clock()
                 st["out_bytes"] += _out_bytes(npx, values, indices, powder)
                 sink.write(u.file, u.frame0 + f0, npx, values, indices, powder)
                 st["decode_s"] += t1 - t
-                st["write_s"] += time.perf_counter() - t1
+                st["write_s"] += _clock() - t1
                 st["frames"] += n
-            t1 = time.perf_counter()
+            t1 = _clock()
             sink.end_unit(u)
-            st["write_s"] += time.perf_counter() - t1
-            t_last = time.perf_counter()
+            st["write_s"] += _clock() - t1
+            t_last = _clock()
             free_q.put(slot)
         # Whatever made us stop (the units are done, or another worker failed), our reader may be
         # blocked waiting for a free buffer: give it some, or it waits for ever.
         for _ in range(S + 1):
             free_q.put(0)
-        st["minflt"] = _faults() - flt0
+        c1, flt1 = _thread_usage()
+        st["minflt"] = _less(flt1, flt0)
         st["sink"] = sink.end()
-        st["wall_s"], st["cpu_s"] = time.perf_counter() - t0, time.thread_time() - c0
+        st["wall_s"], st["cpu_s"] = _clock() - t0, _less(c1, c0)
         st["active_s"] = (t_last - t_first) if t_first is not None and t_last is not None else 0.0
     except BaseException as e:  # noqa: BLE001 (report it, and unblock the reader)
         st["error"] = repr(e)
         stop.set()
-        try:
-            barrier.abort()
-        except Exception:  # noqa: BLE001
-            pass
+        if not started:
+            start_q.put(st["error"])
         for _ in range(S + 1):  # the reader may be waiting for a free buffer
             free_q.put(0)
     res_q.put(st)
@@ -272,12 +358,11 @@ def run(
         backend.prepare()  # what the workers share, built once before they start (and fork)
     S = slots_per_worker
     slot_bytes = (max(u.span for u in units) + 4095) // 4096 * 4096
-    mm = mmap.mmap(-1, workers * S * slot_bytes, flags=mmap.MAP_SHARED | mmap.MAP_ANONYMOUS)
-    buf = np.frombuffer(mm, np.uint8)
+    buf = ctx.buffer(workers * S * slot_bytes)
     res_q, todo = ctx.Queue(), ctx.Queue()
     ready_qs = [ctx.Queue() for _ in range(workers)]
     free_qs = [ctx.Queue() for _ in range(workers)]
-    barrier, go, stop = ctx.Barrier(workers + 1), ctx.Event(), ctx.Event()
+    start_q, go, stop, abort = ctx.Queue(), ctx.Event(), ctx.Event(), ctx.Event()
     ws = [
         ctx.Worker(
             _worker,
@@ -293,9 +378,10 @@ def run(
                 S,
                 batch,
                 None if not worker_cpus else worker_cpus[k % len(worker_cpus)],
-                barrier,
+                start_q,
                 go,
                 stop,
+                abort,
                 res_q,
             ),
         )
@@ -322,23 +408,32 @@ def run(
     ]
     for p in ws + rs:
         p.start()
+    # every worker pinned, its buffers touched, decoder built: each says so once, or sends its error
+    deadline = _clock() + start_timeout
+    errs = []
     try:
-        barrier.wait(
-            timeout=start_timeout
-        )  # every worker pinned, its buffers touched, decoder built
-    except Exception:  # noqa: BLE001
-        stop.set()
+        for _ in range(workers):
+            e = start_q.get(timeout=max(0.0, deadline - _clock()))
+            if e is not None:
+                errs.append(e)
+                break
+    except Exception:  # noqa: BLE001 (Empty: the timeout)
+        errs.append("timed out after %s s" % start_timeout)
+    if errs:
+        abort.set()  # the workers that started leave without running
+        stop.set()  # and so do their readers
         go.set()
-        errs = [s["error"] for s in [res_q.get() for _ in range(workers)] if s.get("error")]
+        got = [res_q.get() for _ in range(workers)]
+        errs += [s["error"] for s in got if s.get("error") and "another worker failed" not in s["error"]]
         raise RuntimeError("a worker failed to start: %r" % (errs,))
     for u in units:
         todo.put(u)
     for _ in range(workers):
         todo.put(_DONE)
-    t0 = time.perf_counter()
+    t0 = _clock()
     go.set()
     got = [res_q.get() for _ in range(2 * workers)]
-    wall = time.perf_counter() - t0
+    wall = _clock() - t0
     for p in ws + rs:
         p.join()
     errors = [s["error"] for s in got if s.get("error")]
@@ -369,7 +464,7 @@ def run(
         out_over_in=round(out_bytes / in_bytes, 4),
         slot_mb=round(slot_bytes / 1e6),
         memory_gb=round(workers * S * slot_bytes / 1e9, 2),
-        worker_cpu_cores=round(sum(s["cpu_s"] for s in wk) / wall, 2),
+        worker_cpu_cores=_cores(_total(s["cpu_s"] for s in wk), wall),
         fps_per_worker_mean=round(float(np.mean([s["frames"] / s["wall_s"] for s in wk])), 1),
         busy_frac=dict(
             decode=round(sum(s["decode_s"] for s in wk) / wall / workers, 3),
@@ -379,14 +474,19 @@ def run(
             read_wait_for_buffer=round(sum(s["wait_s"] for s in rd) / wall / workers, 3),
         ),
         # minor page faults taken by the workers and readers after the buffers were touched: with
-        # no allocation per file this stays small and does not grow with the number of files
+        # no allocation per file this stays small and does not grow with the number of files (None
+        # where they are not counted per thread: off Linux)
         page_faults=dict(
-            workers=sum(s["minflt"] for s in wk), readers=sum(s["minflt"] for s in rd)
+            workers=_total(s["minflt"] for s in wk), readers=_total(s["minflt"] for s in rd)
         ),
         files=len(units),
         sink=[s.get("sink") for s in wk][:1],
     )
     return result
+
+
+def _cores(cpu_s, wall):
+    return None if cpu_s is None else round(cpu_s / wall, 2)
 
 
 def _nbins(csc):

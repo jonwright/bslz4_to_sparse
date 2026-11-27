@@ -11,6 +11,8 @@ ones) is saved once, as an Integrator file that the results point to.  The write
 the run starts, a powder larger than a tenth of a frame: the point is to reduce the data.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import glob
 import os
 
@@ -21,6 +23,8 @@ import pyFAI
 from pyFAI.method_registry import IntegrationMethod
 
 from bslz4_to_sparse import conveyor
+
+
 
 h5pattern = "eiger_*.h5"  # your files: bitshuffle-compressed, one frame per chunk
 h5dataset = "/entry_0000/ESRF-ID11/eiger/data"  # the (nframes, ni, nj) dataset inside each
@@ -42,7 +46,8 @@ ai = pyFAI.load(poni_filename)
 mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel
 
 # the integrator: matrix and normalisation from pyFAI, saved once
-os.makedirs(outdir, exist_ok=True)
+if not os.path.isdir(outdir):
+    os.makedirs(outdir)
 integ = conveyor.Integrator.from_pyfai(ai, 500, unit="q_nm^-1", split="bbox", mask=bad)
 integ_path = os.path.join(outdir, "integrator.h5")
 integ.save(integ_path)

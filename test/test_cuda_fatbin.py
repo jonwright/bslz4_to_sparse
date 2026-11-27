@@ -2,6 +2,8 @@
 no CUDA toolkit: after changing src/cuda/*.cu* rebuild with tools/build_cuda_fatbin.py (see its
 docstring for the toolkits) and commit the fatbin and json.  No GPU needed."""
 
+from __future__ import absolute_import, division, print_function
+
 import hashlib
 import json
 import os

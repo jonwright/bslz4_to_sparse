@@ -2,6 +2,8 @@
 own files (a submodule bump must not leave a stale copy), and every
 component compiled into the extension must have one."""
 
+from __future__ import absolute_import, division, print_function
+
 import os
 
 import pytest

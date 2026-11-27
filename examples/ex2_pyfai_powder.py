@@ -17,6 +17,8 @@ given, as in the released versions.  The last part of this example shows what is
 fixed_point_matrix prepares the matrix for exact integer sums.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import h5py
 import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
 import numpy as np
@@ -36,7 +38,7 @@ with h5py.File(h5filename, "r") as h5:
     ds = h5[h5dataset]
     dtype = ds.dtype
     frame0 = ds[0]
-    chunk0 = ds.id.read_direct_chunk((0, 0, 0))[1]
+    chunk0 = bslz4_to_sparse.read_direct_chunk(ds, (0, 0, 0))[1]
 with h5py.File(mask_filename, "r") as h5:
     bad = h5["mask"][()] != 0  # the masked pixels
 mask = (~bad).astype(np.uint8)

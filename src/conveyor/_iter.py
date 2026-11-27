@@ -1,9 +1,10 @@
 """iterate: take the results in memory, from a plain for loop, while the conveyor runs behind it."""
 
-import queue
+from __future__ import absolute_import, division, print_function
+
 import threading
 
-from ._engine import run
+from ._engine import queue, run
 from ._sinks import Sink
 
 _END = object()
@@ -69,7 +70,8 @@ def iterate(units, backend, workers, depth=4, **kw):
                 if closed.is_set():
                     return
 
-    t = threading.Thread(target=go, daemon=True)
+    t = threading.Thread(target=go)
+    t.daemon = True
     t.start()
     try:
         while True:

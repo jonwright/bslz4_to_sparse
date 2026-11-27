@@ -13,8 +13,9 @@ pyFAI is needed: one full 8192-byte block plus a 200-byte tail (192 bytes =
 one 8*2-aligned tail block, 8 bytes of raw remainder), which exercises both
 the full-block and the tail path.
 """
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
+from conftest import bitshuffle
 import os
 import struct
 import sys
@@ -57,7 +58,7 @@ def _chunk():
     # The raw remainder holds the final NB/2 = 4 uint16 pixels directly (no
     # bitshuffle/transpose), so give them a value above cut so tail data is
     # actually sparsified.  The aligned full+tail blocks stay zeros.
-    c += bytes([5, 0]) * (rem // NB)
+    c += struct.pack("BB", 5, 0) * (rem // NB)
     return bytes(c)
 
 
@@ -256,27 +257,27 @@ def test_resolution_errors():
 # bit-identical powder and sparse output to csc on both routes, and the
 # counters must show the *selected* dot ran (and no other).
 
-def _variant_chunks(h5py, hdf5plugin, tmp_path, nf=2, h=8, w=8):
+def _variant_chunks(h5py, hdf5plugin, tmpdir, nf=2, h=8, w=8):
     """A tiny real bitshuffle-lz4 dataset with a mix of above/below-cut pixels
     so every dot has real work to do."""
     arr = (np.arange(nf * h * w, dtype=np.uint32).reshape(nf, h, w) % 8).astype(np.uint16)
-    fn = str(tmp_path / "_bslz4_variant.h5")
+    fn = os.path.join(str(tmpdir), "_bslz4_variant.h5")
     with h5py.File(fn, "w") as f:
         f.create_dataset("d", data=arr, chunks=(1, h, w),
-                         **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
+                         **bitshuffle(nelems=0, cname="lz4"))
     with h5py.File(fn, "r") as f:
-        return arr, [f["d"].id.read_direct_chunk((i, 0, 0))[1] for i in range(nf)]
+        return arr, [b.read_direct_chunk(f["d"], (i, 0, 0))[1] for i in range(nf)]
 
 
 DOTS = ("csc", "padded", "padded-avx2", "csc-run", "csc-nosplit", "bsb-csr",
         "bsb-csr-nosplit", "csc-int", "csc-run-int", "csc-run-int16")
 
 
-def test_dot_values_agree(tmp_path):
+def test_dot_values_agree(tmpdir):
     h5py = pytest.importorskip("h5py")
     hdf5plugin = pytest.importorskip("hdf5plugin")
 
-    arr, chunks = _variant_chunks(h5py, hdf5plugin, tmp_path)
+    arr, chunks = _variant_chunks(h5py, hdf5plugin, tmpdir)
     mask = np.ones((1, 8 * 8), np.uint8)
     npix = mask.size
     nbins = 4
@@ -328,10 +329,11 @@ import sys
 sys.path.insert(0, sys.argv[1])
 import numpy as np, h5py, hdf5plugin, bslz4_to_sparse as b
 from bslz4_to_sparse import _testing
-fr = (np.random.default_rng(0).random((1, 64, 64)) < 0.1).astype(np.uint16)
+fr = (np.random.RandomState(0).random_sample((1, 64, 64)) < 0.1).astype(np.uint16)
 with h5py.File("c.h5", "w", driver="core", backing_store=False) as f:
-    ds = f.create_dataset("d", data=fr, chunks=(1, 64, 64), **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
-    chunk = ds.id.read_direct_chunk((0, 0, 0))[1]
+    ds = f.create_dataset("d", data=fr, chunks=(1, 64, 64),
+                          compression=32008, compression_opts=(0, 2))
+    chunk = b.read_direct_chunk(ds, (0, 0, 0))[1]
 c = b.chunk2sparse(np.ones((64, 64), np.uint8), np.uint16, b.CODEC_LZ4)
 c(chunk, 0)
 assert not any(_testing.counters().values()), _testing.counters()
@@ -351,5 +353,5 @@ assert _testing.counters() == inside
 print("ok")
 """
     path = os.path.dirname(os.path.dirname(os.path.abspath(b.__file__)))
-    r = subprocess.run([sys.executable, "-c", code, path], capture_output=True, text=True)
-    assert r.returncode == 0 and "ok" in r.stdout, r.stdout + r.stderr
+    out = subprocess.check_output([sys.executable, "-c", code, path], stderr=subprocess.STDOUT)
+    assert b"ok" in out, out

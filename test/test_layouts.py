@@ -16,6 +16,9 @@ of the frame/layout geometry:
 Self-contained (no pyFAI).
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -45,21 +48,21 @@ def available_dots():
 def write_chunks(path, frames):
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + frames.shape[1:],
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
+                              **bitshuffle(nelems=0, cname="lz4"))
         codec = b.detect_codec(ds)
-        chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+        chunks = [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
     return chunks, codec
 
 
 def make_split_1d(npix, nbins, seed):
     """A 1D-like matrix: each pixel splits its intensity over 1-3 consecutive
     bins with weights summing to 1 (padded can represent it)."""
-    rng = np.random.default_rng(seed)
-    n = rng.integers(1, 4, npix)
-    start = rng.integers(0, nbins - 3, npix)
+    rng = np.random.RandomState(seed)
+    n = rng.randint(1, 4, npix)
+    start = rng.randint(0, nbins - 3, npix)
     indptr = np.concatenate(([0], np.cumsum(n)))
     indices = np.concatenate([np.arange(start[i], start[i] + n[i]) for i in range(npix)])
-    w = rng.random(int(n.sum())) + 0.1
+    w = rng.random_sample(int(n.sum())) + 0.1
     w /= np.add.reduceat(w, indptr[:-1]).repeat(n)
     return sp.csc_matrix((w.astype(np.float32), indices.astype(np.int32),
                           indptr.astype(np.int32)), shape=(nbins, npix))
@@ -68,21 +71,21 @@ def make_split_1d(npix, nbins, seed):
 def make_nosplit(npix, nbins, seed):
     """A histogram (pyFAI split='no'): each pixel reaches at most one bin,
     weight exactly 1 (csc-nosplit can represent it)."""
-    rng = np.random.default_rng(seed)
-    n = (rng.random(npix) > 0.1).astype(np.int64)
+    rng = np.random.RandomState(seed)
+    n = (rng.random_sample(npix) > 0.1).astype(np.int64)
     indptr = np.concatenate(([0], np.cumsum(n)))
-    indices = rng.integers(0, nbins, int(n.sum()))
+    indices = rng.randint(0, nbins, int(n.sum()))
     return sp.csc_matrix((np.ones(int(n.sum()), np.float32), indices.astype(np.int32),
                           indptr.astype(np.int32)), shape=(nbins, npix))
 
 
 def make_general(npix, nbins, seed):
     """Pixels reach arbitrary bins (padded must refuse it)."""
-    rng = np.random.default_rng(seed)
-    n = rng.integers(0, 4, npix)
+    rng = np.random.RandomState(seed)
+    n = rng.randint(0, 4, npix)
     indptr = np.concatenate(([0], np.cumsum(n)))
-    indices = rng.integers(0, nbins, int(n.sum()))
-    data = rng.random(int(n.sum())).astype(np.float32) + 0.25
+    indices = rng.randint(0, nbins, int(n.sum()))
+    data = rng.random_sample(int(n.sum())).astype(np.float32) + 0.25
     return sp.csc_matrix((data, indices.astype(np.int32), indptr.astype(np.int32)),
                          shape=(nbins, npix))
 
@@ -94,7 +97,7 @@ def big_value(dt):
 
 def reference(M, frames, mask):
     keep = (mask.ravel() > 0).astype(np.float64)
-    return np.array([M @ (f.ravel().astype(np.float64) * keep) for f in frames])
+    return np.array([M.dot(f.ravel().astype(np.float64) * keep) for f in frames])
 
 
 def expected(integ, frames, ref):
@@ -107,7 +110,7 @@ def expected(integ, frames, ref):
         nm = integ._nm
         Mq = sp.csc_matrix((lay.args()[0].astype(np.float64) * (1.0 / lay.scale), nm.indices, nm.indptr),
                            shape=nm.shape)
-        return np.array([Mq @ f.ravel().astype(np.float64) for f in frames]), 1e-12
+        return np.array([Mq.dot(f.ravel().astype(np.float64)) for f in frames]), 1e-12
     return ref, 1e-9
 
 
@@ -127,14 +130,14 @@ def run_all_dots(mask, M, frames, chunks, codec, dt):
 
 @pytest.mark.parametrize("dt", [np.uint8, np.uint16, np.uint32, np.int32, np.float32])
 @pytest.mark.parametrize("kind", ["split1d", "general", "nosplit"])
-def test_every_dot_matches_numpy_with_masked_big_values(tmp_path, dt, kind):
+def test_every_dot_matches_numpy_with_masked_big_values(tmpdir, dt, kind):
     shape = (61, 83)                              # 5063 px: a raw tail for every dtype
     npix = shape[0] * shape[1]
-    rng = np.random.default_rng(3)
-    mask = (rng.random(npix) > 0.2).astype(np.uint8).reshape(shape)
+    rng = np.random.RandomState(3)
+    mask = (rng.random_sample(npix) > 0.2).astype(np.uint8).reshape(shape)
     frames = rng.poisson(0.8, (3,) + shape).astype(dt)
     frames[:, mask == 0] = big_value(dt)          # must never reach the powder
-    chunks, codec = write_chunks(tmp_path / "f.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "f.h5"), frames)
     M = {"split1d": lambda: make_split_1d(npix, 200, 4),
          "general": lambda: make_general(npix, 300, 5),
          "nosplit": lambda: make_nosplit(npix, 250, 8)}[kind]()
@@ -160,14 +163,14 @@ def test_every_dot_matches_numpy_with_masked_big_values(tmp_path, dt, kind):
         assert "bsb-csr-nosplit" not in seen
 
 
-def test_whole_number_of_blocks(tmp_path):
+def test_whole_number_of_blocks(tmpdir):
     """8192 u16 pixels = exactly two decode blocks: the driver's tail call is
     empty and must not index past the per-block pointer arrays."""
     shape = (128, 64)
     npix = shape[0] * shape[1]
-    rng = np.random.default_rng(6)
+    rng = np.random.RandomState(6)
     frames = rng.poisson(0.8, (2,) + shape).astype(np.uint16)
-    chunks, codec = write_chunks(tmp_path / "e.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "e.h5"), frames)
     mask = np.ones(shape, np.uint8)
     M = make_split_1d(npix, 150, 7)
     ref = reference(M, frames, mask)
@@ -179,10 +182,10 @@ def test_whole_number_of_blocks(tmp_path):
     assert len(blk_ptr) == npix // integ._layout.block_elems + 1
 
 
-def test_frame_smaller_than_mask_is_an_error(tmp_path):
+def test_frame_smaller_than_mask_is_an_error(tmpdir):
     shape = (61, 83)
     frames = np.ones((1,) + shape, np.uint16)
-    chunks, codec = write_chunks(tmp_path / "s.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "s.h5"), frames)
     npix = shape[0] * shape[1] + 3000
     mask = np.ones((1, npix), np.uint8)
     M = make_split_1d(npix, 150, 8)
@@ -199,14 +202,14 @@ def test_frame_smaller_than_mask_is_an_error(tmp_path):
 
 
 @pytest.mark.parametrize("masked", [False, True])
-def test_intensity_preserved(tmp_path, masked):
+def test_intensity_preserved(tmpdir, masked):
     """Pixel weights sum to 1, so sum(powder) == sum of the (unmasked) image."""
     shape = (61, 83)
     npix = shape[0] * shape[1]
-    rng = np.random.default_rng(9)
-    mask = (rng.random(npix) > (0.1 if masked else -1)).astype(np.uint8).reshape(shape)
+    rng = np.random.RandomState(9)
+    mask = (rng.random_sample(npix) > (0.1 if masked else -1)).astype(np.uint8).reshape(shape)
     frames = rng.poisson(3.0, (2,) + shape).astype(np.uint16)
-    chunks, codec = write_chunks(tmp_path / "i.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "i.h5"), frames)
     M = make_split_1d(npix, 200, 10)
     total = np.array([f[mask > 0].sum() for f in frames], np.float64)
     for dot, route, p, _npx, _adr, _integ in run_all_dots(mask, M, frames, chunks, codec, np.uint16):
@@ -214,11 +217,11 @@ def test_intensity_preserved(tmp_path, masked):
         assert rel < 1e-6, (dot, route, rel)      # float32 weights sum to 1 +- 6e-8
 
 
-def test_malformed_layout_arrays_are_refused(tmp_path):
+def test_malformed_layout_arrays_are_refused(tmpdir):
     shape = (61, 83)
     npix = shape[0] * shape[1]
     frames = np.ones((1,) + shape, np.uint16)
-    chunks, codec = write_chunks(tmp_path / "m.h5", frames)
+    chunks, codec = write_chunks(os.path.join(str(tmpdir), "m.h5"), frames)
     mask = np.ones(shape, np.uint8)
     M = make_split_1d(npix, 150, 11)
 

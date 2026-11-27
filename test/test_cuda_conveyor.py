@@ -1,5 +1,7 @@
 """The conveyor with the GPU backend: the exact int64 powder equals the CPU backend's.  Skipped
-without cupy and a CUDA GPU."""
+without a CUDA GPU (cupy is optional)."""
+
+from __future__ import absolute_import, division, print_function
 
 import threading
 
@@ -9,11 +11,12 @@ import pytest
 pytest.importorskip("h5py")
 pytest.importorskip("hdf5plugin")
 sp = pytest.importorskip("scipy.sparse")
-cp = pytest.importorskip("cupy")
-try:
-    if cp.cuda.runtime.getDeviceCount() < 1:
+try:  # cupy is optional: without it the GPU backend uses the driver API (ctypes, the fatbin)
+    from bslz4_to_sparse import cuda
+
+    if cuda.device_count() < 1:
         pytest.skip("no CUDA device", allow_module_level=True)
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001 (no driver, or no GPU)
     pytest.skip("no CUDA device", allow_module_level=True)
 
 from test_conveyor import DSET, SHAPE, check_fazit_keeps_the_pixel_dtype, make_files  # noqa: E402
@@ -34,10 +37,10 @@ class Powder(cv.Sink):
 def split_matrix(nbins=12):
     """every pixel shared between two bins, weights summing to 1 (like pixel splitting)"""
     npix = SHAPE[0] * SHAPE[1]
-    rng = np.random.default_rng(8)
-    r0 = rng.integers(0, nbins, npix)
-    r1 = (r0 + 1 + rng.integers(0, nbins - 1, npix)) % nbins
-    w = rng.random(npix).astype(np.float32) * 0.8 + 0.1
+    rng = np.random.RandomState(8)
+    r0 = rng.randint(0, nbins, npix)
+    r1 = (r0 + 1 + rng.randint(0, nbins - 1, npix)) % nbins
+    w = rng.random_sample(npix).astype(np.float32) * 0.8 + 0.1
     cols = np.arange(npix)
     return sp.csc_matrix(
         (np.concatenate([w, 1 - w]), (np.concatenate([r0, r1]), np.concatenate([cols, cols]))),
@@ -46,8 +49,8 @@ def split_matrix(nbins=12):
 
 
 @pytest.mark.parametrize("weights", ["unit", "split"])
-def test_gpu_exact_equals_cpu_exact(tmp_path, weights):
-    paths = make_files(tmp_path)
+def test_gpu_exact_equals_cpu_exact(tmpdir, weights):
+    paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET)
     mask = np.ones(SHAPE, np.uint8)
     npix = SHAPE[0] * SHAPE[1]
@@ -79,10 +82,10 @@ def test_gpu_exact_equals_cpu_exact(tmp_path, weights):
         assert np.array_equal(cpu[0][k], gpu[0][k]), k
 
 
-def test_the_default_is_exact_for_16_bit_pixels_on_both_and_float_for_32_bit(tmp_path):
+def test_the_default_is_exact_for_16_bit_pixels_on_both_and_float_for_32_bit(tmpdir):
     """CpuBackend() and GpuBackend() with no exact or acc: the same integers and scale for 16-bit
     pixels, float sums for 32-bit ones."""
-    paths = make_files(tmp_path)
+    paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET)
     mask = np.ones(SHAPE, np.uint8)
     npix = SHAPE[0] * SHAPE[1]
@@ -110,5 +113,5 @@ def test_the_default_is_exact_for_16_bit_pixels_on_both_and_float_for_32_bit(tmp
 
 
 @pytest.mark.parametrize("kw", [{}, {"exact": False}, {"exact": True}, {"acc": "f64"}])
-def test_fazit_keeps_the_pixel_dtype(tmp_path, kw):
-    check_fazit_keeps_the_pixel_dtype(tmp_path, cv.GpuBackend, **kw)
+def test_fazit_keeps_the_pixel_dtype(tmpdir, kw):
+    check_fazit_keeps_the_pixel_dtype(tmpdir, cv.GpuBackend, **kw)

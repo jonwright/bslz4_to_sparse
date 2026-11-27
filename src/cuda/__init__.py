@@ -10,6 +10,8 @@ shuffle) and then run the shuffle, the matrix product and the collect on the dev
 are small and need only a subgroup shuffle/ballot, shared memory and a barrier.  The CPU classes are
 the test oracle for any such port."""
 
+from __future__ import absolute_import, division, print_function
+
 from ._gpu import backend, chunk2sparse, chunk2sparseCSC, device_count, device_name, release_shared
 
 __all__ = [

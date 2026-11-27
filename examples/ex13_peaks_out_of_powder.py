@@ -13,6 +13,8 @@ the powder.  With a fixed_point_matrix, M = fixed.to_scipy() holds its integer w
 the peaks are int64 sums of the same products, and powder - peaks is exact.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import h5py
 import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
 import numpy as np
@@ -51,7 +53,7 @@ with h5py.File(h5filename, "r") as h5:
     integ = bslz4_to_sparse.chunk2sparseCSC(mask, fixed, np.uint16, codec)
     nframes = ds.shape[0]
     for i in range(nframes):
-        npx, (values, indices), powder_sum = integ(ds.id.read_direct_chunk((i, 0, 0))[1], cut)
+        npx, (values, indices), powder_sum = integ(bslz4_to_sparse.read_direct_chunk(ds, (i, 0, 0))[1], cut)
         row.append((indices[:npx] // nj).astype(np.uint16))
         col.append((indices[:npx] % nj).astype(np.uint16))
         intensity.append(values[:npx].copy())
@@ -65,13 +67,13 @@ print("%d frames, %d pixels above %d counts (%.0f per frame)" % (nframes, ipt[-1
 # The sparse pixels as one matrix (nframes, ni*nj), and their powder: one call for the whole scan.
 flat = row.astype(np.int64) * nj + col
 S = scipy.sparse.csr_matrix((intensity.astype(np.int64), flat, ipt), shape=(nframes, ni * nj))
-peaks = (S @ M.T).toarray()  # (nframes, nbins), int64
+peaks = S.dot(M.T).toarray()  # (nframes, nbins), int64
 stripped = powder - peaks  # the powder of the pixels at or below the cut, int64
 print("fraction of the scan's signal in the sparse pixels: %.3f" % (peaks.sum() / powder.sum()))
 
 # Only the sum over the scan is wanted?  Then the pixels go into one flattened frame first.
 summed = np.bincount(flat, weights=intensity, minlength=ni * nj).astype(np.int64)
-assert np.array_equal(M @ summed, peaks.sum(axis=0))
+assert np.array_equal(M.dot(summed), peaks.sum(axis=0))
 
 # Check: stripped is the powder of the same frames with the sparse pixels set to zero.
 nchk = min(nframes, 5)

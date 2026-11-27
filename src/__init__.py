@@ -38,6 +38,7 @@ import json
 import math
 import os
 import struct
+import sys
 
 import numpy as np
 
@@ -51,7 +52,7 @@ from ._pipeline import describe, CODEC_LZ4, CODEC_ZSTD
 _ext = load_native(os.path.dirname(os.path.abspath(__file__)), "_bslz4_to_sparse")
 _pipeline._ext = _ext
 
-version = "0.0.23.dev0"
+version = "0.0.23a1"
 
 __all__ = [
     "version",
@@ -63,6 +64,7 @@ __all__ = [
     "describe",
     "detect_codec",
     "locate_chunks",
+    "read_direct_chunk",
     "offsets_lengths",
     "decompress",
     "decompress_from_buffer",
@@ -196,6 +198,62 @@ def _offset_pointers(base, offsets, lengths):
     return pointers, lengths, memoryview(base)[o:o + 20]
 
 
+_hdf5 = []  # the libhdf5 h5py uses, loaded by ctypes on first use (Python 2 only)
+
+
+def _hdf5_lib():
+    """ctypes handle on the libhdf5 that h5py is linked to (so dataset ids are shared)."""
+    if not _hdf5:
+        import ctypes
+        import glob
+        import h5py
+        from h5py import h5d
+        here = os.path.dirname(h5py.__file__)
+        # dlsym on the h5d module's handle also searches the libraries it links to;
+        # a wheel also has its own copy in .libs (Linux) or .dylibs (macOS).
+        names = [h5d.__file__] + sorted(glob.glob(os.path.join(here, ".*libs", "libhdf5*")))
+        for name in names:
+            try:
+                lib = ctypes.CDLL(name)
+                lib.H5Dread_chunk
+            except (OSError, AttributeError):
+                continue
+            u64p = ctypes.POINTER(ctypes.c_uint64)
+            lib.H5Dget_chunk_storage_size.argtypes = [ctypes.c_int64, u64p, u64p]
+            lib.H5Dread_chunk.argtypes = [ctypes.c_int64, ctypes.c_int64, u64p,
+                                          ctypes.POINTER(ctypes.c_uint32), ctypes.c_char_p]
+            _hdf5.append((ctypes, lib))
+            break
+        else:
+            raise RuntimeError("read_direct_chunk: no libhdf5 >= 1.10.2 (H5Dread_chunk) found "
+                               "beside h5py %s" % h5py.__version__)
+    return _hdf5[0]
+
+
+def read_direct_chunk(ds, offset):
+    """
+    ds.id.read_direct_chunk(offset): (filter_mask, the compressed bytes) of the
+    chunk starting at offset, e.g. (frame, 0, 0).  On Python 2, h5py (2.10 is
+    the last) returns the repr of an array instead of the bytes, so this calls
+    H5Dread_chunk in h5py's libhdf5 directly.
+    """
+    if sys.version_info[0] >= 3:  # the one version test: the h5py bug below is Python 2's alone,
+        return ds.id.read_direct_chunk(offset)  # and there a str is bytes, so no capability shows it
+    from h5py._objects import phil  # h5py's lock around every HDF5 call: ctypes drops the GIL
+
+    ctypes, lib = _hdf5_lib()
+    off = (ctypes.c_uint64 * len(offset))(*offset)
+    nbytes = ctypes.c_uint64()
+    filter_mask = ctypes.c_uint32()
+    with phil:
+        if lib.H5Dget_chunk_storage_size(ds.id.id, off, ctypes.byref(nbytes)) < 0:
+            raise ValueError("read_direct_chunk: no chunk at %r" % (tuple(offset),))
+        buf = ctypes.create_string_buffer(nbytes.value)
+        if lib.H5Dread_chunk(ds.id.id, 0, off, ctypes.byref(filter_mask), buf) < 0:  # H5P_DEFAULT
+            raise IOError("read_direct_chunk: H5Dread_chunk failed at %r" % (tuple(offset),))
+    return filter_mask.value, buf.raw
+
+
 def locate_chunks(ds):
     """
     Where each frame's compressed chunk lies in the HDF5 file: a dict
@@ -227,6 +285,12 @@ def locate_chunks(ds):
             _store(chunk_info.chunk_offset[0], chunk_info.byte_offset,
                    chunk_info.size, chunk_info.filter_mask)
         ds.id.chunk_iter(_cb)
+    elif not hasattr(ds.id, "get_chunk_info"):
+        raise NotImplementedError(
+            "locate_chunks needs an h5py with DatasetID.get_chunk_info (built against "
+            "HDF5 >= 1.10.5); "
+            "read the chunks with read_direct_chunk instead"
+        )
     else:
         for i in range(ds.id.get_num_chunks()):
             info = ds.id.get_chunk_info(i)
@@ -714,7 +778,7 @@ def bslz4_to_sparse(ds, num, cut, mask=None, pixelbuffer=None, workspace=None, c
     if codec is None:
         codec = detect_codec(ds)
     p = _pipeline.resolve(pipeline, values.dtype, codec, mask)
-    filtinfo, buffer = ds.id.read_direct_chunk((num, 0, 0))
+    filtinfo, buffer = read_direct_chunk(ds, (num, 0, 0))
     if workspace is None:
         workspace = np.empty(3 * _blocksize_bytes(buffer), np.uint8)
     pointers, lengths = _gather_chunks([buffer])

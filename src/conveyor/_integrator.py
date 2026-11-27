@@ -28,10 +28,13 @@ with datasets data (float32), indices (int32), indptr (int32), as scipy and pyFA
 Needs pyFAI only for from_pyfai and ai(), h5py only for save and load.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import os
-import tempfile
 
 import numpy as np
+
+from ._files import temporary_directory
 
 VERSION = 1
 
@@ -140,7 +143,7 @@ class Integrator(object):
         """The pyFAI AzimuthalIntegrator the poni text describes."""
         from pyFAI import load
 
-        with tempfile.TemporaryDirectory() as d:
+        with temporary_directory() as d:
             fn = os.path.join(d, "geometry.poni")
             with open(fn, "w") as f:
                 f.write(self.poni)
@@ -219,9 +222,11 @@ class Integrator(object):
         """Write into the open HDF5 file or group h."""
         comp = {}
         if compression:
-            import hdf5plugin
+            import hdf5plugin  # noqa: F401  (registers the bitshuffle filter)
 
-            comp = hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+            from ._sparsefile import BSLZ4
+
+            comp = dict(BSLZ4)
         c = self.csc
         h.attrs["bslz4_to_sparse_integrator"] = VERSION
         h.attrs["kind"], h.attrs["unit"] = self.kind, self.unit
@@ -379,7 +384,7 @@ class IntegratorStack(object):
 
 def poni_text(ai):
     """The text of the .poni file of a pyFAI AzimuthalIntegrator."""
-    with tempfile.TemporaryDirectory() as d:
+    with temporary_directory() as d:
         fn = os.path.join(d, "geometry.poni")
         ai.save(fn)
         with open(fn) as f:

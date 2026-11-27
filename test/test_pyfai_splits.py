@@ -10,6 +10,9 @@ must accept what they are meant for: csc-nosplit the histogram, csc-run
 every split (each pixel reaches one run of consecutive bins).
 """
 
+from __future__ import absolute_import, division, print_function
+
+from conftest import bitshuffle
 import os
 import sys
 
@@ -55,7 +58,7 @@ def expected(integ, frames, ref):
         nm = integ._nm
         Mq = sp.csc_matrix((lay.args()[0].astype(np.float64) * (1.0 / lay.scale), nm.indices, nm.indptr),
                            shape=nm.shape)
-        return np.array([Mq @ f.ravel().astype(np.float64) for f in frames]), 1e-12
+        return np.array([Mq.dot(f.ravel().astype(np.float64)) for f in frames]), 1e-12
     return ref, 1e-9
 
 
@@ -93,18 +96,18 @@ def pyfai_matrix(ai, split, npt):
 
 
 @pytest.fixture(scope="module")
-def setup(tmp_path_factory):
+def setup(tmpdir_factory):
     ai = make_ai()
     shape = ai.detector.shape
     mask = (1 - ai.detector.mask).astype(np.uint8)
-    rng = np.random.default_rng(11)
+    rng = np.random.RandomState(11)
     frames = rng.poisson(0.5, (3,) + shape).astype(np.uint16)
-    path = tmp_path_factory.mktemp("pyfai") / "f.h5"
+    path = tmpdir_factory.mktemp("pyfai") / "f.h5"
     with h5py.File(str(path), "w") as f:
         ds = f.create_dataset("d", data=frames, chunks=(1,) + shape,
-                              **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"))
+                              **bitshuffle(nelems=0, cname="lz4"))
         codec = b.detect_codec(ds)
-        chunks = [ds.id.read_direct_chunk((i, 0, 0))[1] for i in range(len(frames))]
+        chunks = [b.read_direct_chunk(ds, (i, 0, 0))[1] for i in range(len(frames))]
     return ai, mask, frames, chunks, codec
 
 
@@ -114,7 +117,7 @@ def test_every_dot_on_pyfai_matrix(setup, split, bpp):
     ai, mask, frames, chunks, codec = setup
     M = pyfai_matrix(ai, split, radial_pixels(ai) * bpp)
     keep = mask.ravel().astype(np.float64)
-    ref = np.array([M @ (f.ravel().astype(np.float64) * keep) for f in frames])
+    ref = np.array([M.dot(f.ravel().astype(np.float64) * keep) for f in frames])
     scale = max(np.abs(ref).max(), 1.0)
     seen = set()
     for dot in available_dots():
@@ -149,8 +152,8 @@ def ring_matrices(ai, split):
     q = res.radial
     edges = np.quantile(q, [0.2, 0.25, 0.4, 0.45, 0.6, 0.65, 0.8, 0.85]).reshape(4, 2)
     W = np.array([(q >= lo) & (q < hi) for lo, hi in edges], dtype=np.float64)
-    G = (sp.kron(sp.csr_matrix(W), sp.identity(na), format="csr") @ M2).tocsc()
-    GQ = G @ sp.diags(ai.qArray().ravel().astype(np.float64))
+    G = sp.kron(sp.csr_matrix(W), sp.identity(na), format="csr").dot(M2).tocsc()
+    GQ = G.dot(sp.diags(ai.qArray().ravel().astype(np.float64)))
     n = G.shape[0]
     perm = np.empty(2 * n, np.int64)
     perm[0::2] = np.arange(n)
@@ -175,7 +178,7 @@ def test_ring_first_moment(setup, split, order):
     ai, mask, frames, chunks, codec = setup
     M = ring_matrices(ai, split)[order]
     keep = mask.ravel().astype(np.float64)
-    ref = np.array([M @ (f.ravel().astype(np.float64) * keep) for f in frames])
+    ref = np.array([M.dot(f.ravel().astype(np.float64) * keep) for f in frames])
     scale = max(np.abs(ref).max(), 1.0)
     seen = set()
     for dot in available_dots():
@@ -197,7 +200,7 @@ def test_ring_first_moment(setup, split, order):
 def run_dots(mask, M, frames, chunks, codec, dots):
     """{dot: max relative error} on both routes for each dot that accepts M."""
     keep = mask.ravel().astype(np.float64)
-    ref = np.array([M @ (f.ravel().astype(np.float64) * keep) for f in frames])
+    ref = np.array([M.dot(f.ravel().astype(np.float64) * keep) for f in frames])
     scale = max(np.abs(ref).max(), 1.0)
     seen = {}
     for dot in dots:
