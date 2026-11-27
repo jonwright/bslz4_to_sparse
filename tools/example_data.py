@@ -180,7 +180,7 @@ def download(dst=None, base=ZENODO):
         print("%s: downloading%s" % (name, " (resuming at %d bytes)" % have if have else ""))
         r = urlopen(req)
         try:
-            resumed = have and getattr(r, "status", None) == 206  # a server that ignores Range sends it all
+            resumed = have and r.getcode() == 206  # a server that ignores Range sends it all
             with open(tmp, "ab" if resumed else "wb") as fh:
                 shutil.copyfileobj(r, fh, 1 << 20)
         finally:

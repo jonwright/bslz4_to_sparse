@@ -78,9 +78,12 @@ def test_example_runs(path, standin_folder):
     env["PYTHONPATH"] = os.pathsep.join(
         [pkg_parent, tools_dir] + [p for p in [env.get("PYTHONPATH")] if p]
     )
-    subprocess.check_output(
-        [sys.executable, path],
-        env=env,
-        cwd=standin_folder,
-        stderr=subprocess.STDOUT,
-    )
+    try:
+        subprocess.check_output(
+            [sys.executable, path],
+            env=env,
+            cwd=standin_folder,
+            stderr=subprocess.STDOUT,
+        )
+    except subprocess.CalledProcessError as e:  # show what the example printed, traceback included
+        raise AssertionError(e.output.decode("utf-8", "replace"))

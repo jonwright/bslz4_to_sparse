@@ -7,7 +7,7 @@ Nothing is written here: what to do with the results is up to you (examples 8, 1
 
 from __future__ import absolute_import, division, print_function
 
-import os
+import io
 from timeit import default_timer
 
 import h5py
@@ -48,17 +48,18 @@ integ = bslz4_to_sparse.chunk2sparseCSC(mask, ai.engines[method].engine, dtype=d
 
 npixels = np.empty(nframes, np.int64)
 powder_sums = np.empty((nframes, npt))
-fd = os.open(h5filename, os.O_RDONLY)
+f = io.open(h5filename, "rb", buffering=0)  # unbuffered: each read is one system call
 t0 = default_timer()
 for i in range(nframes):
     offset, size = where[i]
-    npx, (values, indices), powder_sum = integ(os.pread(fd, size, offset), cut)
+    f.seek(offset)
+    npx, (values, indices), powder_sum = integ(f.read(size), cut)
     npixels[i] = npx
     powder_sums[i] = powder_sum
     # values[:npx], indices[:npx] are this frame's sparse pixels: use or copy them here, the next
     # call overwrites them
 elapsed = default_timer() - t0
-os.close(fd)
+f.close()
 
 intensity = np.divide(
     powder_sums, sum_normalization, out=np.zeros_like(powder_sums), where=sum_normalization > 0

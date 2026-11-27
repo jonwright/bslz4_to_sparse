@@ -11,7 +11,8 @@ Layout (little endian): the 8 bytes b"BSLZ4IDX", a uint32 length H, H bytes of U
 shape, dtype, chunks, codec, file_size, file_mtime_ns, nframes, declared_nframes, version), zero
 padding to a multiple of 8, then nframes int64 byte offsets and nframes int32 byte
 lengths.  A sidecar is stale, and refused, when the data file's size or modification time no
-longer match (Python 2, which has only a float st_mtime, allows it a microsecond).
+longer match, to within a microsecond: Python 2 has only a float st_mtime, and a sidecar may be
+written by one Python and read by the other.
 
 Only harvest() touches HDF5 (through h5py, once per file, offline); everything else is numpy."""
 
@@ -37,10 +38,9 @@ def mtime_ns(st):
     return ns if ns is not None else int(round(st.st_mtime * 1e9))
 
 
-def _mtime_slack_ns(st):
-    """How far the recorded mtime may be from mtime_ns(st): exact where the Python reads
-    nanoseconds; a microsecond for Python 2's float st_mtime (a sidecar made under Python 3)."""
-    return 0 if getattr(st, "st_mtime_ns", None) is not None else 1000
+# How far the recorded mtime may be from mtime_ns(os.stat(path)), in ns: whichever Python wrote it,
+# or reads it now, may have had only the float st_mtime.
+MTIME_SLACK_NS = 1000
 
 
 class StaleIndex(ValueError):
@@ -159,7 +159,7 @@ def read_index(path, index_dir=None, check=True):
     if check:
         st = os.stat(path)
         mt = mtime_ns(st)
-        if st.st_size != meta["file_size"] or abs(mt - meta["file_mtime_ns"]) > _mtime_slack_ns(st):
+        if st.st_size != meta["file_size"] or abs(mt - meta["file_mtime_ns"]) > MTIME_SLACK_NS:
             raise StaleIndex(
                 "%s was written for a file of %d bytes modified at %d; %s is %d bytes, "
                 "modified at %d"

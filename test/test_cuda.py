@@ -351,6 +351,8 @@ def test_corrupt_is_reported(tmpdir):
     bad[12:16] = struct.pack(">I", len(bad))
     with pytest.raises(Exception, match="corrupt|Error decoding"):
         c.multi([bytes(bad)], 0)
+    with pytest.raises(Exception, match="Error decoding chunk: -106"):  # shorter than the header
+        c.multi([chunks[0][:6]], 0)
 
 
 def _lz4_sequence(lits, offset=None, match=None):

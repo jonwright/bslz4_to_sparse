@@ -1,7 +1,8 @@
 """Threads: read and decode many frames at once, one decoder object per thread.
 
 The decode releases the GIL (and on free-threaded Python 3.14t/3.15t there is no GIL), so threads
-decode in parallel, and so does reading a file with os.pread.  Objects keep and reuse their own work
+decode in parallel, and so does reading a file (seek and read on an unbuffered file object, one per
+thread, are the same system call as os.pread).  Objects keep and reuse their own work
 and output buffers and nothing is locked, so each thread owns one object and copies what it keeps
 before its next call.  Here every thread reads its own frames from the file by offset (the offsets
 are found once, see example 3) and decodes them, with no HDF5 call in the loop.
@@ -9,8 +10,8 @@ are found once, see example 3) and decodes them, with no HDF5 call in the loop.
 
 from __future__ import absolute_import, division, print_function
 
-import os
-from concurrent.futures import ThreadPoolExecutor
+import io
+import threading
 
 import h5py
 import hdf5plugin  # registers the bitshuffle filter, so that h5py can decompress too
@@ -37,25 +38,25 @@ nthreads = 4
 
 # one decoder object per thread: made here, before the threads start, and used by one thread only
 decoders = [bslz4_to_sparse.chunk2sparse(mask, dtype=dtype, codec=codec) for _ in range(nthreads)]
-fd = os.open(h5filename, os.O_RDONLY)
+results = {}  # each thread stores different frames: no lock needed
 
 
 def sparsify(k):
-    """Thread k: frames k, k + nthreads, ...: pread each chunk, decode, keep copies."""
-    out = {}
-    for frame in range(k, nframes, nthreads):
-        offset, size = where[frame]
-        chunk = os.pread(fd, size, offset)  # releases the GIL while it waits for the disk
-        npx, (values, indices) = decoders[k](chunk, cut)  # releases the GIL while it decodes
-        out[frame] = (values[:npx].copy(), indices[:npx].copy())  # copies: the buffers are reused
-    return out
+    """Thread k: frames k, k + nthreads, ...: read each chunk, decode, keep copies."""
+    with io.open(h5filename, "rb", buffering=0) as f:  # this thread's own file position
+        for frame in range(k, nframes, nthreads):
+            offset, size = where[frame]
+            f.seek(offset)
+            chunk = f.read(size)  # releases the GIL while it waits for the disk
+            npx, (values, indices) = decoders[k](chunk, cut)  # releases the GIL while it decodes
+            results[frame] = (values[:npx].copy(), indices[:npx].copy())  # the buffers are reused
 
 
-with ThreadPoolExecutor(max_workers=nthreads) as pool:
-    results = {}
-    for part in pool.map(sparsify, range(nthreads)):
-        results.update(part)
-os.close(fd)
+threads = [threading.Thread(target=sparsify, args=(k,)) for k in range(nthreads)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
 
 with h5py.File(h5filename, "r") as h5:  # only to check the result
     for frame in range(nframes):

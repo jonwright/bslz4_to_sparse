@@ -287,7 +287,8 @@ def locate_chunks(ds):
         ds.id.chunk_iter(_cb)
     elif not hasattr(ds.id, "get_chunk_info"):
         raise NotImplementedError(
-            "locate_chunks needs h5py >= 3.0 with HDF5 >= 1.10.5 (get_chunk_info); "
+            "locate_chunks needs an h5py with DatasetID.get_chunk_info (built against "
+            "HDF5 >= 1.10.5); "
             "read the chunks with read_direct_chunk instead"
         )
     else:

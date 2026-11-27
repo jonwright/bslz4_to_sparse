@@ -22,7 +22,7 @@ hdf5plugin = pytest.importorskip("hdf5plugin")
 
 import bslz4_to_sparse as b  # noqa: E402
 from bslz4_to_sparse import conveyor as cv  # noqa: E402
-from bslz4_to_sparse.conveyor._index import mtime_ns  # noqa: E402
+from bslz4_to_sparse.conveyor._index import MTIME_SLACK_NS, mtime_ns  # noqa: E402
 
 DSET = "/entry/data"
 SHAPE = (64, 80)
@@ -250,6 +250,21 @@ def test_a_changed_file_makes_the_sidecar_stale(tmpdir):
     assert cv.read_index(paths[0], check=False).shape[0] == 5  # the caller may choose to trust it
     with pytest.raises(cv.StaleIndex):
         cv.make_work_units(paths, DSET)
+
+
+def test_the_recorded_mtime_may_be_a_microsecond_off(tmpdir):
+    """A sidecar written by a Python with only the float st_mtime (2.7) records the time rounded,
+    a few hundred ns off; it is still fresh to either Python.  Beyond a microsecond it is stale."""
+    paths = make_files(tmpdir, nfiles=1, nframes=5)
+    ix = cv.read_index(paths[0])
+    for off, stale in ((MTIME_SLACK_NS, False), (-MTIME_SLACK_NS, False), (MTIME_SLACK_NS + 1, True)):
+        ix.meta.update(file_mtime_ns=mtime_ns(os.stat(paths[0])) + off)
+        cv.write_index(ix, paths[0])
+        if stale:
+            with pytest.raises(cv.StaleIndex):
+                cv.read_index(paths[0])
+        else:
+            cv.read_index(paths[0])
 
 
 def test_corrupt_and_missing_sidecars(tmpdir):

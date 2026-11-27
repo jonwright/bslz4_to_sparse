@@ -578,7 +578,10 @@ class chunk2sparse(object):
                 raise ValueError("the GPU decoder does lz4 only")
             self._codec_pending = False
         for v in views:
-            tot, bs = _chunk_header(v)
+            try:
+                tot, bs = _chunk_header(v)
+            except struct.error:
+                raise Exception("Error decoding chunk: -106: a chunk shorter than its header")
             if tot != self.nbytes:
                 raise Exception(
                     "Error decoding chunk: -106: the chunk is for %d bytes, expected %d"

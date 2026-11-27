@@ -5,10 +5,11 @@
         [--index-dir DIR] [--procs 16] [--force] [--check] [--limit N]
 
 HDF5 (through h5py) is read here and nowhere else: it takes a global lock, so the files are shared
-out over plain subprocesses (this script again, each given its share of the files in its
-arguments), not threads.  No multiprocessing: its semaphores and temporary files in /dev/shm and
-/tmp can collide between jobs on a node.  No pipe either: a subprocess exits 0 when every file of
-its share is done, prints what failed to stderr, and the sidecars are then found on disk.  Each file
+out over plain subprocesses (this script again, each given its share of the files on stdin, one
+per line, as argv has a size limit), not threads.  No multiprocessing: its semaphores and temporary
+files in /dev/shm and /tmp can collide between jobs on a node.  Nothing comes back but the exit
+status: a subprocess exits 0 when every file of its share is done, prints what failed to stderr,
+and the sidecars are then found on disk.  Each file
 costs a few hundred ms cold (dozens of small reads of the B-tree nodes spread through it, not the
 data).  --index-dir keeps the sidecars away from read-only data directories.  --check verifies
 existing sidecars against a fresh harvest."""
@@ -30,11 +31,12 @@ from bslz4_to_sparse import conveyor  # noqa: E402
 
 
 def fresh(path, index_dir):
-    """True when path has a sidecar that matches the file as it is now."""
+    """True when path has a sidecar that matches the file as it is now; False when it has none, or
+    one that is stale, truncated, corrupt or of another version."""
     try:
         conveyor.read_index(path, index_dir)
         return True
-    except (EnvironmentError, conveyor.StaleIndex):
+    except Exception:  # noqa: BLE001 (any sidecar that cannot be read is rebuilt)
         return False
 
 
@@ -54,9 +56,10 @@ def one(path, dset, index_dir, check):
 
 
 def worker(argv):
-    """A subprocess: argv is dset, index_dir ("" for none), check ("0"/"1"), then its files.
-    Exits 0 when all of them are done, else 1."""
-    dset, index_dir, check, paths = argv[0], argv[1] or None, argv[2] == "1", argv[3:]
+    """A subprocess: argv is dset, index_dir ("" for none), check ("0"/"1"); its files come on
+    stdin, one per line.  Exits 0 when all of them are done, else 1."""
+    dset, index_dir, check = argv[0], argv[1] or None, argv[2] == "1"
+    paths = [line.rstrip("\n") for line in sys.stdin if line.strip()]
     status = 0
     for p in paths:
         try:
@@ -84,7 +87,11 @@ def main():
     todo = paths if (a.check or a.force) else [p for p in paths if not fresh(p, a.index_dir)]
     n = max(1, min(a.procs, len(todo)))
     head = [sys.executable, os.path.abspath(__file__), "--worker", a.dset, a.index_dir or "", "1" if a.check else "0"]
-    procs = [subprocess.Popen(head + todo[i::n], stdin=subprocess.DEVNULL) for i in range(n) if todo[i::n]]
+    shares = [todo[i::n] for i in range(n) if todo[i::n]]
+    procs = [subprocess.Popen(head, stdin=subprocess.PIPE, universal_newlines=True) for _ in shares]
+    for p, share in zip(procs, shares):  # all started first: each reads its share after its imports
+        p.stdin.write("".join(f + "\n" for f in share))
+        p.stdin.close()
     failed = sum(p.wait() != 0 for p in procs)
     bad = [p for p in todo if not fresh(p, a.index_dir)]
     done = "checked" if a.check else "written"
