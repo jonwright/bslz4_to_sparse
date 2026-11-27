@@ -41,7 +41,6 @@ The example data came from ID11 files in which the detector's 16-bit counts had 
 from __future__ import absolute_import, division, print_function
 
 import argparse
-import errno
 import hashlib
 import os
 import shutil
@@ -54,24 +53,7 @@ import h5py  # noqa: E402
 import hdf5plugin  # noqa: E402
 import numpy as np  # noqa: E402
 
-def _mkdir_p(path):
-    """os.makedirs that ignores a directory that already exists (no exist_ok on py2)."""
-    try:
-        os.makedirs(path)
-    except OSError as e:
-        if e.errno != errno.EEXIST:
-            raise
-    return path
-
-
-def bitshuffle(nelems=0, cname="lz4", clevel=3):
-    """The kwargs h5py.create_dataset takes for a bitshuffle chunk, from the raw HDF5 filter
-    parameters (hdf5plugin 2.3.2's Bitshuffle has no cname/clevel)."""
-    if cname == "zstd":  # TypeError from an hdf5plugin without zstd (2.3.2 would write lz4)
-        import hdf5plugin
-
-        return hdf5plugin.Bitshuffle(nelems=nelems, cname="zstd", clevel=clevel)
-    return dict(compression=32008, compression_opts=(nelems, {"none": 0, "lz4": 2}[cname]))
+from standin import bitshuffle  # noqa: E402  (the one copy, in tools/standin.py)
 
 
 DSET = "/entry_0000/ESRF-ID11/eiger/data"
@@ -86,6 +68,16 @@ MD5 = {
     "silicon_u16_zstd2_256k.h5": "cb3fe7636eabf8d2dffd9af692b1917e",
     "mask.h5": "52665c08ca33aef9d5897b1d5f04a298",
 }
+
+
+def _chunk_bytes(ds, i):
+    """The stored size of chunk i of ds: from the chunk index where h5py has it, else (h5py 2.10)
+    by reading the chunk."""
+    if hasattr(ds.id, "get_chunk_info"):
+        return ds.id.get_chunk_info(i).size
+    import bslz4_to_sparse as b  # its read_direct_chunk works on h5py 2.10
+
+    return len(b.read_direct_chunk(ds, (i, 0, 0))[1])
 
 
 def repack(
@@ -139,8 +131,7 @@ def repack(
             if not np.array_equal(out[i - start], f):
                 raise ValueError("frame %d was not written exactly" % i)
         hd.attrs["repacked_from"] = "%s frames %d:%d" % (os.path.basename(src), start, stop)
-        import bslz4_to_sparse as b  # h5py 2.10 has no get_chunk_info: read the chunks instead
-        nbytes = sum(len(b.read_direct_chunk(out, (i, 0, 0))[1]) for i in range(stop - start))
+        nbytes = sum(_chunk_bytes(out, i) for i in range(stop - start))
     return stop - start, top, nbytes
 
 
@@ -166,7 +157,8 @@ def download(dst=None, base=ZENODO):
         from urllib2 import Request, urlopen
 
     dst = dst or example_dir()
-    _mkdir_p(dst)
+    if not os.path.isdir(dst):
+        os.makedirs(dst)
     for name, want in MD5.items():
         out = os.path.join(dst, name)
         if os.path.exists(out) and md5(out) == want:
@@ -229,7 +221,8 @@ def path(key, variant="lz4", src=None, cache=None):
         return full
     out = os.path.join(cache, "%s_%s.h5" % (key, variant))
     if not os.path.exists(out):
-        _mkdir_p(cache)
+        if not os.path.isdir(cache):
+            os.makedirs(cache)
         tmp = out + ".tmp"
         repack(full, tmp, codec="lz4", block_kb=8,
                   mask=mask(src) if variant == "lz4mask" else None)

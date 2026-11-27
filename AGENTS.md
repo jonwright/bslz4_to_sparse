@@ -95,6 +95,9 @@ and on Python 3 with numpy below and above 2. Write the clean subset both share;
 parallel paths (`if PY2: ... else: ...`, `sys.version_info`). Where a name is missing on one
 side, look first for a name both have (`timeit.default_timer`),
 else test for the capability (`getattr(os, "replace", os.rename)`, `import queue` falling back to `Queue`), once, in one place. No `multiprocessing` on the default (threads) path.
+The one agreed version test is `read_direct_chunk` in `src/__init__.py`: it works around h5py's
+Python 2 bug (the chunk comes back as a repr), which no capability test can see, a str being bytes
+there.
 `from __future__ import absolute_import, division, print_function` in every module; no infix
 `@` (`np.dot`, `.dot`), f-strings, `yield from`, keyword-only arguments, `nonlocal`, bare
 `super()`, `np.random.default_rng` (`RandomState`, with `dtype=np.int64` past 2**31), pathlib,

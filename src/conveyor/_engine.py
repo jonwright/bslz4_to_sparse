@@ -228,6 +228,7 @@ def _worker(
     start_q,
     go,
     stop,
+    abort,
     res_q,
 ):
     st = dict(
@@ -256,8 +257,9 @@ def _worker(
         start_q.put(None)  # pinned, buffers touched, decoder built
         started = True
         go.wait()
-        if stop.is_set():  # another worker failed to start: no run, and no sink.end()
+        if abort.is_set():  # another worker failed to start: no run, and no sink.end()
             raise RuntimeError("stopped: another worker failed to start")
+        # (stop alone, set by a worker that failed after the start, ends the loop below as usual)
         (c0, flt0), t0 = _thread_usage(), _clock()
         while True:
             t = _clock()
@@ -360,7 +362,7 @@ def run(
     res_q, todo = ctx.Queue(), ctx.Queue()
     ready_qs = [ctx.Queue() for _ in range(workers)]
     free_qs = [ctx.Queue() for _ in range(workers)]
-    start_q, go, stop = ctx.Queue(), ctx.Event(), ctx.Event()
+    start_q, go, stop, abort = ctx.Queue(), ctx.Event(), ctx.Event(), ctx.Event()
     ws = [
         ctx.Worker(
             _worker,
@@ -379,6 +381,7 @@ def run(
                 start_q,
                 go,
                 stop,
+                abort,
                 res_q,
             ),
         )
@@ -417,8 +420,9 @@ def run(
     except Exception:  # noqa: BLE001 (Empty: the timeout)
         errs.append("timed out after %s s" % start_timeout)
     if errs:
-        stop.set()
-        go.set()  # the workers that started see stop and leave; their readers too
+        abort.set()  # the workers that started leave without running
+        stop.set()  # and so do their readers
+        go.set()
         got = [res_q.get() for _ in range(workers)]
         errs += [s["error"] for s in got if s.get("error") and "another worker failed" not in s["error"]]
         raise RuntimeError("a worker failed to start: %r" % (errs,))

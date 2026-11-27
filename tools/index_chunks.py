@@ -7,9 +7,9 @@
 HDF5 (through h5py) is read here and nowhere else: it takes a global lock, so the files are shared
 out over plain subprocesses (this script again, each given its share of the files on stdin, one
 per line, as argv has a size limit), not threads.  No multiprocessing: its semaphores and temporary
-files in /dev/shm and /tmp can collide between jobs on a node.  Nothing comes back but the exit
-status: a subprocess exits 0 when every file of its share is done, prints what failed to stderr,
-and the sidecars are then found on disk.  Each file
+files in /dev/shm and /tmp can collide between jobs on a node.  A subprocess prints the path of each
+file that failed on stdout (why on stderr) and exits 0 when none did; the parent also checks that
+every sidecar is on disk.  Each file
 costs a few hundred ms cold (dozens of small reads of the B-tree nodes spread through it, not the
 data).  --index-dir keeps the sidecars away from read-only data directories.  --check verifies
 existing sidecars against a fresh harvest."""
@@ -57,7 +57,7 @@ def one(path, dset, index_dir, check):
 
 def worker(argv):
     """A subprocess: argv is dset, index_dir ("" for none), check ("0"/"1"); its files come on
-    stdin, one per line.  Exits 0 when all of them are done, else 1."""
+    stdin, one per line.  Prints each that failed on stdout; exits 0 when none did, else 1."""
     dset, index_dir, check = argv[0], argv[1] or None, argv[2] == "1"
     paths = [line.rstrip("\n") for line in sys.stdin if line.strip()]
     status = 0
@@ -66,6 +66,7 @@ def worker(argv):
             one(p, dset, index_dir, check)
         except Exception as e:  # noqa: BLE001 (report per file, carry on)
             print("index_chunks: %s: %r" % (p, e), file=sys.stderr)
+            print(p)
             status = 1
     return status
 
@@ -88,21 +89,29 @@ def main():
     n = max(1, min(a.procs, len(todo)))
     head = [sys.executable, os.path.abspath(__file__), "--worker", a.dset, a.index_dir or "", "1" if a.check else "0"]
     shares = [todo[i::n] for i in range(n) if todo[i::n]]
-    procs = [subprocess.Popen(head, stdin=subprocess.PIPE, universal_newlines=True) for _ in shares]
+    pipe = dict(stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
+    procs = [subprocess.Popen(head, **pipe) for _ in shares]
     for p, share in zip(procs, shares):  # all started first: each reads its share after its imports
-        p.stdin.write("".join(f + "\n" for f in share))
-        p.stdin.close()
-    failed = sum(p.wait() != 0 for p in procs)
-    bad = [p for p in todo if not fresh(p, a.index_dir)]
+        try:
+            p.stdin.write("".join(f + "\n" for f in share))
+            p.stdin.close()
+        except EnvironmentError:  # it died before reading (an import failed): its status says so
+            pass
+    failed = set()
+    for p in procs:
+        failed.update(line.rstrip("\n") for line in p.stdout)
+        p.wait()
+    crashed = sum(p.returncode not in (0, 1) for p in procs)
+    bad = sorted(failed | set(p for p in todo if not fresh(p, a.index_dir)))
     done = "checked" if a.check else "written"
     print(
-        {"kept": len(paths) - len(todo), done: len(todo) - len(bad), "missing": len(bad)},
+        {"kept": len(paths) - len(todo), done: len(todo) - len(bad), "failed": len(bad)},
         "%.1f s for %d files in %d processes" % (time.perf_counter() - t0, len(paths), len(procs)),
-        "; %d processes failed (errors above)" % failed if failed else "",
+        "; %d processes crashed (errors above)" % crashed if crashed else "",
     )
     for p in bad[:10]:
         print("  ", p)
-    return 1 if (bad or failed) else 0
+    return 1 if (bad or crashed) else 0
 
 
 if __name__ == "__main__":

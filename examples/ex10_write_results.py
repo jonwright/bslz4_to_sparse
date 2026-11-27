@@ -13,7 +13,6 @@ the run starts, a powder larger than a tenth of a frame: the point is to reduce 
 
 from __future__ import absolute_import, division, print_function
 
-import errno
 import glob
 import os
 
@@ -25,14 +24,6 @@ from pyFAI.method_registry import IntegrationMethod
 
 from bslz4_to_sparse import conveyor
 
-
-def _mkdir_p(path):
-    try:
-        os.makedirs(path)
-    except OSError as e:
-        if e.errno != errno.EEXIST:
-            raise
-    return path
 
 
 h5pattern = "eiger_*.h5"  # your files: bitshuffle-compressed, one frame per chunk
@@ -55,7 +46,8 @@ ai = pyFAI.load(poni_filename)
 mask = (~bad).astype(np.uint8)  # ours: 1 = use this pixel
 
 # the integrator: matrix and normalisation from pyFAI, saved once
-_mkdir_p(outdir)
+if not os.path.isdir(outdir):
+    os.makedirs(outdir)
 integ = conveyor.Integrator.from_pyfai(ai, 500, unit="q_nm^-1", split="bbox", mask=bad)
 integ_path = os.path.join(outdir, "integrator.h5")
 integ.save(integ_path)

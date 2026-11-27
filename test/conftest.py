@@ -10,6 +10,12 @@ import pytest
 _p = os.environ.get("BSLZ4_TO_SPARSE_PATH")
 if _p:
     sys.path.insert(0, _p)
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+
+# The kwargs h5py.create_dataset takes for a bitshuffle chunk, from the raw HDF5 filter parameters
+# (hdf5plugin 2.3.2, Python 2.7, has no cname/clevel; given zstd it would write lz4 under a zstd
+# label, so zstd raises there instead: needs_zstd_writer).  One copy, in tools/standin.py.
+from standin import bitshuffle  # noqa: E402,F401
 
 
 @pytest.fixture(autouse=True)
@@ -95,17 +101,3 @@ class Barrier(object):
                 if remaining <= 0:
                     raise RuntimeError("the barrier timed out")
                 self._cond.wait(remaining)
-
-
-def bitshuffle(nelems=0, cname="lz4", clevel=3):
-    """The kwargs h5py.create_dataset takes to write a bitshuffle chunk, from the raw HDF5 filter
-    parameters rather than hdf5plugin.Bitshuffle, whose constructor differs between hdf5plugin 2.3.2
-    (Python 2.7: Bitshuffle(nelems, lz4), no cname/clevel) and modern hdf5plugin.  The LZ4 chunk is
-    byte-identical to Bitshuffle(nelems, cname=\"lz4\"); the zstd chunk to
-    Bitshuffle(nelems, cname=\"zstd\", clevel=clevel), which zstd still goes through: an hdf5plugin
-    without zstd raises rather than write lz4 under a zstd label (needs_zstd_writer)."""
-    if cname == "zstd":  # raises TypeError where hdf5plugin cannot write zstd (needs_zstd_writer)
-        import hdf5plugin
-
-        return hdf5plugin.Bitshuffle(nelems=nelems, cname="zstd", clevel=clevel)
-    return dict(compression=32008, compression_opts=(nelems, {"none": 0, "lz4": 2}[cname]))

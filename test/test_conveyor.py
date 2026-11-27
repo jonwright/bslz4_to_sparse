@@ -211,6 +211,41 @@ def test_a_failing_sink_raises_and_does_not_hang(tmpdir, mode):
         )
 
 
+def test_a_failure_after_the_start_is_not_a_failure_to_start(tmpdir, monkeypatch):
+    """Worker 1 is slow past the start; worker 0's sink fails meanwhile.  Worker 1 still ends its
+    sink (it started), and the error raised is the sink's."""
+    from bslz4_to_sparse.conveyor import _engine
+
+    paths = make_files(tmpdir)
+    units, shape, dtype = cv.make_work_units(paths, DSET, max_unit_bytes=4000)
+    slow, ended = set(), []
+
+    class SlowEvent(threading._Event if hasattr(threading, "_Event") else threading.Event):
+        def wait(self, timeout=None):
+            r = super(SlowEvent, self).wait(timeout)
+            if threading.current_thread() in slow:
+                time.sleep(0.5)
+            return r
+
+    class Sink(cv.Sink):
+        def __init__(self, k):
+            self.k = k
+            if k == 1:
+                slow.add(threading.current_thread())
+
+        def write(self, file, frame0, npx, values, indices, powder):
+            if self.k == 0:
+                raise RuntimeError("sink broke")
+
+        def end(self):
+            ended.append(self.k)
+
+    monkeypatch.setattr(_engine._ThreadContext, "Event", staticmethod(SlowEvent))
+    with pytest.raises(RuntimeError, match="sink broke"):
+        cv.run(units, cv.CpuBackend(np.ones(SHAPE, np.uint8), dtype), workers=2, sink=Sink)
+    assert 1 in ended
+
+
 def test_threads_need_nothing_linux_only(tmpdir, monkeypatch):
     """Off Linux (macOS, Windows) there is no per-thread getrusage: the run is the same, the page
     faults are None, and the cpu time comes from time.thread_time (Python 3).  On Linux both are
