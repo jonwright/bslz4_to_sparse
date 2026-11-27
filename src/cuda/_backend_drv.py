@@ -21,6 +21,8 @@ free_pool() gives the unused blocks back to the driver.  Older drivers, and devi
 cuMemAlloc / cuMemFree.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import ctypes
 import json
 import os
@@ -74,7 +76,7 @@ cuCtxPopCurrent = _sig("cuCtxPopCurrent_v2", ctypes.POINTER(_P))
 cuModuleLoadData = _sig("cuModuleLoadData", ctypes.POINTER(_P), ctypes.c_char_p)
 cuModuleGetFunction = _sig("cuModuleGetFunction", ctypes.POINTER(_P), _P, ctypes.c_char_p)
 cuLaunchKernel = _sig(
-    "cuLaunchKernel", _P, *([ctypes.c_uint] * 6), ctypes.c_uint, _P, ctypes.POINTER(_P), _P
+    "cuLaunchKernel", *([_P] + [ctypes.c_uint] * 6 + [ctypes.c_uint, _P, ctypes.POINTER(_P), _P])
 )
 cuMemAlloc = _sig("cuMemAlloc_v2", ctypes.POINTER(ctypes.c_uint64), _SZ)
 cuMemFree = _sig("cuMemFree_v2", ctypes.c_uint64)
@@ -650,7 +652,7 @@ class _Kernel(object):
         params = (_P * len(vals))(*[ctypes.cast(ctypes.byref(v), _P) for v in vals])
         g = tuple(grid) + (1,) * (3 - len(grid))
         b = tuple(block) + (1,) * (3 - len(block))
-        _check(cuLaunchKernel(fn, *g, *b, shared_mem, _current_stream(), params, None))
+        _check(cuLaunchKernel(fn, *(g + b + (shared_mem, _current_stream(), params, None))))
 
 
 class _Module(object):

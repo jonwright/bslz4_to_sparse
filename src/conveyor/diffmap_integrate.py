@@ -19,6 +19,8 @@ recipe is read only when --plan names an existing file; a setting given on the
 command line that differs from the recipe's is refused.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import argparse
 import os
 import threading

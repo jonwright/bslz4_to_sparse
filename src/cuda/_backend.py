@@ -7,6 +7,8 @@ stream)`, `.get(out=host_array)` and `.view(dtype)`, and
 can be passed to a kernel; pinned host buffers support the buffer protocol.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import cupy as cp
 
 

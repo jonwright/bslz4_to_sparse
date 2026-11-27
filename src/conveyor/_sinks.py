@@ -14,6 +14,8 @@ powder        (n, nbins) float64 (int64 sums when the backend is exact: meta['po
 The arrays are the decoder's own buffers: they are overwritten after write returns, so a sink that
 keeps anything copies it."""
 
+from __future__ import absolute_import, division, print_function
+
 import numpy as np
 
 

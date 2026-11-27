@@ -23,6 +23,8 @@ ImageD11 (min_pixels) or cupy (the GPU backend).  The writers refuse, before the
 of more than a tenth of the uncompressed frame (check_powder_size): the point is to reduce data.
 """
 
+from __future__ import absolute_import, division, print_function
+
 from ._index import read_index, write_index, harvest, sidecar_path, StaleIndex, Index
 from ._source import make_work_units, WorkUnit
 from ._sinks import Sink, NullSink, TeeSink, check_powder_size

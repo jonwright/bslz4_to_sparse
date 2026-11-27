@@ -2,7 +2,7 @@
 
     todo       the units (whole files when they fit in max_unit_bytes), in file order, all queued before the run
     reader k   whenever worker k has a free buffer, takes the next unit from todo and reads it into
-               that buffer with large preadv calls in file order, while the worker decodes the
+               that buffer with large read calls in file order, while the worker decodes the
                previous one
     worker k   decodes the unit its reader delivered straight from the buffer and gives the sink
                the result
@@ -17,13 +17,16 @@ SharedMemory.  Workers are threads or forked processes around the same code.
 Memory: workers x slots x the largest unit.
 """
 
+from __future__ import absolute_import, division, print_function
+
+import io
 import mmap
 import multiprocessing as mp
 import os
-import queue
 import resource
 import threading
 import time
+from multiprocessing.dummy import Queue  # queue.Queue (Queue.Queue on Python 2)
 
 import numpy as np
 
@@ -33,22 +36,26 @@ _DONE = None
 
 
 class _ThreadContext(object):
-    Queue = staticmethod(queue.Queue)
+    Queue = staticmethod(Queue)
     Event = staticmethod(threading.Event)
-    Barrier = staticmethod(threading.Barrier)
 
     @staticmethod
     def Worker(target, args):
-        return threading.Thread(target=target, args=args, daemon=True)
+        w = threading.Thread(target=target, args=args)
+        w.daemon = True
+        return w
 
 
 class _ForkContext(object):
     def __init__(self):
-        self.ctx = mp.get_context("fork")
-        self.Queue, self.Event, self.Barrier = self.ctx.Queue, self.ctx.Event, self.ctx.Barrier
+        # Python 2 multiprocessing always forks on Linux; Python 3.14 defaults to forkserver
+        self.ctx = mp.get_context("fork") if hasattr(mp, "get_context") else mp
+        self.Queue, self.Event = self.ctx.Queue, self.ctx.Event
 
     def Worker(self, target, args):
-        return self.ctx.Process(target=target, args=args, daemon=True)
+        w = self.ctx.Process(target=target, args=args)
+        w.daemon = True
+        return w
 
 
 def _cpulist(text):
@@ -64,7 +71,9 @@ def _cpulist(text):
 
 def numa_nodes(allowed=None):
     """[[cpu, ...], ...]: the CPUs this process may use, grouped by NUMA node."""
-    allowed = set(os.sched_getaffinity(0)) if allowed is None else set(allowed)
+    if allowed is None:
+        allowed = os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else range(mp.cpu_count())
+    allowed = set(allowed)
     out = []
     d = "/sys/devices/system/node"
     if os.path.isdir(d):
@@ -76,9 +85,17 @@ def numa_nodes(allowed=None):
     return out or [sorted(allowed)]
 
 
-def _faults():
-    """minor page faults of the calling thread so far"""
-    return resource.getrusage(resource.RUSAGE_THREAD).ru_minflt
+def _thread_usage():
+    """(cpu seconds, minor page faults) of the calling thread so far (RUSAGE_THREAD is 1 on
+    Linux; Python 2's resource module lacks the name, not the call)"""
+    ru = resource.getrusage(1)
+    return ru.ru_utime + ru.ru_stime, ru.ru_minflt
+
+
+def _pin(cpus):
+    """Pin the calling thread (or process) to cpus, where the OS lets Python do it."""
+    if cpus and hasattr(os, "sched_setaffinity"):
+        os.sched_setaffinity(0, cpus)
 
 
 def _out_bytes(npx, values, indices, powder):
@@ -93,37 +110,34 @@ def _out_bytes(npx, values, indices, powder):
 def _reader(k, todo, ready_q, free_q, buf, slot_bytes, cpus, io_bytes, go, stop, res_q):
     st = dict(role="reader", k=k, bytes=0, read_s=0.0, wait_s=0.0, error=None, minflt=0)
     try:
-        if cpus:
-            os.sched_setaffinity(0, cpus)
+        _pin(cpus)
         go.wait()
-        flt0 = _faults()
+        flt0 = _thread_usage()[1]
         view = memoryview(buf)
         while True:
-            t = time.perf_counter()
+            t = time.time()
             slot = free_q.get()  # blocks until the worker is done with a buffer
-            st["wait_s"] += time.perf_counter() - t
+            st["wait_s"] += time.time() - t
             if stop.is_set():
                 break
             u = todo.get()  # the next unit, whoever asks first; _DONE when there are no more
             if u is _DONE:
                 break
             base = slot * slot_bytes
-            t = time.perf_counter()
-            fd = os.open(u.path, os.O_RDONLY)
-            try:
+            t = time.time()
+            with io.open(u.path, "rb", buffering=0) as f:
+                f.seek(u.start)
                 got = 0
                 while got < u.span:
                     want = min(io_bytes or u.span, u.span - got)
-                    r = os.preadv(fd, [view[base + got : base + got + want]], u.start + got)
-                    if r <= 0:
+                    r = f.readinto(view[base + got : base + got + want])
+                    if not r:
                         raise IOError("short read of %s" % u.path)
                     got += r
-            finally:
-                os.close(fd)
-            st["read_s"] += time.perf_counter() - t
+            st["read_s"] += time.time() - t
             st["bytes"] += u.span
             ready_q.put((slot, u))
-        st["minflt"] = _faults() - flt0
+        st["minflt"] = _thread_usage()[1] - flt0
         ready_q.put(_DONE)
     except BaseException as e:  # noqa: BLE001 (report it, and unblock the worker)
         st["error"] = repr(e)
@@ -144,7 +158,7 @@ def _worker(
     S,
     batch,
     cpu,
-    barrier,
+    start_q,
     go,
     stop,
     res_q,
@@ -161,9 +175,10 @@ def _worker(
         minflt=0,
     )
     t_first = t_last = None
+    started = False
     try:
         if cpu is not None:
-            os.sched_setaffinity(0, [cpu])
+            _pin([cpu])
         for s in range(k * S, (k + 1) * S):  # first touch: the pages go near this CPU
             buf[s * slot_bytes : (s + 1) * slot_bytes : 4096] = 0
         fn = backend.make_worker()
@@ -171,53 +186,53 @@ def _worker(
         sink.begin(dict(meta, powder_scale=getattr(fn, "powder_scale", None)))
         for s in range(k * S, (k + 1) * S):
             free_q.put(s)
-        barrier.wait()
+        start_q.put(None)  # pinned, buffers touched, decoder built
+        started = True
         go.wait()
-        c0, t0, flt0 = time.thread_time(), time.perf_counter(), _faults()
+        (c0, flt0), t0 = _thread_usage(), time.time()
         while True:
-            t = time.perf_counter()
+            t = time.time()
             item = ready_q.get()  # blocks until the reader has a whole unit in
-            st["idle_s"] += time.perf_counter() - t
+            st["idle_s"] += time.time() - t
             if item is _DONE or stop.is_set():
                 break
             slot, u = item
             if t_first is None:
-                t_first = time.perf_counter()
+                t_first = time.time()
             base = slot * slot_bytes
             data = buf[base : base + u.span]
             sink.begin_unit(u)
             for f0 in range(0, u.n, batch):
                 n = min(batch, u.n - f0)
-                t = time.perf_counter()
+                t = time.time()
                 npx, values, indices, powder = fn(
                     data, u.offsets[f0 : f0 + n], u.lengths[f0 : f0 + n]
                 )
-                t1 = time.perf_counter()
+                t1 = time.time()
                 st["out_bytes"] += _out_bytes(npx, values, indices, powder)
                 sink.write(u.file, u.frame0 + f0, npx, values, indices, powder)
                 st["decode_s"] += t1 - t
-                st["write_s"] += time.perf_counter() - t1
+                st["write_s"] += time.time() - t1
                 st["frames"] += n
-            t1 = time.perf_counter()
+            t1 = time.time()
             sink.end_unit(u)
-            st["write_s"] += time.perf_counter() - t1
-            t_last = time.perf_counter()
+            st["write_s"] += time.time() - t1
+            t_last = time.time()
             free_q.put(slot)
         # Whatever made us stop (the units are done, or another worker failed), our reader may be
         # blocked waiting for a free buffer: give it some, or it waits for ever.
         for _ in range(S + 1):
             free_q.put(0)
-        st["minflt"] = _faults() - flt0
+        c1, flt1 = _thread_usage()
+        st["minflt"] = flt1 - flt0
         st["sink"] = sink.end()
-        st["wall_s"], st["cpu_s"] = time.perf_counter() - t0, time.thread_time() - c0
+        st["wall_s"], st["cpu_s"] = time.time() - t0, c1 - c0
         st["active_s"] = (t_last - t_first) if t_first is not None and t_last is not None else 0.0
     except BaseException as e:  # noqa: BLE001 (report it, and unblock the reader)
         st["error"] = repr(e)
         stop.set()
-        try:
-            barrier.abort()
-        except Exception:  # noqa: BLE001
-            pass
+        if not started:
+            start_q.put(st["error"])
         for _ in range(S + 1):  # the reader may be waiting for a free buffer
             free_q.put(0)
     res_q.put(st)
@@ -277,7 +292,7 @@ def run(
     res_q, todo = ctx.Queue(), ctx.Queue()
     ready_qs = [ctx.Queue() for _ in range(workers)]
     free_qs = [ctx.Queue() for _ in range(workers)]
-    barrier, go, stop = ctx.Barrier(workers + 1), ctx.Event(), ctx.Event()
+    start_q, go, stop = ctx.Queue(), ctx.Event(), ctx.Event()
     ws = [
         ctx.Worker(
             _worker,
@@ -293,7 +308,7 @@ def run(
                 S,
                 batch,
                 None if not worker_cpus else worker_cpus[k % len(worker_cpus)],
-                barrier,
+                start_q,
                 go,
                 stop,
                 res_q,
@@ -322,23 +337,29 @@ def run(
     ]
     for p in ws + rs:
         p.start()
+    # every worker pinned, its buffers touched, decoder built: each says so once, or sends its error
+    deadline = time.time() + start_timeout
+    errs = []
     try:
-        barrier.wait(
-            timeout=start_timeout
-        )  # every worker pinned, its buffers touched, decoder built
-    except Exception:  # noqa: BLE001
+        for _ in range(workers):
+            e = start_q.get(timeout=max(0.0, deadline - time.time()))
+            if e is not None:
+                errs.append(e)
+                break
+    except Exception:  # noqa: BLE001 (Empty: the timeout)
+        errs.append("timed out after %s s" % start_timeout)
+    if errs:
         stop.set()
         go.set()
-        errs = [s["error"] for s in [res_q.get() for _ in range(workers)] if s.get("error")]
         raise RuntimeError("a worker failed to start: %r" % (errs,))
     for u in units:
         todo.put(u)
     for _ in range(workers):
         todo.put(_DONE)
-    t0 = time.perf_counter()
+    t0 = time.time()
     go.set()
     got = [res_q.get() for _ in range(2 * workers)]
-    wall = time.perf_counter() - t0
+    wall = time.time() - t0
     for p in ws + rs:
         p.join()
     errors = [s["error"] for s in got if s.get("error")]

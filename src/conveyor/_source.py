@@ -4,6 +4,11 @@ The byte range of every chunk comes from the sidecar index (_index.py), so readi
 harvest=True reads missing ones from HDF5 instead, serially (h5py takes a global lock, so threads
 would gain nothing)."""
 
+from __future__ import absolute_import, division, print_function
+
+import errno
+
+from ._files import not_found
 from ._index import read_index, harvest as harvest_index
 
 
@@ -29,11 +34,14 @@ def make_work_units(paths, dset, max_unit_bytes=256 << 20, index_dir=None, harve
     for p in paths:
         try:
             ix = read_index(p, index_dir)
-        except FileNotFoundError:
+        except (IOError, OSError) as e:
+            if not not_found(e):
+                raise
             if not harvest:
-                raise FileNotFoundError(
+                raise IOError(  # FileNotFoundError on Python 3
+                    errno.ENOENT,
                     "no chunk index for %s: build it with tools/index_chunks.py, or pass "
-                    "harvest=True (reads it from HDF5)" % p
+                    "harvest=True (reads it from HDF5)" % p,
                 )
             ix = harvest_index(p, dset)
         if ix.dataset != dset:

@@ -30,10 +30,13 @@ objects smaller than that are dropped (ImageD11's pixels_in_spot, its labelling)
 A sink writes whole files: use make_work_units with max_unit_bytes large enough that a unit is a file.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import os
 
 import numpy as np
 
+from ._files import makedirs, replace
 from ._sinks import Sink, check_powder_size
 
 
@@ -42,13 +45,19 @@ def imaged11_name(path):
     return path.strip("/").replace("/", "_").replace(".h5", "") + "_sparse.h5"
 
 
+BSLZ4 = dict(compression=32008, compression_opts=(0, 2))  # bitshuffle filter, default blocks, lz4
+
+
 def _compression(name):
-    import hdf5plugin
+    import hdf5plugin  # registers the bitshuffle filter
 
     if name == "bslz4":
-        return hdf5plugin.Bitshuffle(nelems=0, cname="lz4")
+        return dict(BSLZ4)  # what Bitshuffle(nelems=0, cname="lz4") gives; hdf5plugin 2 has no cname
     if name == "bszstd":
-        return hdf5plugin.Bitshuffle(nelems=0, cname="zstd", clevel=1)
+        try:
+            return hdf5plugin.Bitshuffle(nelems=0, cname="zstd", clevel=1)
+        except TypeError:  # hdf5plugin 2 (Python 2.7): asked for zstd, its filter writes lz4
+            raise ValueError("bszstd needs an hdf5plugin whose Bitshuffle takes cname='zstd'")
     if name == "lzf":
         return dict(compression="lzf", shuffle=True)
     if name is None:
@@ -112,7 +121,7 @@ class ImageD11SparseSink(Sink):
             raise ValueError(
                 "row and col are uint16: a frame side of %d does not fit" % max(self.shape)
             )
-        os.makedirs(self.out_dir, exist_ok=True)
+        makedirs(self.out_dir)
 
     def begin_unit(self, unit):
         if unit.frame0 != 0 or unit.n != unit.nfile:
@@ -199,7 +208,7 @@ class ImageD11SparseSink(Sink):
                         d.attrs["scale"] = scale
                     if self.integrator:
                         d.attrs["integrator"] = self.integrator
-        os.replace(out + ".tmp", out)
+        replace(out + ".tmp", out)
         self.files.append(out)
         self.held, self.powder = [], []
 

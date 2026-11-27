@@ -1,6 +1,8 @@
 """The decoders behind one interface: make_worker() -> fn(buf, offsets, lengths) ->
 (npx, values, indices, powder).  Every worker owns one decoder and is the only user of it."""
 
+from __future__ import absolute_import, division, print_function
+
 import threading
 
 import numpy as np

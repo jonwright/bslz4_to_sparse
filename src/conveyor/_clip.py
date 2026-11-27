@@ -9,6 +9,8 @@ clipped frames gives, in integer arithmetic, with the same weights.  The normali
 (a clipped pixel is still a pixel), unlike a pixel that is dropped.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import numpy as np
 
 

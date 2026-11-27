@@ -11,9 +11,11 @@ Layout (little endian): the 8 bytes b"BSLZ4IDX", a uint32 length H, H bytes of U
 shape, dtype, chunks, codec, file_size, file_mtime_ns, nframes, declared_nframes, version), zero
 padding to a multiple of 8, then nframes int64 byte offsets and nframes int32 byte
 lengths.  A sidecar is stale, and refused, when the data file's size or modification time no
-longer match.
+longer match (the time to within a microsecond: Python 2 has only a float st_mtime).
 
 Only harvest() touches HDF5 (through h5py, once per file, offline); everything else is numpy."""
+
+from __future__ import absolute_import, division, print_function
 
 import json
 import os
@@ -21,9 +23,23 @@ import struct
 
 import numpy as np
 
+from ._files import makedirs, replace
+
 MAGIC = b"BSLZ4IDX"
 VERSION = 1
 SUFFIX = ".bslz4idx"
+
+
+def mtime_ns(st):
+    """The modification time of an os.stat result in integer nanoseconds: st_mtime_ns where the
+    Python has it, else (Python 2) from the float st_mtime, within about 0.2 microseconds."""
+    ns = getattr(st, "st_mtime_ns", None)
+    return ns if ns is not None else int(round(st.st_mtime * 1e9))
+
+
+# A sidecar is fresh when the file's mtime is within this of the one recorded: a Python 2 reader
+# only sees the float st_mtime.
+MTIME_SLACK_NS = 1000
 
 
 class StaleIndex(ValueError):
@@ -71,13 +87,8 @@ def harvest(path, dset):
         ln = np.zeros(n, np.int32)
         seen = np.zeros(n, bool)
 
-        def cb(info):
-            if info.filter_mask & 1:
-                raise ValueError("%s: a chunk without the bitshuffle filter" % path)
-            i = info.chunk_offset[0]
-            off[i], ln[i], seen[i] = info.byte_offset, info.size, True
-
-        ds.id.chunk_iter(cb)
+        for i, (o, size) in b.locate_chunks(ds).items():  # refuses a chunk without bitshuffle
+            off[i], ln[i], seen[i] = o, size, True
         stored = int(seen.sum())
         if (
             stored < n
@@ -97,7 +108,7 @@ def harvest(path, dset):
             chunks=list(ds.chunks),
             codec=int(b.detect_codec(ds)),
             file_size=st.st_size,
-            file_mtime_ns=st.st_mtime_ns,
+            file_mtime_ns=mtime_ns(st),
             nframes=stored,
             declared_nframes=n,
         )
@@ -112,19 +123,19 @@ def write_index(index, path, index_dir=None):
     pad = -(len(MAGIC) + 4 + len(head)) % 8
     out = sidecar_path(path, index_dir)
     if index_dir is not None:
-        os.makedirs(index_dir, exist_ok=True)
+        makedirs(index_dir)
     tmp = "%s.tmp%d" % (out, os.getpid())
     with open(tmp, "wb") as f:
         f.write(MAGIC + struct.pack("<I", len(head)) + head + b"\0" * pad)
         f.write(np.ascontiguousarray(index.offsets, "<i8").tobytes())
         f.write(np.ascontiguousarray(index.lengths, "<i4").tobytes())
-    os.replace(tmp, out)
+    replace(tmp, out)
     return out
 
 
 def read_index(path, index_dir=None, check=True):
     """Load the sidecar of path (an Index).  check=True refuses one whose recorded file size or
-    modification time differ from the data file's.  FileNotFoundError when there is none."""
+    modification time differ from the data file's.  IOError (FileNotFoundError) when there is none."""
     sc = sidecar_path(path, index_dir)
     with open(sc, "rb") as f:
         raw = f.read()
@@ -142,10 +153,11 @@ def read_index(path, index_dir=None, check=True):
     ln = np.frombuffer(raw, "<i4", n, start + 8 * n).astype(np.int32)
     if check:
         st = os.stat(path)
-        if st.st_size != meta["file_size"] or st.st_mtime_ns != meta["file_mtime_ns"]:
+        mt = mtime_ns(st)
+        if st.st_size != meta["file_size"] or abs(mt - meta["file_mtime_ns"]) > MTIME_SLACK_NS:
             raise StaleIndex(
                 "%s was written for a file of %d bytes modified at %d; %s is %d bytes, "
                 "modified at %d"
-                % (sc, meta["file_size"], meta["file_mtime_ns"], path, st.st_size, st.st_mtime_ns)
+                % (sc, meta["file_size"], meta["file_mtime_ns"], path, st.st_size, mt)
             )
     return Index(meta, off, ln)

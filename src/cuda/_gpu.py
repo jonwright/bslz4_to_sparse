@@ -50,8 +50,11 @@ GPU memory per object: the dense frames (batch x frame bytes) and batch x min(ho
 pixels; the matrix and the mask are shared by every object of the process.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import hashlib
 import os
+import struct
 import threading
 import numpy as np
 
@@ -97,11 +100,11 @@ _shared_lock = threading.Lock()
 
 
 def _digest(arrays):
-    h = hashlib.blake2b(digest_size=20)
+    h = hashlib.blake2b(digest_size=20) if hasattr(hashlib, "blake2b") else hashlib.sha1()
     for a in arrays:
         a = np.ascontiguousarray(a)
         h.update(repr((a.dtype.str, a.shape)).encode())
-        h.update(memoryview(a).cast("B"))
+        h.update(a.reshape(-1).view(np.uint8))
     return h.hexdigest()
 
 
@@ -174,10 +177,14 @@ def _fixed_np(dt):
     return ACC[dt][2]
 
 
+def _bytes(buf):
+    """A flat uint8 view of any contiguous buffer (bytes, mmap, numpy array), no copy."""
+    return buf.reshape(-1).view(np.uint8) if isinstance(buf, np.ndarray) else np.frombuffer(buf, np.uint8)
+
+
 def _chunk_header(cmp):
     """(total bytes, block bytes) from the 12-byte bitshuffle header."""
-    h = bytes(memoryview(cmp)[:12])
-    return int.from_bytes(h[:8], "big"), int.from_bytes(h[8:12], "big")
+    return struct.unpack(">QI", _bytes(cmp)[:12].tobytes())
 
 
 _UNBLOCK_ERRORS = {  # err of the unblock and decompress kernels (bslz4_split.cu)
@@ -695,7 +702,7 @@ class chunk2sparse(object):
         themselves (through __dlpack__)."""
         cu.use_device(self._dev)
         return self._decompress_from(
-            self._host_chunks([memoryview(c).cast("B") for c in chunks]), out
+            self._host_chunks([_bytes(c) for c in chunks]), out
         )
 
     def decompress_from_device(self, buf, offsets, lengths, out=None):
@@ -747,15 +754,11 @@ class chunk2sparse(object):
     def multi(self, chunks, cut):
         """Decode a batch of chunks (one frame each): npixels[nframes], (values, indices) of shape
         (nframes, ni*nj)."""
-        return self._run([memoryview(c).cast("B") for c in chunks], cut)
+        return self._run([_bytes(c) for c in chunks], cut)
 
     def from_buffer(self, base, offsets, lengths, cut):
         """As multi, for the chunks at byte offsets[i] (lengths[i]) inside the one buffer base."""
-        b = (
-            memoryview(base).cast("B")
-            if not isinstance(base, np.ndarray)
-            else base.reshape(-1).view(np.uint8)
-        )
+        b = _bytes(base)
         views = []
         for o, l in zip(offsets, lengths):
             o, l = int(o), int(l)
@@ -834,7 +837,7 @@ class chunk2sparseCSC(chunk2sparse):
         if acc not in ACC:
             raise ValueError("acc must be one of %s" % list(ACC))
         self.acc = acc
-        super().__init__(
+        super(chunk2sparseCSC, self).__init__(
             mask, dtype, codec, pipeline, batch, howmany, thresholds, group, unblock, device
         )
         if self.kind == 2 and acc == "i64":
@@ -919,7 +922,7 @@ class chunk2sparseCSC(chunk2sparse):
         copy."""
         cu.use_device(self._dev)
         return self._integrate_from(
-            self._host_chunks([memoryview(c).cast("B") for c in chunks]), out
+            self._host_chunks([_bytes(c) for c in chunks]), out
         )
 
     def integrate_from_device(self, buf, offsets, lengths, out=None):

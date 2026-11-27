@@ -18,10 +18,13 @@ file at a time, and refused like it before the run when the run's powder is too 
 (check_powder_size).
 """
 
+from __future__ import absolute_import, division, print_function
+
 import os
 
 import numpy as np
 
+from ._files import makedirs, replace
 from ._sinks import Sink, check_powder_size
 from ._sparsefile import _compression
 
@@ -86,7 +89,7 @@ class RingSink(Sink):
 
     def begin(self, meta):
         check_powder_size(meta)
-        os.makedirs(self.out_dir, exist_ok=True)
+        makedirs(self.out_dir)
 
     def begin_unit(self, unit):
         if unit.frame0 != 0 or unit.n != unit.nfile:
@@ -129,7 +132,7 @@ class RingSink(Sink):
             g.attrs["unit"], g.attrs["nframes"] = self.integ.unit, len(data)
             if self.ipath:
                 g.attrs["integrator"] = self.ipath
-        os.replace(out + ".tmp", out)
+        replace(out + ".tmp", out)
         self.files.append(out)
         self.held = []
 
