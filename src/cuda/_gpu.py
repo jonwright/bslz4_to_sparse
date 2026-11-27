@@ -184,7 +184,7 @@ def _bytes(buf):
 
 def _chunk_header(cmp):
     """(total bytes, block bytes) from the 12-byte bitshuffle header."""
-    return struct.unpack(">QI", _bytes(cmp)[:12].tobytes())
+    return struct.unpack_from(">QI", cmp)
 
 
 _UNBLOCK_ERRORS = {  # err of the unblock and decompress kernels (bslz4_split.cu)
