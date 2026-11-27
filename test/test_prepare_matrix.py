@@ -12,7 +12,7 @@ ask at once).  chunk2sparseCSC(mask, csc) alone still owns a private copy.
 """
 from __future__ import absolute_import, division, print_function
 
-from conftest import Barrier, bitshuffle
+from conftest import Barrier, bitshuffle, needs_chunk_info
 import collections
 import os
 import pickle
@@ -290,6 +290,7 @@ def test_objects_and_backends_still_pickle(data):
     assert be2._plan_obj is None and be2.make_worker() is not None
 
 
+@needs_chunk_info
 @pytest.mark.parametrize("exact", [None, False])
 def test_the_conveyor_backend_builds_once_for_all_workers(tmpdir, count_builds, exact):
     from bslz4_to_sparse import conveyor as cv

@@ -151,6 +151,12 @@ if __name__=="__main__":
         here = os.path.dirname(os.path.abspath(__file__))
         make_decode_matrix(os.path.join(here, "matrix.h5"),
                            os.path.join(here, "matrix.json"))
+    elif len(sys.argv) > 1 and sys.argv[1] == "conveyor":
+        # the conveyor's test files and sidecars, for a Python without h5py's chunk index (2.7)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import test_conveyor
+        for nfiles, nframes in test_conveyor.SETS:
+            print("wrote", test_conveyor.cached_files(nfiles, nframes))
     else:
         hname = "bslz4testcases.h5"
         if os.path.exists(hname):

@@ -3,7 +3,7 @@ ImageD11 itself, with the exact powder beside it."""
 
 from __future__ import absolute_import, division, print_function
 
-from conftest import bitshuffle
+from conftest import bitshuffle, needs_chunk_info, needs_zstd_writer
 import os
 
 import numpy as np
@@ -24,7 +24,9 @@ def matrix(nbins=12):
     return sp.csc_matrix((np.ones(npix, np.float32), (rows, np.arange(npix))), (nbins, npix)), rows
 
 
-@pytest.mark.parametrize("compression", ["bslz4", "bszstd", "lzf", None])
+@pytest.mark.parametrize(
+    "compression", ["bslz4", pytest.param("bszstd", marks=needs_zstd_writer), "lzf", None]
+)
 def test_files_match_a_direct_decode(tmpdir, compression):
     paths = make_files(tmpdir)
     units, shape, dtype = cv.make_work_units(paths, DSET)  # a unit is a file
@@ -110,6 +112,7 @@ def test_imageD11_reads_it(tmpdir):
         assert np.array_equal(s.getframe(i).to_dense("intensity"), frames[i])
 
 
+@needs_chunk_info
 def test_small_objects_are_dropped_with_min_pixels(tmpdir):
     pytest.importorskip("ImageD11.sparseframe")
     import hdf5plugin

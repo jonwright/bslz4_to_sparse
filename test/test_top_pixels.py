@@ -241,7 +241,9 @@ def test_matches_imaged11():
         nnz = int(rng.randint(0, 400))
         val = rng.randint(1, 40, nnz).astype(np.uint16)
         idx = np.sort(rng.choice(5000, nnz, replace=False)).astype(np.uint32)
-        howmany = int(rng.randint(0, 300))
+        # from 1: ImageD11 keeps one pixel for howmany=0 (it tests n >= howmany after copying);
+        # howmany=0 is checked against the oracle in test_streaming_random_matches_oracle
+        howmany = int(rng.randint(1, 300))
         thr = sorted(rng.randint(0, 30, int(rng.randint(1, 8))).tolist())
         row, col, v = idx.copy(), idx.copy(), val.copy()
         n = lima.top_pixels(nnz, row, col, v, howmany, np.array(thr, np.float64))

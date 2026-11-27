@@ -20,6 +20,7 @@ test/*_geometry.json
 test/*_results.md
 test/demo_*
 test/matrix.json
+test/conveyor_files/
 /bslz4testcases.h5
 /sparsetest.h5
 /c2bslz4/

@@ -73,9 +73,14 @@ def _chunk_info_available():
 needs_zstd_writer = pytest.mark.skipif(
     not _zstd_writer_available(), reason="hdf5plugin cannot write bitshuffle-zstd here"
 )
-needs_chunk_info = pytest.mark.skipif(
-    not _chunk_info_available(), reason="h5py lacks DatasetID.get_chunk_info"
-)
+_CHUNK_INFO = _chunk_info_available()
+
+
+def chunk_info_available():
+    return _CHUNK_INFO
+
+
+needs_chunk_info = pytest.mark.skipif(not _CHUNK_INFO, reason="h5py lacks DatasetID.get_chunk_info")
 
 
 class Barrier(object):

@@ -3,8 +3,10 @@ with threads and with forked processes; a failing sink raises instead of hanging
 
 from __future__ import absolute_import, division, print_function
 
-from conftest import bitshuffle
+from conftest import bitshuffle, chunk_info_available, needs_chunk_info
+import multiprocessing
 import os
+import shutil
 import sys
 import threading
 
@@ -20,19 +22,33 @@ hdf5plugin = pytest.importorskip("hdf5plugin")
 
 import bslz4_to_sparse as b  # noqa: E402
 from bslz4_to_sparse import conveyor as cv  # noqa: E402
+from bslz4_to_sparse.conveyor._index import mtime_ns  # noqa: E402
 
 DSET = "/entry/data"
 SHAPE = (64, 80)
 
 
-def make_files(tmpdir, nfiles=3, nframes=37):
+CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conveyor_files")
+SETS = [(3, 37), (1, 20), (1, 37), (2, 25), (1, 5), (4, 60), (2, 11)]  # (nfiles, nframes) used
+
+
+def cached_files(nfiles=3, nframes=37):
+    """The test files and their sidecars, made once in test/conveyor_files.  Making a sidecar needs
+    h5py's chunk index (h5py >= 3), so Python 2.7 reads the ones made under Python 3
+    (python3 test/make_testcases.py conveyor makes every set in SETS)."""
+    d = os.path.join(CACHE, "%dx%d" % (nfiles, nframes))
+    paths = [os.path.join(d, "f%d.h5" % k) for k in range(nfiles)]
+    if all(os.path.exists(cv.sidecar_path(p)) for p in paths):
+        return paths
+    if not chunk_info_available():
+        pytest.skip("no %s: make it under Python 3 with test/make_testcases.py conveyor" % d)
+    if not os.path.isdir(d):
+        os.makedirs(d)
     rng = np.random.RandomState(3)
-    paths = []
-    for k in range(nfiles):
+    for p in paths:
         frames = np.where(
             rng.random_sample((nframes,) + SHAPE) < 0.05, rng.randint(1, 60, (nframes,) + SHAPE), 0
         )
-        p = os.path.join(str(tmpdir), "f%d.h5" % k)
         with h5py.File(p, "w") as h:
             h.create_dataset(
                 DSET,
@@ -40,9 +56,23 @@ def make_files(tmpdir, nfiles=3, nframes=37):
                 chunks=(1,) + SHAPE,
                 **bitshuffle(nelems=0, cname="lz4")
             )
-        paths.append(p)
+    for p in paths:  # the sidecars last: their presence says the set is complete
         cv.write_index(cv.harvest(p, DSET), p)  # the sidecar: reading never needs HDF5 after this
     return paths
+
+
+def make_files(tmpdir, nfiles=3, nframes=37):
+    """Copies of cached_files in tmpdir, each with its own sidecar, for the test to change."""
+    out = []
+    for p in cached_files(nfiles, nframes):
+        q = os.path.join(str(tmpdir), os.path.basename(p))
+        shutil.copyfile(p, q)
+        ix = cv.read_index(p, check=False)
+        st = os.stat(q)
+        ix.meta.update(file_size=st.st_size, file_mtime_ns=mtime_ns(st))
+        cv.write_index(ix, q)
+        out.append(q)
+    return out
 
 
 def direct(paths, mask):
@@ -175,6 +205,7 @@ def test_bad_arguments(tmpdir):
         cv.run(units, cv.CpuBackend(np.ones(SHAPE, np.uint8), dtype), workers=1, mode="gpus")
 
 
+@needs_chunk_info
 def test_sidecar_equals_what_hdf5_reports(tmpdir):
     paths = make_files(tmpdir, nfiles=2, nframes=25)
     for p in paths:
@@ -190,6 +221,7 @@ def test_sidecar_equals_what_hdf5_reports(tmpdir):
         )  # 12 bytes a frame and a small header
 
 
+@needs_chunk_info
 def test_sidecar_in_another_directory(tmpdir):
     paths = make_files(tmpdir, nfiles=1, nframes=5)
     ix = cv.harvest(paths[0], DSET)
@@ -221,8 +253,14 @@ def test_corrupt_and_missing_sidecars(tmpdir):
     with pytest.raises(ValueError, match="not a bslz4"):
         cv.read_index(paths[0])
     os.remove(sc)
-    with pytest.raises(OSError, match="index_chunks"):
+    with pytest.raises(EnvironmentError, match="index_chunks"):
         cv.make_work_units(paths, DSET)
+
+
+@needs_chunk_info
+def test_a_missing_sidecar_is_harvested_when_asked(tmpdir):
+    paths = make_files(tmpdir, nfiles=1, nframes=5)
+    os.remove(cv.sidecar_path(paths[0]))
     units, shape, dtype = cv.make_work_units(paths, DSET, harvest=True)  # the explicit HDF5 path
     assert sum(u.n for u in units) == 5
 
@@ -240,6 +278,7 @@ def test_reading_and_decoding_need_no_hdf5(tmpdir, monkeypatch):
     assert Collect.out == ref
 
 
+@needs_chunk_info
 def test_an_acquisition_that_stopped_early(tmpdir):
     rng = np.random.RandomState(0)
     p = os.path.join(str(tmpdir), "partial.h5")
@@ -365,7 +404,8 @@ def test_cpulist_and_nodes_without_cpus():
 
     assert _cpulist("0-3,8,10-11\n") == [0, 1, 2, 3, 8, 10, 11]
     assert _cpulist("\n") == [] and _cpulist("") == []  # a memory-only node (GPU memory on POWER9)
-    assert sum(len(n) for n in cv.numa_nodes()) == len(os.sched_getaffinity(0))
+    allowed = os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else range(multiprocessing.cpu_count())
+    assert sum(len(n) for n in cv.numa_nodes()) == len(allowed)
 
 
 def fazit_matrix(mask, extra=5, seed=11):

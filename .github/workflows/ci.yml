@@ -542,7 +542,7 @@ jobs:
       - name: Run decode matrix
         run: python -m pytest test\test_decode_matrix.py test\test_corrupt_chunk.py -q
 
-  # --- Python 2.7: build in an old-glibc (18.04) container, test decode ---
+  # --- Python 2.7: build in an old-glibc (18.04) container, run the test suite ---
   test-py27:
     needs: fixture
     runs-on: ubuntu-24.04
@@ -557,6 +557,15 @@ jobs:
         with:
           name: decode-matrix-fixture
           path: test/
+      # The conveyor's test files need their sidecar index, which needs h5py >= 3: made here, read
+      # by Python 2.7 below (test/conveyor_files).
+      - name: Conveyor test files (Python 3)
+        run: |
+          python -m pip install --quiet --only-binary :all: numpy h5py hdf5plugin pytest
+          python tools/build_extension.py --out lib3/bslz4_to_sparse
+          cp -r src/*.py src/conveyor lib3/bslz4_to_sparse/
+          BSLZ4_TO_SPARSE_PATH=lib3 python test/make_testcases.py conveyor
+          rm -f src/*.so
       - name: Build + test in ubuntu:18.04 (python2.7, glibc 2.27)
         run: |
           docker run --rm -v "$PWD:/workspace" ubuntu:18.04 bash -lc '
@@ -571,7 +580,7 @@ jobs:
             python3 tools/build_extension.py
             python3 setup.py build --build-lib=lib
             BSLZ4_TO_SPARSE_PATH=/workspace/lib \
-              python2.7 -m pytest test/test_decode_matrix.py test/test_vs_hdf5plugin.py -q
+              python2.7 -m pytest test -q -rs
           '
 
   # --- macOS arm64: decode test, same gating as build-macos ---
