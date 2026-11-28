@@ -88,17 +88,21 @@ that old files lack. Before changing a contract, list the callers and say what
 happens to each. A changed default is a results change: measure before and after,
 report both.
 
-The library (`src/`, `src/conveyor/` and `src/cuda/` included; not yet
-`src/conveyor/diffmap_integrate.py`, a pyFAI command-line tool), the tests, the examples, and the
-tools a Python 2 user runs (`tools/build_extension.py`, which pip runs with the Python it installs
-for; `tools/index_chunks.py`) or the tests import, are one source that runs on Python 2.7 (numpy 1.16, h5py 2.10, hdf5plugin 2.3.2; CI job `test-py27`)
-and on Python 3 with numpy below and above 2. Write the clean subset both share; never two
+The library (`src/`, `src/conveyor/` and `src/cuda/` included, `diffmap_integrate` too), the
+tests, the examples, and the tools a Python 2 user runs (`tools/build_extension.py`, which pip runs
+with the Python it installs for; `tools/index_chunks.py`) or the tests import, are one source that
+runs on Python 2.7 (numpy 1.16, h5py 2.10, hdf5plugin 2.3.2, pyFAI 0.17.1, futures; CI job
+`test-py27`) and on Python 3 with numpy below and above 2. Write the clean subset both share; never two
 parallel paths (`if PY2: ... else: ...`, `sys.version_info`). Where a name is missing on one
-side, look first for a name both have (`timeit.default_timer`),
+side, look first for a name both have (`timeit.default_timer`, `concurrent.futures` from the
+`futures` backport),
 else test for the capability (`getattr(os, "replace", os.rename)`, `import queue` falling back to `Queue`), once, in one place. No `multiprocessing` on the default (threads) path.
 The one agreed version test is `read_direct_chunk` in `src/__init__.py`: it works around h5py's
 Python 2 bug (the chunk comes back as a repr), which no capability test can see, a str being bytes
 there.
+pyFAI's API differs between versions (0.17 and 0.18 have no CSC, and their `sum_signal` is
+another sum): take its matrix through `pyfai_matrix` in `src/conveyor/_integrator.py`, the one
+place that knows.
 `from __future__ import absolute_import, division, print_function` in every module; no infix
 `@` (`np.dot`, `.dot`), f-strings, `yield from`, keyword-only arguments, `nonlocal`, bare
 `super()`, `np.random.default_rng` (`RandomState`, with `dtype=np.int64` past 2**31), pathlib,

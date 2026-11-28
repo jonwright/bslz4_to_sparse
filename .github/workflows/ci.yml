@@ -582,7 +582,7 @@ jobs:
             python2.7 -m pip install --quiet "numpy<1.17" pytest scipy h5py==2.10.0 hdf5plugin==2.3.2
             # for the tests only (not a dependency): pyFAI 0.17.1, the last whose 2.7 wheels load
             # (0.18.0 built them for a UCS2 Python); it has CSR matrices, no CSC
-            python2.7 -m pip install --quiet --only-binary :all: pyFAI==0.17.1
+            python2.7 -m pip install --quiet --only-binary :all: pyFAI==0.17.1 futures
             cd /workspace
             # built by Python 2.7 itself, as pip does from source (setup.py runs
             # tools/build_extension.py with the same interpreter)

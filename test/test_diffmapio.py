@@ -188,24 +188,37 @@ def bliss_scan(tmpdir):
 
 
 def run_cli(monkeypatch, *argv):
-    pytest.importorskip("pathlib")  # diffmap_integrate is Python 3 only (AGENTS.md 6)
     from bslz4_to_sparse.conveyor import diffmap_integrate
 
     monkeypatch.setattr("sys.argv", ["bs_diffmap_integrate"] + [str(a) for a in argv])
     diffmap_integrate.main()
 
 
-def test_integrate_a_bliss_scan(tmpdir, monkeypatch):
+@pytest.mark.parametrize("mask_arg", ["auto", "file"])
+def test_integrate_a_bliss_scan(tmpdir, monkeypatch, mask_arg):
     """Placement, exact clipped sums and the clipped-pixel list of a scan in two files; the
-    recipe gives the same file again, and refuses other settings."""
+    recipe gives the same file again, and refuses other settings.  The mask: pyFAI's
+    dynamic_mask of the first frame (it finds none here), or a file masking one pixel."""
     master, poni, frames, row, col = bliss_scan(tmpdir)
+    if mask_arg == "file":
+        fabio = pytest.importorskip("fabio")
+        bad = np.zeros(FSHAPE, np.int8)
+        bad[3, 4] = 1
+        mask_arg = os.path.join(str(tmpdir), "mask.edf")
+        fabio.edfimage.EdfImage(data=bad).write(mask_arg)
+    elif not hasattr(Detector, "dynamic_mask"):
+        with pytest.raises(SystemExit, match="dynamic_mask"):
+            run_cli(monkeypatch, master, os.path.join(str(tmpdir), "x.h5"), "--entry", "1.1",
+                    "--poni", poni, "--mask", "auto")
+        return
     out = os.path.join(str(tmpdir), "out.h5")
     run_cli(monkeypatch, master, out, "--entry", "1.1", "--poni", poni, "--n-bins", N_BINS,
-            "--split", "bbox", "--mask", "auto", "--threads", 2, "--no-pin")
+            "--split", "bbox", "--mask", mask_arg, "--threads", 2, "--no-pin")
     plan = os.path.join(str(tmpdir), "out_plan.h5")
     integ = bslz4_cv.Integrator.load(plan)
     with h5py.File(plan, "r") as h:
         mask = h["mask"][()]
+    assert mask.sum() == mask.size - (mask_arg != "auto")  # the decoder's: 1 = use the pixel
     W = b.fixed_point_matrix(integ.csc, mask, np.uint32).to_scipy()
     wtmax = int(EXPO * 1e7)
     want = np.stack([W.dot(np.minimum(f, wtmax).ravel().astype(np.int64)) for f in frames])
@@ -227,6 +240,45 @@ def test_integrate_a_bliss_scan(tmpdir, monkeypatch):
 
     with pytest.raises(SystemExit, match="n-bins"):
         run_cli(monkeypatch, again, "--plan", plan, "--n-bins", N_BINS + 1)
+
+
+def test_the_chunk_routes_agree(tmpdir, monkeypatch):
+    """diffmap_integrate finds each frame's chunk from the sidecars when present, else from HDF5's
+    chunk index, else (h5py 2.10) reads it through HDF5: the same bytes every way."""
+    from conftest import chunk_info_available
+    from bslz4_to_sparse.conveyor import _diffmapio, diffmap_integrate as di
+
+    master, poni, frames, row, col = bliss_scan(tmpdir)
+    sources = _diffmapio.bliss_geometry(master, "1.1")["source"]
+    assert len(sources) == 2
+    want = []
+    for f, ds, v0, s0, n in sources:
+        with h5py.File(f, "r") as h:
+            want += [bytes(b.read_direct_chunk(h[ds], (i, 0, 0))[1]) for i in range(n)]
+
+    def chunks():
+        chunk, close = di.open_frames(sources, len(row))
+        try:
+            return [bytes(chunk(i)) for i in range(len(row))]
+        finally:
+            close()
+
+    if chunk_info_available():
+        assert chunks() == want  # HDF5's chunk index
+        for f, ds, v0, s0, n in sources:
+            bslz4_cv.write_index(bslz4_cv.harvest(f, ds), f)
+
+        def refuse(ds):
+            raise AssertionError("the sidecar is there")
+        monkeypatch.setattr(b, "locate_chunks", refuse)
+        assert chunks() == want  # the sidecars
+
+        def missing(ds):
+            raise NotImplementedError("no get_chunk_info")
+        for f, ds, v0, s0, n in sources:
+            os.remove(bslz4_cv.sidecar_path(f))
+        monkeypatch.setattr(b, "locate_chunks", missing)
+    assert chunks() == want  # read through HDF5
 
 
 def fscan_master(path, row, col, params=True, offset=0.0, mode=None, spread=0.003):

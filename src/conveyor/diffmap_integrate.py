@@ -24,7 +24,6 @@ from __future__ import absolute_import, division, print_function
 import argparse
 import os
 import threading
-from pathlib import Path
 
 import numpy as np
 
@@ -37,10 +36,10 @@ CONFIG = dict(poni=None, entry="2.1", n_bins=2000, split="full", unit="2th_deg",
 def parse_args():
     p = argparse.ArgumentParser(prog="bs_diffmap_integrate", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("master", nargs="?", type=Path, help="read-only Bliss master (from --plan if omitted)")
-    p.add_argument("output", nargs="?", type=Path, help=".h5 to write (required)")
+    p.add_argument("master", nargs="?", help="read-only Bliss master (from --plan if omitted)")
+    p.add_argument("output", nargs="?", help=".h5 to write (required)")
     p.add_argument("--entry", default=None, help="scan entry in the master (default 2.1)")
-    p.add_argument("--poni", type=Path, default=None, help="pyFAI .poni geometry")
+    p.add_argument("--poni", default=None, help="pyFAI .poni geometry")
     p.add_argument("--n-bins", type=int, default=None, help="radial bins (default 2000)")
     p.add_argument("--split", choices=["no", "bbox", "full"], default=None,
         help="pyFAI pixel splitting (default full)")
@@ -53,46 +52,88 @@ def parse_args():
         "(the same as omitting it): the detector's own mask, else one derived from the first frame")
     p.add_argument("--max-frames", type=int, default=None, help="integrate only the first N frames (debug)")
     p.add_argument("--input-file", default=None, help="force the chunk source file::dataset (auto-detected)")
-    p.add_argument("--write-poni", type=Path, default=None, help="where to write the .poni copy")
+    p.add_argument("--write-poni", default=None, help="where to write the .poni copy")
     p.add_argument("--threads", type=int, default=None,
         help="integration threads (default: min(16, CPU affinity // 2))")
     p.add_argument("--no-pin", action="store_true", help="do not pin each worker thread to a core")
     p.add_argument("--batch", type=int, default=None, help="frames per bslz4_to_sparse multi() call "
         "(default: 2)")
-    p.add_argument("--plan", type=Path, default=None,
+    p.add_argument("--index-dir", default=None,
+        help="where the chunk-index sidecars are (tools/index_chunks.py --index-dir); default beside the files")
+    p.add_argument("--plan", default=None,
         help="a recipe file: read if it exists (the settings come from it), else written. "
         "Default: written to <OUTPUT stem>_plan.h5, never read.")
     return p.parse_args()
 
 
-def open_frames(sources, n_frames):
-    """(maps, files, table): one read-only mmap per source, its open file, and for each frame
-    0..n_frames-1 (map number, byte offset, byte size) of its chunk."""
+def locate(fname, dset, index_dir=None):
+    """{frame: (byte offset, byte size)} of the chunks of fname::dset: from its sidecar
+    (tools/index_chunks.py) when there is a fresh one for that dataset, else from HDF5's chunk
+    index; None when neither (h5py 2.10, the last for Python 2, has no DatasetID.get_chunk_info)."""
+    import bslz4_to_sparse as b
+    import h5py
+    from bslz4_to_sparse import conveyor as cv
+
+    try:
+        idx = cv.read_index(fname, index_dir)
+        if idx.dataset.strip("/") == dset.strip("/"):
+            return dict(enumerate(zip(idx.offsets.tolist(), idx.lengths.tolist())))
+    except (EnvironmentError, ValueError):  # none, stale, or of another version
+        pass
+    with h5py.File(fname, "r") as h:
+        try:
+            return b.locate_chunks(h[dset])
+        except NotImplementedError:
+            return None
+
+
+def open_frames(sources, n_frames, index_dir=None):
+    """(chunk, close): chunk(frame) gives the compressed bytes of each frame 0..n_frames-1, close()
+    releases the files.  A file whose chunks locate() finds is read through a read-only mmap; any
+    other through HDF5, frame by frame (read_direct_chunk)."""
     import mmap
 
     import bslz4_to_sparse as b
     import h5py
 
-    table = np.full((n_frames, 3), -1, np.int64)
-    maps, files = [], []
+    table = np.full((n_frames, 3), -1, np.int64)  # (source, byte offset or frame, size or -1)
+    opened = []  # an mmap, or an HDF5 dataset
+    files = []
     for fname, dset, v0, s0, count in sources:
         stop = min(v0 + count, n_frames)
         if v0 >= stop:
             continue
-        with h5py.File(fname, "r") as h:
-            off = b.locate_chunks(h[dset])
-        fp = open(fname, "rb")
-        files.append(fp)
-        maps.append(mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ))
+        off = locate(fname, dset, index_dir)
+        if off is None:
+            h = h5py.File(fname, "r")
+            files.append(h)
+            opened.append(h[dset])
+            off = dict((f, (f, -1)) for f in range(h[dset].shape[0]))
+        else:
+            fp = open(fname, "rb")
+            files.append(fp)
+            opened.append(mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ))
+            files.append(opened[-1])
         for v in range(v0, stop):
             if s0 + v - v0 not in off:
                 raise ValueError("%s::%s has no chunk for frame %d" % (fname, dset, s0 + v - v0))
-            o, s = off[s0 + v - v0]
-            table[v] = (len(maps) - 1, o, s)
+            o, n = off[s0 + v - v0]
+            table[v] = (len(opened) - 1, o, n)
     missing = np.flatnonzero(table[:, 0] < 0)
     if missing.size:
         raise ValueError("%d frames (first %d) are in no source file" % (missing.size, missing[0]))
-    return maps, files, table
+
+    def chunk(frame):
+        s, o, n = (int(x) for x in table[frame])
+        if n < 0:
+            return b.read_direct_chunk(opened[s], (o, 0, 0))[1]
+        return opened[s][o:o + n]
+
+    def close():
+        for f in reversed(files):
+            f.close()
+
+    return chunk, close
 
 
 # Shared, read-only integration context the worker threads use; each thread keeps its
@@ -124,11 +165,11 @@ def _integrate_indices(indices):
     d = getattr(_TLS, "decoder", None)
     if d is None:
         d = _TLS.decoder = ctx["plan"].context()
-    maps, table, wtmax = ctx["maps"], ctx["table"], ctx["wtmax_i"]
+    chunk, wtmax = ctx["chunk"], ctx["wtmax_i"]
     clip = []
     for j0 in range(0, len(indices), ctx["batch"]):
         idxs = indices[j0:j0 + ctx["batch"]]
-        chunks = [maps[table[fi, 0]][table[fi, 1]:table[fi, 1] + table[fi, 2]] for fi in idxs]
+        chunks = [chunk(fi) for fi in idxs]
         # The cut is wtmax: (values, pixidx) hold exactly the pixels above it, which is what
         # the exact "clip every pixel to wtmax" of clip_exact_powder needs: their
         # (weights x excess) is subtracted from the int64 sums.
@@ -155,7 +196,7 @@ def _geom_to_json(geom):
             d[k] = [[str(f), str(ds), int(v0), int(s0), int(n)] for f, ds, v0, s0, n in v]
         elif k == "dtype":
             d[k] = np.dtype(v).name
-        elif isinstance(v, (str, int, float, bool)) or v is None:
+        elif isinstance(v, (str, type(u""), int, float, bool)) or v is None:  # Python 2: unicode too
             d[k] = v
         else:
             raise TypeError("geometry key %r is not JSON-serializable" % k)
@@ -171,7 +212,7 @@ def _geom_from_json(d):
     g["map_shape"] = tuple(int(x) for x in d["map_shape"])
     g["frame_shape"] = tuple(int(x) for x in d["frame_shape"])
     src = d["source"]
-    if src is not None and len(src) == 2 and isinstance(src[0], str):
+    if src is not None and len(src) == 2 and not isinstance(src[0], (list, tuple)):
         src = [[src[0], src[1], 0, 0, d["n_points"]]]   # a recipe of the first version: one file
     g["source"] = [tuple(s) for s in src]
     g["dtype"] = np.dtype(d["dtype"])
@@ -228,6 +269,9 @@ def _detector_mask(ai, mask_arg, first_frame):
         return (fabio.open(mask_arg).data > 0).astype(np.int8)
     if ai.detector.mask is not None:
         return (ai.detector.mask > 0).astype(np.int8)
+    if not hasattr(ai.detector, "dynamic_mask"):
+        raise SystemExit("this pyFAI (%s) has no Detector.dynamic_mask: give --mask FILE"
+                         % __import__("pyFAI").version)
     dm = ai.detector.dynamic_mask(first_frame())
     return dm.astype(np.int8) if np.any(dm) else None
 
@@ -266,10 +310,11 @@ def main():
     import bslz4_to_sparse as b
     from bslz4_to_sparse import conveyor as cv
     from bslz4_to_sparse.conveyor import _diffmapio
+    from bslz4_to_sparse.conveyor._engine import _allowed_cpus
 
     given = dict((k, _setup_value(k, getattr(args, k))) for k in CONFIG
                  if getattr(args, k) is not None)
-    if args.plan is not None and args.plan.exists():
+    if args.plan is not None and os.path.exists(args.plan):
         integ, mask, wc, geom, setup = _load_plan(args.plan)
         if args.master is not None and str(args.master) != setup["master"]:
             raise SystemExit("--plan was built for %s, not %s" % (setup["master"], args.master))
@@ -277,10 +322,10 @@ def main():
                   for k, v in sorted(given.items()) if v != setup[k]]
         if differ:
             raise SystemExit("%s was built with other settings: %s" % (args.plan, "; ".join(differ)))
-        args.master = Path(setup["master"])
+        args.master = setup["master"]
         for k in CONFIG:
             setattr(args, k, setup[k])
-        args.poni = Path(setup["poni"])
+        args.poni = setup["poni"]
         print("plan:", args.plan)
     else:
         if args.master is None or args.poni is None:
@@ -312,7 +357,7 @@ def main():
         print("chunk source: frames %d..%d from %s :: %s" % (v0, v0 + n - 1, f, ds))
 
     wtmax_i = int(geom["wtmax"])
-    maps, files, table = open_frames(sources, n_frames)
+    chunk, close = open_frames(sources, n_frames, args.index_dir)
 
     if integ is None:
         import pyFAI
@@ -327,8 +372,7 @@ def main():
         integ = cv.Integrator.from_pyfai(ai, args.n_bins, unit=args.unit, split=args.split)
 
         def first_frame():
-            m, o, s = table[0]
-            return b.decompress([maps[m][o:o + s]], dtype).reshape(shape)
+            return b.decompress([chunk(0)], dtype).reshape(shape)
 
         det_mask = ai.detector.mask if file_mask else _detector_mask(ai, args.mask, first_frame)
         mask = np.ones(shape, np.uint8)
@@ -338,7 +382,7 @@ def main():
 
         wc = _diffmapio.worker_config_dict(ai, args.n_bins, shape, unit=args.unit)
 
-        plan_path = args.plan or args.output.parent / (args.output.stem + "_plan.h5")
+        plan_path = args.plan or os.path.splitext(args.output)[0] + "_plan.h5"
         setup = dict((k, _setup_value(k, getattr(args, k))) for k in CONFIG)
         setup["master"] = str(args.master)
         try:
@@ -360,15 +404,12 @@ def main():
     # The workers write their frames' cells straight into these (no two frames share a cell).
     _CTX.update(
         plan=plan, integ=integ, weights=fp.to_scipy(), wtmax_i=wtmax_i,
-        maps=maps, table=table, row=geom["row"], col=geom["col"],
+        chunk=chunk, row=geom["row"], col=geom["col"],
         int_cube=np.zeros((rows, cols, n_rad), np.float32),
         sum_cube=np.zeros((rows, cols, n_rad), np.int64),
     )
 
-    try:
-        default_threads = max(1, len(os.sched_getaffinity(0)) // 2)
-    except AttributeError:
-        default_threads = max(1, (os.cpu_count() or 1) // 2)
+    default_threads = max(1, len(_allowed_cpus()) // 2)
     n_threads = args.threads or min(16, default_threads)
     n_threads = max(1, min(n_threads, n_frames))
     print("threads: %d" % n_threads)
@@ -392,7 +433,7 @@ def main():
     print("setup: %.2fs" % (time.time() - t0))
     t_setup = time.time()
 
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor, as_completed  # Python 2: the futures backport
 
     try:
         from tqdm import tqdm as bar
@@ -417,15 +458,13 @@ def main():
     integ_time = t_integ - t_setup
     print("integrate: %.2fs (%.0f fps)" % (integ_time, n_frames / max(integ_time, 1e-9)))
 
-    for m in maps:
-        m.close()
-    for fp_ in files:
-        fp_.close()
+    close()
 
     # write a poni next to the output for xrdmap + the external-link viewers
     out = args.output
-    poni_out = args.write_poni or out.with_suffix(".poni")
-    poni_out.write_text(integ.poni)
+    poni_out = args.write_poni or os.path.splitext(out)[0] + ".poni"
+    with open(poni_out, "w") as f:
+        f.write(integ.poni)
 
     _diffmapio.write_diffmap(
         str(out),
