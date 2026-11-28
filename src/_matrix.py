@@ -5,6 +5,9 @@ Every layout is exact (or, for the fixed-point dots, within their stated
 rounding) and is refused, with the reason, for a matrix it cannot
 represent.  The C side of each layout is in src/steps/dot_*.hpp.
 """
+
+from __future__ import absolute_import, division, print_function
+
 import threading
 
 import numpy as np

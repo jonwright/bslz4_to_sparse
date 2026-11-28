@@ -18,6 +18,9 @@ is its own value and is refused, with the reason, on a CPU without it.
 The C side (src/pipeline/pipeline.h, registry.c) mirrors these tables and
 checks again.
 """
+
+from __future__ import absolute_import, division, print_function
+
 import numpy as np
 
 STEPS = ("decode", "mask", "untranspose", "collect", "route", "dot")

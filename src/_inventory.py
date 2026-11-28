@@ -33,6 +33,8 @@ loops are in the source, and what each is paid per, is tools/kernel_loops.py (fo
 model; docs/perf_model.md).
 """
 
+from __future__ import absolute_import, division, print_function
+
 # what a matrix must be for a dot (checked against _matrix.analyse(), and the matrix type)
 MATRIX = {
     "any": "any CSC matrix with float weights",

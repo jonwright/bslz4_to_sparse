@@ -19,7 +19,10 @@ pyFAI = pytest.importorskip("pyFAI")
 h5py = pytest.importorskip("h5py")
 
 from pyFAI.detectors import Detector  # noqa: E402
-from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # noqa: E402
+try:
+    from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # pyFAI >= 2024.10
+except ImportError:
+    from pyFAI.azimuthalIntegrator import AzimuthalIntegrator  # older pyFAI
 
 import bslz4_to_sparse as b  # noqa: E402
 from bslz4_to_sparse import conveyor as bslz4_cv  # noqa: E402
@@ -116,12 +119,17 @@ def test_write_diffmap_layout(tmpdir):
         # frame number -> map cell (file order; serpentine row-1 col-3 is frame 4)
         assert int(nd["map_ptr"][()][1, 3]) == 4 and int(nd["map_ptr"][()][1, 0]) == 7
 
-        # the two viewers' config: a WorkerConfig with nbpt_rad + poni
-        from pyFAI.io.integration_config import WorkerConfig
-        wc_back = WorkerConfig.from_dict(json.loads(proc["configuration/data"][()]), inplace=True)
-        assert wc_back.nbpt_rad == N_BINS
-        assert list(wc_back.shape) == list(SHAPE)
-        assert wc_back.poni is not None
+        # the two viewers' config: a WorkerConfig with nbpt_rad + poni (an older pyFAI, as on
+        # Python 2, has neither the viewers nor WorkerConfig)
+        try:
+            from pyFAI.io.integration_config import WorkerConfig
+        except ImportError:
+            WorkerConfig = None
+        if WorkerConfig is not None:
+            wc_back = WorkerConfig.from_dict(json.loads(proc["configuration/data"][()]), inplace=True)
+            assert wc_back.nbpt_rad == N_BINS
+            assert list(wc_back.shape) == list(SHAPE)
+            assert wc_back.poni is not None
 
         # raw frames exposed as an external link into the (master) VDS
         link = f.get("/entry_0000/measurement/images_0001", getlink=True)
@@ -186,17 +194,31 @@ def run_cli(monkeypatch, *argv):
     diffmap_integrate.main()
 
 
-def test_integrate_a_bliss_scan(tmpdir, monkeypatch):
+@pytest.mark.parametrize("mask_arg", ["auto", "file"])
+def test_integrate_a_bliss_scan(tmpdir, monkeypatch, mask_arg):
     """Placement, exact clipped sums and the clipped-pixel list of a scan in two files; the
-    recipe gives the same file again, and refuses other settings."""
+    recipe gives the same file again, and refuses other settings.  The mask: pyFAI's
+    dynamic_mask of the first frame (it finds none here), or a file masking one pixel."""
     master, poni, frames, row, col = bliss_scan(tmpdir)
+    if mask_arg == "file":
+        fabio = pytest.importorskip("fabio")
+        bad = np.zeros(FSHAPE, np.int8)
+        bad[3, 4] = 1
+        mask_arg = os.path.join(str(tmpdir), "mask.edf")
+        fabio.edfimage.EdfImage(data=bad).write(mask_arg)
+    elif not hasattr(Detector, "dynamic_mask"):
+        with pytest.raises(SystemExit, match="dynamic_mask"):
+            run_cli(monkeypatch, master, os.path.join(str(tmpdir), "x.h5"), "--entry", "1.1",
+                    "--poni", poni, "--mask", "auto")
+        return
     out = os.path.join(str(tmpdir), "out.h5")
     run_cli(monkeypatch, master, out, "--entry", "1.1", "--poni", poni, "--n-bins", N_BINS,
-            "--split", "bbox", "--mask", "auto", "--threads", 2, "--no-pin")
+            "--split", "bbox", "--mask", mask_arg, "--threads", 2, "--no-pin")
     plan = os.path.join(str(tmpdir), "out_plan.h5")
     integ = bslz4_cv.Integrator.load(plan)
     with h5py.File(plan, "r") as h:
         mask = h["mask"][()]
+    assert mask.sum() == mask.size - (mask_arg != "auto")  # the decoder's: 1 = use the pixel
     W = b.fixed_point_matrix(integ.csc, mask, np.uint32).to_scipy()
     wtmax = int(EXPO * 1e7)
     want = np.stack([W.dot(np.minimum(f, wtmax).ravel().astype(np.int64)) for f in frames])
@@ -218,6 +240,115 @@ def test_integrate_a_bliss_scan(tmpdir, monkeypatch):
 
     with pytest.raises(SystemExit, match="n-bins"):
         run_cli(monkeypatch, again, "--plan", plan, "--n-bins", N_BINS + 1)
+
+
+def test_the_chunk_routes_agree(tmpdir, monkeypatch):
+    """diffmap_integrate finds each frame's chunk from the sidecars when present, else from HDF5's
+    chunk index, else (h5py 2.10) reads it through HDF5: the same bytes every way."""
+    from conftest import chunk_info_available
+    from bslz4_to_sparse.conveyor import _diffmapio, diffmap_integrate as di
+
+    master, poni, frames, row, col = bliss_scan(tmpdir)
+    sources = _diffmapio.bliss_geometry(master, "1.1")["source"]
+    assert len(sources) == 2
+    want = []
+    for f, ds, v0, s0, n in sources:
+        with h5py.File(f, "r") as h:
+            want += [bytes(b.read_direct_chunk(h[ds], (i, 0, 0))[1]) for i in range(n)]
+
+    def chunks():
+        chunk, close = di.open_frames(sources, len(row))
+        try:
+            return [bytes(chunk(i)) for i in range(len(row))]
+        finally:
+            close()
+
+    if chunk_info_available():
+        assert chunks() == want  # HDF5's chunk index
+        for f, ds, v0, s0, n in sources:
+            bslz4_cv.write_index(bslz4_cv.harvest(f, ds), f)
+
+        def refuse(ds):
+            raise AssertionError("the sidecar is there")
+        monkeypatch.setattr(b, "locate_chunks", refuse)
+        assert chunks() == want  # the sidecars
+
+        def missing(ds):
+            raise NotImplementedError("no get_chunk_info")
+        for f, ds, v0, s0, n in sources:
+            os.remove(bslz4_cv.sidecar_path(f))
+        monkeypatch.setattr(b, "locate_chunks", missing)
+    assert chunks() == want  # read through HDF5
+
+
+@pytest.mark.parametrize("damage", ["truncated", "no nframes"])
+def test_a_damaged_sidecar_falls_back_to_hdf5(tmpdir, damage):
+    """A sidecar that cannot be read is passed over, whatever read_index raises for it."""
+    import json
+    import struct
+
+    from bslz4_to_sparse.conveyor import _diffmapio, _index, diffmap_integrate as di
+
+    master, poni, frames, row, col = bliss_scan(tmpdir)
+    sources = _diffmapio.bliss_geometry(master, "1.1")["source"]
+    for f, ds, v0, s0, n in sources:
+        with open(bslz4_cv.sidecar_path(f), "wb") as out:
+            if damage == "truncated":
+                out.write(_index.MAGIC + b"\0\0")
+            else:
+                head = json.dumps({"version": _index.VERSION, "dataset": ds}).encode("utf-8")
+                out.write(_index.MAGIC + struct.pack("<I", len(head)) + head)
+    chunk, close = di.open_frames(sources, len(row))
+    try:
+        got = [bytes(chunk(i)) for i in range(len(row))]
+    finally:
+        close()
+    want = []
+    for f, ds, v0, s0, n in sources:
+        with h5py.File(f, "r") as h:
+            want += [bytes(b.read_direct_chunk(h[ds], (i, 0, 0))[1]) for i in range(n)]
+    assert got == want
+
+
+def test_frames_never_written_are_refused_before_the_run(tmpdir, monkeypatch):
+    """Read through HDF5 (no sidecar, no chunk index): an acquisition that stopped early (HDF5
+    declares 6 frames, 4 were written) is refused when the frames are opened, not in a worker."""
+    from bslz4_to_sparse.conveyor import diffmap_integrate as di
+
+    def missing(ds):
+        raise NotImplementedError("no get_chunk_info")
+    monkeypatch.setattr(b, "locate_chunks", missing)
+    f = os.path.join(str(tmpdir), "partial.h5")
+    frames = np.random.RandomState(3).poisson(3, (4,) + FSHAPE).astype(np.uint32)
+    with h5py.File(f, "w") as h:
+        ds = h.create_dataset("data", shape=(6,) + FSHAPE, dtype=np.uint32, chunks=(1,) + FSHAPE,
+                              **bitshuffle(nelems=0, cname="lz4"))
+        ds[:4] = frames
+    chunk, close = di.open_frames([(f, "data", 0, 0, 4)], 4)  # the written frames: fine
+    try:
+        assert b.decompress([chunk(3)], np.uint32).reshape(FSHAPE).tolist() == frames[3].tolist()
+    finally:
+        close()
+    with pytest.raises(ValueError, match="no chunk for frame 5"):
+        di.open_frames([(f, "data", 0, 0, 6)], 6)
+
+
+def test_timestamps_are_iso_8601_whatever_strftime_z_gives(monkeypatch):
+    """%z is the zone's name on Windows and empty on some C libraries: not used."""
+    import re
+    import time
+
+    from bslz4_to_sparse.conveyor import _diffmapio
+
+    strftime = time.strftime
+    monkeypatch.setattr(time, "strftime",
+                        lambda fmt, *t: strftime(fmt.replace("%z", "W. Europe Standard Time"), *t))
+    now = _diffmapio._now()
+    assert re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$", now), now
+    if hasattr(time.localtime(), "tm_gmtoff"):  # the offset is the local one
+        off = time.localtime().tm_gmtoff
+        assert now.endswith("%s%02d:%02d" % ("+" if off >= 0 else "-", abs(off) // 3600,
+                                            abs(off) % 3600 // 60)), now
 
 
 def fscan_master(path, row, col, params=True, offset=0.0, mode=None, spread=0.003):

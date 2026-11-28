@@ -6,6 +6,7 @@ from __future__ import absolute_import, division, print_function
 from conftest import bitshuffle, chunk_info_available, needs_chunk_info
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -344,12 +345,107 @@ def test_corrupt_and_missing_sidecars(tmpdir):
         cv.make_work_units(paths, DSET)
 
 
+def test_index_chunks_keeps_fresh_sidecars_and_makes_missing_ones(tmpdir):
+    """tools/index_chunks.py under this Python: a fresh sidecar is kept, a missing one is made
+    (or, with an h5py that has no chunk index, the file is reported as failed)."""
+    paths = make_files(tmpdir, nfiles=2, nframes=5)
+    os.remove(cv.sidecar_path(paths[1]))
+    script = os.path.join(os.path.dirname(CACHE), "..", "tools", "index_chunks.py")
+    env = dict(os.environ, BSLZ4_TO_SPARSE_PATH=os.path.dirname(os.path.dirname(b.__file__)))
+    p = subprocess.Popen(
+        [sys.executable, script, "--files", os.path.join(str(tmpdir), "*.h5"), "--dset", DSET,
+         "--procs", "2"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, universal_newlines=True)
+    out, err = p.communicate()
+    assert "'kept': 1" in out, out + err
+    if chunk_info_available():
+        assert p.returncode == 0 and "'written': 1" in out, out + err
+        assert cv.read_index(paths[1]).shape[0] == 5
+    else:
+        assert p.returncode == 1 and "'failed': 1" in out and "get_chunk_info" in err, out + err
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="tells the worker by /proc")
+@pytest.mark.parametrize("flag", ["--check", "--force"])
+def test_index_chunks_counts_a_worker_that_died_as_failed(tmpdir, flag):
+    """A worker that exits 1 before it reads its files (an import failed: Python's own exit code
+    for an uncaught exception) did nothing: its files are failed, not checked or written,
+    although their old sidecars are still fresh."""
+    paths = make_files(tmpdir, nfiles=2, nframes=5)
+    site = os.path.join(str(tmpdir), "site")
+    os.mkdir(site)
+    with open(os.path.join(site, "sitecustomize.py"), "w") as f:
+        f.write("import os\n"
+                "with open('/proc/%d/cmdline' % os.getppid(), 'rb') as f:\n"
+                "    if b'index_chunks.py' in f.read():\n"
+                "        os._exit(1)  # the worker, before it reads stdin\n")
+    script = os.path.join(os.path.dirname(CACHE), "..", "tools", "index_chunks.py")
+    env = dict(os.environ, BSLZ4_TO_SPARSE_PATH=os.path.dirname(os.path.dirname(b.__file__)),
+               PYTHONPATH=os.pathsep.join([site] + [p for p in [os.environ.get("PYTHONPATH")] if p]))
+    p = subprocess.Popen(
+        [sys.executable, script, "--files", os.path.join(str(tmpdir), "*.h5"), "--dset", DSET,
+         "--procs", "2", flag],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, universal_newlines=True)
+    out, err = p.communicate()
+    assert p.returncode == 1 and "'failed': 2" in out and "crashed" in out, out + err
+
+
 @needs_chunk_info
 def test_a_missing_sidecar_is_harvested_when_asked(tmpdir):
     paths = make_files(tmpdir, nfiles=1, nframes=5)
     os.remove(cv.sidecar_path(paths[0]))
     units, shape, dtype = cv.make_work_units(paths, DSET, harvest=True)  # the explicit HDF5 path
     assert sum(u.n for u in units) == 5
+
+
+class FailingSink(cv.NullSink):
+    """begin() raises for the workers in `fail`, and blocks (until `release` is set) for those in
+    `hang`."""
+
+    def __init__(self, k, fail=(), hang=(), release=None):
+        cv.NullSink.__init__(self)
+        self.k, self.fail, self.hang, self.release = k, fail, hang, release
+
+    def begin(self, meta):
+        if self.k in self.fail:
+            raise ValueError("sink %d refused" % self.k)
+        if self.k in self.hang:
+            self.release.wait()
+
+
+def test_each_worker_that_fails_to_start_is_reported_once(tmpdir):
+    paths = make_files(tmpdir, nfiles=2, nframes=5)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
+    with pytest.raises(RuntimeError) as e:
+        cv.run(units, cv.CpuBackend(np.ones(shape, np.uint8), dtype), workers=3,
+               sink=lambda k: FailingSink(k, fail=(1, 2)))
+    msg = str(e.value)
+    assert msg.count("sink 1 refused") == 1 and msg.count("sink 2 refused") == 1, msg
+
+
+def test_a_worker_that_hangs_at_start_does_not_hang_the_run(tmpdir, monkeypatch):
+    from bslz4_to_sparse.conveyor import _engine
+
+    monkeypatch.setattr(_engine, "STOP_GRACE_S", 1.0)
+    paths = make_files(tmpdir, nfiles=2, nframes=5)
+    units, shape, dtype = cv.make_work_units(paths, DSET)
+    release = threading.Event()
+    out = []
+
+    def go():
+        try:
+            cv.run(units, cv.CpuBackend(np.ones(shape, np.uint8), dtype), workers=2,
+                   sink=lambda k: FailingSink(k, hang=(0, 1), release=release), start_timeout=0.5)
+        except RuntimeError as err:
+            out.append(str(err))
+
+    t = threading.Thread(target=go)
+    t.daemon = True
+    t.start()
+    t.join(20)
+    release.set()  # let the stuck worker go, whatever happened
+    assert not t.is_alive(), "run() did not return"
+    assert out and "timed out after 0.5 s" in out[0], out
 
 
 def test_reading_and_decoding_need_no_hdf5(tmpdir, monkeypatch):

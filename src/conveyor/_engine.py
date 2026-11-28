@@ -39,6 +39,10 @@ from ._sinks import NullSink
 _DONE = None
 
 
+# after a failed start, how long run() waits for the workers and readers that are not stuck to stop
+STOP_GRACE_S = 30.0
+
+
 class _ThreadContext(object):
     Queue = staticmethod(queue.Queue)
     Event = staticmethod(threading.Event)
@@ -421,10 +425,24 @@ def run(
         errs.append("timed out after %s s" % start_timeout)
     if errs:
         abort.set()  # the workers that started leave without running
-        stop.set()  # and so do their readers
+        stop.set()  # and so do their readers, once they have a free buffer to wake them
         go.set()
-        got = [res_q.get() for _ in range(workers)]
-        errs += [s["error"] for s in got if s.get("error") and "another worker failed" not in s["error"]]
+        for q in free_qs:
+            for _ in range(S + 1):
+                q.put(0)
+        # every worker and reader reports, but for one stuck in its start: wait STOP_GRACE_S more
+        # for those, then leave them (daemons) behind
+        deadline, got = _clock() + STOP_GRACE_S, []
+        try:
+            for _ in range(2 * workers):
+                got.append(res_q.get(timeout=max(0.0, deadline - _clock())))
+        except Exception:  # noqa: BLE001 (Empty)
+            errs.append("%d of %d workers and readers still not stopped after %s s"
+                        % (2 * workers - len(got), 2 * workers, STOP_GRACE_S))
+        for st in got:  # a worker's error came already from start_q
+            e = st.get("error")
+            if e and "another worker failed" not in e and e not in errs:
+                errs.append(e)
         raise RuntimeError("a worker failed to start: %r" % (errs,))
     for u in units:
         todo.put(u)

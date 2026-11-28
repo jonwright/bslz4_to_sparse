@@ -15,6 +15,7 @@ if _path:
 import pytest
 
 import bslz4_to_sparse
+from conftest import chunk_info_available
 
 sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools")
@@ -70,8 +71,16 @@ def test_example_runs(path, standin_folder):
     for mod in _needs(path):
         pytest.importorskip(mod)
     with open(path) as fh:
-        if "bslz4_to_sparse import cuda" in fh.read() and not _has_gpu():
-            pytest.skip("needs a CUDA GPU")
+        src = fh.read()
+    if "bslz4_to_sparse import cuda" in src and not _has_gpu():
+        pytest.skip("needs a CUDA GPU")
+    if ("locate_chunks" in src or "harvest" in src) and not chunk_info_available():
+        pytest.skip("h5py lacks DatasetID.get_chunk_info")
+    if "select_one_available" in src:
+        from pyFAI.method_registry import IntegrationMethod
+
+        if not hasattr(IntegrationMethod, "select_one_available"):
+            pytest.skip("this pyFAI lacks IntegrationMethod.select_one_available")
     env = dict(os.environ, MPLBACKEND="Agg")
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(bslz4_to_sparse.__file__)))
     tools_dir = os.path.join(REPO, "tools")

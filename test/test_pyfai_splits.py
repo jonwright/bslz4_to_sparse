@@ -1,6 +1,6 @@
 """Every matrix-dot kernel on real pyFAI matrices.
 
-pyFAI's CSC engine for integrate1d is built with each pixel-splitting
+pyFAI's sparse matrix for integrate1d (its CSC, or its CSR converted) is built with each pixel-splitting
 scheme -- "no" (a histogram: one bin per pixel, weight 1), "bbox" and
 "full" (pixel area split over neighbouring bins) -- at two bin widths:
 about one bin per pixel (radial bins as wide as a pixel) and about five
@@ -27,10 +27,14 @@ h5py = pytest.importorskip("h5py")
 hdf5plugin = pytest.importorskip("hdf5plugin")
 sp = pytest.importorskip("scipy.sparse")
 pyFAI = pytest.importorskip("pyFAI")
-from pyFAI.method_registry import IntegrationMethod  # noqa: E402
+try:
+    from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # pyFAI >= 2024.10
+except ImportError:
+    from pyFAI.azimuthalIntegrator import AzimuthalIntegrator  # older pyFAI
 
 import bslz4_to_sparse as b  # noqa: E402
 from bslz4_to_sparse import _pipeline, _matrix  # noqa: E402
+from bslz4_to_sparse.conveyor._integrator import pyfai_matrix  # noqa: E402
 
 ROUTES = ("dense", "sparse")
 SPLITS = ("no", "bbox", "full")
@@ -75,9 +79,8 @@ def make_integ(mask, M, codec, dot, route=None):
 
 def make_ai():
     det = pyFAI.detector_factory("Eiger_500k")          # 514 x 1030, module gap masked
-    ai = pyFAI.load({"detector": det.name, "dist": 0.1, "poni1": 0.02, "poni2": 0.035,
-                     "rot1": 0.01, "rot2": 0.02, "rot3": 0.03, "wavelength": 2.85e-11})
-    return ai
+    return AzimuthalIntegrator(dist=0.1, poni1=0.02, poni2=0.035, rot1=0.01, rot2=0.02, rot3=0.03,
+                               wavelength=2.85e-11, detector=det)
 
 
 def radial_pixels(ai):
@@ -86,13 +89,12 @@ def radial_pixels(ai):
     return int(np.ceil(r.max() - r.min()))
 
 
-def pyfai_matrix(ai, split, npt):
-    method = IntegrationMethod.select_one_available((split, "csc", "cython"), dim=1)
-    ai.integrate1d(np.ones(ai.detector.shape, np.float32), npt, unit="r_mm", method=method)
-    e = ai.engines[method].engine
-    npix = len(e.indptr) - 1
-    return sp.csc_matrix((np.asarray(e.data, np.float32), np.asarray(e.indices, np.int32),
-                          np.asarray(e.indptr, np.int32)), shape=(npt, npix))
+def pyfai_csc(ai, split, npt, npt_azim=None, unit="r_mm", dtype=np.float32):
+    """pyFAI's matrix (its CSC, or its CSR converted), with dtype weights and int32 indices;
+    and the result of the integration of an image of ones that made it."""
+    M, res = pyfai_matrix(ai, npt, unit, npt_azim, split)
+    return sp.csc_matrix((M.data.astype(dtype), M.indices.astype(np.int32),
+                          M.indptr.astype(np.int32)), shape=M.shape), res
 
 
 @pytest.fixture(scope="module")
@@ -115,7 +117,7 @@ def setup(tmpdir_factory):
 @pytest.mark.parametrize("split", SPLITS)
 def test_every_dot_on_pyfai_matrix(setup, split, bpp):
     ai, mask, frames, chunks, codec = setup
-    M = pyfai_matrix(ai, split, radial_pixels(ai) * bpp)
+    M = pyfai_csc(ai, split, radial_pixels(ai) * bpp)[0]
     keep = mask.ravel().astype(np.float64)
     ref = np.array([M.dot(f.ravel().astype(np.float64) * keep) for f in frames])
     scale = max(np.abs(ref).max(), 1.0)
@@ -143,12 +145,7 @@ def ring_matrices(ai, split):
     """Rings summed from pyFAI's 2D matrix: G (4 rings x NA azimuth) and the
     first moment beside it, interleaved [I, qI, ...] and blocked [I.., qI..]."""
     na, nr = 72, radial_pixels(ai)
-    method = IntegrationMethod.select_one_available((split, "csc", "cython"), dim=2)
-    res = ai.integrate2d(np.ones(ai.detector.shape, np.float32), nr, na, unit="q_nm^-1",
-                         method=method)
-    e = ai.engines[method].engine
-    M2 = sp.csc_matrix((np.asarray(e.data, np.float64), np.asarray(e.indices),
-                        np.asarray(e.indptr)), shape=(nr * na, len(e.indptr) - 1))
+    M2, res = pyfai_csc(ai, split, nr, na, unit="q_nm^-1", dtype=np.float64)
     q = res.radial
     edges = np.quantile(q, [0.2, 0.25, 0.4, 0.45, 0.6, 0.65, 0.8, 0.85]).reshape(4, 2)
     W = np.array([(q >= lo) & (q < hi) for lo, hi in edges], dtype=np.float64)
@@ -224,11 +221,7 @@ def test_2d_matrix(setup, split):
     matches numpy on both routes; the histogram dots take only split='no'."""
     ai, mask, frames, chunks, codec = setup
     na, nr = 72, radial_pixels(ai)
-    method = IntegrationMethod.select_one_available((split, "csc", "cython"), dim=2)
-    ai.integrate2d(np.ones(ai.detector.shape, np.float32), nr, na, unit="q_nm^-1", method=method)
-    e = ai.engines[method].engine
-    M = sp.csc_matrix((np.asarray(e.data, np.float32), np.asarray(e.indices, np.int32),
-                       np.asarray(e.indptr, np.int32)), shape=(nr * na, len(e.indptr) - 1))
+    M = pyfai_csc(ai, split, nr, na, unit="q_nm^-1")[0]
     seen = run_dots(mask, M, frames, chunks, codec, available_dots())
     assert "csc" in seen and "csc-int" in seen and "bsb-csr" in seen
     assert ("csc-nosplit" in seen) == (split == "no")
@@ -240,7 +233,7 @@ def test_layout_built_for_another_block_size_is_refused(setup, dot):
     """padded and bsb-csr have per-block tables: a layout built for another
     block size must give -109, never a wrong powder."""
     ai, mask, frames, chunks, codec = setup
-    M = pyfai_matrix(ai, "bbox", radial_pixels(ai))
+    M = pyfai_csc(ai, "bbox", radial_pixels(ai))[0]
     integ = make_integ(mask, M, codec, dot)
     integ.multi(chunks, 0)
     lay = integ._layout

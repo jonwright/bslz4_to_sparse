@@ -15,8 +15,11 @@ pytest.importorskip("hdf5plugin")
 import bslz4_to_sparse as b  # noqa: E402
 from bslz4_to_sparse import conveyor as cv  # noqa: E402
 from pyFAI.detectors import Detector  # noqa: E402
-from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # noqa: E402
-from pyFAI.method_registry import IntegrationMethod  # noqa: E402
+try:
+    from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # pyFAI >= 2024.10
+except ImportError:
+    from pyFAI.azimuthalIntegrator import AzimuthalIntegrator  # older pyFAI
+from bslz4_to_sparse.conveyor._integrator import sparse_method  # noqa: E402
 
 SHAPE = (96, 112)
 
@@ -42,6 +45,33 @@ CORRECTIONS = {
     "polarization": dict(correctSolidAngle=False, polarization_factor=0.9),
     "all": dict(correctSolidAngle=True, polarization_factor=0.95, normalization_factor=2.5),
 }
+
+
+def reference(ai, img, npt, npt_azim=None, split="bbox", unit="q_nm^-1", **kw):
+    """pyFAI's (sum_signal, intensity, result) for img, with the method from_pyfai uses.  A pyFAI
+    that gives no sum_normalization (0.17) defines its sum_signal and intensity with corrections
+    otherwise (the sum and the mean of value / correction): from it, sum_signal is its sum with no
+    corrections, and the intensity None unless there are none."""
+    method = sparse_method(split, 1 if npt_azim is None else 2)
+
+    def run(**k):
+        if npt_azim is None:
+            return ai.integrate1d(img, npt, unit=unit, method=method, **k)
+        return ai.integrate2d(img, npt, npt_azim, unit=unit, method=method, **k)
+
+    res = run(**kw)
+    if getattr(res, "sum_normalization", None) is not None:
+        return np.asarray(res.sum_signal), res.intensity, res
+    off = dict(correctSolidAngle=False, polarization_factor=None, normalization_factor=1.0)
+    plain = run(flat=np.ones(img.shape, np.float32), **dict(kw, **off))
+    corrected = (
+        kw.get("correctSolidAngle", True)
+        or kw.get("polarization_factor") is not None
+        or kw.get("normalization_factor", 1.0) != 1.0
+        or kw.get("flat") is not None
+        or ai.detector.flatfield is not None
+    )
+    return np.asarray(plain.sum, np.float64), None if corrected else res.intensity, res
 
 
 def masked_ai(flat=False):
@@ -84,16 +114,16 @@ def test_the_intensity_equals_pyfais(tmpdir, split, corrections, flat):
     _, _, powder = d.from_frames(fr[None], 0)
     assert powder.dtype == np.int64
     got = back.intensity(powder, d.powder_scale)[0]
-    method = IntegrationMethod.select_one_available((split, "csc", "cython"), dim=1)
-    ref = ai.integrate1d(fr, 60, unit="q_nm^-1", method=method, **kw)
+    ss, intensity, ref = reference(ai, fr, 60, split=split, **kw)
     # the sums and the normalisation are pyFAI's own (float64 sums of float32 weights): measured
     # relative differences are below 5e-11 and 0.  Its intensity is stored as float32, whose
     # rounding is 6e-8 (measured 5.7e-8 at most), the only reason the intensity differs.
-    ss = np.asarray(ref.sum_signal)
     assert np.allclose(powder[0] * (1.0 / d.powder_scale), ss, rtol=1e-9, atol=0)
-    assert np.array_equal(back.norm, np.asarray(ref.sum_normalization).ravel())
-    assert ref.intensity.dtype == np.float32
-    assert np.allclose(got, ref.intensity, rtol=1.2e-7, atol=0)
+    if getattr(ref, "sum_normalization", None) is not None:  # else from_pyfai checked its own
+        assert np.array_equal(back.norm, np.asarray(ref.sum_normalization).ravel())
+    if intensity is not None:
+        assert intensity.dtype == np.float32
+        assert np.allclose(got, intensity, rtol=1.2e-7, atol=0)
     # the float powder and the integer one give the same intensity
     pf = b.chunk2sparseCSC(mask, back.csc, np.uint16).from_frames(fr[None], 0)[2]
     assert np.allclose(back.intensity(pf)[0], got, rtol=1e-9, atol=0)
@@ -108,9 +138,74 @@ def test_2d_rows_are_radial_then_azimuth(tmpdir):
     d = b.chunk2sparseCSC(ones, b.fixed_point_matrix(integ.csc, ones, np.uint16), np.uint16)
     powder = d.from_frames(fr[None], 0)[2]
     got = integ.intensity(powder, d.powder_scale)[0].reshape(20, 8).T
-    method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=2)
-    ref = ai.integrate2d(fr, 20, 8, unit="q_nm^-1", method=method)
-    assert np.allclose(got, ref.intensity, rtol=1.2e-7, atol=0)
+    ss, intensity, _ = reference(ai, fr, 20, npt_azim=8)
+    sums = (powder[0] * (1.0 / d.powder_scale)).reshape(20, 8).T
+    assert np.allclose(sums, ss, rtol=1e-9, atol=0)  # pyFAI's (azimuth, radial)
+    if intensity is not None:
+        assert np.allclose(got, intensity, rtol=1.2e-7, atol=0)
+
+
+@pytest.mark.parametrize("dim", [1, 2])
+@pytest.mark.parametrize("split", ["no", "bbox", "full"])
+def test_sparse_method_is_exactly_the_one_asked_for(split, dim):
+    """pyFAI's own selection falls back to another splitting or algorithm without saying so."""
+    make_ai()  # fills pyFAI's registry
+    try:
+        m = sparse_method(split, dim)
+    except ValueError as e:  # pyFAI 0.18 has no full-split CSR in 2D
+        assert repr(split) in str(e)
+        return
+    assert (m.dimension, m.split_lower, m.algo_lower, m.impl_lower) in (
+        (dim, split, "csc", "cython"),
+        (dim, split, "csr", "cython"),
+    )
+
+
+@pytest.mark.parametrize("dim", [1, 2])
+@pytest.mark.parametrize("split", ["bbox", "full"])
+def test_the_csr_route_equals_the_csc_one(monkeypatch, split, dim):
+    """The CSR engine (pyFAI 0.17 and 0.18 have no CSC), converted, is the CSC one."""
+    from bslz4_to_sparse.conveyor import _integrator
+
+    make_ai()
+    csc_method = sparse_method(split, dim)
+    if csc_method.algo_lower != "csc":
+        pytest.skip("this pyFAI has no CSC integrator to compare with")
+    kw = dict(npt_azim=None if dim == 1 else 8, split=split, polarization_factor=0.9)
+    want = cv.Integrator.from_pyfai(masked_ai(True), 20, **kw)
+    from pyFAI.method_registry import IntegrationMethod
+
+    csr = [m for m in IntegrationMethod.select_method(dim, split, "csr", "cython")
+           if (m.split_lower, m.algo_lower) == (split, "csr")]
+    monkeypatch.setattr(_integrator, "sparse_method", lambda split, dim: csr[0])
+    got = cv.Integrator.from_pyfai(masked_ai(True), 20, **kw)
+    assert (got.csc != want.csc).nnz == 0
+    # pyFAI sums sum_normalization with each engine: measured 1.0e-8 apart at most
+    assert np.allclose(got.norm, want.norm, rtol=1e-7, atol=0)
+
+
+def test_a_matrix_of_another_splitting_is_never_reused():
+    """pyFAI 0.17 reuses its one CSR engine whatever the splitting asked for (its intensity is then
+    that of the other splitting): the matrix here is always built for the one asked for."""
+    ai = make_ai()
+    no = cv.Integrator.from_pyfai(ai, 30, correctSolidAngle=False, split="no")
+    bbox = cv.Integrator.from_pyfai(ai, 30, correctSolidAngle=False, split="bbox")
+    fresh = cv.Integrator.from_pyfai(make_ai(), 30, correctSolidAngle=False, split="bbox")
+    assert (bbox.csc != fresh.csc).nnz == 0 and bbox.csc.nnz > no.csc.nnz
+
+
+def test_2d_full_splitting_works_or_stops():
+    """pyFAI 0.17 raises NotImplementedError, 0.18 builds no engine (ValueError here); newer ones
+    give the matrix, whose sums are pyFAI's."""
+    ai = make_ai()
+    try:
+        integ = cv.Integrator.from_pyfai(ai, 20, npt_azim=8, split="full")
+    except (NotImplementedError, ValueError) as e:
+        assert "full" in str(e).lower()
+        return
+    fr = frame().astype(np.float64)
+    ss = reference(ai, fr, 20, npt_azim=8, split="full")[0]
+    assert np.allclose(integ.csc.dot(fr.ravel()).reshape(20, 8).T, ss, rtol=1e-6, atol=0)
 
 
 def textom_process_one_frame(ai, image, nrad, naz, ranges, bg, **kw):
@@ -140,6 +235,8 @@ def test_rings_equal_the_summed_normalised_cake(tmpdir, background):
     assert rings.kind == "rings" and rings.bins_shape == (naz, 3) and rings.nbins == naz * 3
 
     fr = frame()
+    if reference(ai, fr, nrad, npt_azim=naz, unit="2th_deg", **kw)[1] is None:
+        pytest.skip("this pyFAI's intensity with corrections is not sum_signal / sum_normalization")
     mask = (1 - ai.detector.mask).astype(np.uint8)
     d = b.chunk2sparseCSC(mask, rings.csc, np.uint16)  # float: the weights are 1/norm
     powder = d.from_frames(fr[None], 0)[2]
@@ -160,16 +257,16 @@ def test_first_moment_is_the_mean_q_of_the_signal():
     mask = (1 - ai.detector.mask).astype(np.uint8)
     p = b.chunk2sparseCSC(mask, mom.csc, np.uint16).from_frames(fr[None], 0)[2]
     q = ai.array_from_unit(shape=SHAPE, typ="center", unit="q_nm^-1")
-    method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
-    ref = ai.integrate1d(fr, 50, unit="q_nm^-1", method=method)
-    refq = ai.integrate1d(fr * q, 50, unit="q_nm^-1", method=method)
-    assert np.allclose(p[0, :50], ref.sum_signal, rtol=1e-9, atol=0)  # measured: identical
+    ss, intensity, _ = reference(ai, fr, 50)
+    ssq = reference(ai, fr * q, 50)[0]
+    assert np.allclose(p[0, :50], ss, rtol=1e-9, atol=0)  # measured: identical
     # pyFAI's q-weighted image is float32: measured differences are 3.3e-8 at most
-    assert np.allclose(p[0, 50:], refq.sum_signal, rtol=1e-7, atol=0)
+    assert np.allclose(p[0, 50:], ssq, rtol=1e-7, atol=0)
     got = mom.mean_q(p)[0]
-    ok = ref.sum_signal > 0
-    assert np.allclose(got[ok], refq.sum_signal[ok] / ref.sum_signal[ok], rtol=1e-7, atol=0)
-    assert np.allclose(mom.intensity(p)[0], ref.intensity, rtol=1.2e-7, atol=0)
+    ok = ss > 0
+    assert np.allclose(got[ok], ssq[ok] / ss[ok], rtol=1e-7, atol=0)
+    if intensity is not None:
+        assert np.allclose(mom.intensity(p)[0], intensity, rtol=1.2e-7, atol=0)
 
 
 def test_one_pass_for_everything(tmpdir):
@@ -181,7 +278,9 @@ def test_one_pass_for_everything(tmpdir):
     cake = cv.Integrator.from_pyfai(ai, 40, unit="q_nm^-1", npt_azim=8, radial_range=(5, 40), **kw)
     rng = cake.radial[[5, 20]]
     rings = cake.rings([(rng[0] - 0.4, rng[0] + 0.4), (rng[1] - 0.4, rng[1] + 0.4)])
-    stack = cv.IntegratorStack({"powder1d": one, "rings": rings, "moment": one.first_moment()})
+    stack = cv.IntegratorStack(
+        [("powder1d", one), ("rings", rings), ("moment", one.first_moment())]
+    )
     path = os.path.join(str(tmpdir), "stack.h5")
     stack.save(path)
     stack = cv.IntegratorStack.load(path)
@@ -197,6 +296,7 @@ def test_one_pass_for_everything(tmpdir):
     }
     for k, blk in stack.blocks.items():
         assert np.allclose(out[k], blk.intensity(alone[k]), rtol=1e-12, atol=0), k  # same sums
-    method = IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
-    ref = ai.integrate1d(fr, 50, unit="q_nm^-1", method=method, **kw)
-    assert np.allclose(out["powder1d"][0], ref.intensity, rtol=1.2e-7, atol=0)
+    ss, intensity, _ = reference(ai, fr, 50, **kw)
+    assert np.allclose(alone["powder1d"][0], ss, rtol=1e-9, atol=0)
+    if intensity is not None:
+        assert np.allclose(out["powder1d"][0], intensity, rtol=1.2e-7, atol=0)

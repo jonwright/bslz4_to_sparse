@@ -30,7 +30,7 @@ function body into their own __init__.py.  The code is intentionally
 small and self-contained.
 """
 
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import os
 import sys

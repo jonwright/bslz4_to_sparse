@@ -1,6 +1,6 @@
 from __future__ import absolute_import, division, print_function
 
-from conftest import bitshuffle
+from conftest import bitshuffle, needs_chunk_info
 import os
 import sys
 
@@ -21,6 +21,8 @@ try:
     from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # pyFAI >= 2024.10
 except ImportError:
     from pyFAI.azimuthalIntegrator import AzimuthalIntegrator  # older pyFAI
+from pyFAI.detectors import Detector
+from bslz4_to_sparse.conveyor._integrator import pyfai_matrix, sparse_method
 import numpy as np
 import h5py
 import hdf5plugin
@@ -56,6 +58,11 @@ with h5py.File('sparsetest.h5','r') as h5f:
 npt = 1500
 
 
+try:
+    detector = pyFAI.detector_factory("Eiger2CdTe_4M")
+except RuntimeError:  # pyFAI 0.17 does not know it: its pixels, without its module gaps
+    detector = Detector(75e-6, 75e-6, max_shape=(2162, 2068))
+    detector.mask = np.zeros(detector.shape, np.int8)
 ai = AzimuthalIntegrator(
     dist = 0.25,
     poni1 = 0.07,
@@ -66,16 +73,15 @@ ai = AzimuthalIntegrator(
     pixel1 = 75e-6,
     pixel2 = 75e-6,
     wavelength = 12.3984/43.57,
-    detector = pyFAI.detector_factory("Eiger2CdTe_4M"),
+    detector = detector,
     )
 
 
-method = ('bbox','CSC','python')
-result = ai.integrate1d( testdata[0],
-                1500, method = method )
-reference_results = [ ai.integrate1d( frm, npt, method=method )
-                      for frm in testdata ]
-method = [ e for e in ai.engines if ( e.algorithm == 'CSC' ) ][0]
+M = pyfai_matrix(ai, npt)[0]  # pyFAI's matrix: its CSC, or its CSR converted
+# sum_signal with no corrections is the plain weighted sum on every pyFAI (0.17's, with
+# corrections, sums value / correction)
+reference_results = [ai.integrate1d(frm, npt, method=sparse_method("bbox", 1), correctSolidAngle=False)
+                     for frm in testdata]
 
 
 def R( y1, y2 ):
@@ -88,7 +94,7 @@ def testfun( ):
     for name in chunks:
         dt, shp, chunklist = chunks[name]
         c2s = chunk2sparseCSC( 1-ai.mask,
-                               ai.engines[method].engine,
+                               M,
                                dtype=np.dtype(dt))
         tims = []
         for i,(filt, chunk) in enumerate(chunklist):
@@ -121,8 +127,8 @@ def test_csc_multi_matches_single_and_reference():
     for name in chunks:
         dt, shp, chunklist = chunks[name]
         bufs = [c for (filt, c) in chunklist]
-        c2s = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
-        c2sm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt))
+        c2s = chunk2sparseCSC(1 - ai.mask, M, dtype=np.dtype(dt))
+        c2sm = chunk2sparseCSC(1 - ai.mask, M, dtype=np.dtype(dt))
 
         npx_multi, (val_multi, adr_multi), powder_multi = c2sm.multi(bufs, 1)
 
@@ -143,7 +149,7 @@ def test_csc_dense_and_sparse_routes_both_match_reference():
         for name in chunks:
             dt, shp, chunklist = chunks[name]
             bufs = [c for (filt, c) in chunklist]
-            c2sm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt),
+            c2sm = chunk2sparseCSC(1 - ai.mask, M, dtype=np.dtype(dt),
                                    pipeline={"route": label})
             _testing.reset_counters()
             npx, (outpx, adr), powder = c2sm.multi(bufs, 1)
@@ -170,7 +176,7 @@ def test_cut_above_dtype_max_produces_empty_sparse_output():
         bufs = [c for (filt, c) in chunklist]
         for dot in ("csc", "bsb-csr"):
             # dense route: the >cut collect runs
-            c2sm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine,
+            c2sm = chunk2sparseCSC(1 - ai.mask, M,
                                    dtype=np.dtype(dt),
                                    pipeline={"route": "dense", "dot": dot})
             npx0, (v0, a0), p0 = c2sm.multi(bufs, 0)      # any pixels
@@ -311,6 +317,7 @@ def test_u64_i64_and_signed_negative_values():
 from bslz4_to_sparse import locate_chunks, offsets_lengths
 
 
+@needs_chunk_info
 def test_decode_offsets_matches_call():
     # the public face of the base+offsets path, fed from an mmap of the file
     import mmap
@@ -322,7 +329,7 @@ def test_decode_offsets_matches_call():
                 frames = list(range(len(chunklist)))
                 offsets, lengths = offsets_lengths(locate_chunks(h5f[name]), frames)
                 saved = offsets.copy()
-                c2sm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine,
+                c2sm = chunk2sparseCSC(1 - ai.mask, M,
                                        dtype=np.dtype(dt))
                 # copies: the next call reuses the same output arrays
                 npx, (val, adr), powder = c2sm.from_buffer(mm, offsets, lengths, 1)
@@ -364,7 +371,7 @@ def test_sparse_output_order_is_strictly_increasing():
         dt, shp, chunklist = chunks[name]
         bufs = [c for (filt, c) in chunklist]
         for route in ("dense", "sparse"):
-            c2sm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine, dtype=np.dtype(dt),
+            c2sm = chunk2sparseCSC(1 - ai.mask, M, dtype=np.dtype(dt),
                                    pipeline={"route": route})
             npx, (outpx, adr), powder = c2sm.multi(bufs, 1)
             for f in range(len(bufs)):
@@ -419,7 +426,7 @@ def test_simd_collect_matches_scalar(collect, untranspose):
 
         references = {}
         for route in ("dense", "sparse"):
-            c2scm = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine,
+            c2scm = chunk2sparseCSC(1 - ai.mask, M,
                                     dtype=np.dtype(dt), pipeline=P("scalar", route=route))
             npx_c, (outpx_c, outadr_c), powder_c = c2scm.multi(bufs, 1)
             references[route] = (npx_c.copy(), outpx_c.copy(), outadr_c.copy(), powder_c.copy())
@@ -436,7 +443,7 @@ def test_simd_collect_matches_scalar(collect, untranspose):
             assert np.array_equal(adr_a[i, :n], adr_s[i, :n]), (collect, name, i, "plain indices differ")
 
         for route in ("dense", "sparse"):
-            c2scm2 = chunk2sparseCSC(1 - ai.mask, ai.engines[method].engine,
+            c2scm2 = chunk2sparseCSC(1 - ai.mask, M,
                                      dtype=np.dtype(dt), pipeline=P(collect, route=route))
             npx_c2, (outpx_c2, outadr_c2), powder_c2 = c2scm2.multi(bufs, 1)
             npx_ref, outpx_ref, outadr_ref, powder_ref = references[route]
@@ -461,11 +468,12 @@ def test_bad_collect_values_refused():
         chunk2sparse(1 - ai.mask, dtype=np.uint16, pipeline={"route": "dense"})
 
 
-test_csc_multi_matches_single_and_reference()
-test_csc_dense_and_sparse_routes_both_match_reference()
-test_plain_multi_matches_single()
-test_u64_i64_and_signed_negative_values()
-test_decode_offsets_matches_call()
-test_every_available_untranspose_matches()
-print("all multi-frame / dense-sparse-route / u64-i64 / from_buffer tests passed")
-print("(SIMD collect tests only run under pytest -- see test_simd_collect_matches_scalar)")
+if __name__ == "__main__":  # pytest runs them as tests
+    test_csc_multi_matches_single_and_reference()
+    test_csc_dense_and_sparse_routes_both_match_reference()
+    test_plain_multi_matches_single()
+    test_u64_i64_and_signed_negative_values()
+    test_decode_offsets_matches_call()
+    test_every_available_untranspose_matches()
+    print("all multi-frame / dense-sparse-route / u64-i64 / from_buffer tests passed")
+    print("(SIMD collect tests only run under pytest -- see test_simd_collect_matches_scalar)")

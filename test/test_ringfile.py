@@ -3,7 +3,7 @@ of each ring, equal to pyFAI's cake summed over the windows."""
 
 from __future__ import absolute_import, division, print_function
 
-from conftest import bitshuffle
+from conftest import bitshuffle, needs_chunk_info
 import os
 
 import numpy as np
@@ -48,6 +48,7 @@ def test_peak_windows_order_and_edges():
     assert np.allclose(r[:3], [(0.75, 0.85), (0.9, 1.1), (1.15, 1.25)])
 
 
+@needs_chunk_info  # the conveyor's chunk index
 def test_ring_files_follow_the_input_files(tmpdir):
     ai = ti.masked_ai()
     nrad, naz = 70, 12
@@ -91,6 +92,7 @@ def test_ring_files_follow_the_input_files(tmpdir):
             )  # float32 storage + pyFAI float32 cake
 
 
+@needs_chunk_info
 def test_everything_in_one_pass_through_the_conveyor(tmpdir):
     """Sparse pixels, a 1D powder, ring windows and the first moment from one pass over the pixels
     (one stacked matrix): each file and dataset equals what that output gives on its own."""
@@ -100,7 +102,9 @@ def test_everything_in_one_pass_through_the_conveyor(tmpdir):
     cake = cv.Integrator.from_pyfai(ai, 70, unit="2th_deg", npt_azim=12, **kw)
     ranges, ring, role = cv.peak_windows([0.9, 1.4], 0.12, 0.1)
     rings = cake.rings(ranges)
-    stack = cv.IntegratorStack({"powder1d": one, "rings": rings, "moment": one.first_moment()})
+    stack = cv.IntegratorStack(
+        [("powder1d", one), ("rings", rings), ("moment", one.first_moment())]
+    )
     paths = make_files(tmpdir, nfiles=2, nframes=7)
     units, shape, dtype = cv.make_work_units(paths, DSET)
     mask = (1 - ai.detector.mask).astype(np.uint8)
@@ -115,7 +119,7 @@ def test_everything_in_one_pass_through_the_conveyor(tmpdir):
         ),
     )
     assert r["frames"] == 14
-    method = ti.IntegrationMethod.select_one_available(("bbox", "csc", "cython"), dim=1)
+    method = ti.sparse_method("bbox", 1)
     for p in paths:
         with h5py.File(p, "r") as src:
             frames = src[DSET][:]
