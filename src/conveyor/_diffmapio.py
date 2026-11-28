@@ -46,9 +46,13 @@ _MESH_TITLE = re.compile(
 
 
 def _now():
-    """Local time to the second with its UTC offset, as 2026-11-28T10:00:00+01:00."""
-    s = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-    return s[:-2] + ":" + s[-2:]
+    """Local time to the second with its UTC offset, as 2026-11-28T10:00:00+01:00.  The offset
+    from time.timezone / altzone: strftime's %z is the zone's name on Windows."""
+    t = time.localtime()
+    off = -(time.altzone if t.tm_isdst > 0 and time.daylight else time.timezone)
+    sign = "+" if off >= 0 else "-"
+    off = abs(off) // 60
+    return time.strftime("%Y-%m-%dT%H:%M:%S", t) + "%s%02d:%02d" % (sign, off // 60, off % 60)
 
 
 def _axis(vals, npos=None):

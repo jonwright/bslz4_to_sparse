@@ -3,6 +3,8 @@
 share their cache lines; reset_counters() zeroes and starts them, stop_counters() stops them,
 and counting() does both around a block."""
 
+from __future__ import absolute_import, division, print_function
+
 import contextlib
 
 import numpy as np

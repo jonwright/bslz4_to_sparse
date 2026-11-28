@@ -281,6 +281,76 @@ def test_the_chunk_routes_agree(tmpdir, monkeypatch):
     assert chunks() == want  # read through HDF5
 
 
+@pytest.mark.parametrize("damage", ["truncated", "no nframes"])
+def test_a_damaged_sidecar_falls_back_to_hdf5(tmpdir, damage):
+    """A sidecar that cannot be read is passed over, whatever read_index raises for it."""
+    import json
+    import struct
+
+    from bslz4_to_sparse.conveyor import _diffmapio, _index, diffmap_integrate as di
+
+    master, poni, frames, row, col = bliss_scan(tmpdir)
+    sources = _diffmapio.bliss_geometry(master, "1.1")["source"]
+    for f, ds, v0, s0, n in sources:
+        with open(bslz4_cv.sidecar_path(f), "wb") as out:
+            if damage == "truncated":
+                out.write(_index.MAGIC + b"\0\0")
+            else:
+                head = json.dumps({"version": _index.VERSION, "dataset": ds}).encode("utf-8")
+                out.write(_index.MAGIC + struct.pack("<I", len(head)) + head)
+    chunk, close = di.open_frames(sources, len(row))
+    try:
+        got = [bytes(chunk(i)) for i in range(len(row))]
+    finally:
+        close()
+    want = []
+    for f, ds, v0, s0, n in sources:
+        with h5py.File(f, "r") as h:
+            want += [bytes(b.read_direct_chunk(h[ds], (i, 0, 0))[1]) for i in range(n)]
+    assert got == want
+
+
+def test_frames_never_written_are_refused_before_the_run(tmpdir, monkeypatch):
+    """Read through HDF5 (no sidecar, no chunk index): an acquisition that stopped early (HDF5
+    declares 6 frames, 4 were written) is refused when the frames are opened, not in a worker."""
+    from bslz4_to_sparse.conveyor import diffmap_integrate as di
+
+    def missing(ds):
+        raise NotImplementedError("no get_chunk_info")
+    monkeypatch.setattr(b, "locate_chunks", missing)
+    f = os.path.join(str(tmpdir), "partial.h5")
+    frames = np.random.RandomState(3).poisson(3, (4,) + FSHAPE).astype(np.uint32)
+    with h5py.File(f, "w") as h:
+        ds = h.create_dataset("data", shape=(6,) + FSHAPE, dtype=np.uint32, chunks=(1,) + FSHAPE,
+                              **bitshuffle(nelems=0, cname="lz4"))
+        ds[:4] = frames
+    chunk, close = di.open_frames([(f, "data", 0, 0, 4)], 4)  # the written frames: fine
+    try:
+        assert b.decompress([chunk(3)], np.uint32).reshape(FSHAPE).tolist() == frames[3].tolist()
+    finally:
+        close()
+    with pytest.raises(ValueError, match="no chunk for frame 5"):
+        di.open_frames([(f, "data", 0, 0, 6)], 6)
+
+
+def test_timestamps_are_iso_8601_whatever_strftime_z_gives(monkeypatch):
+    """%z is the zone's name on Windows and empty on some C libraries: not used."""
+    import re
+    import time
+
+    from bslz4_to_sparse.conveyor import _diffmapio
+
+    strftime = time.strftime
+    monkeypatch.setattr(time, "strftime",
+                        lambda fmt, *t: strftime(fmt.replace("%z", "W. Europe Standard Time"), *t))
+    now = _diffmapio._now()
+    assert re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$", now), now
+    if hasattr(time.localtime(), "tm_gmtoff"):  # the offset is the local one
+        off = time.localtime().tm_gmtoff
+        assert now.endswith("%s%02d:%02d" % ("+" if off >= 0 else "-", abs(off) // 3600,
+                                            abs(off) % 3600 // 60)), now
+
+
 def fscan_master(path, row, col, params=True, offset=0.0, mode=None, spread=0.003):
     """An fscan2d entry: positions under measurement/, the reverse lines offset by offset."""
     rng = np.random.RandomState(6)

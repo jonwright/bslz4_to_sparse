@@ -19,6 +19,8 @@ gives the same answer as selecting afterwards. Float pixels with a non-integer t
 represented there and use the numpy version below.
 """
 
+from __future__ import absolute_import, division, print_function
+
 import math
 
 import numpy as np

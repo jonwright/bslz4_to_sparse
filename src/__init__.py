@@ -34,6 +34,9 @@ Threads: the GIL is released while decoding, and on free-threaded Python
 Sharing an object between threads, or breaking these rules, gives wrong
 results or a crash rather than an error.
 """
+
+from __future__ import absolute_import, division, print_function
+
 import json
 import math
 import os
@@ -246,7 +249,7 @@ def read_direct_chunk(ds, offset):
     nbytes = ctypes.c_uint64()
     filter_mask = ctypes.c_uint32()
     with phil:
-        if lib.H5Dget_chunk_storage_size(ds.id.id, off, ctypes.byref(nbytes)) < 0:
+        if lib.H5Dget_chunk_storage_size(ds.id.id, off, ctypes.byref(nbytes)) < 0 or not nbytes.value:
             raise ValueError("read_direct_chunk: no chunk at %r" % (tuple(offset),))
         buf = ctypes.create_string_buffer(nbytes.value)
         if lib.H5Dread_chunk(ds.id.id, 0, off, ctypes.byref(filter_mask), buf) < 0:  # H5P_DEFAULT

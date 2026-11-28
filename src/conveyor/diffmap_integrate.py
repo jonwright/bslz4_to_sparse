@@ -78,7 +78,7 @@ def locate(fname, dset, index_dir=None):
         idx = cv.read_index(fname, index_dir)
         if idx.dataset.strip("/") == dset.strip("/"):
             return dict(enumerate(zip(idx.offsets.tolist(), idx.lengths.tolist())))
-    except (EnvironmentError, ValueError):  # none, stale, or of another version
+    except Exception:  # noqa: BLE001 (none, stale, damaged, of another version: HDF5 then)
         pass
     with h5py.File(fname, "r") as h:
         try:
@@ -90,7 +90,8 @@ def locate(fname, dset, index_dir=None):
 def open_frames(sources, n_frames, index_dir=None):
     """(chunk, close): chunk(frame) gives the compressed bytes of each frame 0..n_frames-1, close()
     releases the files.  A file whose chunks locate() finds is read through a read-only mmap; any
-    other through HDF5, frame by frame (read_direct_chunk)."""
+    other through HDF5, frame by frame (read_direct_chunk), its last frame read here to refuse an
+    acquisition that stopped early before the run."""
     import mmap
 
     import bslz4_to_sparse as b
@@ -108,6 +109,11 @@ def open_frames(sources, n_frames, index_dir=None):
             h = h5py.File(fname, "r")
             files.append(h)
             opened.append(h[dset])
+            last = s0 + stop - 1 - v0  # an acquisition that stopped early lacks the last frames
+            try:
+                b.read_direct_chunk(h[dset], (last, 0, 0))
+            except Exception:  # noqa: BLE001 (h5py: RuntimeError; Python 2's path: ValueError)
+                raise ValueError("%s::%s has no chunk for frame %d" % (fname, dset, last))
             off = dict((f, (f, -1)) for f in range(h[dset].shape[0]))
         else:
             fp = open(fname, "rb")
