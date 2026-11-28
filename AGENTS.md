@@ -121,9 +121,9 @@ Python 3.
   `src/bslz4_to_sparse_wrapper.c` by hand.
 - Tests: `BSLZ4_TO_SPARSE_PATH=<dir containing a bslz4_to_sparse package> python3
   -m pytest test`. Needs h5py, hdf5plugin, scipy; some tests and examples also use
-  pyFAI (none on Python 2.7: those skip). The GPU tests need a CUDA GPU, not cupy;
-  only the tests of exchange with other libraries need cupy. Run them by hand: CI
-  has no GPU.
+  pyFAI (on Python 2.7: 0.17.1, pinned for the tests in CI, not a dependency). The GPU tests
+  need a CUDA GPU, not cupy; only the tests of exchange with other libraries need cupy. Run
+  them by hand: CI has no GPU.
 - `docs/real/` holds example pages run on real data, committed: CI cannot run them.  A change to
   such an example (`PAGES` in `tools/real_data_pages.py`) or to the code it calls is not finished
   until `tools/real_data_pages.py` has been run again and its output committed with it.

@@ -19,7 +19,10 @@ pyFAI = pytest.importorskip("pyFAI")
 h5py = pytest.importorskip("h5py")
 
 from pyFAI.detectors import Detector  # noqa: E402
-from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # noqa: E402
+try:
+    from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # pyFAI >= 2024.10
+except ImportError:
+    from pyFAI.azimuthalIntegrator import AzimuthalIntegrator  # older pyFAI
 
 import bslz4_to_sparse as b  # noqa: E402
 from bslz4_to_sparse import conveyor as bslz4_cv  # noqa: E402
@@ -116,12 +119,17 @@ def test_write_diffmap_layout(tmpdir):
         # frame number -> map cell (file order; serpentine row-1 col-3 is frame 4)
         assert int(nd["map_ptr"][()][1, 3]) == 4 and int(nd["map_ptr"][()][1, 0]) == 7
 
-        # the two viewers' config: a WorkerConfig with nbpt_rad + poni
-        from pyFAI.io.integration_config import WorkerConfig
-        wc_back = WorkerConfig.from_dict(json.loads(proc["configuration/data"][()]), inplace=True)
-        assert wc_back.nbpt_rad == N_BINS
-        assert list(wc_back.shape) == list(SHAPE)
-        assert wc_back.poni is not None
+        # the two viewers' config: a WorkerConfig with nbpt_rad + poni (an older pyFAI, as on
+        # Python 2, has neither the viewers nor WorkerConfig)
+        try:
+            from pyFAI.io.integration_config import WorkerConfig
+        except ImportError:
+            WorkerConfig = None
+        if WorkerConfig is not None:
+            wc_back = WorkerConfig.from_dict(json.loads(proc["configuration/data"][()]), inplace=True)
+            assert wc_back.nbpt_rad == N_BINS
+            assert list(wc_back.shape) == list(SHAPE)
+            assert wc_back.poni is not None
 
         # raw frames exposed as an external link into the (master) VDS
         link = f.get("/entry_0000/measurement/images_0001", getlink=True)
@@ -180,6 +188,7 @@ def bliss_scan(tmpdir):
 
 
 def run_cli(monkeypatch, *argv):
+    pytest.importorskip("pathlib")  # diffmap_integrate is Python 3 only (AGENTS.md 6)
     from bslz4_to_sparse.conveyor import diffmap_integrate
 
     monkeypatch.setattr("sys.argv", ["bs_diffmap_integrate"] + [str(a) for a in argv])

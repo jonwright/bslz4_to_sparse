@@ -31,6 +31,7 @@ Needs pyFAI only for from_pyfai and ai(), h5py only for save and load.
 from __future__ import absolute_import, division, print_function
 
 import os
+from collections import OrderedDict
 
 import numpy as np
 
@@ -100,6 +101,12 @@ class Integrator(object):
         correctSolidAngle, polarization_factor, flat, normalization_factor ... are the ones the
         data will be corrected with.  The detector mask of ai is in the matrix.
 
+        pyFAI's CSC integrator is used, else its CSR one, converted (pyFAI 0.17 and 0.18 have no
+        CSC); ValueError when it has neither for this splitting (0.18: none for "full" in 2D;
+        0.17 raises NotImplementedError).  When pyFAI gives no sum_normalization (0.17, 0.18),
+        it is built here from pyFAI's corrections (solid angle, polarisation, flat,
+        normalization_factor), and checked against pyFAI's intensity of the image of ones.
+
         The keywords dummy and delta_dummy are refused (ValueError): they mask pixels by their
         value in each frame, and this matrix and norm are for one fixed set of pixels.  The
         dummy a pyFAI detector carries by default (Eiger, Pilatus: pixels at the type's maximum)
@@ -111,31 +118,20 @@ class Integrator(object):
                     "matrix and normalisation here are for a fixed mask.  Put the pixels in the "
                     "detector mask." % name
                 )
-        import scipy.sparse as sp
-        from pyFAI.method_registry import IntegrationMethod
-
-        from bslz4_to_sparse import _matrix
-
-        dim = 1 if npt_azim is None else 2
-        method = IntegrationMethod.select_one_available((split, "csc", "cython"), dim=dim)
-        ones = np.ones(ai.detector.shape, np.float32)
-        if dim == 1:
-            res = ai.integrate1d(ones, npt, unit=unit, method=method, **integrate)
-            norm, azimuthal = np.asarray(res.sum_normalization).ravel(), None
-        else:
-            res = ai.integrate2d(ones, npt, npt_azim, unit=unit, method=method, **integrate)
-            norm = np.asarray(res.sum_normalization).T.ravel()  # (radial, azimuth) like the rows
-            azimuthal = res.azimuthal
-        nm = _matrix.normalise_matrix(ai.engines[method].engine, npix=ones.size)
-        csc = sp.csc_matrix((nm.data, nm.indices, nm.indptr), shape=nm.shape)
+        csc, res = pyfai_matrix(ai, npt, unit, npt_azim, split, **integrate)
+        norm = getattr(res, "sum_normalization", None)
+        if norm is None:
+            norm = _norm_from_corrections(ai, res, csc, integrate)
+        else:  # (radial, azimuth) like the rows, for 2D
+            norm = np.asarray(norm).T.ravel()
         return cls(
             csc,
             norm,
             ai.detector.shape,
             unit,
             radial=res.radial,
-            azimuthal=azimuthal,
-            kind="powder1d" if dim == 1 else "powder2d",
+            azimuthal=None if npt_azim is None else res.azimuthal,
+            kind="powder1d" if npt_azim is None else "powder2d",
             poni=poni_text(ai),
         )
 
@@ -328,7 +324,8 @@ class Integrator(object):
 class IntegratorStack(object):
     """Several Integrators of one detector as one matrix: everything comes out of one pass over
     the pixels, whatever their number (a 1D powder, ring windows, the first moment ...), each pixel
-    reaching all of their bins.  blocks: a dict, name -> Integrator (the order is kept).
+    reaching all of their bins.  blocks: name -> Integrator, as (name, Integrator) pairs or a dict
+    (the order is kept; a plain dict has an order only on Python 3.7+).
 
     csc     the blocks' matrices stacked, rows block after block (float: a block of rings or of
             moments makes the whole product float, so use the float dot, not exact)
@@ -339,12 +336,12 @@ class IntegratorStack(object):
     def __init__(self, blocks):
         import scipy.sparse as sp
 
-        self.blocks = dict(blocks)
+        self.blocks = OrderedDict(blocks)
         shapes = set(b.shape for b in self.blocks.values())
         if len(shapes) != 1:
             raise ValueError("the blocks are for detectors of different shapes: %r" % shapes)
         self.shape = shapes.pop()
-        self.slices, n = {}, 0
+        self.slices, n = OrderedDict(), 0
         for name, b in self.blocks.items():
             self.slices[name] = slice(n, n + b.nbins)
             n += b.nbins
@@ -379,7 +376,100 @@ class IntegratorStack(object):
             if h.attrs.get("bslz4_to_sparse_integrator_stack") != VERSION:
                 raise ValueError("%s is not a version %d integrator stack" % (path, VERSION))
             names = [n.decode() if isinstance(n, bytes) else n for n in h.attrs["names"]]
-            return cls({n: Integrator._read(h[n], path) for n in names})
+            return cls([(n, Integrator._read(h[n], path)) for n in names])
+
+
+def sparse_method(split, dim):
+    """pyFAI's cython CSC integrator for split ("no", "bbox", "full") in dim (1 or 2) dimensions,
+    else its CSR one; ValueError when it has neither.  Matched exactly here: pyFAI's own
+    selection silently falls back to another splitting or algorithm."""
+    import pyFAI
+    from pyFAI.method_registry import IntegrationMethod
+
+    for algo in ("csc", "csr"):
+        for m in IntegrationMethod.select_method(dim, split, algo, "cython"):
+            if (m.dimension, m.split_lower, m.algo_lower, m.impl_lower) == (dim, split, algo, "cython"):
+                return m
+    raise ValueError(
+        "pyFAI %s has no CSC or CSR integrator for %r pixel splitting in %dD"
+        % (pyFAI.version, split, dim)
+    )
+
+
+def pyfai_matrix(ai, npt, unit="q_nm^-1", npt_azim=None, split="bbox", **integrate):
+    """pyFAI's matrix for npt radial (and npt_azim azimuthal) bins with split pixel splitting, as
+    a scipy CSC (bins x pixels; its CSC as it is, its CSR converted), and the result of the
+    integration of an image of ones that built it (integrate: keywords for integrate1d/2d).
+    ValueError when pyFAI has no such matrix or built none."""
+    import scipy.sparse as sp
+
+    from bslz4_to_sparse import _matrix
+
+    dim = 1 if npt_azim is None else 2
+    method = sparse_method(split, dim)
+    # pyFAI 0.17 and 0.18 keep one CSR engine under this name and reuse it whatever the pixel
+    # splitting asked for: dropped, so that it is built for this one
+    ai.engines.pop("csr_integrator", None)
+    ones = np.ones(ai.detector.shape, np.float32)
+    if dim == 1:
+        res = ai.integrate1d(ones, npt, unit=unit, method=method, **integrate)
+    else:
+        res = ai.integrate2d(ones, npt, npt_azim, unit=unit, method=method, **integrate)
+    nbins, npix = npt * (npt_azim or 1), ones.size
+    holder = ai.engines.get(method) or ai.engines.get("csr_integrator")
+    if holder is None or holder.engine is None:
+        raise ValueError("pyFAI built no engine for %s" % (method,))
+    e = holder.engine
+    if method.algo_lower == "csr":  # rows are the bins: scipy checks len(indptr) == nbins + 1
+        e = sp.csr_matrix(
+            (np.asarray(e.data), np.asarray(e.indices), np.asarray(e.indptr)), shape=(nbins, npix)
+        )
+    nm = _matrix.normalise_matrix(e, npix=npix)
+    if nm.shape != (nbins, npix):
+        raise ValueError("pyFAI's matrix is %r, expected %r" % (nm.shape, (nbins, npix)))
+    return sp.csc_matrix((nm.data, nm.indices, nm.indptr), shape=nm.shape), res
+
+
+_CORRECTIONS = ("correctSolidAngle", "polarization_factor", "flat", "normalization_factor")
+
+
+def _norm_from_corrections(ai, res, csc, integrate):
+    """sum_normalization for a pyFAI that does not give it: per bin, the sum of weight x the
+    correction of each pixel (solid angle x polarisation x flat x normalization_factor), as
+    newer pyFAI computes it.  Checked against the intensity res of the image of ones, which such
+    a pyFAI computes as the weighted mean of 1 / correction; ValueError when it differs or when
+    integrate has a keyword besides the corrections, mask and the ranges."""
+    other = set(integrate) - set(_CORRECTIONS) - {"mask", "radial_range", "azimuth_range"}
+    if other:
+        raise ValueError(
+            "this pyFAI gives no sum_normalization; it is built here only from %s, not %s"
+            % (", ".join(_CORRECTIONS), ", ".join(sorted(other)))
+        )
+    shape = ai.detector.shape
+    c = np.full(shape, float(integrate.get("normalization_factor", 1.0)))
+    if integrate.get("correctSolidAngle", True):
+        c = c * ai.solidAngleArray(shape)
+    if integrate.get("polarization_factor") is not None:
+        c = c * ai.polarization(shape, integrate["polarization_factor"])
+    flat = integrate.get("flat")
+    flat = ai.detector.flatfield if flat is None else flat
+    if flat is not None:
+        c = c * flat
+    c = c.ravel().astype(np.float64)
+    count = csc.dot(np.ones(c.size))
+    inv = np.zeros(c.size)
+    np.divide(1.0, c, out=inv, where=c != 0)
+    hit = count > 0
+    mean_inv = csc.dot(inv)[hit] / count[hit]
+    got = np.asarray(res.intensity, np.float64)
+    got = (got.T if got.ndim == 2 else got).ravel()[hit]  # 2D: (azimuth, radial) to the rows
+    # pyFAI's intensity is float32: measured 1.3e-7 at most (0.17.1, every correction and split)
+    if not np.allclose(got, mean_inv, rtol=1e-6, atol=0):
+        raise ValueError(
+            "pyFAI's intensity of an image of ones differs from the corrections built here "
+            "(max relative difference %.2g)" % np.max(np.abs(got - mean_inv) / np.abs(mean_inv))
+        )
+    return csc.dot(c)
 
 
 def poni_text(ai):

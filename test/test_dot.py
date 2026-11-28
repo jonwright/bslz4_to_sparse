@@ -21,6 +21,10 @@ try:
     from pyFAI.integrator.azimuthal import AzimuthalIntegrator  # pyFAI >= 2024.10
 except ImportError:
     from pyFAI.azimuthalIntegrator import AzimuthalIntegrator  # older pyFAI
+from pyFAI.method_registry import IntegrationMethod
+if not [m for m in IntegrationMethod.select_method(1, "bbox", "csc", "python") if m.algo_lower == "csc"]:
+    pytest.skip("this pyFAI has no CSC integrator (0.17, 0.18): test_pyfai_splits checks the dots "
+                "on its CSR", allow_module_level=True)
 import numpy as np
 import h5py
 import hdf5plugin

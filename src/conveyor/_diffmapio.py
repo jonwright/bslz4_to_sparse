@@ -31,10 +31,10 @@ chunks of each frame live, see _chunk_sources).
 
 from __future__ import absolute_import, division, print_function
 
-import datetime
 import json
 import os
 import re
+import time
 
 import numpy as np
 
@@ -43,6 +43,12 @@ _MESH_TITLE = re.compile(
     r"(?P<fast>\S+)\s+(?P<fast_start>\S+)\s+(?P<fast_stop>\S+)\s+(?P<fast_intervals>\d+)\s+"
     r"(?P<slow>\S+)\s+(?P<slow_start>\S+)\s+(?P<slow_stop>\S+)\s+(?P<slow_intervals>\d+)"
 )
+
+
+def _now():
+    """Local time to the second with its UTC offset, as 2026-11-28T10:00:00+01:00."""
+    s = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    return s[:-2] + ":" + s[-2:]
 
 
 def _axis(vals, npos=None):
@@ -337,7 +343,7 @@ def write_diffmap(
         ent.create_dataset("program_name", data="pyfai")
         ent.create_dataset("title", data="diff_map")
         # pyFAI Nexus.get_entries() needs a `start_time` (and `end_time`) dataset.
-        now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+        now = _now()
         ent.create_dataset("start_time", data=now)
         ent.create_dataset("end_time", data=now)
 
@@ -350,7 +356,7 @@ def write_diffmap(
         proc.attrs["NX_class"] = "NXprocess"
         proc.create_dataset("program", data="xrdmap-diffmap")
         proc.create_dataset("version", data="0.1")
-        proc.create_dataset("date", data=datetime.datetime.now().astimezone().isoformat(timespec="seconds"))
+        proc.create_dataset("date", data=_now())
         proc.create_dataset("PONIfile", data=poni_path)
         proc.create_dataset("offset", data=np.int32(0))
         if maskfile is not None:
